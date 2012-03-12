@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.xmpp.widget.ChatSession"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.xmpp.widget.ChatSession"]){_4._hasResource["dojox.xmpp.widget.ChatSession"]=true;_4.provide("dojox.xmpp.widget.ChatSession");_4.declare("dojox.xmpp.widget.ChatSession",[_5.layout.LayoutContainer,_5._Templated],{templateString:_4.cache("dojox.xmpp.widget","templates/ChatSession.html","<div>\n<div dojoAttachPoint=\"messages\" dojoType=\"dijit.layout.ContentPane\" layoutAlign=\"client\" style=\"overflow:auto\">\n</div>\n<div dojoType=\"dijit.layout.ContentPane\" layoutAlign=\"bottom\" style=\"border-top: 2px solid #333333; height: 35px;\"><input dojoAttachPoint=\"chatInput\" dojoAttachEvent=\"onkeypress: onKeyPress\" style=\"width: 100%;height: 35px;\" /></div>\n</div>\n"),enableSubWidgets:true,widgetsInTemplate:true,widgetType:"ChatSession",chatWith:null,instance:null,postCreate:function(){},displayMessage:function(_7,_8){if(_7){var _9=_7.from?this.chatWith:"me";this.messages.domNode.innerHTML+="<b>"+_9+":</b> "+_7.body+"<br/>";this.goToLastMessage();}},goToLastMessage:function(){this.messages.domNode.scrollTop=this.messages.domNode.scrollHeight;},onKeyPress:function(e){var _a=e.keyCode||e.charCode;if((_a==_4.keys.ENTER)&&(this.chatInput.value!="")){this.instance.sendMessage({body:this.chatInput.value});this.displayMessage({body:this.chatInput.value},"out");this.chatInput.value="";}}});}}};});

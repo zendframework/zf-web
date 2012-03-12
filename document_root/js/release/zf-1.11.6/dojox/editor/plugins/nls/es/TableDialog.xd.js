@@ -1,0 +1,5 @@
+dojo._xdResourceLoaded(function(dojo, dijit, dojox){
+return {depends: [["provide", "dojox.editor.plugins.nls.es.TableDialog"]],
+defineResource: function(dojo, dijit, dojox){dojo.provide("dojox.editor.plugins.nls.es.TableDialog");dojo._xdLoadFlattenedBundle("dojox.editor.plugins", "TableDialog", "es", ({"buttonSet":"Establecer","insertTableTitle":"Insertar tabla","insertTableRowAfterLabel":"Añadir tabla detrás","center":"centro","deleteTableColumnLabel":"Suprimir columna","right":"derecha","insertTableColumnBeforeLabel":"Añadir columna delante","tableWidth":"Ancho de tabla:","buttonInsert":"Insertar","default":"predeterminado","align":"Alinear:","insertTableRowBeforeLabel":"Añadir tabla delante","cellSpacing":"Espaciado de celda:","pixels":"píxeles","selectTableLabel":"Seleccionar tabla","rows":"Filas:","modifyTableTitle":"Modificar tabla","cellPadding":"Relleno de celda:","deleteTableRowLabel":"Suprimir fila","backgroundColor":"Color de fondo:","insertTableColumnAfterLabel":"Añadir columna detrás","left":"izquierda","borderThickness":"Grosor del borde","columns":"Columnas:","percent":"porcentaje","borderColor":"Color del borde:"})
+);
+}};});

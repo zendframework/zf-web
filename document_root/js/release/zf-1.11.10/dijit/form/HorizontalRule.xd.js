@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dijit.form.HorizontalRule"],["require","dijit._Widget"],["require","dijit._Templated"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dijit.form.HorizontalRule"]){_4._hasResource["dijit.form.HorizontalRule"]=true;_4.provide("dijit.form.HorizontalRule");_4.require("dijit._Widget");_4.require("dijit._Templated");_4.declare("dijit.form.HorizontalRule",[_5._Widget,_5._Templated],{templateString:"<div class=\"dijitRuleContainer dijitRuleContainerH\"></div>",count:3,container:"containerNode",ruleStyle:"",_positionPrefix:"<div class=\"dijitRuleMark dijitRuleMarkH\" style=\"left:",_positionSuffix:"%;",_suffix:"\"></div>",_genHTML:function(_7,_8){return this._positionPrefix+_7+this._positionSuffix+this.ruleStyle+this._suffix;},_isHorizontal:true,postCreate:function(){var _9;if(this.count==1){_9=this._genHTML(50,0);}else{var i;var _a=100/(this.count-1);if(!this._isHorizontal||this.isLeftToRight()){_9=this._genHTML(0,0);for(i=1;i<this.count-1;i++){_9+=this._genHTML(_a*i,i);}_9+=this._genHTML(100,this.count-1);}else{_9=this._genHTML(100,0);for(i=1;i<this.count-1;i++){_9+=this._genHTML(100-_a*i,i);}_9+=this._genHTML(0,this.count-1);}}this.domNode.innerHTML=_9;}});}}};});

@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dijit.robot"],["require","dojo.robot"],["provide","dijit._base.place"],["require","dijit._base.scroll"],["require","dijit._base.window"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dijit.robot"]){_4._hasResource["dijit.robot"]=true;_4.provide("dijit.robot");_4.require("dojo.robot");_4.provide("dijit._base.place");_4.require("dijit._base.scroll");_4.require("dijit._base.window");_4.mixin(doh.robot,{_position:function(n){var d=_4,p=null,M=Math.max,m=Math.min;d.forEach(doh.robot._getWindowChain(n),function(w){d.withGlobal(w,function(){var p2=d.position(n,false),b=d._getPadBorderExtents(n);if(!p){p=p2;}else{var _7;d.withGlobal(n.contentWindow,function(){_7=_5.getViewport();});p2.r=p2.x+_7.w;p2.b=p2.y+_7.h;p={x:M(p.x+p2.x,p2.x)+b.l,y:M(p.y+p2.y,p2.y)+b.t,r:m(p.x+p2.x+p.w,p2.r)+b.l,b:m(p.y+p2.y+p.h,p2.b)+b.t};p.w=p.r-p.x;p.h=p.b-p.y;}n=w.frameElement;});});return p;},_scrollIntoView:function(n){var d=_4,dr=doh.robot,p=null;d.forEach(dr._getWindowChain(n),function(w){d.withGlobal(w,function(){var p2=d.position(n,false),b=d._getPadBorderExtents(n),_8=null;if(!p){p=p2;}else{_8=p;p={x:p.x+p2.x+b.l,y:p.y+p2.y+b.t,w:p.w,h:p.h};}_5.scrollIntoView(n,p);p2=d.position(n,false);if(!_8){p=p2;}else{p={x:_8.x+p2.x+b.l,y:_8.y+p2.y+b.t,w:p.w,h:p.h};}n=w.frameElement;});});},_getWindowChain:function(n){var cW=_5.getDocumentWindow(n.ownerDocument);var _9=[cW];var f=cW.frameElement;return (cW==_4.global||f==null)?_9:_9.concat(doh.robot._getWindowChain(f));}});}}};});

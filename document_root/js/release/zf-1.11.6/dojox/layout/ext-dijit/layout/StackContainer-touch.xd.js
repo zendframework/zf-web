@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.layout.ext-dijit.layout.StackContainer-touch"],["require","dijit.layout.StackContainer"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.layout.ext-dijit.layout.StackContainer-touch"]){_4._hasResource["dojox.layout.ext-dijit.layout.StackContainer-touch"]=true;_4.provide("dojox.layout.ext-dijit.layout.StackContainer-touch");_4.experimental("dojox.layout.ext-dijit.layout.StackContainer-touch");_4.require("dijit.layout.StackContainer");_4.connect(_5.layout.StackContainer.prototype,"postCreate",function(){this.axis=(this.baseClass=="dijitAccordionContainer")?"Y":"X";_4.forEach(["touchstart","touchmove","touchend","touchcancel"],function(p){this.connect(this.domNode,p,function(e){switch(e.type){case "touchmove":e.preventDefault();if(this.touchPosition){var _7=e.touches[0]["page"+this.axis]-this.touchPosition;if(Math.abs(_7)>100){if(this.axis=="Y"){_7*=-1;}delete this.touchPosition;if(_7>0){!this.selectedChildWidget.isLastChild&&this.forward();}else{!this.selectedChildWidget.isFirstChild&&this.back();}}}break;case "touchstart":if(e.touches.length==1){this.touchPosition=e.touches[0]["page"+this.axis];break;}case "touchend":case "touchcancel":delete this.touchPosition;}});},this);});}}};});

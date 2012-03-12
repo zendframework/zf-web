@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.widget.gauge.AnalogArrowIndicator"],["require","dojox.widget.AnalogGauge"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.widget.gauge.AnalogArrowIndicator"]){_4._hasResource["dojox.widget.gauge.AnalogArrowIndicator"]=true;_4.provide("dojox.widget.gauge.AnalogArrowIndicator");_4.require("dojox.widget.AnalogGauge");_4.experimental("dojox.widget.gauge.AnalogArrowIndicator");_4.declare("dojox.widget.gauge.AnalogArrowIndicator",[_6.widget.gauge.AnalogLineIndicator],{_getShapes:function(){if(!this._gauge){return null;}var x=Math.floor(this.width/2);var _7=this.width*5;var _8=(this.width&1);var _9=[];var _a=[{x:-x,y:0},{x:-x,y:-this.length+_7},{x:-2*x,y:-this.length+_7},{x:0,y:-this.length},{x:2*x+_8,y:-this.length+_7},{x:x+_8,y:-this.length+_7},{x:x+_8,y:0},{x:-x,y:0}];_9[0]=this._gauge.surface.createPolyline(_a).setStroke({color:this.color}).setFill(this.color);_9[1]=this._gauge.surface.createLine({x1:-x,y1:0,x2:-x,y2:-this.length+_7}).setStroke({color:this.highlight});_9[2]=this._gauge.surface.createLine({x1:-x-3,y1:-this.length+_7,x2:0,y2:-this.length}).setStroke({color:this.highlight});_9[3]=this._gauge.surface.createCircle({cx:0,cy:0,r:this.width}).setStroke({color:this.color}).setFill(this.color);return _9;}});}}};});

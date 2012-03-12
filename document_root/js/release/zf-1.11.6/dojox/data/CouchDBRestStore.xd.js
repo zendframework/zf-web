@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.data.CouchDBRestStore"],["require","dojox.data.JsonRestStore"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.data.CouchDBRestStore"]){_4._hasResource["dojox.data.CouchDBRestStore"]=true;_4.provide("dojox.data.CouchDBRestStore");_4.require("dojox.data.JsonRestStore");_4.declare("dojox.data.CouchDBRestStore",_6.data.JsonRestStore,{save:function(_7){var _8=this.inherited(arguments);var _9=this.service.servicePath;for(var i=0;i<_8.length;i++){(function(_a,_b){_b.addCallback(function(_c){if(_c){_a.__id=_9+_c.id;_a._rev=_c.rev;}return _c;});})(_8[i].content,_8[i].deferred);}},fetch:function(_d){_d.query=_d.query||"_all_docs?";if(_d.start){_d.query=(_d.query?(_d.query+"&"):"")+"startkey="+_d.start;delete _d.start;}if(_d.count){_d.query=(_d.query?(_d.query+"&"):"")+"limit="+_d.count;delete _d.count;}return this.inherited(arguments);},_processResults:function(_e){var _f=_e.rows;if(_f){var _10=this.service.servicePath;var _11=this;for(var i=0;i<_f.length;i++){var _12=_f[i].value;_12.__id=_10+_f[i].id;_12._id=_f[i].id;_12._loadObject=_6.rpc.JsonRest._loader;_f[i]=_12;}return {totalCount:_e.total_rows,items:_e.rows};}else{return {items:_e};}}});_6.data.CouchDBRestStore.getStores=function(_13){var dfd=_4.xhrGet({url:_13+"_all_dbs",handleAs:"json",sync:true});var _14={};dfd.addBoth(function(dbs){for(var i=0;i<dbs.length;i++){_14[dbs[i]]=new _6.data.CouchDBRestStore({target:_13+dbs[i],idAttribute:"_id"});}return _14;});return _14;};}}};});

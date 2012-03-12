@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.widget.DynamicTooltip"],["require","dijit.Tooltip"],["requireLocalization","dijit","loading",null,"ROOT,ar,ca,cs,da,de,el,es,fi,fr,he,hu,it,ja,ko,nb,nl,pl,pt,pt-pt,ru,sk,sl,sv,th,tr,zh,zh-tw","ROOT,ar,ca,cs,da,de,el,es,fi,fr,he,hu,it,ja,ko,nb,nl,pl,pt,pt-pt,ru,sk,sl,sv,th,tr,zh,zh-tw"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.widget.DynamicTooltip"]){_4._hasResource["dojox.widget.DynamicTooltip"]=true;_4.provide("dojox.widget.DynamicTooltip");_4.experimental("dojox.widget.DynamicTooltip");_4.require("dijit.Tooltip");_4.declare("dojox.widget.DynamicTooltip",_5.Tooltip,{hasLoaded:false,href:"",label:"",preventCache:false,postMixInProperties:function(){this.inherited(arguments);this._setLoadingLabel();},_setLoadingLabel:function(){if(this.href){this.label=_4.i18n.getLocalization("dijit","loading",this.lang).loadingState;}},_setHrefAttr:function(_7){this.href=_7;this.hasLoaded=false;},loadContent:function(){if(!this.hasLoaded&&this.href){this._setLoadingLabel();this.hasLoaded=true;_4.xhrGet({url:this.href,handleAs:"text",tooltipWidget:this,load:function(_8,_9){this.tooltipWidget.label=_8;this.tooltipWidget.close();this.tooltipWidget.open();},preventCache:this.preventCache});}},refresh:function(){this.hasLoaded=false;},open:function(_a){_a=_a||this._connectNodes[0];if(!_a){return;}this.loadContent();this.inherited(arguments);}});}}};});

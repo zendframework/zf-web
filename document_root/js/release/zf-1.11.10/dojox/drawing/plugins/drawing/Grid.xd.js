@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.drawing.plugins.drawing.Grid"],["require","dojox.drawing.plugins._Plugin"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.drawing.plugins.drawing.Grid"]){_4._hasResource["dojox.drawing.plugins.drawing.Grid"]=true;_4.provide("dojox.drawing.plugins.drawing.Grid");_4.require("dojox.drawing.plugins._Plugin");_6.drawing.plugins.drawing.Grid=_6.drawing.util.oo.declare(_6.drawing.plugins._Plugin,function(_7){if(_7.gap){this.major=_7.gap;}this.setGrid();_4.connect(this.canvas,"setZoom",this,"setZoom");},{type:"dojox.drawing.plugins.drawing.Grid",gap:100,major:100,minor:0,zoom:1,setZoom:function(_8){this.zoom=_8;this.setGrid();},setGrid:function(_9){var _a=Math.floor(this.major*this.zoom);var _b=this.minor?Math.floor(this.minor*this.zoom):_a;this.grid&&this.grid.removeShape();var x1,x2,y1,y2,i,_c;var s=this.canvas.underlay.createGroup();var w=2000;var h=1000;var b=1;var mj="#00ffff";var mn="#d7ffff";var _d=function(x1,y1,x2,y2,c){s.createLine({x1:x1,y1:y1,x2:x2,y2:y2}).setStroke({style:"Solid",width:b,cap:"round",color:c});};for(i=1,len=h/_b;i<len;i++){x1=0,x2=w;y1=_b*i,y2=y1;_c=y1%_a?mn:mj;_d(x1,y1,x2,y2,_c);}for(i=1,len=w/_b;i<len;i++){y1=0,y2=h;x1=_b*i,x2=x1;_c=x1%_a?mn:mj;_d(x1,y1,x2,y2,_c);}s.moveToBack();this.grid=s;this.util.attr(s,"id","grid");return s;}});}}};});

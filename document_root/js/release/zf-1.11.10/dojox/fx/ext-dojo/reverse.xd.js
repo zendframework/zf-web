@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.fx.ext-dojo.reverse"],["require","dojo.fx.easing"],["require","dojo.fx"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.fx.ext-dojo.reverse"]){_4._hasResource["dojox.fx.ext-dojo.reverse"]=true;_4.provide("dojox.fx.ext-dojo.reverse");_4.require("dojo.fx.easing");_4.require("dojo.fx");_4.extend(_4.Animation,{_reversed:false,reverse:function(_7,_8){var _9=this.status()=="playing";this.pause();this._reversed=!this._reversed;var d=this.duration,_a=d*this._percent,_b=d-_a,_c=new Date().valueOf(),cp=this.curve._properties,p=this.properties,nm;this._endTime=_c+_a;this._startTime=_c-_b;if(_9){this.gotoPercent(_b/d);}for(nm in p){var _d=p[nm].start;p[nm].start=cp[nm].start=p[nm].end;p[nm].end=cp[nm].end=_d;}if(this._reversed){if(!this.rEase){this.fEase=this.easing;if(_8){this.rEase=_8;}else{var de=_4.fx.easing,_e,_f;for(nm in de){if(this.easing==de[nm]){_e=nm;break;}}if(_e){if(/InOut/.test(nm)||!/In|Out/i.test(nm)){this.rEase=this.easing;}else{if(/In/.test(nm)){_f=nm.replace("In","Out");}else{_f=nm.replace("Out","In");}}if(_f){this.rEase=_4.fx.easing[_f];}}else{console.info("ease function to reverse not found");this.rEase=this.easing;}}}this.easing=this.rEase;}else{this.easing=this.fEase;}if(!_7&&this.status()!="playing"){this.play();}return this;}});}}};});

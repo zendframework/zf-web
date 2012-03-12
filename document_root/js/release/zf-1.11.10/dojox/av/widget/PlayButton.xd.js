@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.av.widget.PlayButton"],["require","dijit._Widget"],["require","dijit._Templated"],["require","dijit.form.Button"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.av.widget.PlayButton"]){_4._hasResource["dojox.av.widget.PlayButton"]=true;_4.provide("dojox.av.widget.PlayButton");_4.require("dijit._Widget");_4.require("dijit._Templated");_4.require("dijit.form.Button");_4.declare("dojox.av.widget.PlayButton",[_5._Widget,_5._Templated],{templateString:_4.cache("dojox.av.widget","resources/PlayButton.html","<div class=\"PlayPauseToggle Pause\" dojoAttachEvent=\"click:onClick\">\n    <div class=\"icon\"></div>\n</div>\n"),postCreate:function(){this.showPlay();},setMedia:function(_7){this.media=_7;_4.connect(this.media,"onEnd",this,"showPlay");_4.connect(this.media,"onStart",this,"showPause");},onClick:function(){if(this._mode=="play"){this.onPlay();}else{this.onPause();}},onPlay:function(){if(this.media){this.media.play();}this.showPause();},onPause:function(){if(this.media){this.media.pause();}this.showPlay();},showPlay:function(){this._mode="play";_4.removeClass(this.domNode,"Pause");_4.addClass(this.domNode,"Play");},showPause:function(){this._mode="pause";_4.addClass(this.domNode,"Pause");_4.removeClass(this.domNode,"Play");}});}}};});

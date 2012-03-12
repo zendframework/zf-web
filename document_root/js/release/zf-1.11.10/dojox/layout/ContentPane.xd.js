@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.layout.ContentPane"],["require","dijit.layout.ContentPane"],["require","dojox.html._base"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.layout.ContentPane"]){_4._hasResource["dojox.layout.ContentPane"]=true;_4.provide("dojox.layout.ContentPane");_4.require("dijit.layout.ContentPane");_4.require("dojox.html._base");_4.declare("dojox.layout.ContentPane",_5.layout.ContentPane,{adjustPaths:false,cleanContent:false,renderStyles:false,executeScripts:true,scriptHasHooks:false,constructor:function(){this.ioArgs={};this.ioMethod=_4.xhrGet;},onExecError:function(e){},_setContent:function(_7){var _8=this._contentSetter;if(!(_8&&_8 instanceof _6.html._ContentSetter)){_8=this._contentSetter=new _6.html._ContentSetter({node:this.containerNode,_onError:_4.hitch(this,this._onError),onContentError:_4.hitch(this,function(e){var _9=this.onContentError(e);try{this.containerNode.innerHTML=_9;}catch(e){console.error("Fatal "+this.id+" could not change content due to "+e.message,e);}})});}this._contentSetterParams={adjustPaths:Boolean(this.adjustPaths&&(this.href||this.referencePath)),referencePath:this.href||this.referencePath,renderStyles:this.renderStyles,executeScripts:this.executeScripts,scriptHasHooks:this.scriptHasHooks,scriptHookReplacement:"dijit.byId('"+this.id+"')"};this.inherited("_setContent",arguments);}});}}};});

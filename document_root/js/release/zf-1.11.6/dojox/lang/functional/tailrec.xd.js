@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.lang.functional.tailrec"],["require","dojox.lang.functional.lambda"],["require","dojox.lang.functional.util"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.lang.functional.tailrec"]){_4._hasResource["dojox.lang.functional.tailrec"]=true;_4.provide("dojox.lang.functional.tailrec");_4.require("dojox.lang.functional.lambda");_4.require("dojox.lang.functional.util");(function(){var df=_6.lang.functional,_7=df.inlineLambda,_8="_x";df.tailrec=function(_9,_a,_b){var c,t,b,cs,ts,bs,_c={},_d={},_e=function(x){_c[x]=1;};if(typeof _9=="string"){cs=_7(_9,_8,_e);}else{c=df.lambda(_9);cs="_c.apply(this, _x)";_d["_c=_t.c"]=1;}if(typeof _a=="string"){ts=_7(_a,_8,_e);}else{t=df.lambda(_a);ts="_t.t.apply(this, _x)";}if(typeof _b=="string"){bs=_7(_b,_8,_e);}else{b=df.lambda(_b);bs="_b.apply(this, _x)";_d["_b=_t.b"]=1;}var _f=df.keys(_c),_10=df.keys(_d),f=new Function([],"var _x=arguments,_t=_x.callee,_c=_t.c,_b=_t.b".concat(_f.length?","+_f.join(","):"",_10.length?",_t=_x.callee,"+_10.join(","):t?",_t=_x.callee":"",";for(;!",cs,";_x=",bs,");return ",ts));if(c){f.c=c;}if(t){f.t=t;}if(b){f.b=b;}return f;};})();}}};});

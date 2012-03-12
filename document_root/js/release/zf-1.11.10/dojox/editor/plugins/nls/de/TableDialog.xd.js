@@ -1,0 +1,5 @@
+dojo._xdResourceLoaded(function(dojo, dijit, dojox){
+return {depends: [["provide", "dojox.editor.plugins.nls.de.TableDialog"]],
+defineResource: function(dojo, dijit, dojox){dojo.provide("dojox.editor.plugins.nls.de.TableDialog");dojo._xdLoadFlattenedBundle("dojox.editor.plugins", "TableDialog", "de", ({"buttonSet":"Festlegen","insertTableTitle":"Tabelle einfügen","insertTableRowAfterLabel":"Zeile danach einfügen","center":"Mitte","deleteTableColumnLabel":"Spalte löschen","right":"Rechts","insertTableColumnBeforeLabel":"Spalte davor einfügen","tableWidth":"Tabellenbreite:","buttonInsert":"Einfügen","default":"Standard","align":"Ausrichten:","insertTableRowBeforeLabel":"Zeile davor einfügen","cellSpacing":"Zellenabstand:","pixels":"Pixel","selectTableLabel":"Tabelle auswählen","rows":"Zeilen:","modifyTableTitle":"Tabelle ändern","cellPadding":"Zellenrandbreite:","deleteTableRowLabel":"Zeile löschen","backgroundColor":"Hintergrundfarbe:","insertTableColumnAfterLabel":"Spalte danach einfügen","left":"Links","borderThickness":"Ränderdicke","columns":"Spalten:","percent":"Prozent","borderColor":"Umrandungsfarbe:"})
+);
+}};});

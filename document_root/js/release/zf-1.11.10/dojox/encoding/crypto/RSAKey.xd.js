@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.encoding.crypto.RSAKey"],["require","dojox.math.BigInteger"],["require","dojox.math.random.Simple"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.encoding.crypto.RSAKey"]){_4._hasResource["dojox.encoding.crypto.RSAKey"]=true;_4.provide("dojox.encoding.crypto.RSAKey");_4.experimental("dojox.encoding.crypto.RSAKey");_4.require("dojox.math.BigInteger");_4.require("dojox.math.random.Simple");(function(){var dm=_6.math,_7=dm.BigInteger,_8=dm.random.Simple,_9=function(){return new _8();};function _a(s,n,_b){if(n<s.length+11){throw new Error("Message too long for RSA");}var ba=new Array(n);var i=s.length;while(i&&n){ba[--n]=s.charCodeAt(--i);}ba[--n]=0;var _c=_b();var x=[0];while(n>2){x[0]=0;while(x[0]==0){_c.nextBytes(x);}ba[--n]=x[0];}ba[--n]=2;ba[--n]=0;_c.destroy();return new _7(ba);};_4.declare("dojox.encoding.crypto.RSAKey",null,{constructor:function(_d){this.rngf=_d||_9;this.e=0;this.n=this.d=this.p=this.q=this.dmp1=this.dmq1=this.coeff=null;},setPublic:function(N,E){if(N&&E&&N.length&&E.length){this.n=new _7(N,16);this.e=parseInt(E,16);}else{throw new Error("Invalid RSA public key");}},encrypt:function(_e){var m=_a(_e,(this.n.bitLength()+7)>>3,this.rngf);if(!m){return null;}var c=m.modPowInt(this.e,this.n);if(!c){return null;}var h=c.toString(16);return h.length%2?"0"+h:h;}});})();}}};});

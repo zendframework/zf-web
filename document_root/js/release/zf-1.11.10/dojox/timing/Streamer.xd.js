@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.timing.Streamer"],["require","dojox.timing._base"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.timing.Streamer"]){_4._hasResource["dojox.timing.Streamer"]=true;_4.provide("dojox.timing.Streamer");_4.require("dojox.timing._base");_6.timing.Streamer=function(_7,_8,_9,_a,_b){var _c=this;var _d=[];this.interval=_9||1000;this.minimumSize=_a||10;this.inputFunction=_7||function(q){};this.outputFunction=_8||function(_e){};var _f=new _6.timing.Timer(this.interval);var _10=function(){_c.onTick(_c);if(_d.length<_c.minimumSize){_c.inputFunction(_d);}var obj=_d.shift();while(typeof (obj)=="undefined"&&_d.length>0){obj=_d.shift();}if(typeof (obj)=="undefined"){_c.stop();return;}_c.outputFunction(obj);};this.setInterval=function(ms){this.interval=ms;_f.setInterval(ms);};this.onTick=function(obj){};this.start=function(){if(typeof (this.inputFunction)=="function"&&typeof (this.outputFunction)=="function"){_f.start();return;}throw new Error("You cannot start a Streamer without an input and an output function.");};this.onStart=function(){};this.stop=function(){_f.stop();};this.onStop=function(){};_f.onTick=this.tick;_f.onStart=this.onStart;_f.onStop=this.onStop;if(_b){_d.concat(_b);}};}}};});

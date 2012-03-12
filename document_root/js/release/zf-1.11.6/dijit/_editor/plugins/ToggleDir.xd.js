@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dijit._editor.plugins.ToggleDir"],["require","dijit._editor._Plugin"],["require","dijit.form.ToggleButton"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dijit._editor.plugins.ToggleDir"]){_4._hasResource["dijit._editor.plugins.ToggleDir"]=true;_4.provide("dijit._editor.plugins.ToggleDir");_4.experimental("dijit._editor.plugins.ToggleDir");_4.require("dijit._editor._Plugin");_4.require("dijit.form.ToggleButton");_4.declare("dijit._editor.plugins.ToggleDir",_5._editor._Plugin,{useDefaultCommand:false,command:"toggleDir",buttonClass:_5.form.ToggleButton,_initButton:function(){this.inherited(arguments);this.editor.onLoadDeferred.addCallback(_4.hitch(this,function(){var _7=this.editor.editorObject.contentWindow.document.documentElement;_7=_7.getElementsByTagName("body")[0];var _8=_4.getComputedStyle(_7).direction=="ltr";this.button.attr("checked",!_8);this.connect(this.button,"onChange","_setRtl");}));},updateState:function(){},_setRtl:function(_9){var _a="ltr";if(_9){_a="rtl";}var _b=this.editor.editorObject.contentWindow.document.documentElement;_b=_b.getElementsByTagName("body")[0];_b.dir=_a;}});_4.subscribe(_5._scopeName+".Editor.getPlugin",null,function(o){if(o.plugin){return;}switch(o.args.name){case "toggleDir":o.plugin=new _5._editor.plugins.ToggleDir({command:o.args.name});}});}}};});

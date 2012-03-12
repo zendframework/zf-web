@@ -1,0 +1,4 @@
+dojo._xdResourceLoaded(function(dojo, dijit, dojox){
+return {depends: [["provide", "dijit._editor.nls.pt-pt.FontChoice"]],
+defineResource: function(dojo, dijit, dojox){dojo.provide("dijit._editor.nls.pt-pt.FontChoice");dojo._xdLoadFlattenedBundle("dijit._editor", "FontChoice", "pt-pt", {"1":"xxs","2":"xs","formatBlock":"Formato","3":"small","4":"medium","5":"large","6":"xl","7":"xxl","fantasy":"fantasy","serif":"serif","p":"Parágrafo","pre":"Pré-formatado","sans-serif":"sans-serif","fontName":"Tipo de letra","h1":"Título","h2":"Sub-título","h3":"Sub-subtítulo","monospace":"monospace","fontSize":"Tamanho","cursive":"cursive","noFormat":"None"});
+}};});

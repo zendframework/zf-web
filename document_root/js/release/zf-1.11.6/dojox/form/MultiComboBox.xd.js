@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.form.MultiComboBox"],["require","dijit.form.ComboBox"],["require","dijit.form.ValidationTextBox"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.form.MultiComboBox"]){_4._hasResource["dojox.form.MultiComboBox"]=true;_4.provide("dojox.form.MultiComboBox");_4.experimental("dojox.form.MultiComboBox");_4.require("dijit.form.ComboBox");_4.require("dijit.form.ValidationTextBox");_4.declare("dojox.form.MultiComboBox",[_5.form.ValidationTextBox,_5.form.ComboBoxMixin],{delimiter:",",_previousMatches:false,_setValueAttr:function(_7){if(this.delimiter&&_7.length!=0){_7=_7+this.delimiter+" ";arguments[0]=this._addPreviousMatches(_7);}this.inherited(arguments);},_addPreviousMatches:function(_8){if(this._previousMatches){if(!_8.match(new RegExp("^"+this._previousMatches))){_8=this._previousMatches+_8;}_8=this._cleanupDelimiters(_8);}return _8;},_cleanupDelimiters:function(_9){if(this.delimiter){_9=_9.replace(new RegExp("  +")," ");_9=_9.replace(new RegExp("^ *"+this.delimiter+"* *"),"");_9=_9.replace(new RegExp(this.delimiter+" *"+this.delimiter),this.delimiter);}return _9;},_autoCompleteText:function(_a){arguments[0]=this._addPreviousMatches(_a);this.inherited(arguments);},_startSearch:function(_b){_b=this._cleanupDelimiters(_b);var re=new RegExp("^.*"+this.delimiter+" *");if((this._previousMatches=_b.match(re))){arguments[0]=_b.replace(re,"");}this.inherited(arguments);}});}}};});

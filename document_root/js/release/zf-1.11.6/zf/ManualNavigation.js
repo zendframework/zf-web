@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+if(!dojo._hasResource["zf.ManualNavigation"]){dojo._hasResource["zf.ManualNavigation"]=true;dojo.provide("zf.ManualNavigation");(function(){var d=dojo;d.mixin(zf,{ManualNavigation:{generate:function(){var _1=0;var _2=function(){var _3="dojo_blocked",id;do{id=_3+"_"+(++_1);}while(dojo.byId(id));return id;};var _4=function(_5,_6,_7){if(typeof (_5)==="undefined"||_5===null||!_5){return;}if(!dojo.hasAttr(_5,"id")){dojo.attr(_5,"id",_2());}var ul=dojo.create("ul");var _8=function(_9){if(typeof (_9)==="undefined"||_9===null||!_9){return;}if(!dojo.hasAttr(_9,"id")){dojo.attr(_9,"id",_2());}var li=dojo.create("li");var _a=dojo.create("a",{href:"#"+dojo.attr(_9,"id")});var _b=dojo.query("#"+dojo.attr(_9,"id").replace(/(:|\.)/g,"\\$1")+" h1.title:eq(0)");if(!_b.length){return;}var _c=_b.shift();dojo.attr(_a,"innerHTML",dojo.attr(_c,"innerHTML"));dojo.place(_a,li,"last");dojo.place(li,ul,"last");_4(_9,li,"0 0 0 15px");};dojo.query("#"+dojo.attr(_5,"id").replace(/(:|\.)/g,"\\$1")+" > .section[id^=\"zend.\"]").forEach(_8);dojo.query("#"+dojo.attr(_5,"id").replace(/(:|\.)/g,"\\$1")+" > .section[id^=\"learning.\"]").forEach(_8);if(dojo.query("li",ul).length){dojo.style(ul,{margin:_7,padding:0});dojo.place(ul,_6,"last");}};var _d=dojo.byId("manual-container");var _e=dojo.create("div",{"class":"block"});dojo.create("h2",{"class":"navigation",innerHTML:"Page Navigation"},_e,"last");var _f=dojo.create("div",{"class":"block-in"},_e,"last");_4(_d,_f,0);if(dojo.query("ul li",_f).length){dojo.place(_e,dojo.query("div.right-nav").shift(),"last");}}}});})();}

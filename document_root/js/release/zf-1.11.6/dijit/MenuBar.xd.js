@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dijit.MenuBar"],["require","dijit.Menu"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dijit.MenuBar"]){_4._hasResource["dijit.MenuBar"]=true;_4.provide("dijit.MenuBar");_4.require("dijit.Menu");_4.declare("dijit.MenuBar",_5._MenuBase,{templateString:_4.cache("dijit","templates/MenuBar.html","<div class=\"dijitMenuBar dijitMenuPassive\" dojoAttachPoint=\"containerNode\"  waiRole=\"menubar\" tabIndex=\"${tabIndex}\" dojoAttachEvent=\"onkeypress: _onKeyPress\"></div>\n"),_isMenuBar:true,constructor:function(){this._orient=this.isLeftToRight()?{BL:"TL"}:{BR:"TR"};},postCreate:function(){var k=_4.keys,l=this.isLeftToRight();this.connectKeyNavHandlers(l?[k.LEFT_ARROW]:[k.RIGHT_ARROW],l?[k.RIGHT_ARROW]:[k.LEFT_ARROW]);},focusChild:function(_7){var _8=this.focusedChild,_9=_8&&_8.popup&&_8.popup.isShowingNow;this.inherited(arguments);if(_9&&_7.popup&&!_7.disabled){this._openPopup();}},_onKeyPress:function(_a){if(_a.ctrlKey||_a.altKey){return;}switch(_a.charOrCode){case _4.keys.DOWN_ARROW:this._moveToPopup(_a);_4.stopEvent(_a);}},onItemClick:function(_b,_c){if(_b.popup&&_b.popup.isShowingNow){_b.popup.onCancel();}else{this.inherited(arguments);}}});}}};});

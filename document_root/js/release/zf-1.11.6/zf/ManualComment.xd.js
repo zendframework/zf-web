@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","zf.ManualComment"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["zf.ManualComment"]){_4._hasResource["zf.ManualComment"]=true;_4.provide("zf.ManualComment");(function(){var d=_4;d.mixin(zf,{commentHandler:function(e){e.preventDefault();var _7=e.target;d.query(".comment-form").block();d.xhrPost({url:_7.action,handleAs:"json",form:_7,load:function(_8,_9){if(!_8.success){d.query(".comment-form form").replaceWith(_8.content);d.query(".comment-form form").onsubmit(zf.commentHandler);}else{var _a=d.query(".comments");if(_a.length>0){_a.replaceWith(_8.content);}else{var c=_8.content;d.query(".comment-form").at(0).forEach(function(n){place(c,n,"before");});}_7.reset();}d.query(".comment-form").unblock();var _b=new _5.Dialog({title:"Comment Added",content:"Your comment has been posted to our system. If you do not see it immediately, it may have been flagged for moderation; check back later to see if it has been accepted.",style:"width: 300px;"});_b.show();return _8;},error:function(_c,_d){var _e=new _5.Dialog({title:"An error occurred",content:"<p>An error occurred with your comment submission; please try again later.</p>",style:"width: 300px;"});_e.show();d.query(".comment-form").unblock();return _c;}});}});})();}}};});

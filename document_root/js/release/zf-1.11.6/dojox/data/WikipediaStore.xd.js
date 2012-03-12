@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.data.WikipediaStore"],["require","dojo.io.script"],["require","dojox.rpc.Service"],["require","dojox.data.ServiceStore"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.data.WikipediaStore"]){_4._hasResource["dojox.data.WikipediaStore"]=true;_4.provide("dojox.data.WikipediaStore");_4.require("dojo.io.script");_4.require("dojox.rpc.Service");_4.require("dojox.data.ServiceStore");_4.experimental("dojox.data.WikipediaStore");_4.declare("dojox.data.WikipediaStore",_6.data.ServiceStore,{constructor:function(_7){if(_7&&_7.service){this.service=_7.service;}else{var _8=new _6.rpc.Service(_4.moduleUrl("dojox.rpc.SMDLibrary","wikipedia.smd"));this.service=_8.query;}this.idAttribute=this.labelAttribute="title";},fetch:function(_9){var rq=_4.mixin({},_9.query);if(rq&&(!rq.action||rq.action==="parse")){rq.action="parse";rq.page=rq.title;delete rq.title;}else{if(rq.action==="query"){rq.list="search";rq.srwhat="text";rq.srsearch=rq.text;if(_9.start){rq.sroffset=_9.start-1;}if(_9.count){rq.srlimit=_9.count>=500?500:_9.count;}delete rq.text;}}_9.query=rq;return this.inherited(arguments);},_processResults:function(_a,_b){if(_a.parse){_a.parse.title=_4.queryToObject(_b.ioArgs.url.split("?")[1]).page;_a=[_a.parse];}else{if(_a.query&&_a.query.search){_a=_a.query.search;var _c=this;for(var i in _a){_a[i]._loadObject=function(_d){_c.fetch({query:{action:"parse",title:this.title},onItem:_d});delete this._loadObject;};}}}return this.inherited(arguments);}});}}};});

@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.sketch._Plugin"],["require","dijit.form.Button"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.sketch._Plugin"]){_4._hasResource["dojox.sketch._Plugin"]=true;_4.provide("dojox.sketch._Plugin");_4.require("dijit.form.Button");_4.declare("dojox.sketch._Plugin",null,{constructor:function(_7){if(_7){_4.mixin(this,_7);}this._connects=[];},figure:null,iconClassPrefix:"dojoxSketchIcon",itemGroup:"toolsGroup",button:null,queryCommand:null,shape:"",useDefaultCommand:true,buttonClass:_5.form.ToggleButton,_initButton:function(){if(this.shape.length){var _8=this.iconClassPrefix+" "+this.iconClassPrefix+this.shape.charAt(0).toUpperCase()+this.shape.substr(1);if(!this.button){var _9={label:this.shape,showLabel:false,iconClass:_8,dropDown:this.dropDown,tabIndex:"-1"};this.button=new this.buttonClass(_9);this.connect(this.button,"onClick","activate");}}},attr:function(_a,_b){return this.button.attr(_a,_b);},onActivate:function(){},activate:function(e){this.onActivate();this.figure.setTool(this);this.attr("checked",true);},onMouseDown:function(e){},onMouseMove:function(e){},onMouseUp:function(e){},destroy:function(f){_4.forEach(this._connects,_4.disconnect);},connect:function(o,f,tf){this._connects.push(_4.connect(o,f,this,tf));},setFigure:function(_c){this.figure=_c;},setToolbar:function(_d){this._initButton();if(this.button){_d.addChild(this.button);}if(this.itemGroup){_d.addGroupItem(this,this.itemGroup);}}});}}};});

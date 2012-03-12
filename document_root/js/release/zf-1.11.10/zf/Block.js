@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+if(!dojo._hasResource["zf.Block"]){dojo._hasResource["zf.Block"]=true;dojo.provide("zf.Block");(function(){var d=dojo;d.declare("zf._Blocker",null,{duration:400,opacity:0.6,backgroundColor:"#fff",zIndex:999,constructor:function(_1,_2){d.mixin(this,_2);this.node=d.byId(_1);this.overlay=d.doc.createElement("div");d.query(this.overlay).place(d.body(),"last").addClass("zfBlockOverlay").style({backgroundColor:this.backgroundColor,position:"absolute",zIndex:this.zIndex,display:"none",opacity:this.opacity});},show:function(){var _3=d.coords(this.node,true),ov=this.overlay;d.marginBox(ov,_3);d.style(ov,{opacity:0,display:"block"});d.anim(ov,{opacity:this.opacity},this.duration);},hide:function(){d.fadeOut({node:this.overlay,duration:this.duration,onEnd:d.hitch(this,function(){d.style(this.overlay,"display","none");})}).play();}});var _4=[];d.mixin(zf,{block:function(_5,_6){var n=d.byId(_5);var id=d.attr(n,"id");if(!id){id=_7();d.attr(n,"id",id);}if(!_4[id]){_4[id]=new zf._Blocker(n,_6);}_4[id].show();return _4[id];},unblock:function(_8,_9){var id=d.attr(_8,"id");if(id&&_4[id]){_4[id].hide();}}});var _a=0;var _7=function(){var _b="zf_blocked",id;do{id=_b+"_"+(++_a);}while(d.byId(id));return id;};d.extend(d.NodeList,{block:function(_c){return this.forEach(function(n){zf.block(n,_c);});},unblock:function(_d){return this.forEach(function(n){zf.unblock(n,_d);});}});})();}

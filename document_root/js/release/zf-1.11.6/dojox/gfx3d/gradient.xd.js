@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.gfx3d.gradient"],["require","dojox.gfx3d.vector"],["require","dojox.gfx3d.matrix"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.gfx3d.gradient"]){_4._hasResource["dojox.gfx3d.gradient"]=true;_4.provide("dojox.gfx3d.gradient");_4.require("dojox.gfx3d.vector");_4.require("dojox.gfx3d.matrix");(function(){var _7=function(a,b){return Math.sqrt(Math.pow(b.x-a.x,2)+Math.pow(b.y-a.y,2));};var N=32;_6.gfx3d.gradient=function(_8,_9,_a,_b,_c,to,_d){var m=_6.gfx3d.matrix,v=_6.gfx3d.vector,mx=m.normalize(_d),f=m.multiplyPoint(mx,_b*Math.cos(_c)+_a.x,_b*Math.sin(_c)+_a.y,_a.z),t=m.multiplyPoint(mx,_b*Math.cos(to)+_a.x,_b*Math.sin(to)+_a.y,_a.z),c=m.multiplyPoint(mx,_a.x,_a.y,_a.z),_e=(to-_c)/N,r=_7(f,t)/2,_f=_8[_9.type],fin=_9.finish,pmt=_9.color,_10=[{offset:0,color:_f.call(_8,v.substract(f,c),fin,pmt)}];for(var a=_c+_e;a<to;a+=_e){var p=m.multiplyPoint(mx,_b*Math.cos(a)+_a.x,_b*Math.sin(a)+_a.y,_a.z),df=_7(f,p),dt=_7(t,p);_10.push({offset:df/(df+dt),color:_f.call(_8,v.substract(p,c),fin,pmt)});}_10.push({offset:1,color:_f.call(_8,v.substract(t,c),fin,pmt)});return {type:"linear",x1:0,y1:-r,x2:0,y2:r,colors:_10};};})();}}};});

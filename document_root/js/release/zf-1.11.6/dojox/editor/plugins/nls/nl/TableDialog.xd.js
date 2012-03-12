@@ -1,0 +1,5 @@
+dojo._xdResourceLoaded(function(dojo, dijit, dojox){
+return {depends: [["provide", "dojox.editor.plugins.nls.nl.TableDialog"]],
+defineResource: function(dojo, dijit, dojox){dojo.provide("dojox.editor.plugins.nls.nl.TableDialog");dojo._xdLoadFlattenedBundle("dojox.editor.plugins", "TableDialog", "nl", ({"buttonSet":"Instellen","insertTableTitle":"Tabel invoegen","insertTableRowAfterLabel":"Rij onder toevoegen","center":"gecentreerd","deleteTableColumnLabel":"Kolom wissen","right":"rechts","insertTableColumnBeforeLabel":"Kolom voor toevoegen","tableWidth":"Tabelbreedte:","buttonInsert":"invoegen","default":"standaard","align":"Uitlijnen","insertTableRowBeforeLabel":"Rij boven toevoegen","cellSpacing":"Celspatiëring:","pixels":"pixels","selectTableLabel":"Tabel selecteren","rows":"Rijen","modifyTableTitle":"Tabel wijzigen","cellPadding":"Celopvulling:","deleteTableRowLabel":"Rij wissen","backgroundColor":"Achtergrondkleur:","insertTableColumnAfterLabel":"Kolom achter toevoegen","left":"links","borderThickness":"Randdikte","columns":"Kolommen","percent":"percent","borderColor":"Randkleur"})
+);
+}};});

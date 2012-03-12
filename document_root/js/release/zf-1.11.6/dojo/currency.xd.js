@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojo.currency"],["require","dojo.number"],["require","dojo.i18n"],["requireLocalization","dojo.cldr","currency",null,"ROOT,ar,ca,cs,da,de,el,en,en-au,en-ca,en-us,es,fi,fr,he,hu,it,ja,ko,nb,nl,pl,pt,ru,sk,sl,sv,th,tr,zh,zh-tw","ROOT,ar,ca,cs,da,de,el,en,en-au,en-ca,en-us,es,fi,fr,he,hu,it,ja,ko,nb,nl,pl,pt,ru,sk,sl,sv,th,tr,zh,zh-tw"],["require","dojo.cldr.monetary"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojo.currency"]){_4._hasResource["dojo.currency"]=true;_4.provide("dojo.currency");_4.require("dojo.number");_4.require("dojo.i18n");_4.require("dojo.cldr.monetary");_4.currency._mixInDefaults=function(_7){_7=_7||{};_7.type="currency";var _8=_4.i18n.getLocalization("dojo.cldr","currency",_7.locale)||{};var _9=_7.currency;var _a=_4.cldr.monetary.getData(_9);_4.forEach(["displayName","symbol","group","decimal"],function(_b){_a[_b]=_8[_9+"_"+_b];});_a.fractional=[true,false];return _4.mixin(_a,_7);};_4.currency.format=function(_c,_d){return _4.number.format(_c,_4.currency._mixInDefaults(_d));};_4.currency.regexp=function(_e){return _4.number.regexp(_4.currency._mixInDefaults(_e));};_4.currency.parse=function(_f,_10){return _4.number.parse(_f,_4.currency._mixInDefaults(_10));};}}};});

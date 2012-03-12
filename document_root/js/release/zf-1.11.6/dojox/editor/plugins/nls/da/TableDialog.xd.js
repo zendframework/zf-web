@@ -1,0 +1,5 @@
+dojo._xdResourceLoaded(function(dojo, dijit, dojox){
+return {depends: [["provide", "dojox.editor.plugins.nls.da.TableDialog"]],
+defineResource: function(dojo, dijit, dojox){dojo.provide("dojox.editor.plugins.nls.da.TableDialog");dojo._xdLoadFlattenedBundle("dojox.editor.plugins", "TableDialog", "da", ({"buttonSet":"Definér","insertTableTitle":"Indsæt tabel","insertTableRowAfterLabel":"Tilføj række efter","center":"centreret","deleteTableColumnLabel":"Slet kolonne","right":"højre","insertTableColumnBeforeLabel":"Tilføj kolonne før","tableWidth":"Tabelbredde:","buttonInsert":"Indsæt","default":"standard","align":"Justér:","insertTableRowBeforeLabel":"Tilføj række før","cellSpacing":"Celleafstand:","pixels":"pixel","selectTableLabel":"Markér tabel","rows":"Rækker:","modifyTableTitle":"Revidér tabel","cellPadding":"Cellemargen:","deleteTableRowLabel":"Slet række","backgroundColor":"Baggrundsfarve:","insertTableColumnAfterLabel":"Tilføj kolonne efter","left":"venstre","borderThickness":"Kanttykkelse","columns":"Kolonner:","percent":"percent","borderColor":"Kantfarve:"})
+);
+}};});

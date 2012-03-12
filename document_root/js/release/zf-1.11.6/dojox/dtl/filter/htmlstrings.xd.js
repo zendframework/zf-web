@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.dtl.filter.htmlstrings"],["require","dojox.dtl._base"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.dtl.filter.htmlstrings"]){_4._hasResource["dojox.dtl.filter.htmlstrings"]=true;_4.provide("dojox.dtl.filter.htmlstrings");_4.require("dojox.dtl._base");_4.mixin(_6.dtl.filter.htmlstrings,{_linebreaksrn:/(\r\n|\n\r)/g,_linebreaksn:/\n{2,}/g,_linebreakss:/(^\s+|\s+$)/g,_linebreaksbr:/\n/g,_removetagsfind:/[a-z0-9]+/g,_striptags:/<[^>]*?>/g,linebreaks:function(_7){var _8=[];var dh=_6.dtl.filter.htmlstrings;_7=_7.replace(dh._linebreaksrn,"\n");var _9=_7.split(dh._linebreaksn);for(var i=0;i<_9.length;i++){var _a=_9[i].replace(dh._linebreakss,"").replace(dh._linebreaksbr,"<br />");_8.push("<p>"+_a+"</p>");}return _8.join("\n\n");},linebreaksbr:function(_b){var dh=_6.dtl.filter.htmlstrings;return _b.replace(dh._linebreaksrn,"\n").replace(dh._linebreaksbr,"<br />");},removetags:function(_c,_d){var dh=_6.dtl.filter.htmlstrings;var _e=[];var _f;while(_f=dh._removetagsfind.exec(_d)){_e.push(_f[0]);}_e="("+_e.join("|")+")";return _c.replace(new RegExp("</?s*"+_e+"s*[^>]*>","gi"),"");},striptags:function(_10){return _10.replace(_6.dtl.filter.htmlstrings._striptags,"");}});}}};});

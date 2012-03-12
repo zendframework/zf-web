@@ -1,0 +1,8 @@
+/*
+	Copyright (c) 2004-2009, The Dojo Foundation All Rights Reserved.
+	Available via Academic Free License >= 2.1 OR the modified BSD license.
+	see: http://dojotoolkit.org/license for details
+*/
+
+
+dojo._xdResourceLoaded(function(_1,_2,_3){return {depends:[["provide","dojox.validate.creditCard"],["require","dojox.validate._base"]],defineResource:function(_4,_5,_6){if(!_4._hasResource["dojox.validate.creditCard"]){_4._hasResource["dojox.validate.creditCard"]=true;_4.provide("dojox.validate.creditCard");_4.require("dojox.validate._base");_6.validate._cardInfo={"mc":"5[1-5][0-9]{14}","ec":"5[1-5][0-9]{14}","vi":"4(?:[0-9]{12}|[0-9]{15})","ax":"3[47][0-9]{13}","dc":"3(?:0[0-5][0-9]{11}|[68][0-9]{12})","bl":"3(?:0[0-5][0-9]{11}|[68][0-9]{12})","di":"6011[0-9]{12}","jcb":"(?:3[0-9]{15}|(2131|1800)[0-9]{11})","er":"2(?:014|149)[0-9]{11}"};_6.validate.isValidCreditCard=function(_7,_8){return ((_8.toLowerCase()=="er"||_6.validate.isValidLuhn(_7))&&_6.validate.isValidCreditCardNumber(_7,_8.toLowerCase()));};_6.validate.isValidCreditCardNumber=function(_9,_a){_9=String(_9).replace(/[- ]/g,"");var _b=_6.validate._cardInfo,_c=[];if(_a){var _d=_b[_a.toLowerCase()];return _d?!!_9.match(_d):false;}for(var p in _b){if(_9.match("^"+_b[p]+"$")){_c.push(p);}}return _c.length?_c.join("|"):false;};_6.validate.isValidCvv=function(_e,_f){if(!_4.isString(_e)){_e=String(_e);}var _10;switch(_f.toLowerCase()){case "mc":case "ec":case "vi":case "di":_10="###";break;case "ax":_10="####";break;}return !!_10&&_e.length&&_6.validate.isNumberFormat(_e,{format:_10});};}}};});
