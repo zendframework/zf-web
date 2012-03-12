@@ -24,7 +24,13 @@ files:
     - service.akismet.key should be a valid Akismet API key
     - recaptcha.pubkey/recaptcha.privkey should be your public/private keypair
       for ReCaptcha
-    - 
+  - You may want to disable caching: 
+    resources.cachemanager.content.frontend.options.caching  = 0
+    resources.cachemanager.search.frontend.options.caching   = 0
+    resources.cachemanager.zfstatus.frontend.options.caching = 0
+  - To get the "pretty" font headers, you should enable the dynamic header
+    learning:
+    dynamicheader.options.learning = 1
 
 - Create a symlink from "working" to a directory containing a ZF checkout.
 
