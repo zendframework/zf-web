@@ -35,14 +35,20 @@ files:
 - Create a symlink from "working" to a directory containing a ZF checkout.
 
 - app/jobs/agilezen.php (configure only if you want to update the kanban data)
-   - add your ZF 2.0.0beta3 path, on line 19
-   - add the API key of AgileZen, on line 30;
+  - add your ZF 2.0.0beta3 path, on line 19
+  - add the API key of AgileZen, on line 30;
 
 - app/jobs/invite_agile.php (configure only if you want to activate the invitation
   of AgileZen in the kanban system)
-   - add your ZF 2.0.0beta3 path, on line 19;
-   - add the API key of AgileZen, on line 31;
-   - add the path to the log file, on line 60.
+  - add your ZF 2.0.0beta3 path, on line 19;
+  - add the API key of AgileZen, on line 31;
+  - add the path to the log file, on line 60.
+
+- Run the following scripts:
+  - app/jobs/generateContributorsList.php
+  - app/jobs/getChangelogData.php
+  - app/jobs/processFaq.php
+  - app/jobs/agilezen.php (if testing/using the AgileZen integration)
 
 ## Documentation
 
