@@ -169,6 +169,13 @@ if ($createTag) {
         echo "FAILED CREATING TAG $svnTag for $tag\n\n";
         exit(42);
     }
+
+    echo "PUSHING website release tag $svnTag\n";
+    passthru("git push --tags origin", $failed);
+    if ($failed) {
+        echo "FAILED PUSHING website release tag $svnTag\n\n";
+        exit(42);
+    }
 }
 
 echo "CHECKING OUT website release tag $svnTag\n";
