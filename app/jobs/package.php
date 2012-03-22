@@ -64,7 +64,7 @@ Zend_Loader_Autoloader::getInstance();
 
 // CONFIGURATION
 define('CWD', realpath(getcwd()));
-define('ZFWEB_GIT', 'git@github.com/zendframework/zf-web.git');
+define('ZFWEB_GIT', 'git@github.com:zendframework/zf-web.git');
 define('ZFBUILD_SVN', 'http://framework.zend.com/svn/framework/build-tools/trunk/build-tools');
 
 $languages = array(
