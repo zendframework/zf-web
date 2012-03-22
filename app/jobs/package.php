@@ -64,8 +64,7 @@ Zend_Loader_Autoloader::getInstance();
 
 // CONFIGURATION
 define('CWD', realpath(getcwd()));
-define('ZF_SVN', 'http://framework.zend.com/svn/framework/standard');
-define('ZFWEB_SVN', 'http://framework.zend.com/svn/frameworkweb');
+define('ZFWEB_GIT', 'git@github.com/zendframework/zf-web.git');
 define('ZFBUILD_SVN', 'http://framework.zend.com/svn/framework/build-tools/trunk/build-tools');
 
 $languages = array(
@@ -153,21 +152,34 @@ if ($pretend || $noPackage) {
     exit(0);
 }
 
+echo "CLONING website \n";
+$pwd = getcwd();
+chdir($buildDir);
+passthru("git clone " . ZFWEB_GIT . " $svnTag", $failed);
+if ($failed) {
+    echo "FAILED CLONING website to $buildDir/$svnTag\n\n";
+    exit(42);
+}
+chdir("$buildDir/$svnTag");
+
 if ($createTag) {
     echo "CREATING website release tag $svnTag\n";
-    passthru("svn cp " . ZFWEB_SVN . '/trunk/website ' . ZFWEB_SVN . "/tags/$svnTag -m 'Creating tag for $tag release'", $failed);
+    passthru("git tag -s -m 'Creating tag for $tag release' $svnTag", $failed);
     if ($failed) {
         echo "FAILED CREATING TAG $svnTag for $tag\n\n";
         exit(42);
     }
 }
 
-echo "EXPORTING website release tag $svnTag\n";
-passthru("svn export " . ZFWEB_SVN . "/tags/$svnTag $buildDir/$svnTag", $failed);
+echo "CHECKING OUT website release tag $svnTag\n";
+passthru("git checkout $svnTag", $failed);
 if ($failed) {
-    echo "FAILED EXPORTING TAG $svnTag\n\n";
+    echo "FAILED CHECKOUT OUT website release tag $svnTag\n\n";
     exit(42);
 }
+
+// Return to previous directory
+chdir($pwd);
 
 echo "COPYING config.ini.dist to config.ini\n";
 copy(
