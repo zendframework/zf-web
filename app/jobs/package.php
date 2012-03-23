@@ -188,6 +188,9 @@ if ($failed) {
     exit(42);
 }
 
+echo "REMOVING .git directory\n";
+recursiveDelete("./.git");
+
 // Return to previous directory
 chdir($pwd);
 
