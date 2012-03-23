@@ -55,6 +55,9 @@ echo "Compiling ZF2 blog"
 echo "Pre-seeding contributors list"
 (cd $RELEASE_DIR/app/jobs ; $PHP generateContributorsList.php)
 
+# Fetching manual images into tree
+(cd $RELEASE_DIR/app/jobs ; $PHP fetchManualImages.php)
+
 echo "Setting ownership on new release directory";
 chown -R www.www $RELEASE_DIR
 

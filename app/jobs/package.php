@@ -45,9 +45,7 @@ if (!preg_match('#\'--prefix=(?P<path>[^\']+)\'#', $info, $matches)) {
 $php = $matches['path'] . '/bin/php';
 
 define('APPLICATION_PATH', dirname(dirname(__FILE__)));
-define('APPLICATION_ENV', 
-    (getenv('APPLICATION_ENV') ? getenv('APPLICATION_ENV') : 'production')
-);
+define('APPLICATION_ENV', (getenv('APPLICATION_ENV') ?: 'production'));
 date_default_timezone_set('GMT');
 ini_set('display_errors', false);
 ini_set('memory_limit', -1);
@@ -64,8 +62,13 @@ Zend_Loader_Autoloader::getInstance();
 
 // CONFIGURATION
 define('CWD', realpath(getcwd()));
-define('ZFWEB_GIT', 'git@github.com:zendframework/zf-web.git');
 define('ZFBUILD_SVN', 'http://framework.zend.com/svn/framework/build-tools/trunk/build-tools');
+define('ZFWEB_GIT', 
+    (getenv('ZFWEB_GIT') ?: 'git@github.com:zendframework/zf-web.git')
+);
+define('ZFWEB_CONF_GIT', 
+    (getenv('ZFWEB_CONF_GIT') ?: getenv('USER') . '@fw02:/var/local/framework/web_config')
+);
 
 $languages = array(
     'en', 'de', 'fr', 'ja', 'ru', 'zh',
@@ -145,7 +148,7 @@ if (isset($opts->x)) {
     $cleanup = true;
 }
 
-$config = new Zend_Config_Ini(dirname(__FILE__) . '/../etc/config.ini.dist', 'production');
+$config = new Zend_Config_Ini(dirname(__FILE__) . '/../etc/config.ini', 'production');
 
 if ($pretend || $noPackage) {
     echo (($pretend) ? 'PRETEND' : '"NO PACKAGE"') . " OPTION ENABLED; ENDING SCRIPT";
@@ -188,9 +191,15 @@ if ($failed) {
 // Return to previous directory
 chdir($pwd);
 
-echo "COPYING config.ini.dist to config.ini\n";
+echo "RETRIEVING production config.ini\n";
+passthru("git clone " . ZFWEB_CONF_GIT . " $buildDir/web_config", $failed);
+if ($failed) {
+    echo "FAILED RETRIEVING production config.ini\n\n";
+    exit(42);
+}
+echo "COPYING config.ini to build directory\n";
 copy(
-    "$buildDir/$svnTag/app/etc/config.ini.dist",
+    "$buildDir/web_config/config.ini",
     "$buildDir/$svnTag/app/etc/config.ini"
 );
 
@@ -227,45 +236,14 @@ symlink('/var/www/websvn', 'code');
 chdir(CWD);
 
 echo "FETCHING CHANGELOG data from JIRA\n";
-passthru("export APPLICATION_PATH=$buildDir/$svnTag/app && php " . realpath(dirname(__FILE__)) . "/getChangelogData.php");
+passthru("php " . realpath(__DIR__) . "/getChangelogData.php");
 
 echo "FETCHING FAQ data from CONFLUENCE\n";
-passthru("export APPLICATION_PATH=$buildDir/$svnTag/app && php " . realpath(dirname(__FILE__)) . "/processFaq.php");
-
-echo "UPDATING CONTRIBUTORS listing\n";
-require_once __DIR__ . '/lib/Contributors.php';
-$contributors = new ZF\Jobs\Contributors();
-$contributors->dispatch();
+passthru("php " . realpath(__DIR__) . "/processFaq.php");
 
 echo "UPDATING PERMISSIONS on job scripts\n";
 foreach (glob("$buildDir/$svnTag/app/jobs/*.sh") as $filename) {
     chmod($filename, 0755);
-}
-
-echo "COPYING IMAGES from manual to images directory\n";
-$viewDir = $config->manual->views;
-mkdir("$buildDir/$svnTag/document_root/images/manual", 0777);
-foreach (glob("$viewDir/manual/*.*") as $dir) {
-    if (!is_dir($dir)) {
-        continue;
-    }
-
-    if (!preg_match('/^\d+\.\d+$/', basename($dir))) {
-        continue;
-    }
-
-    echo "    Copying for version " . basename($dir) . "\n";
-
-    foreach (glob("$dir/*") as $lang) {
-        if (!preg_match('/^[a-z]{2,}/', basename($lang))) {
-            continue;
-        }
-        if (!is_dir("$lang/images")) {
-            continue;
-        }
-        echo "        Copying for language " . basename($lang) . "\n";
-        passthru("cp -a $lang/images/*.* $buildDir/$svnTag/document_root/images/manual/");
-    }
 }
 
 echo "CREATING TARBALL\n";

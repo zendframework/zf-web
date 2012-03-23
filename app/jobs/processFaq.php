@@ -12,6 +12,8 @@ ini_set('display_errors', true);
 require_once 'Zend/Loader/Autoloader.php';
 Zend_Loader_Autoloader::getInstance();
 
+$config = new Zend_Config_Ini(__DIR__ . '/../etc/config.ini', 'production');
+
 $rootdir = APPLICATION_PATH;
 $tmpdir  = $rootdir . '/cache/faq/tmp';
 if (!is_dir($tmpdir)) {
@@ -21,9 +23,11 @@ if (!is_dir($tmpdir)) {
 $htmldir = $rootdir . '/cache/faq/ZFFAQ';
 if (!is_dir($htmldir)) {
 echo "Fetching FAQ files\n";
+    $user   = $config->jira->credentials->username;
+    $pass   = $config->jira->credentials->password;
     $cxn    = new Zend_XmlRpc_Client('http://framework.zend.com/wiki/rpc/xmlrpc');
     $client = $cxn->getProxy()->confluence1;
-    $token  = $client->login('matthew', 'zendphl@m3');
+    $token  = $client->login($user, $pass);
     $url    = $client->exportSpace($token, 'ZFFAQ', 'TYPE_HTML');
 echo "    Generated fetch zip archive at $url\n";
 
@@ -33,8 +37,8 @@ echo "    Logging in to website\n";
     $client->setCookieJar();
     $client->resetParameters();
     $client->setParameterPost(array(
-        'os_username' => 'matthew',
-        'os_password' => 'zendphl@m3',
+        'os_username' => $user,
+        'os_password' => $pass,
     ));
     $result = $client->request('POST');
     
