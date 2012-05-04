@@ -13,7 +13,7 @@
 : ${ZIP:="/usr/bin/zip"}
 : ${MUTT:="/usr/bin/mutt"}
 : ${MAIL_MESSAGE:="Zend Framework downloads report: `date +%F`"}
-: ${MAIL_RECIPIENT_LIST:="andi@zend.com elaine@zend.com ifat@zend.com kent@zend.com orly.m@zend.com michael.s@zend.com zeev@zend.com matthew@zend.com"}
+: ${MAIL_RECIPIENT_LIST:="andi@zend.com elaine@zend.com ifat@zend.com kent@zend.com pratibha.j@zend.com stephanie.d@zend.com michael.s@zend.com zeev@zend.com matthew@zend.com"}
 
 ${RSYNC} -a --include="*/" --include="downloads.ser" --exclude="*" "${FRAMEWORK_LOG_DIR_FW02_SRC}" "${FRAMEWORK_LOG_DIR_FW02}"
 
