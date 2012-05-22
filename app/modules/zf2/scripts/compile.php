@@ -17,7 +17,7 @@
  */
 set_include_path(implode(PATH_SEPARATOR, array(
     '.',
-    __DIR__ . '/../../../../../framework/library',
+    __DIR__ . '/../../../../framework/library',
     get_include_path(),
 )));
 require_once 'Zend/Loader/Autoloader.php';
