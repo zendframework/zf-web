@@ -9,7 +9,7 @@ error_reporting(E_ALL|E_STRICT);
 
 set_include_path(implode(PATH_SEPARATOR, array(
     '.',
-    realpath(dirname(dirname(__FILE__)) . '/framework/library'),
+    realpath(dirname(__FILE__) . '/../../framework/library'),
     get_include_path(),
 )));
 
