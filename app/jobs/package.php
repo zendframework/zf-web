@@ -53,7 +53,7 @@ error_reporting(E_ALL | E_STRICT);
 set_time_limit(0);
 $paths = array(
     '.',
-    dirname(__FILE__) . '/../../framework',
+    dirname(__FILE__) . '/../../framework/library',
     get_include_path(),
 );
 set_include_path(implode(PATH_SEPARATOR, $paths));
