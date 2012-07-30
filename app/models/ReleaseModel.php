@@ -17,6 +17,7 @@ class ReleaseModel
      * @todo discover dates from SVN?
      */
     protected $_dates = array(
+        '1.12.0rc3' => '2012-07-30',
         '1.12.0rc2' => '2012-06-22',
         '1.12.0rc1' => '2012-06-18',
         '1.11.12'   => '2012-06-22',
