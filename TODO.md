@@ -79,16 +79,16 @@ X Static Pages (Module written; content still to be ported and mapped)
   - ZF1 and ZF2 variants
 - ZF1 FAQ
   - tool for generating ZF1 FAQ from wiki
-- ZF1 Downloads
-- ZF2 Downloads (to automate versions)
-- User Groups
+- ZF1 Downloads (Ralph)
+- ZF2 Downloads (to automate versions) (Ralph)
+- User Groups (Matthew)
 - Blogs (planet?)
 - Contributors
   - Get contributors from svn access.conf
   - Get contributors from github
 - Contact form (PhlyContact)
-- Security
-- Blog / News (PhlyBlog)
+- Security (Matthew)
+- Blog / News (PhlyBlog) (Matthew)
 - Upcoming Events
 - Changelog
   - From ZF1 Jira
@@ -107,6 +107,6 @@ Questions
 Research todo
 -------------
 
-- Templates for API docs
-- Templates for ZF2 docs
+- Templates for API docs (Enrico)
+- Templates for ZF2 docs (Enrico)
 - Templates for ZF1 docs
