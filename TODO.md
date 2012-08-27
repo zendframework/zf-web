@@ -52,6 +52,7 @@ Consolidated Tree
      - Links to Github repos
      - Links to JIRA, Confluence
      - AgileZen board
+     - Logos
    - User Groups
    - Blogs
    - Contributors
