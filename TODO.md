@@ -70,7 +70,7 @@ Consolidated Tree
 Modules
 -------
 
-- Static Pages
+X Static Pages (Module written; content still to be ported and mapped)
   - For all pages without dynamic content
   - Would include routes, and logic for mapping route to template
 - Manual
