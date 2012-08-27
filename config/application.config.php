@@ -2,6 +2,7 @@
 return array(
     'modules' => array(
         'Application',
+        'PageController',
     ),
     'module_listener_options' => array(
         'config_glob_paths'    => array(
