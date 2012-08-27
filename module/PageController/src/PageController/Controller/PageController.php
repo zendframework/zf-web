@@ -51,7 +51,7 @@ class PageController extends AbstractController
             return $this->return404Page($model, $e->getResponse());
         }
 
-        $page = 'page-controller/page-controller/' . $page;
+        $page = 'page-controller/' . $page;
         if (!$this->resolver->resolve($page)) {
             return $this->return404Page($model, $e->getResponse());
         }
