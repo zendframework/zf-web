@@ -35,7 +35,7 @@ return array(
                 ),
             )),
         ),
-        'posts_path'     => 'content/posts/',
+        'posts_path'     => 'module/ZfSiteBlog/data/posts/',
         'view_callback'  => 'ZfSiteBlog\Module::prepareCompilerView',
         'cloud_callback' => array('ZfSiteBlog\Module', 'handleTagCloud'),
     ),

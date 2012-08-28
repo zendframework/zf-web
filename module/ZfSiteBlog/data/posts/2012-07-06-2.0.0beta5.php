@@ -1,6 +1,4 @@
 <?php
-use DateTime;
-use DateTimezone;
 use PhlyBlog\AuthorEntity;
 use PhlyBlog\EntryEntity;
 

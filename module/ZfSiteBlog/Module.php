@@ -3,7 +3,11 @@
 namespace ZfSiteBlog;
 
 use Zend\Config\Config;
+use Zend\Http\PhpEnvironment\Request;
+use Zend\Http\PhpEnvironment\Response;
 use Zend\Mvc\ModuleRouteListener;
+use Zend\Mvc\Router\Http\TreeRouteStack;
+use Zend\Mvc\View\Http\ViewManager;
 use Zend\Stdlib\ArrayUtils;
 use Zend\View\Model;
 
@@ -28,7 +32,32 @@ class Module
         return include __DIR__ . '/config/module.config.php';
     }
 
-    public function getViewHelperConfiguration()
+    public function getServiceConfig()
+    {
+        if (!defined('ZFSITE_CONSOLE') || !constant('ZFSITE_CONSOLE')) {
+            return array();
+        }
+
+        return array('factories' => array(
+            'request' => function ($services) {
+                return new Request();
+            },
+            'response' => function ($services) {
+                return new Response();
+            },
+            'router' => function ($services) {
+                $config       = $services->get('Configuration');
+                $routerConfig = isset($config['router']) ? $config['router'] : array();
+                $router       = TreeRouteStack::factory($routerConfig);
+                return $router;
+            },
+            'viewmanager' => function ($services) {
+                return new ViewManager();
+            },
+        ));
+    }
+
+    public function getViewHelperConfig()
     {
         return array('factories' => array(
             'disqus' => function ($services) {
@@ -59,6 +88,8 @@ class Module
             $e->setResult($page);
 
             // Cleanup
+            $layout->setVariable('single', false);
+
             $headTitle = $renderer->plugin('headtitle');
             $headTitle->getContainer()->exchangeArray(array());
             $headTitle->append('Zend Framework');
@@ -73,6 +104,14 @@ class Module
 
             $headScript = $renderer->plugin('headScript');
             $headScript->getContainer()->exchangeArray(array());
+
+            $headMeta = $renderer->plugin('headMeta');
+            $headMeta->getContainer()->exchangeArray(array());
+
+            foreach (array('top-nav', 'sidebar', 'scripts') as $name) {
+                $placeholder = $renderer->placeholder($name);
+                $placeholder->exchangeArray(array());
+            }
         }, 100);
     }
 
