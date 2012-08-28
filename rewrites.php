@@ -6,7 +6,7 @@ $rewriteTable = array(
 );
 
 $rewriteRegexes = array(
-    '#^/zf2/blog/entry/(?P<id>[^/])#' => '/blog/%id%.html',
+    '#^/zf2/blog/entry/(?P<id>[^/]+)#' => '/blog/%id%.html',
 );
 
 $rewrite = function ($uri) {
@@ -36,9 +36,9 @@ $test = function () use ($rewriteTable, $rewriteRegexes, $rewrite) {
                 if (is_int($key) || is_numeric($key)) {
                     continue;
                 }
-                $rewriteUri = str_replace(sprintf('\%%s\%', $key), $value, $rewriteUri);
+                $rewriteUri = str_replace(sprintf('%%%s%%', $key), $value, $rewriteUri);
             }
-            $redirect(strtolower($rewriteUri));
+            $rewrite(strtolower($rewriteUri));
             return;
         }
     }
