@@ -43,19 +43,6 @@ class Module
         ));
     }
 
-    public function onBootstrap($e)
-    {
-        $app          = $e->getApplication();
-        $services     = $app->getServiceManager();
-        $events       = $app->getEventManager();
-        $this->config = $services->get('config');
-        $this->initAcls($e);
-        $this->initView($e);
-
-        $moduleRouteListener = new ModuleRouteListener();
-        $events->attach($moduleRouteListener);
-    }
-
     public static function prepareCompilerView($view, $config, $services)
     {
         $renderer = $services->get('ViewRenderer');
