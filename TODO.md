@@ -110,3 +110,8 @@ Research todo
 - Templates for API docs (Enrico)
 - Templates for ZF2 docs (Enrico)
 - Templates for ZF1 docs
+
+Future iterations
+-----------------
+
+- Use new Zend\Console features for console scripts

@@ -5,6 +5,9 @@
  */
 chdir(dirname(__DIR__));
 
+// Do 301 rewrites
+include 'rewrites.php';
+
 // Setup autoloading
 include 'init_autoloader.php';
 
