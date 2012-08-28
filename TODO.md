@@ -88,7 +88,7 @@ X Static Pages (Module written; content still to be ported and mapped)
   - Get contributors from github
 - Contact form (PhlyContact)
 - Security (Matthew)
-- Blog / News (PhlyBlog) (Matthew)
+X Blog / News (PhlyBlog) (Matthew)
 - Upcoming Events
 - Changelog
   - From ZF1 Jira
