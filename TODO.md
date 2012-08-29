@@ -82,7 +82,6 @@ X Static Pages (Module written; content still to be ported and mapped)
 - ZF1 Downloads (Ralph)
 - ZF2 Downloads (to automate versions) (Ralph)
 - User Groups (Matthew)
-- Blogs (planet?)
 - Contributors
   - Get contributors from svn access.conf
   - Get contributors from github
@@ -115,3 +114,4 @@ Future iterations
 -----------------
 
 - Use new Zend\Console features for console scripts
+- Blogs (planet?)
