@@ -5,6 +5,7 @@ return array(
         'PageController',
         'PhlyCommon',
         'PhlyBlog',
+        'PhlyContact',
         'ZfSiteBlog',
     ),
     'module_listener_options' => array(
