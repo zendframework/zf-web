@@ -57,12 +57,12 @@ Consolidated Tree
    - Blogs
    - Contributors
 - Contact
-  - Form
+  X Form
   - Mailing lists/nabble, including subscription info
   - IRC details
 - Upcoming Events
 - Security (from ZF1 site)
-- News / Blog
+X News / Blog
 - Changelog
 - License
 - CLA / cCLA
@@ -86,7 +86,7 @@ X Static Pages (Module written; content still to be ported and mapped)
 - Contributors
   - Get contributors from svn access.conf
   - Get contributors from github
-- Contact form (PhlyContact)
+X Contact form (PhlyContact)
 - Security (Matthew)
 X Blog / News (PhlyBlog) (Matthew)
 - Upcoming Events
