@@ -1,7 +1,7 @@
 <?php
 return array(
     'disqus' => array(
-        'key'         => 'DISQUS_KEY_GOES_HERE',
+        'key'         => 'zf2blog',
         'development' => 0,
     ),
     'blog' => array(
