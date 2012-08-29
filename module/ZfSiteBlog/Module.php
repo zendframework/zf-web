@@ -34,6 +34,11 @@ class Module
 
     public function getServiceConfig()
     {
+        // If we're in the console environment, we need to force usage
+        // of the HTTP environment to ensure our routing and view 
+        // usage is consistent with the site while generating the
+        // static blog files.
+
         if (!defined('ZFSITE_CONSOLE') || !constant('ZFSITE_CONSOLE')) {
             return array();
         }
