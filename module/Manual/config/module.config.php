@@ -5,7 +5,7 @@ return array(
             'learn' => array(
                 'type' => 'Zend\Mvc\Router\Http\Segment',
                 'options' => array(
-                    'route' => '/manual[/:lang[/:version[/:page]]]',
+                    'route' => '/manual/:lang/:version/:page',
                     'constraints' => array(
                         'lang'    => '[a-z]{2}',
                         'version' => '[0-9\.a-z]+',
