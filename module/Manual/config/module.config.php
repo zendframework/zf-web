@@ -23,7 +23,7 @@ return array(
     ),
     'view_manager' => array(
         'template_path_stack' => array(
-            'page-controller' => __DIR__ . '/../view',
+            'manual' => __DIR__ . '/../view',
         ),
     ),
     'zf_document_path' => array(

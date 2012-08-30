@@ -81,10 +81,11 @@ class PageController extends AbstractController
         $model->setVariable('body', $body);
         $model->setVariable('sidebar', $sidebar);
         $model->setVariable('version', $version);
-        $model->setTemplate('page-controller/manual');
+        $model->setTemplate('manual/page-controller/manual');
         $e->setResult($model);
         return $model;
     }
+
     /**
      * Get the body of the document according with the ZF version
      * 
