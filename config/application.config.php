@@ -3,6 +3,7 @@ return array(
     'modules' => array(
         'Application',
         'PageController',
+        'Manual',
         'PhlyCommon',
         'PhlyBlog',
         'PhlyContact',
