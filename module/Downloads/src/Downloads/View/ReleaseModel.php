@@ -68,6 +68,24 @@ class ReleaseModel
         if (null === $version) {
             return $this->findMostRecentVersion();
         }
+
+        if (!strstr($version, '.')) {
+            $next     = ($version + 1) . '.0.0';
+            $version .= '.0.0';
+            return $this->findMostRecentVersionInSeries($version, $next);
+        }
+
+        list($major, $minor) = explode('.', $version, 2);
+        if (strstr($minor, '.')) {
+            throw new \DomainException(sprintf(
+                'Invalid version "%s" provided to %s; must be a major or minor version only',
+                $version,
+                __METHOD__
+            ));
+        }
+        $start = $version . '.0';
+        $end   = sprintf('%d.%d.0', $major, ($minor + 1));
+        return $this->findMostRecentVersionInSeries($start, $end);
     }
 
     public function isStable($version)
@@ -118,6 +136,27 @@ class ReleaseModel
         }
 
         return $this->mostRecentVersion;
+    }
+
+    protected function findMostRecentVersionInSeries($start, $end)
+    {
+        $versions = $this->sortVersions();
+        $versions = array_reverse($versions);
+        $current  = false;
+        foreach ($versions as $version) {
+            if (version_compare($version, $end, 'ge')) {
+                break;
+            }
+            if (version_compare($version, $start, 'lt')) {
+                continue;
+            }
+            if (!$this->isStable($version)) {
+                continue;
+            }
+
+            $current = $version;
+        }
+        return $current;
     }
 
     protected function sortVersions()

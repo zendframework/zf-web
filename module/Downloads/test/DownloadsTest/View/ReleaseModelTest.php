@@ -44,7 +44,6 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals('1.12.0', $this->model->getCurrentStableVersion());
     }
 
-    /*
 
     public function testCanRetrieveMostCurrentStableVersionByMajorVersion()
     {
@@ -56,6 +55,7 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals('1.11.14', $this->model->getCurrentStableVersion('1.11'));
     }
 
+    /*
     public function testCanRetrieveReleaseDateByVersion()
     {
         $this->assertEquals($this->config['versions']['1.11.13'], $this->model->getReleaseDate('1.11.13'));
