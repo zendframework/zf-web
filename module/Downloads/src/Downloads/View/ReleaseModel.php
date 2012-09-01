@@ -1,6 +1,7 @@
 <?php
 namespace Downloads\View;
 
+use DomainException;
 use InvalidArgumentException;
 use Traversable;
 
@@ -13,16 +14,34 @@ class ReleaseModel
     const ARCHIVE_TAR = 'tar.gz';
     const ARCHIVE_ZIP = 'zip';
 
+    protected $archiveTypes = array(
+        self::ARCHIVE_TAR,
+        self::ARCHIVE_ZIP,
+    );
     protected $languages;
     protected $mostRecentVersion;
+    protected $normalizedVersions;
     protected $products;
     protected $releaseBasePath;
+    protected $releaseTemplates = array(
+        'framework-full'    => '%s/ZendFramework-%s/ZendFramework-%s.%s',
+        'framework-minimal' => '%s/ZendFramework-%s/ZendFramework-%s-minimal.%s',
+        'framework-manual'  => '%s/ZendFramework-%s/ZendFramework-%s-manual-%s.%s',
+        'framework-apidoc'  => '%s/ZendFramework-%s/ZendFramework-%s-apidoc.%s',
+        'product'           => '%s/Zend%s-%s/Zend%s-%s.%s',
+    );
     protected $sortedVersions;
     protected $versions;
 
+    /**
+     * @param  string $releaseBasePath Base URI for releases
+     * @param  array $versions hash table of version/release date pairs
+     * @param  array $languages Manual languages available, by range of versions
+     * @param  array $products Products available, and first and latest version available
+     */
     public function __construct($releaseBasePath, $versions, $languages, $products)
     {
-        $this->releaseBasePath = $releaseBasePath;
+        $this->releaseBasePath = rtrim($releaseBasePath, '/');
 
         if (!is_array($versions) && !$versions instanceof Traversable) {
             throw new InvalidArgumentException('Invalid versions provided');
@@ -59,10 +78,28 @@ class ReleaseModel
             if ($data instanceof Traversable) {
                 $data = iterator_to_array($data);
             }
-            $this->products[$product] = $data;
+            $data['product'] = $product;
+            $this->products[strtolower($product)] = $data;
         }
     }
 
+    /**
+     * Retrieve the current stable version
+     *
+     * If no version is provided, locates the most stable current version.
+     *
+     * If an integer version string is provided, finds the latest stable
+     * version in that major revision.
+     *
+     * If a minor version string ("X.Y") is provided, finds the latest
+     * stable version in that minor revision.
+     *
+     * If for any reason a lookup fails (e.g., major or minor version
+     * does not exist, or does not have a stable version), returns false.
+     * 
+     * @param  null|int|string $version 
+     * @return string|false
+     */
     public function getCurrentStableVersion($version = null)
     {
         if (null === $version) {
@@ -88,29 +125,368 @@ class ReleaseModel
         return $this->findMostRecentVersionInSeries($start, $end);
     }
 
+    /**
+     * Get date for a release
+     *
+     * If a matching release is found, returns the date; otherwise, returns
+     * boolean false.
+     * 
+     * @param  string $version 
+     * @return string|false
+     */
+    public function getReleaseDate($version)
+    {
+        $version  = $this->normalizeVersion($version);
+        $versions = $this->getNormalizedVersions();
+        if (isset($versions[$version])) {
+            return $versions[$version];
+        }
+        return false;
+    }
+
+    /**
+     * Get list of version/release date pairs
+     *
+     * @return array
+     */
+    public function getReleaseDates()
+    {
+        return $this->versions;
+    }
+
+    /**
+     * Retrieve list of all versions
+     * 
+     * @return array
+     */
+    public function getVersions()
+    {
+        return array_keys($this->versions);
+    }
+
+    /**
+     * Retrieve the URI for a download archive by version and format
+     *
+     * Utilizes the release base path provided at instantiation.
+     *
+     * @param  string $version 
+     * @param  string $format One of the ARCHIVE_* constants
+     * @return string|false
+     * @throw  InvalidArgumentException if the $version or $format is unknown
+     */
+    public function getArchive($version, $format = self::ARCHIVE_TAR)
+    {
+        if (!isset($this->versions[$version])) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid version "%s" provided; cannot create archive URI string',
+                $version
+            ));
+        }
+        if (!in_array($format, $this->archiveTypes)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid format "%s" provided; must be one of "%s" or "%s"',
+                $format,
+                self::ARCHIVE_TAR,
+                self::ARCHIVE_ZIP
+            ));
+        }
+
+        return sprintf(
+            $this->releaseTemplates['framework-full'],
+            $this->releaseBasePath,
+            $version,
+            $version,
+            $format
+        );
+    }
+
+    /**
+     * Retrieve the URI for a MINIMAL download archive by version and format
+     *
+     * Utilizes the release base path provided at instantiation.
+     *
+     * @param  string $version 
+     * @param  string $format One of the ARCHIVE_* constants
+     * @return string|false
+     * @throw  InvalidArgumentException if the $version or $format is unknown
+     */
+    public function getMinimalArchive($version, $format = self::ARCHIVE_TAR)
+    {
+        if (!isset($this->versions[$version])) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid version "%s" provided; cannot create minimal archive URI string',
+                $version
+            ));
+        }
+        if (!in_array($format, $this->archiveTypes)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid format "%s" provided; must be one of "%s" or "%s"',
+                $format,
+                self::ARCHIVE_TAR,
+                self::ARCHIVE_ZIP
+            ));
+        }
+
+        return sprintf(
+            $this->releaseTemplates['framework-minimal'],
+            $this->releaseBasePath,
+            $version,
+            $version,
+            $format
+        );
+    }
+
+    /**
+     * Get manual languages for a given version
+     *
+     * Returns an array of version strings.
+     * 
+     * @param  string $version 
+     * @return array
+     */
+    public function getManualLanguages($version)
+    {
+        $version = $this->normalizeVersion($version);
+        foreach ($this->languages as $data) {
+            $languages = $this->compareLanguageVersions($version, $data);
+            if ($languages) {
+                return $languages;
+            }
+        }
+        return array();
+    }
+
+    /**
+     * Get a download archive URL for a given version and language of the manual
+     *
+     * If the version does not exist, or the manual does not exist in the given 
+     * language, raises an exception
+     * 
+     * @param  string $version 
+     * @param  string $language 
+     * @param  string $format 
+     * @return string|false
+     */
+    public function getManualArchive($version, $language, $format = self::ARCHIVE_TAR)
+    {
+        $languages = $this->getManualLanguages($version);
+        $language  = strtolower($language);
+        if (!in_array($language, $languages)) {
+            throw new InvalidArgumentException(sprintf(
+                'Either the version "%s" does not exist, or the language "%s" is not available in that version',
+                $version,
+                $language
+            ));
+        }
+
+        if (!in_array($format, $this->archiveTypes)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid format "%s" provided; must be one of "%s" or "%s"',
+                $format,
+                self::ARCHIVE_TAR,
+                self::ARCHIVE_ZIP
+            ));
+        }
+
+        return sprintf(
+            $this->releaseTemplates['framework-manual'],
+            $this->releaseBasePath,
+            $version,
+            $version,
+            $language,
+            $format
+        );
+    }
+
+    /**
+     * Retrieve an API documentation archive for the given version, in the given format
+     *
+     * Returns false if version does not exist.
+     * 
+     * @param  string $version 
+     * @param  string $format 
+     * @return string|false
+     */
+    public function getApidocArchive($version, $format = self::ARCHIVE_TAR)
+    {
+        if (!isset($this->versions[$version])) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid version "%s" provided; cannot create apidoc URI string',
+                $version
+            ));
+        }
+        if (!in_array($format, $this->archiveTypes)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid format "%s" provided; must be one of "%s" or "%s"',
+                $format,
+                self::ARCHIVE_TAR,
+                self::ARCHIVE_ZIP
+            ));
+        }
+
+        return sprintf(
+            $this->releaseTemplates['framework-apidoc'],
+            $this->releaseBasePath,
+            $version,
+            $version,
+            $format
+        );
+    }
+
+    /**
+     * Get a download archive URI for a given product version, in the format specified
+     * 
+     * @param  string $product 
+     * @param  string $version 
+     * @param  string $format 
+     * @return string
+     */
+    public function getProductArchive($product, $version, $format = self::ARCHIVE_TAR)
+    {
+        if (!$this->productVersionExists($product, $version)) {
+            throw new DomainException(sprintf(
+                'Cannot locate archive for product "%s" of version "%s"',
+                $product,
+                $version
+            ));
+        }
+
+        if (!in_array($format, $this->archiveTypes)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid format "%s" provided; must be one of "%s" or "%s"',
+                $format,
+                self::ARCHIVE_TAR,
+                self::ARCHIVE_ZIP
+            ));
+        }
+
+        $product = $this->products[strtolower($product)]['product'];
+
+        return sprintf(
+            $this->releaseTemplates['product'],
+            $this->releaseBasePath,
+            $product,
+            $version,
+            $product,
+            $version,
+            $format
+        );
+    }
+
+    /**
+     * Retrieve the most recent stable product version
+     *
+     * If version is not provided, returns most recent stable version.
+     *
+     * If version is a major string, returns most recent stable version on that
+     * major branch.
+     * 
+     * If version is a minor string, returns most recent stable version on that
+     * minor branch.
+     * 
+     * @param  string $product 
+     * @param  null|string $version 
+     * @return string|false
+     */
+    public function getCurrentStableProductVersion($product, $version = null)
+    {
+        $product = strtolower($product);
+        if (!isset($this->products[$product])) {
+            throw new InvalidArgumentException(sprintf(
+                'Unknown product "%s" provided',
+                $product
+            ));
+        }
+
+        if (null === $version) {
+            $max = $this->products[$product]['latest'];
+            return $this->getCurrentStableVersion($max);
+        }
+
+        $current = $this->getCurrentStableVersion($version);
+        if (!$this->productVersionExists($product, $current)) {
+            return false;
+        }
+        return $current;
+    }
+
+    /**
+     * Get all versions for a given product
+     * 
+     * @param  string $product 
+     * @return array
+     */
+    public function getProductVersions($product)
+    {
+        $product = strtolower($product);
+        if (!isset($this->products[$product])) {
+            throw new InvalidArgumentException(sprintf(
+                'Unknown product "%s" provided',
+                $product
+            ));
+        }
+        if (isset($this->products[$product]['versions'])) {
+            return $this->products[$product]['versions'];
+        }
+
+        $first = $this->products[$product]['first'];
+        $last  = $this->products[$product]['latest'];
+        $last  = $this->getCurrentStableVersion($last);
+
+        $allVersions = $this->sortVersions();
+        $versions    = array();
+        foreach ($allVersions as $version) {
+            if (version_compare($version, $first, 'lt')) {
+                continue;
+            }
+            if (version_compare($version, $last, 'gt')) {
+                continue;
+            }
+            $versions[] = $version;
+        }
+
+        usort($versions, 'version_compare');
+        $versions = array_reverse($versions);
+
+        $this->products[$product]['versions'] = $versions;
+        return $versions;
+    }
+
+    /**
+     * Get list of released products
+     * 
+     * @return array
+     */
+    public function getProducts()
+    {
+        $products = array();
+        foreach ($this->products as $data) {
+            $products[] = $data['product'];
+        }
+        return $products;
+    }
+
+    /**
+     * Does the given version string represent a stable version?
+     * 
+     * @param  string $version 
+     * @return bool
+     */
     public function isStable($version)
     {
         $version = $this->normalizeVersion($version);
-        if (preg_match('/(a|alpha|b|beta|rc|dev)/', $version)) {
-            return false;
-        }
-        return true;
+        return !preg_match('/(a|alpha|b|beta|rc|dev)/', $version);
     }
 
-    public function isVersionStable($version)
-    {
-        return !preg_match('/(a|alpha|b|beta|rc)(\d+[a-z]?)?$/i', $version);
-    }
-
-    protected function versionCompare($a, $b)
-    {
-        $cmp = version_compare(strtolower($a), strtolower($b));
-        if ($cmp !== 0) {
-            return $cmp;
-        }
-        return strcmp($a, $b);
-    }
-
+    /**
+     * Normalize the version string
+     *
+     * Normalizes to lowercase. If the version string contains 'pr' ("preview
+     * release"), replaces it with "alpha".
+     * 
+     * @param  string $version 
+     * @return string
+     */
     public function normalizeVersion($version)
     {
         $version = strtolower($version);
@@ -121,6 +497,29 @@ class ReleaseModel
         return $version;
     }
 
+    /**
+     * Retrieve a list of version/date pairs, with the version strings normalized
+     * 
+     * @return array
+     */
+    protected function getNormalizedVersions()
+    {
+        if ($this->normalizedVersions) {
+            return $this->normalizedVersions;
+        }
+
+        $this->normalizedVersions = array();
+        foreach ($this->versions as $version => $date) {
+            $this->normalizedVersions[$this->normalizeVersion($version)] = $date;
+        }
+        return $this->normalizedVersions;
+    }
+
+    /**
+     * Find the most recent stable version.
+     * 
+     * @return string
+     */
     protected function findMostRecentVersion()
     {
         if ($this->mostRecentVersion) {
@@ -138,6 +537,20 @@ class ReleaseModel
         return $this->mostRecentVersion;
     }
 
+    /**
+     * Find the most recent stable version in a series
+     *
+     * Accepts the start version representing the floor, and the end version
+     * representing the ceiling for a range in which to scan. Returns the most
+     * recent stable version between those versions, including the start 
+     * version, but less than the end.
+     *
+     * If no stable version is found in that range, returns false.
+     * 
+     * @param  string $start 
+     * @param  string $end 
+     * @return string|false
+     */
     protected function findMostRecentVersionInSeries($start, $end)
     {
         $versions = $this->sortVersions();
@@ -159,6 +572,14 @@ class ReleaseModel
         return $current;
     }
 
+    /**
+     * Sort versions
+     *
+     * Sorts the versions provided to the constructor, and returns a list
+     * of all versions in reverse order.
+     * 
+     * @return array
+     */
     protected function sortVersions()
     {
         if ($this->sortedVersions) {
@@ -169,5 +590,59 @@ class ReleaseModel
         usort($versions, 'version_compare');
         $this->sortedVersions = array_reverse($versions);
         return $this->sortedVersions;
+    }
+
+    /**
+     * Determine if the version provided falls within the range specified in the 
+     * data. If so return the languages from the data; otherwise, return false.
+     * 
+     * @param  string $version 
+     * @param  array|\ArrayAccess $data 
+     * @return false|array
+     */
+    protected function compareLanguageVersions($version, $data)
+    {
+        $versionMatch = $data['version_match'];
+        if (version_compare($version, $versionMatch['min'], 'ge')
+            && (false === $versionMatch['max'] 
+                || version_compare($version, $versionMatch['max'], 'lt'))
+        ) {
+            return $data['languages'];
+        }
+        return false;
+    }
+
+    /**
+     * Determine if a product version exists
+     *
+     * Throws an exception if no matching product is found.
+     *
+     * If the product exists, it checks that $version is in the range
+     * of versions available for that product.
+     * 
+     * @param  string $product 
+     * @param  string $version 
+     * @return bool
+     */
+    protected function productVersionExists($product, $version)
+    {
+        $product = strtolower($product);
+        if (!isset($this->products[$product])) {
+            throw new DomainException(sprintf(
+                'Unable to find product by name of "%s"',
+                $product
+            ));
+        }
+
+        $versions = $this->products[$product];
+        $version  = $this->normalizeVersion($version);
+        $first    = $versions['first'];
+        $last     = $this->getCurrentStableVersion($versions['latest']);
+        if (version_compare($version, $first, 'ge')
+            && version_compare($version, $last, 'le')
+        ) {
+            return true;
+        }
+        return false;
     }
 }

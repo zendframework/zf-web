@@ -5,26 +5,6 @@ namespace DownloadsTest\View;
 use Downloads\View\ReleaseModel;
 use PHPUnit_Framework_TestCase as TestCase;
 
-/**
- * @todo get most recent stable version
- * @todo get most recent stable version of a given major release
- * @todo get most recent stable version of a given minor release
- * @todo get release date for a given version
- * @todo get all versions (just versions)
- * @todo get all versions with associated release date
- * @todo get full release archive URL by version and archive type
- * @todo get minimal release archive URL by version and archive type
- * @todo get manual languages by version
- * @todo get manual release archive URL by version, archive type, and language
- * @todo get apidoc release archive URL by version and archive type
- * @todo is a given version a stable release
- * @todo get download archive URL by product type, version, and archive type
- * @todo get most recent stable version by product type
- * @todo get most recent stable version by product type and major version
- * @todo get most recent stable version by product type and minor version
- * @todo get all releases by product type
- * @todo get all product types
- */
 class ReleaseModelTest extends TestCase
 {
     public function setUp()
@@ -55,7 +35,6 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals('1.11.14', $this->model->getCurrentStableVersion('1.11'));
     }
 
-    /*
     public function testCanRetrieveReleaseDateByVersion()
     {
         $this->assertEquals($this->config['versions']['1.11.13'], $this->model->getReleaseDate('1.11.13'));
@@ -115,7 +94,7 @@ class ReleaseModelTest extends TestCase
 
     /**
      * @dataProvider getManualLanguages
-     * /
+     */
     public function testCanGetManualLanguagesByVersion($version, $expected)
     {
         $this->assertEquals($expected, $this->model->getManualLanguages($version));
@@ -141,26 +120,32 @@ class ReleaseModelTest extends TestCase
 
     /**
      * @dataProvider getManualLanguageArchives
-     * /
+     */
     public function testCanRetrieveManualReleaseTarballByVersionAndLanguage($version, $language, $expected)
     {
         $path = $this->config['release_base_path'] . 'ZendFramework-%s/ZendFramework-%s-manual-%s.%s';
-        if ($expected) {
+        if (!$expected) {
+            $this->setExpectedException('InvalidArgumentException', 'exist');
+            $this->model->getManualArchive($version, $language, ReleaseModel::ARCHIVE_TAR);
+        } else {
             $expected = sprintf($path, $version, $version, $language, 'tar.gz');
+            $this->assertEquals($expected, $this->model->getManualArchive($version, $language, ReleaseModel::ARCHIVE_TAR));
         }
-        $this->assertEquals($expected, $this->getManualArchive($version, $language, ReleaseModel::ARCHIVE_TAR));
     }
 
     /**
      * @dataProvider getManualLanguageArchives
-     * /
+     */
     public function testCanRetrieveManualReleaseZipballByVersionAndLanguage($version, $language, $expected)
     {
         $path = $this->config['release_base_path'] . 'ZendFramework-%s/ZendFramework-%s-manual-%s.%s';
-        if ($expected) {
+        if (!$expected) {
+            $this->setExpectedException('InvalidArgumentException', 'exist');
+            $this->model->getManualArchive($version, $language, ReleaseModel::ARCHIVE_ZIP);
+        } else {
             $expected = sprintf($path, $version, $version, $language, 'zip');
+            $this->assertEquals($expected, $this->model->getManualArchive($version, $language, ReleaseModel::ARCHIVE_ZIP));
         }
-        $this->assertEquals($expected, $this->getManualArchive($version, $language, ReleaseModel::ARCHIVE_TAR));
     }
 
     public function testCanRetrieveApidocReleasePackagesByVersionAndType()
@@ -169,7 +154,7 @@ class ReleaseModelTest extends TestCase
         foreach (array(ReleaseModel::ARCHIVE_TAR => 'tar.gz', ReleaseModel::ARCHIVE_ZIP => 'zip') as $type => $suffix) {
             foreach (array_keys($this->config['versions']) as $version) {
                 $expected = sprintf($path, $version, $version, $suffix);
-                $this->assertEquals($expected, $this->getApidocArchive($version, $type));
+                $this->assertEquals($expected, $this->model->getApidocArchive($version, $type));
             }
         }
     }
@@ -188,7 +173,7 @@ class ReleaseModelTest extends TestCase
 
     /**
      * @dataProvider getVersionsForStabilityComparison
-     * /
+     */
     public function testCanTestIfAGivenVersionIsStable($version, $expected)
     {
         $this->assertSame($expected, $this->model->isStable($version));
@@ -219,29 +204,31 @@ class ReleaseModelTest extends TestCase
 
     /**
      * @dataProvider getProductReleases
-     * /
+     */
     public function testCanRetrieveProductReleaseTarballsByVersion($product, $version, $expected)
     {
-        $path = $this->config['release_base_path'] . 'Zend%s-%s/Zend%-%s.tar.gz';
+        $path = $this->config['release_base_path'] . 'Zend%s-%s/Zend%s-%s.tar.gz';
         if ($expected) {
             $path = sprintf($path, $product, $version, $product, $version);
-            $this->assertEquals($path, $this->model->getProductArchive($version, ReleaseModel::ARCHIVE_TAR));
+            $this->assertEquals($path, $this->model->getProductArchive($product, $version, ReleaseModel::ARCHIVE_TAR));
         } else {
-            $this->assertFalse($this->model->getProductArchive($version, ReleaseModel::ARCHIVE_TAR));
+            $this->setExpectedException('DomainException', 'product');
+            $this->model->getProductArchive($product, $version, ReleaseModel::ARCHIVE_TAR);
         }
     }
 
     /**
      * @dataProvider getProductReleases
-     * /
+     */
     public function testCanRetrieveProductReleaseZipballsByVersion($product, $version, $expected)
     {
-        $path = $this->config['release_base_path'] . 'Zend%s-%s/Zend%-%s.zip';
+        $path = $this->config['release_base_path'] . 'Zend%s-%s/Zend%s-%s.zip';
         if ($expected) {
             $path = sprintf($path, $product, $version, $product, $version);
-            $this->assertEquals($path, $this->model->getProductArchive($version, ReleaseModel::ARCHIVE_ZIP));
+            $this->assertEquals($path, $this->model->getProductArchive($product, $version, ReleaseModel::ARCHIVE_ZIP));
         } else {
-            $this->assertFalse($this->model->getProductArchive($version, ReleaseModel::ARCHIVE_ZIP));
+            $this->setExpectedException('DomainException', 'product');
+            $this->model->getProductArchive($product, $version, ReleaseModel::ARCHIVE_ZIP);
         }
     }
 
@@ -262,21 +249,34 @@ class ReleaseModelTest extends TestCase
 
     public function getProductVersions()
     {
-        $allReleases = array_keys($this->config['versions']);
-        $products    = $this->config['products'];
-        $return      = array();
+        $config      = include __DIR__ . '/../../../config/module.config.php';
+        $config      = $config['downloads'];
+        $allReleases = array_keys($config['versions']);
+        $products    = $config['products'];
+        $model       = new ReleaseModel(
+            $config['release_base_path'], 
+            $config['versions'],
+            $config['manual_languages'],
+            $products
+        );
 
+        $return      = array();
         foreach ($products as $product => $spec) {
             $min  = $spec['first'];
             $max  = $spec['latest'];
+            $max  = $model->getCurrentStableVersion($max);
             $test = array();
             foreach ($allReleases as $version) {
-                if (version_compare($version, $min, '>=')
-                    && version_compare($version, $max, '<=')
-                ) {
-                    $test[] = $version;
+                if (version_compare($version, $min, 'lt')) {
+                    continue;
                 }
+                if (version_compare($version, $max, 'gt')) {
+                    continue;
+                }
+                $test[] = $version;
             }
+            usort($test, 'version_compare');
+            $test = array_reverse($test);
             $return[] = array($product, $test);
         }
         return $return;
@@ -284,7 +284,7 @@ class ReleaseModelTest extends TestCase
 
     /**
      * @dataProvider getProductVersions
-     * /
+     */
     public function testCanRetrieveAllReleasesByProductType($product, $versions)
     {
         $this->assertEquals($versions, $this->model->getProductVersions($product));
@@ -294,5 +294,4 @@ class ReleaseModelTest extends TestCase
     {
         $this->assertEquals(array_keys($this->config['products']), $this->model->getProducts());
     }
-     */
 }
