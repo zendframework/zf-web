@@ -9,7 +9,7 @@ class ReleaseModelTest extends TestCase
 {
     public function setUp()
     {
-        $config = include __DIR__ . '/../../../config/module.config.php';
+        $config = include __DIR__ . '/TestAsset/module.config.php';
         $this->config = $config = $config['downloads'];
         $this->model  = new ReleaseModel(
             $config['release_base_path'], 
@@ -249,7 +249,7 @@ class ReleaseModelTest extends TestCase
 
     public function getProductVersions()
     {
-        $config      = include __DIR__ . '/../../../config/module.config.php';
+        $config      = include __DIR__ . '/TestAsset/module.config.php';
         $config      = $config['downloads'];
         $allReleases = array_keys($config['versions']);
         $products    = $config['products'];
