@@ -5,7 +5,7 @@ return array(
             'learn' => array(
                 'type' => 'Zend\Mvc\Router\Http\Segment',
                 'options' => array(
-                    'route' => '/manual/:lang/:version/:page',
+                    'route' => '/manual/:version/:lang/:page',
                     'constraints' => array(
                         'lang'    => '[a-z]{2}',
                         'version' => '[0-9\.a-z]+',
@@ -27,6 +27,35 @@ return array(
         ),
     ),
     'zf_document_path' => array(
-        '2.0' => 'path to zf2-documentation/docs/_build/html/'
+        '2.0' => array (
+            'en' => 'path to /zf2-documentation/docs/_build/html/'
+        ),
+        '1.12' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.12/en/',
+        ),
+        '1.11' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.11/en/',
+        ),
+        '1.10' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.10/en/',
+        ),
+        '1.9' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.9/en/',
+        ),
+        '1.8' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.8/en/',
+        ),
+        '1.7' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.7/en/',
+        ),
+        '1.6' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.6/en/',
+        ),
+        '1.5' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.5/en/',
+        ),
+        '1.0' => array (
+            'en' => 'path to /zfweb-manual/views/manual/1.0/en/',
+        ),
     ),
 );
