@@ -168,50 +168,14 @@ return array(
             'downloads' => array(
                 'type' => 'Segment',
                 'options' => array(
-                    'route'    => '/downloads[/]',
+                    'route'    => '/downloads[/[:action]]',
+                    'constraints' => array(
+                        'action' => '(latest|archives|phpcloud|skeleton-app)',
+                    ),
                     'defaults' => array(
                         '__NAMESPACE__' => 'Downloads\Controller',
                         'controller'    => 'Downloads',
                         'action'        => 'index',
-                    ),
-                    'may_terminate' => true,
-                    'child_routes'  => array(
-                        'latest' => array(
-                            'type' => 'Segment',
-                            'options' => array(
-                                'route'    => 'latest[/]',
-                                'defaults' => array(
-                                    'action' => 'latest',
-                                ),
-                            ),
-                        ),
-                        'archives' => array(
-                            'type' => 'Segment',
-                            'options' => array(
-                                'route'    => 'archives[/]',
-                                'defaults' => array(
-                                    'action' => 'archives',
-                                ),
-                            ),
-                        ),
-                        'skeleton' => array(
-                            'type' => 'Segment',
-                            'options' => array(
-                                'route'    => 'skeleton[/]',
-                                'defaults' => array(
-                                    'action' => 'skeleton-app',
-                                ),
-                            ),
-                        ),
-                        'phpcloud' => array(
-                            'type' => 'Segment',
-                            'options' => array(
-                                'route'    => 'phpcloud[/]',
-                                'defaults' => array(
-                                    'action' => 'phpcloud',
-                                ),
-                            ),
-                        ),
                     ),
                 ),
             ),
