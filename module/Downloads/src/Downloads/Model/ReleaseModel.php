@@ -1,5 +1,5 @@
 <?php
-namespace Downloads\View;
+namespace Downloads\Model;
 
 use DomainException;
 use InvalidArgumentException;

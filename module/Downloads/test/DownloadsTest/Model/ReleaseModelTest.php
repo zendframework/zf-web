@@ -1,8 +1,8 @@
 <?php
 
-namespace DownloadsTest\View;
+namespace DownloadsTest\Model;
 
-use Downloads\View\ReleaseModel;
+use Downloads\Model\ReleaseModel;
 use PHPUnit_Framework_TestCase as TestCase;
 
 class ReleaseModelTest extends TestCase
