@@ -294,4 +294,25 @@ class ReleaseModelTest extends TestCase
     {
         $this->assertEquals(array_keys($this->config['products']), $this->model->getProducts());
     }
+
+    public function getVersionStrings()
+    {
+        return array(
+            array('1.0.0rc3', '1', '1.0'),
+            array('1.5.7', '1', '1.5'),
+            array('1.11.15', '1', '1.11'),
+            array('2.0.0beta5', '2', '2.0'),
+            array('2.0.0rc3', '2', '2.0'),
+            array('2.0.0', '2', '2.0'),
+        );
+    }
+
+    /**
+     * @dataProvider getVersionStrings
+     */
+    public function testCanRetrieveMajorAndMinorVersionFromFullVersionString($version, $major, $minor)
+    {
+        $this->assertEquals($major, $this->model->getMajorVersion($version));
+        $this->assertEquals($minor, $this->model->getMinorVersion($version));
+    }
 }

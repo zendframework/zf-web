@@ -165,6 +165,61 @@ class ReleaseModel
     }
 
     /**
+     * Retrieve major version from version string
+     * 
+     * @param  string $version 
+     * @return string
+     */
+    public function getMajorVersion($version)
+    {
+        if (!strstr($version, '.')) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid version string provided to %s',
+                __METHOD__
+            ));
+        }
+        list($major, $remainder) = explode('.', $version, 2);
+        if (!is_numeric($major)) {
+            throw new InvalidArgumentException(sprintf(
+                '%s: Invalid major version segment "%s"; must be numeric',
+                __METHOD__,
+                $major
+            ));
+        }
+        return $major;
+    }
+
+    /**
+     * Retrieve minor version from version string
+     * 
+     * @param  string $version 
+     * @return string
+     */
+    public function getMinorVersion($version)
+    {
+        if (!strstr($version, '.')) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid version string provided to %s',
+                __METHOD__
+            ));
+        }
+        $segments = explode('.', $version, 3);
+        $major    = array_shift($segments);
+        $minor    = array_shift($segments);
+        foreach (array('major' => $major, 'minor' => $minor) as $key => $value) {
+            if (!is_numeric($value)) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s: Invalid %s version segment "%s"; must be numeric',
+                    __METHOD__,
+                    $key,
+                    $value
+                ));
+            }
+        }
+        return $major . '.' . $minor;
+    }
+
+    /**
      * Retrieve the URI for a download archive by version and format
      *
      * Utilizes the release base path provided at instantiation.
