@@ -2,6 +2,7 @@
 
 namespace Downloads\Controller;
 
+use Downloads\Model\ReleaseModel;
 use Zend\Mvc\Controller\AbstractActionController;
 
 class DownloadsController extends AbstractActionController
