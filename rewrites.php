@@ -7,10 +7,15 @@ $rewriteTable = array(
 
 $rewriteRegexes = array(
     '#^/zf2/blog/entry/(?P<id>[^/]+)#' => '/blog/%id%.html',
-    '#^/manual(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/(?P<version>\d+.\d)(/)?)?)?$#' => function ($uri, array $matches) {
+    '#^/manual(/(?P<version>\d+.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
         $lang    = isset($matches['lang'])    ? $matches['lang']    : 'en';
         $version = isset($matches['version']) ? $matches['version'] : '2.0';
-        return sprintf('/manual/%s/%s/index.html', $lang, $version);
+        if ('1.' === substr($matches['version'], 0, 2)) {
+            $file = 'manual.html';
+        } else {
+            $file = 'index.html';
+        }
+        return sprintf('/manual/%s/%s/%s', $version, $lang, $file);
     },
 );
 
