@@ -23,7 +23,6 @@ class DownloadsController extends AbstractActionController
      */
     public function indexAction()
     {
-        return null;
     }
 
     /**
@@ -44,5 +43,13 @@ class DownloadsController extends AbstractActionController
         return array(
             'releases' => $this->releases,
         );
+    }
+
+    public function skeletonAppAction()
+    {
+    }
+
+    public function phpcloudAction()
+    {
     }
 }
