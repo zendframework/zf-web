@@ -2,7 +2,7 @@
 return array(
     'router' => array(
         'routes' => array(
-            'learn' => array(
+            'manual' => array(
                 'type' => 'Zend\Mvc\Router\Http\Segment',
                 'options' => array(
                     'route' => '/manual/:version/:lang/:page',
@@ -13,9 +13,20 @@ return array(
                     ),
                     'defaults' => array(
                         'controller' => 'Manual/Controller/Page',
+                        'action'     => 'manual',
                         'lang'       => 'en',
                         'version'    => '2.0',
                         'page'       => 'index.html',
+                    ),
+                ),
+            ),
+            'learn' => array(
+                'type' => 'Zend\Mvc\Router\Http\Literal',
+                'options' => array(
+                    'route' => '/learn',
+                    'defaults' => array(
+                        'controller' => 'Manual/Controller/Page',
+                        'action'     => 'learn'
                     ),
                 ),
             ),

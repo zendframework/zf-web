@@ -2,14 +2,16 @@
 
 namespace Manual\Controller;
 
-use Zend\Mvc\Controller\AbstractController;
+//use Zend\Mvc\Controller\AbstractController;
+use Zend\Mvc\Controller\AbstractActionController;
 use Zend\Mvc\MvcEvent;
 use Zend\View\Resolver\ResolverInterface;
 use Zend\View\Model\ViewModel;
 use Zend\Dom\Query as DomQuery;
 use \DomElement;
 
-class PageController extends AbstractController
+//class PageController extends AbstractController
+class PageController extends AbstractActionController
 {
     /**
      * @var array 
@@ -44,7 +46,7 @@ class PageController extends AbstractController
     }
 
     /**
-     * Listen to dispatch event
+     * Manual Action
      *
      * Retrieves "page" parameter from route matches. If none found, assumes
      * a 404 status code and page.
@@ -55,18 +57,17 @@ class PageController extends AbstractController
      * Otherwise, returns a view model with a template matching the page from
      * this module.
      * 
-     * @param  MvcEvent $e 
      * @return ViewModel
      */
-    public function onDispatch(MvcEvent $e)
+    public function manualAction()
     {
         $model   = new ViewModel();
-        $matches = $e->getRouteMatch();
+        $matches = $this->getEvent()->getRouteMatch();
         $page    = $matches->getParam('page', false);
         $version = $matches->getParam('version', false);
         $lang    = $matches->getParam('lang', false);
         if (!$page || !$version || !$lang) {
-            return $this->return404Page($model, $e->getResponse());
+            return $this->return404Page($model, $this->getEvent()->getResponse());
         }
         
         if ('1.' === substr($version, 0, 2)) {
@@ -75,12 +76,12 @@ class PageController extends AbstractController
         $docFile = $this->params[$version][$lang] . $page;
         
         if (!file_exists($docFile)) {
-            return $this->return404Page($model, $e->getResponse());
+            return $this->return404Page($model, $this->getEvent()->getResponse());
         }
         
         $content = $this->getPageContent($docFile, $version);
         if (false === $content) {
-            return $this->return404Page($model, $e->getResponse());
+            return $this->return404Page($model, $this->getEvent()->getResponse());
         }
         $css = $this->getCss($version);
         
@@ -90,7 +91,17 @@ class PageController extends AbstractController
         $model->setVariable('versions', array_keys($this->params));
         $model->setVariable('css', $css);
         $model->setTemplate('manual/page-controller/manual');
-        $e->setResult($model);
+        return $model;
+    }
+    /**
+     * Learn Action
+     * 
+     * @return ViewModel 
+     */
+    public function learnAction()
+    {
+        $model = new ViewModel();
+        $model->setTemplate('manual/page-controller/learn');
         return $model;
     }
     /**
