@@ -5,6 +5,7 @@ return array(
         'PageController',
         'Downloads',
         'Manual',
+        'Security',
         'PhlyCommon',
         'PhlyBlog',
         'PhlyContact',
