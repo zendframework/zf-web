@@ -11,10 +11,10 @@ return array(
                         'controller'    => 'Page',
                         'page'          => 'participate',
                     ),
-                    'may_terminate' => true,
-                    'child_routes'  => array(
-                        /* other child routes forthcoming */
-                    ),
+                ),
+                'may_terminate' => true,
+                'child_routes'  => array(
+                    /* other child routes forthcoming */
                 ),
             ),
         ),
