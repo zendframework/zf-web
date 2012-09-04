@@ -19,6 +19,7 @@ $rewriteRegexes = array(
         }
         return sprintf('/manual/%s/%s/%s', $version, $lang, $file);
     },
+    '#^/community*#' => '/participate',
 );
 
 $rewrite = function ($uri) {
