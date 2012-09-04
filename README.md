@@ -31,3 +31,12 @@ To compile the blog, do the following from the root of the application:
     ./console PhlyBlog:compile -e -c -r
 
 Then add and commit the new and updated files.
+
+Generating Changelogs
+---------------------
+
+To generate the ZF1 changelog, execute the following:
+
+    ./console Changelog:fetchZf1
+
+This will, by default, write to `data/zf1-changelog.php`.
