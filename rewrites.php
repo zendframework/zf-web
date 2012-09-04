@@ -3,6 +3,8 @@ namespace ZfSite;
 
 $rewriteTable = array(
     '/zf2/blog'  => '/blog.html',
+    '/cla'        => '/framework_cla_1.0.pdf',
+    '/ccla'        => '/framework_cla_corporate_1.0.pdf',
 );
 
 $rewriteRegexes = array(
