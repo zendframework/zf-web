@@ -43,7 +43,11 @@ class ReleaseModelTest extends TestCase
     public function testCanRetrieveListOfAllVersionNumbers()
     {
         $versions = array_keys($this->config['versions']);
-        $this->assertEquals($versions, $this->model->getVersions());
+        $test     = $this->model->getVersions();
+        $this->assertEquals(count($versions), count($test));
+        foreach ($versions as $version) {
+            $this->assertContains($version, $test);
+        }
     }
 
     public function testCanRetrieveReleaseDates()

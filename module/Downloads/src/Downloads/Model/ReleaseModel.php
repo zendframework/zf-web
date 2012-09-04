@@ -161,7 +161,7 @@ class ReleaseModel
      */
     public function getVersions()
     {
-        return array_keys($this->versions);
+        return $this->sortVersions();
     }
 
     /**
@@ -548,6 +548,9 @@ class ReleaseModel
 
         if (strstr($version, 'pr')) {
             $version = str_replace('pr', 'alpha', $version);
+        }
+        if (strstr($version, 'pl')) {
+            $version = str_replace('pl', 'p', $version);
         }
         return $version;
     }
