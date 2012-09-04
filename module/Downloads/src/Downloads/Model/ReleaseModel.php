@@ -500,7 +500,7 @@ class ReleaseModel
             $versions[] = $version;
         }
 
-        usort($versions, 'version_compare');
+        natsort($versions);
         $versions = array_reverse($versions);
 
         $this->products[$product]['versions'] = $versions;
@@ -645,7 +645,7 @@ class ReleaseModel
         }
         $versions = array_keys($this->versions);
         array_walk($versions, array($this, 'normalizeVersion'));
-        usort($versions, 'version_compare');
+        natsort($versions);
         $this->sortedVersions = array_reverse($versions);
         return $this->sortedVersions;
     }
