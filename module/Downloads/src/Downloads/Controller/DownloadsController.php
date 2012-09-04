@@ -53,4 +53,12 @@ class DownloadsController extends AbstractActionController
     public function phpcloudAction()
     {
     }
+
+    public function pyrusAction()
+    {
+    }
+
+    public function composerAction()
+    {
+    }
 }
