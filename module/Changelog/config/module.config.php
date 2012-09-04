@@ -5,7 +5,8 @@ return array(
             'username' => '',
             'password' => '',
         ),
-        'file' => 'data/zf1-changelog.php',
+        'zf1_file' => 'data/zf1-changelog.php',
+        'zf2_file' => 'data/zf2-changelog.php',
     ),
     'router' => array(
         'routes' => array(

@@ -17,12 +17,12 @@ if (!isset($config['jira']) || !is_array($config['jira'])) {
 $jiraCredentials = $config['jira'];
 $jiraUrl         = isset($config['jira']['url']) ? $config['jira']['url'] : 'http://framework.zend.com/issues/rpc/xmlrpc';
 
-if (!isset($config['file'])) {
+if (!isset($config['zf1_file'])) {
     throw new RuntimeException(
         'Expecting an "file" key in "changelog" configuration; none found'
     );
 }
-$changelogDataFile = $config['file'];
+$changelogDataFile = $config['zf1_file'];
 
 echo "Fetching changelog from JIRA... (this may take a minute or two)\n";
 $cxn    = new XmlRpcClient($jiraUrl);

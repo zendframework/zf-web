@@ -2,19 +2,12 @@
 
 namespace Changelog\Controller;
 
-use Downloads\Model\ReleaseModel;
 use Zend\Mvc\Controller\AbstractActionController;
 use Zend\View\Model\ViewModel;
 
 class ChangelogController extends AbstractActionController
 {
     protected $data;
-    protected $model;
-
-    public function setReleasesModel(ReleaseModel $model)
-    {
-        $this->model = $model;
-    }
 
     public function setChangelogData(array $data)
     {
@@ -26,12 +19,7 @@ class ChangelogController extends AbstractActionController
 
     public function indexAction()
     {
-        $version = $this->model->getCurrentStableVersion(1);
-
-        if (!isset($this->data[$version])) {
-            throw new \DomainException('No changelog for current stable version!');
-        }
-
+        $version = key($this->data);
         $model = new ViewModel(array(
             'version'  => $version,
             'issues'   => $this->data[$version],
