@@ -39,4 +39,11 @@ To generate the ZF1 changelog, execute the following:
 
     ./console Changelog:fetchZf1
 
-This will, by default, write to `data/zf1-changelog.php`.
+This will, by default, write to `data/zf1-changelog.php`. You will need to
+ensure your local configuration includes appropriate JIRA credentials.
+
+To generate the ZF2 changelog, execute the following:
+
+    ./console Changelog:fetchZf2
+
+This will, by default, write to `data/zf2-changelog.php`.
