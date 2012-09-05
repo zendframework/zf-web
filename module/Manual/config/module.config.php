@@ -30,6 +30,30 @@ return array(
                     ),
                 ),
             ),
+            'docs' => array(
+                'type' => 'Zend\Mvc\Router\Http\Segment',
+                'options' => array(
+                    'route' => '/docs[/]',
+                    'defaults' => array(
+                        'controller' => 'Manual/Controller/Page',
+                        'action'     => 'learn'
+                    ),
+                ),
+                'may_terminate' => true,
+                'child_routes'  => array(
+                    'api' => array(
+                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'options' => array(
+                            'route'    => 'api[/]',
+                            'defaults' => array(
+                                'controller' => 'Manual/Controller/Page',
+                                'action'     => 'api'
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
+                 ),
+            ),
         ),
     ),
     'view_helpers' => array(
