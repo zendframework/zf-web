@@ -111,17 +111,36 @@ return array(
                 ),
             ),
             'about' => array(
-                'type' => 'Zend\Mvc\Router\Http\Literal',
+                'type' => 'Zend\Mvc\Router\Http\Segment',
                 'options' => array(
-                    'route'    => '/about',
+                    'route'    => '/about[/]',
                     'defaults' => array(
                         '__NAMESPACE__' => 'PageController\Controller',
                         'controller'    => 'Page',
                         'page'          => 'about',
                     ),
-                    'may_terminate' => true,
-                    'child_routes'  => array(
-                        /* other child routes forthcoming */
+                ),
+                'may_terminate' => true,
+                'child_routes'  => array(
+                    'faq' => array(
+                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'options' => array(
+                            'route'    => 'faq[/]',
+                            'defaults' => array(
+                                'page'          => 'about/faq',
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
+                    'faq-v1' => array(
+                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'options' => array(
+                            'route'    => 'faq-v1[/]',
+                            'defaults' => array(
+                                'page'          => 'about/faq-v1',
+                            ),
+                        ),
+                        'may_terminate' => true,
                     ),
                 ),
             ),
