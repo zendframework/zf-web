@@ -714,8 +714,10 @@ class ReleaseModel
         }
         $versions = array_keys($this->versions);
         array_walk($versions, array($this, 'normalizeVersion'));
-        uksort($versions, 'version_compare');
-        $this->sortedVersions = $versions;
+        if (!usort($versions, 'version_compare')) {
+            throw new \DomainException('Sorting failed?');
+        }
+        $this->sortedVersions = array_reverse($versions);
         return $this->sortedVersions;
     }
 
