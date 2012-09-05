@@ -293,6 +293,11 @@ class ReleaseModel
             ));
         }
 
+        list($major, $minor, $patch) = explode('.', $version, 3);
+        if ($major > 1 && $format == self::ARCHIVE_TAR) {
+            $format = 'tgz';
+        }
+
         $template = $this->releaseTemplates['framework-full'];
         $params   = array(
             $this->releaseBasePath,
