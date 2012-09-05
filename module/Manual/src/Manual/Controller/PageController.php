@@ -107,6 +107,17 @@ class PageController extends AbstractActionController
         return $model;
     }
     /**
+     * API Action
+     * 
+     * @return ViewModel
+     */
+    public function apiAction()
+    {
+        $model = new ViewModel();
+        $model->setTemplate('manual/page-controller/api');
+        return $model;
+    }
+    /**
      * Get page content (body, sidebar) according to the doc version
      * 
      * @param  string $file
