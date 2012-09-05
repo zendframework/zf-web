@@ -144,6 +144,17 @@ return array(
                     ),
                 ),
             ),
+            'license' => array(
+                'type' => 'Segment',
+                'options' => array(
+                    'route' => '/license[/]',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page'          => 'license',
+                    ),
+                ),
+            ),
         ),
     ),
 );
