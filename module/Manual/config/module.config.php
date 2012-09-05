@@ -41,5 +41,7 @@ return array(
         'template_path_stack' => array(
             'manual' => __DIR__ . '/../view',
         ),
-    )
+    ),
+    // Feed this with pairs of version => (lang => path) sets
+    'zf_document_path' => array()
 );
