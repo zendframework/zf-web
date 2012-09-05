@@ -84,6 +84,34 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals($expected, $this->model->getMinimalArchive('1.11.14', ReleaseModel::ARCHIVE_ZIP));
     }
 
+    public function getMinimalVersions()
+    {
+        return array(
+            array('0.2.0', false),
+            array('1.0.0rc3', false),
+            array('1.5.3', false),
+            array('1.6.0rc1', false),
+            array('1.6.0rc2', false),
+            array('1.6.0rc3', false),
+            array('1.6.0', true),
+            array('1.7.1', true),
+            array('1.8.2', true),
+            array('1.9.3', true),
+            array('1.10.4', true),
+            array('1.11.5', true),
+            array('1.12.0', true),
+            array('2.0.0rc6', true),
+        );
+    }
+
+    /**
+     * @dataProvider getMinimalVersions
+     */
+    public function testVersionsPriorTo1Dot6Dot0DidNotHaveMinimalVersions($version, $expected)
+    {
+        $this->assertSame($expected, $this->model->hasMinimalVersion($version));
+    }
+
     public function getManualLanguages()
     {
         return array(

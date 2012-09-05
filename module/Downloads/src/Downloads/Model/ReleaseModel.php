@@ -165,6 +165,23 @@ class ReleaseModel
     }
 
     /**
+     * Does the given version have a minimal version?
+     * 
+     * @param  string $version 
+     * @return bool
+     */
+    public function hasMinimalVersion($version)
+    {
+        $version = $this->normalizeVersion($version);
+        if (strnatcmp($version, '1.6.0') < 0
+            || preg_match('/^1\.6\.0rc/', $version)
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
      * Retrieve major version from version string
      * 
      * @param  string $version 
