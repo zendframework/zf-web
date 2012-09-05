@@ -155,6 +155,40 @@ return array(
                     ),
                 ),
             ),
+            'learn' => array(
+                'type' => 'Segment',
+                'options' => array(
+                    'route' => '/learn[/]',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page'          => 'learn',
+                    ),
+                ),
+                'may_terminate' => true,
+                'child_routes'  => array(
+                    'training-and-certification' => array(
+                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'options' => array(
+                            'route'    => 'training-and-certification[/]',
+                            'defaults' => array(
+                                'page'          => 'learn/training-and-certification',
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
+                    'support-and-consulting' => array(
+                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'options' => array(
+                            'route'    => 'support-and-consulting[/]',
+                            'defaults' => array(
+                                'page'          => 'learn/support-and-consulting',
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
+                ),
+            ),
         ),
     ),
 );
