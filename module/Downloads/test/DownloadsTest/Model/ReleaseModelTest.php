@@ -70,6 +70,32 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals($expected, $this->model->getArchive('1.11.14', ReleaseModel::ARCHIVE_ZIP));
     }
 
+    public function getPre1Dot0Packages()
+    {
+        $config = include __DIR__ . '/TestAsset/module.config.php';
+        $config = $config['downloads'];
+        $path   = $config['release_base_path'];
+        return array(
+            array('0.1.3',      $path . 'ZendFramework-0.1.3.zip'),
+            array('0.2.0',      $path . 'ZendFramework-0.2.0.zip'),
+            array('0.6.0',      $path . 'ZendFramework-0.6.0.zip'),
+            array('0.7.0',      $path . 'ZendFramework-0.7.0.zip'),
+            array('0.8.0',      $path . 'ZendFramework-0.8.0.zip'),
+            array('0.9.0-Beta', $path . 'ZendFramework-0.9.0-Beta.zip'),
+            array('0.9.3-Beta', $path . 'ZendFramework-0.9.3-Beta.zip'),
+            array('1.0.0-RC1',  $path . 'ZendFramework-1.0.0-RC1.zip'),
+            array('1.0.0-RC2',  $path . 'ZendFramework-1.0.0-RC2/ZendFramework-1.0.0-RC2.zip'),
+        );
+    }
+
+    /**
+     * @dataProvider getPre1Dot0Packages
+     */
+    public function testPre1Dot0PackagesShouldNotIncludeExtraPathInformation($version, $expected)
+    {
+        $this->assertEquals($expected, $this->model->getArchive($version, ReleaseModel::ARCHIVE_ZIP));
+    }
+
     public function testCanRetrieveMinimalReleaseTarballByVersion()
     {
         $path = $this->config['release_base_path'];
@@ -82,6 +108,41 @@ class ReleaseModelTest extends TestCase
         $path = $this->config['release_base_path'];
         $expected = $path . 'ZendFramework-1.11.14/ZendFramework-1.11.14-minimal.zip';
         $this->assertEquals($expected, $this->model->getMinimalArchive('1.11.14', ReleaseModel::ARCHIVE_ZIP));
+    }
+
+    public function testMinimalArchivePathsForZf2VersionsAreFormattedCorrectly()
+    {
+        $path = $this->config['release_base_path'];
+        $expected = $path . 'ZendFramework-2.0.0rc6/ZendFramework-minimal-2.0.0rc6.zip';
+        $this->assertEquals($expected, $this->model->getMinimalArchive('2.0.0rc6', ReleaseModel::ARCHIVE_ZIP));
+    }
+
+    public function getMinimalVersions()
+    {
+        return array(
+            array('0.2.0', false),
+            array('1.0.0rc3', false),
+            array('1.5.3', false),
+            array('1.6.0rc1', false),
+            array('1.6.0rc2', false),
+            array('1.6.0rc3', false),
+            array('1.6.0', true),
+            array('1.7.1', true),
+            array('1.8.2', true),
+            array('1.9.3', true),
+            array('1.10.4', true),
+            array('1.11.5', true),
+            array('1.12.0', true),
+            array('2.0.0rc6', true),
+        );
+    }
+
+    /**
+     * @dataProvider getMinimalVersions
+     */
+    public function testVersionsPriorTo1Dot6Dot0DidNotHaveMinimalVersions($version, $expected)
+    {
+        $this->assertSame($expected, $this->model->hasMinimalVersion($version));
     }
 
     public function getManualLanguages()
