@@ -13,7 +13,8 @@ return array(
             'by_month_filename_template' => 'public/blog/month/%s-p%d.html',
             'by_tag_filename_template'   => 'public/blog/tag/%s-p%d.html',
             'by_year_filename_template'  => 'public/blog/year/%s-p%d.html',
-            'entries_filename_template'  => 'public/blog-p%d.html',
+            'entries_filename_template'  => 'public/blog/index-p%d.html',
+            'entries_url_template'       => '/blog/index-p%d.html',
             'entries_template'           => 'blog/list',
             'entry_filename_template'    => 'public/blog/%s.html',
             'entry_link_template'        => '/blog/%s.html',
@@ -21,7 +22,7 @@ return array(
             'feed_author_email'          => 'zf-contributors@lists.zend.com',
             'feed_author_name'           => 'Zend Framework Development Team',
             'feed_author_uri'            => 'http://framework.zend.com/',
-            'feed_filename'              => 'public/blog-%s.xml',
+            'feed_filename'              => 'public/blog/feed-%s.xml',
             'feed_hostname'              => 'http://framework.zend.com',
             'feed_title'                 => 'Blog Entries - ZF Blog',
             'tag_feed_filename_template' => 'public/blog/tag/%s-%s.xml',
@@ -52,6 +53,37 @@ return array(
         ),
         'template_path_stack' => array(
             'blog' => 'module/ZfSiteBlog/view',
+        ),
+    ),
+    'router' => array(
+        'routes' => array(
+            'phly-blog' => array(
+                'type' => 'Literal',
+                'options' => array(
+                    'route' => '/blog/',
+                ),
+                'may_terminate' => false,
+                'child_routes'  => array(
+                    'index' => array(
+                        'type' => 'Literal',
+                        'options' => array(
+                            'route' => 'index.html',
+                        ),
+                    ),
+                    'feed-atom' => array(
+                        'type' => 'Literal',
+                        'options' => array(
+                            'route' => 'feed-atom.xml',
+                        ),
+                    ),
+                    'feed-rss' => array(
+                        'type' => 'Literal',
+                        'options' => array(
+                            'route' => 'feed-rss.xml',
+                        ),
+                    ),
+                ),
+            ),
         ),
     ),
 );
