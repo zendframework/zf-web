@@ -69,6 +69,7 @@ class PageController extends AbstractActionController
         if (!$page || !$version || !$lang) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
+        $name = $page;
         
         if ('1.' === substr($version, 0, 2)) {
             $page = preg_replace('/\.html/','.phtml', $page);
@@ -85,6 +86,9 @@ class PageController extends AbstractActionController
         }
         $css = $this->getCss($version);
         
+        $model->setVariable('name', $name);
+        $model->setVariable('lang', $lang);
+        $model->setVariable('title', $content['title']);
         $model->setVariable('body', $content['body']);
         $model->setVariable('sidebar', $content['sidebar']);
         $model->setVariable('version', $version);
@@ -117,11 +121,17 @@ class PageController extends AbstractActionController
         if ('1.' === substr($version, 0, 2)) {
             $content = file_get_contents($file);
             $hr = strpos($content, '<hr />');
+            $pageContent['body']    = '';
+            $pageContent['sidebar'] = '';
+            $pageContent['title']   = '';
             if (false !== $hr) {
                 $pageContent['body'] = substr($content, $hr+6);
             }
             if (preg_match('{<ul[^>]*>(.*?)</ul>}s', $content, $matches)) {
                 $pageContent['sidebar'] = $matches[0];
+            }
+            if (preg_match('{<h1[^>]*>([^<]*)</h1>}s', $content, $matches)) {
+                $pageContent['title'] = $matches[0];
             }
         } elseif ('2.0' === $version) {
             $doc  = new DomQuery(file_get_contents($file));
@@ -130,13 +140,20 @@ class PageController extends AbstractActionController
             $pageContent['body'] = $elem->ownerDocument->saveXML($elem);
             $pageContent['body'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['body']);
             $pageContent['body'] = preg_replace('/width: [6-9][0-9]{2}/i','width: 650', $pageContent['body']);
+
             // sidebar
             $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
             $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
             $pageContent['sidebar'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['sidebar']);
+
+            // title
+            $elem = $doc->queryXpath('//title')->current();
+            $pageContent['title'] = $elem->ownerDocument->saveXML($elem);
         }
+
         return $pageContent;
     }
+
     /**
      * Get the css for the specific version
      * 
