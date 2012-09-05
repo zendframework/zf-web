@@ -184,6 +184,34 @@ class ReleaseModel
     }
 
     /**
+     * Whether or not the given version has API docs
+     * 
+     * @param mixed $version 
+     * @return void
+     */
+    public function hasApidocs($version)
+    {
+        if (strnatcasecmp($version, '1.0.0') < 0
+            || preg_match('/^1\.0\.0-rc1$/i', $version)
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether or not the given version has end-user docs
+     * 
+     * @param mixed $version 
+     * @return void
+     */
+    public function hasDocumentation($version)
+    {
+        $languages = $this->getManualLanguages($version);
+        return (!empty($languages));
+    }
+
+    /**
      * Retrieve major version from version string
      * 
      * @param  string $version 
@@ -272,7 +300,7 @@ class ReleaseModel
             $version,
             $format,
         );
-        if (strnatcmp($version, '1.0.0') < 0
+        if (strnatcasecmp($version, '1.0.0') < 0
             || preg_match('/^1\.0\.0-rc1$/i', $version)
         ) {
             $template = $this->releaseTemplates['framework-full-v0'];
@@ -319,7 +347,7 @@ class ReleaseModel
             ));
         }
 
-        $template = (strnatcmp($version, '2.0.0') >= 0) 
+        $template = (strnatcasecmp($version, '2.0.0') >= 0) 
                   ? $this->releaseTemplates['framework-minimal-v2'] 
                   : $this->releaseTemplates['framework-minimal'];
 
@@ -686,8 +714,8 @@ class ReleaseModel
         }
         $versions = array_keys($this->versions);
         array_walk($versions, array($this, 'normalizeVersion'));
-        natsort($versions);
-        $this->sortedVersions = array_reverse($versions);
+        uksort($versions, 'version_compare');
+        $this->sortedVersions = $versions;
         return $this->sortedVersions;
     }
 
