@@ -12,7 +12,7 @@ class ChangelogController extends AbstractActionController
     public function setChangelogData(array $data)
     {
         uksort($data, function ($a, $b) {
-            return strnatcasecmp($b, $a);
+            return version_compare($b, $a);
         });
         $this->data = $data;
     }
