@@ -24,11 +24,12 @@ class ReleaseModel
     protected $products;
     protected $releaseBasePath;
     protected $releaseTemplates = array(
-        'framework-full'    => '%s/ZendFramework-%s/ZendFramework-%s.%s',
-        'framework-minimal' => '%s/ZendFramework-%s/ZendFramework-%s-minimal.%s',
-        'framework-manual'  => '%s/ZendFramework-%s/ZendFramework-%s-manual-%s.%s',
-        'framework-apidoc'  => '%s/ZendFramework-%s/ZendFramework-%s-apidoc.%s',
-        'product'           => '%s/Zend%s-%s/Zend%s-%s.%s',
+        'framework-full'       => '%s/ZendFramework-%s/ZendFramework-%s.%s',
+        'framework-minimal'    => '%s/ZendFramework-%s/ZendFramework-%s-minimal.%s',
+        'framework-minimal-v2' => '%s/ZendFramework-%s/ZendFramework-minimal-%s.%s',
+        'framework-manual'     => '%s/ZendFramework-%s/ZendFramework-%s-manual-%s.%s',
+        'framework-apidoc'     => '%s/ZendFramework-%s/ZendFramework-%s-apidoc.%s',
+        'product'              => '%s/Zend%s-%s/Zend%s-%s.%s',
     );
     protected $sortedVersions;
     protected $versions;
@@ -290,6 +291,12 @@ class ReleaseModel
                 $version
             ));
         }
+        if (!$this->hasMinimalVersion($version)) {
+            throw new InvalidArgumentException(sprintf(
+                'Invalid version "%s" provided; versions prior to 1.6.0 did not have minimal packages',
+                $version
+            ));
+        }
         if (!in_array($format, $this->archiveTypes)) {
             throw new InvalidArgumentException(sprintf(
                 'Invalid format "%s" provided; must be one of "%s" or "%s"',
@@ -299,8 +306,12 @@ class ReleaseModel
             ));
         }
 
+        $template = (strnatcmp($version, '2.0.0') >= 0) 
+                  ? $this->releaseTemplates['framework-minimal-v2'] 
+                  : $this->releaseTemplates['framework-minimal'];
+
         return sprintf(
-            $this->releaseTemplates['framework-minimal'],
+            $template,
             $this->releaseBasePath,
             $version,
             $version,

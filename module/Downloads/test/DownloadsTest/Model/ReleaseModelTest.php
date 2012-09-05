@@ -84,6 +84,13 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals($expected, $this->model->getMinimalArchive('1.11.14', ReleaseModel::ARCHIVE_ZIP));
     }
 
+    public function testMinimalArchivePathsForZf2VersionsAreFormattedCorrectly()
+    {
+        $path = $this->config['release_base_path'];
+        $expected = $path . 'ZendFramework-2.0.0rc6/ZendFramework-minimal-2.0.0rc6.zip';
+        $this->assertEquals($expected, $this->model->getMinimalArchive('2.0.0rc6', ReleaseModel::ARCHIVE_ZIP));
+    }
+
     public function getMinimalVersions()
     {
         return array(
