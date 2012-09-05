@@ -2,7 +2,6 @@
 
 namespace Manual\Controller;
 
-//use Zend\Mvc\Controller\AbstractController;
 use Zend\Mvc\Controller\AbstractActionController;
 use Zend\Mvc\MvcEvent;
 use Zend\View\Resolver\ResolverInterface;
@@ -10,7 +9,6 @@ use Zend\View\Model\ViewModel;
 use Zend\Dom\Query as DomQuery;
 use \DomElement;
 
-//class PageController extends AbstractController
 class PageController extends AbstractActionController
 {
     /**
@@ -75,11 +73,11 @@ class PageController extends AbstractActionController
             $page = preg_replace('/\.html/','.phtml', $page);
         }
         $docFile = $this->params[$version][$lang] . $page;
-        
+
         if (!file_exists($docFile)) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
-        
+
         $content = $this->getPageContent($docFile, $version);
         if (false === $content) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
