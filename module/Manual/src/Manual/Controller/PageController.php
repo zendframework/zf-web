@@ -31,6 +31,7 @@ class PageController extends AbstractActionController
         $this->resolver = $resolver;
         return $this;
     }
+
     /**
      * Set params of the controller
      * 
@@ -95,6 +96,7 @@ class PageController extends AbstractActionController
         $model->setTemplate('manual/page-controller/manual');
         return $model;
     }
+
     /**
      * Learn Action
      * 
@@ -106,6 +108,31 @@ class PageController extends AbstractActionController
         $model->setTemplate('manual/page-controller/learn');
         return $model;
     }
+
+    /**
+     * training Action
+     * 
+     * @return ViewModel 
+     */
+    public function trainingAction()
+    {
+        $model = new ViewModel();
+        $model->setTemplate('manual/page-controller/learn/training-and-certification');
+        return $model;
+    }
+
+    /**
+     * support Action
+     * 
+     * @return ViewModel 
+     */
+    public function supportAction()
+    {
+        $model = new ViewModel();
+        $model->setTemplate('manual/page-controller/learn/support-and-consulting');
+        return $model;
+    }
+
     /**
      * API Action
      * 
@@ -117,6 +144,7 @@ class PageController extends AbstractActionController
         $model->setTemplate('manual/page-controller/api');
         return $model;
     }
+
     /**
      * Get page content (body, sidebar) according to the doc version
      * 
@@ -181,6 +209,7 @@ class PageController extends AbstractActionController
         }
         return $css;
     }
+
     /**
      * Return a 404 page and status
      * 

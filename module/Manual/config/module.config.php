@@ -21,12 +21,35 @@ return array(
                 ),
             ),
             'learn' => array(
-                'type' => 'Zend\Mvc\Router\Http\Literal',
+                'type' => 'Segment',
                 'options' => array(
-                    'route' => '/learn',
+                    'route' => '/learn[/]',
                     'defaults' => array(
                         'controller' => 'Manual/Controller/Page',
                         'action'     => 'learn'
+                    ),
+                ),
+                'may_terminate' => true,
+                'child_routes'  => array(
+                    'training-and-certification' => array(
+                        'type' => 'Segment',
+                        'options' => array(
+                            'route'    => 'training-and-certification[/]',
+                            'defaults' => array(
+                                'action' => 'training',
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
+                    'support-and-consulting' => array(
+                        'type' => 'Segment',
+                        'options' => array(
+                            'route'    => 'support-and-consulting[/]',
+                            'defaults' => array(
+                                'action' => 'support',
+                            ),
+                        ),
+                        'may_terminate' => true,
                     ),
                 ),
             ),
