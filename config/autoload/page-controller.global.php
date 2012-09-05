@@ -110,6 +110,21 @@ return array(
                     ),
                 ),
             ),
+            'about' => array(
+                'type' => 'Zend\Mvc\Router\Http\Literal',
+                'options' => array(
+                    'route'    => '/about',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page'          => 'about',
+                    ),
+                    'may_terminate' => true,
+                    'child_routes'  => array(
+                        /* other child routes forthcoming */
+                    ),
+                ),
+            ),
         ),
     ),
 );
