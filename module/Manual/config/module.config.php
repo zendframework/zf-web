@@ -32,6 +32,11 @@ return array(
             ),
         ),
     ),
+    'view_helpers' => array(
+        'invokables' => array(
+            'manualurl' => 'Manual\View\Helper\ManualUrl',
+        ),
+    ),
     'view_manager' => array(
         'template_path_stack' => array(
             'manual' => __DIR__ . '/../view',

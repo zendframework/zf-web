@@ -76,6 +76,40 @@ return array(
                     ),
                 ),
             ),
+            'archives' => array(
+                'type' => 'Segment',
+                'options' => array(
+                    'route' => '/archives[/]',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page' => 'contact/archives',
+                    ),
+                ),
+                'may_terminate' => true,
+                'child_routes' => array(
+                    'subscribe' => array(
+                        'type' => 'Segment',
+                        'options' => array(
+                            'route' => 'subscribe[/]',
+                            'defaults' => array(
+                                'page' => 'contact/subscribe',
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+            'irc' => array(
+                'type' => 'Segment',
+                'options' => array(
+                    'route' => '/irc[/]',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page'          => 'contact/irc',
+                    ),
+                ),
+            ),
         ),
     ),
 );
