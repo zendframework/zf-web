@@ -36,9 +36,9 @@ the English version of the 2.0 documentation is represented by:
 The path of ZF2 documentation must point to the folder ``docs/_build/html/`` of the
 `zf2-documentation project`_. All the paths must be end with the ``/`` (slash).
 
-The 2.0 document files are generated using the `Sphinx`_ project. To have more info
-on how to generate the ZF2 documentation read the `CONTRIBUTE.md`_ file of the
-zf2-documentation project.
+The 2.0 document files are generated using the [Sphinx](http://sphinx.pocoo.org/) project. To have more info
+on how to generate the ZF2 documentation read the [CONTRIBUTE.md](https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTE.md)
+file of the zf2-documentation project.
 
 The path of the ZF1 documentation must point to the folder ``views/manual/$VER/$LANG/``
 of the ``git://git.zendframework.com/zfweb-manual.git`` project, where ``$VER`` is the version
