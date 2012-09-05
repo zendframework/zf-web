@@ -20,12 +20,12 @@ Alternately, configure a virtual host in the webserver of your choice.
 Reference Guide
 ---------------
 
-To configure the Reference Guide of ZF1 and ZF2 you have to edit the file
-``/module/Manual/config/module.config.php`` and modify the paths of the section
-``zf_document_path``.
+To configure the Reference Guide of ZF1 and ZF2, edit the file
+``config/autoload/module.manual.global.php`` and modify the variables named
+``$zf1ManualPath`` and ``$zf2ManualPath``, respectively. 
 
-Each path is related to a specific language of the reference guide. For instance,
-the English version of the 2.0 documentation is represented by:
+Each path is related to a specific language and version of the reference guide.
+For instance, the English version of the 2.0 documentation is represented by:
 
     'zf_document_path' => array(
         '2.0' => array (
@@ -33,16 +33,23 @@ the English version of the 2.0 documentation is represented by:
         )
     )
 
-The path of ZF2 documentation must point to the folder ``docs/_build/html/`` of the
-[zf2-documentation project](https://github.com/zendframework/zf2-documentation). All the paths must be end with the ``/`` (slash).
+The path of ZF2 documentation must point to the contents of a documenation build
+folder, generally found in ``docs/_build/html/`` of the [zf2-documentation project](https://github.com/zendframework/zf2-documentation); 
+if you use the documentation distribution archives, you would simply point to
+the directory in which you unpack the archive. The configuration paths must
+end with the ``/`` (slash) character.
 
-The 2.0 document files are generated using the [Sphinx](http://sphinx.pocoo.org/) project. To have more info
-on how to generate the ZF2 documentation read the [CONTRIBUTE.md](https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTE.md)
+The 2.0 documentation files are generated using the
+[Sphinx](http://sphinx.pocoo.org/) project. For more information on how to
+generate the ZF2 documentation, read the
+[CONTRIBUTE.md](https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTE.md)
 file of the [zf2-documentation project](https://github.com/zendframework/zf2-documentation).
 
-The path of the ZF1 documentation must point to the folder ``views/manual/$VER/$LANG/``
-of the ``git://git.zendframework.com/zfweb-manual.git`` project, where ``$VER`` is the version
-of Zend Framework and ``$LANG`` is the language. All the paths must be end with the ``/`` (slash).
+The path of the ZF1 documentation must point to the folder
+``views/manual/$VERSION/$LANG/`` of the
+``git://git.zendframework.com/zfweb-manual.git`` project, where ``$VERSION`` is
+the version of Zend Framework, and ``$LANG`` is the language. As with the ZF2
+configuration, the path must end with the ``/`` (slash) character.
 
 
 Blog posts
