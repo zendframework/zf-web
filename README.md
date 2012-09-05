@@ -17,6 +17,34 @@ At that point, you can test with the built-in webserver of PHP 5.4:
 
 Alternately, configure a virtual host in the webserver of your choice.
 
+Reference Guide
+---------------
+
+To configure the Reference Guide of ZF1 and ZF2 you have to edit the file
+``/module/Manual/config/module.config.php`` and modify the paths of the section
+``zf_document_path``.
+
+Each path is related to a specific language of the reference guide. For instance,
+the English version of the 2.0 documentation is represented by:
+
+    'zf_document_path' => array(
+        '2.0' => array (
+            'en' => 'path to /zf2-documentation/docs/_build/html/'
+        )
+    )
+
+The path of ZF2 documentation must point to the folder ``docs/_build/html/`` of the
+[zf2-documentation project](https://github.com/zendframework/zf2-documentation). All the paths must be end with the ``/`` (slash).
+
+The 2.0 document files are generated using the [Sphinx](http://sphinx.pocoo.org/) project. To have more info
+on how to generate the ZF2 documentation read the [CONTRIBUTE.md](https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTE.md)
+file of the [zf2-documentation project](https://github.com/zendframework/zf2-documentation).
+
+The path of the ZF1 documentation must point to the folder ``views/manual/$VER/$LANG/``
+of the ``git://git.zendframework.com/zfweb-manual.git`` project, where ``$VER`` is the version
+of Zend Framework and ``$LANG`` is the language. All the paths must be end with the ``/`` (slash).
+
+
 Blog posts
 ----------
 
