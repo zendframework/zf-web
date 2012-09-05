@@ -24,6 +24,7 @@ class ReleaseModel
     protected $products;
     protected $releaseBasePath;
     protected $releaseTemplates = array(
+        'framework-full-v0'    => '%s/ZendFramework-%s.%s',
         'framework-full'       => '%s/ZendFramework-%s/ZendFramework-%s.%s',
         'framework-minimal'    => '%s/ZendFramework-%s/ZendFramework-%s-minimal.%s',
         'framework-minimal-v2' => '%s/ZendFramework-%s/ZendFramework-minimal-%s.%s',
@@ -264,13 +265,25 @@ class ReleaseModel
             ));
         }
 
-        return sprintf(
-            $this->releaseTemplates['framework-full'],
+        $template = $this->releaseTemplates['framework-full'];
+        $params   = array(
             $this->releaseBasePath,
             $version,
             $version,
-            $format
+            $format,
         );
+        if (strnatcmp($version, '1.0.0') < 0
+            || preg_match('/^1\.0\.0-rc1$/i', $version)
+        ) {
+            $template = $this->releaseTemplates['framework-full-v0'];
+            $params   = array(
+                $this->releaseBasePath,
+                $version,
+                $format,
+            );
+        }
+
+        return vsprintf($template, $params);
     }
 
     /**

@@ -70,6 +70,32 @@ class ReleaseModelTest extends TestCase
         $this->assertEquals($expected, $this->model->getArchive('1.11.14', ReleaseModel::ARCHIVE_ZIP));
     }
 
+    public function getPre1Dot0Packages()
+    {
+        $config = include __DIR__ . '/TestAsset/module.config.php';
+        $config = $config['downloads'];
+        $path   = $config['release_base_path'];
+        return array(
+            array('0.1.3',      $path . 'ZendFramework-0.1.3.zip'),
+            array('0.2.0',      $path . 'ZendFramework-0.2.0.zip'),
+            array('0.6.0',      $path . 'ZendFramework-0.6.0.zip'),
+            array('0.7.0',      $path . 'ZendFramework-0.7.0.zip'),
+            array('0.8.0',      $path . 'ZendFramework-0.8.0.zip'),
+            array('0.9.0-Beta', $path . 'ZendFramework-0.9.0-Beta.zip'),
+            array('0.9.3-Beta', $path . 'ZendFramework-0.9.3-Beta.zip'),
+            array('1.0.0-RC1',  $path . 'ZendFramework-1.0.0-RC1.zip'),
+            array('1.0.0-RC2',  $path . 'ZendFramework-1.0.0-RC2/ZendFramework-1.0.0-RC2.zip'),
+        );
+    }
+
+    /**
+     * @dataProvider getPre1Dot0Packages
+     */
+    public function testPre1Dot0PackagesShouldNotIncludeExtraPathInformation($version, $expected)
+    {
+        $this->assertEquals($expected, $this->model->getArchive($version, ReleaseModel::ARCHIVE_ZIP));
+    }
+
     public function testCanRetrieveMinimalReleaseTarballByVersion()
     {
         $path = $this->config['release_base_path'];
