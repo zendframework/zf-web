@@ -154,39 +154,68 @@ class PageController extends AbstractActionController
      */
     protected function getPageContent($file, $version)
     {
-        $pageContent = array();
         if ('1.' === substr($version, 0, 2)) {
-            $content = file_get_contents($file);
-            $hr = strpos($content, '<hr />');
-            $pageContent['body']    = '';
-            $pageContent['sidebar'] = '';
-            $pageContent['title']   = '';
-            if (false !== $hr) {
-                $pageContent['body'] = substr($content, $hr+6);
-            }
-            if (preg_match('{<ul[^>]*>(.*?)</ul>}s', $content, $matches)) {
-                $pageContent['sidebar'] = $matches[0];
-            }
-            if (preg_match('{<h1[^>]*>([^<]*)</h1>}s', $content, $matches)) {
-                $pageContent['title'] = $matches[0];
-            }
-        } elseif ('2.0' === $version) {
-            $doc  = new DomQuery(file_get_contents($file));
-            // body
-            $elem = $doc->queryXpath('//div[@class="body"]')->current();
-            $pageContent['body'] = $elem->ownerDocument->saveXML($elem);
-            $pageContent['body'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['body']);
-            $pageContent['body'] = preg_replace('/width: [6-9][0-9]{2}/i','width: 650', $pageContent['body']);
-
-            // sidebar
-            $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
-            $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
-            $pageContent['sidebar'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['sidebar']);
-
-            // title
-            $elem = $doc->queryXpath('//title')->current();
-            $pageContent['title'] = $elem->ownerDocument->saveXML($elem);
+            return $this->getV1PageContent($file);
         }
+        return $this->getV2PageContent($file);
+    }
+
+    /**
+     * Get page content from a v1 manual
+     * 
+     * @param  string $file 
+     * @return array
+     */
+    protected function getV1PageContent($file)
+    {
+        $pageContent            = array();
+        $content                = file_get_contents($file);
+        $hr                     = strpos($content, '<hr />');
+        $pageContent['body']    = '';
+        $pageContent['sidebar'] = '';
+        $pageContent['title']   = '';
+        if (false !== $hr) {
+            $pageContent['body'] = substr($content, $hr+6);
+        }
+        if (preg_match('{<ul[^>]*>(.*?)</ul>}s', $content, $matches)) {
+            $pageContent['sidebar'] = $matches[0];
+        }
+        if (preg_match('{<h1[^>]*>([^<]*)</h1>}s', $content, $matches)) {
+            $pageContent['title'] = $matches[0];
+        }
+
+        return $pageContent;
+    }
+
+    /**
+     * get page content from a v2 manual
+     * 
+     * @param  string $file 
+     * @return array
+     */
+    protected function getV2PageContent($file)
+    {
+        $pageContent = array();
+        $doc         = new DomQuery(file_get_contents($file));
+
+        // body
+        $elem = $doc->queryXpath('//div[@class="body"]')->current();
+        $pageContent['body'] = $elem->ownerDocument->saveXML($elem);
+        $pageContent['body'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['body']);
+        $pageContent['body'] = preg_replace('/width: [6-9][0-9]{2}/i','width: 650', $pageContent['body']);
+
+        // navigation
+        $elem = $doc->queryXpath('//div[@class="related"]/ul')->current();
+        $pageContent['body'] .= '<div class="related">' . $elem->ownerDocument->saveXML($elem) . '</div>';
+
+        // sidebar
+        $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
+        $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
+        $pageContent['sidebar'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['sidebar']);
+
+        // title
+        $elem = $doc->queryXpath('//title')->current();
+        $pageContent['title'] = $elem->nodeValue;
 
         return $pageContent;
     }
