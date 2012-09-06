@@ -2,9 +2,14 @@
 namespace ZfSite;
 
 $rewriteTable = array(
-    '/zf2/blog'  => '/blog.html',
-    '/cla'        => '/framework_cla_1.0.pdf',
-    '/ccla'        => '/framework_cla_corporate_1.0.pdf',
+    '/zf2/blog'         => '/blog/index.html',
+    '/cla'              => '/framework_cla_1.0.pdf',
+    '/ccla'             => '/framework_cla_corporate_1.0.pdf',
+    '/zf2'              => '/',
+    '/zf2/status'       => '/',
+    '/zf2/board'        => '/',
+    '/zf2/board/invite' => '/',
+    '/zf2/blog/feed'    => '/blog/feed-rss.xml',
 );
 
 $rewriteRegexes = array(
