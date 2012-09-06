@@ -64,7 +64,13 @@ class DownloadsController extends AbstractActionController
 
     public function zfVersionAction()
     {
-        $version  = $this->releases->getCurrentStableVersion();
+        $major    = $this->params()->fromQuery('v', 1);
+        $version  = $this->releases->getCurrentStableVersion($major);
+
+        if (!$version) {
+            $version  = $this->releases->getCurrentStableVersion(1);
+        }
+
         $response = $this->getResponse();
         $response->setContent($version);
         return $response;
