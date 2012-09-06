@@ -10,6 +10,7 @@ $rewriteTable = array(
     '/zf2/board'        => '/',
     '/zf2/board/invite' => '/',
     '/zf2/blog/feed'    => '/blog/feed-rss.xml',
+    '/docs/quickstart'  => '/manual/1.12/en/learning.quickstart.html',
 );
 
 $rewriteRegexes = array(
