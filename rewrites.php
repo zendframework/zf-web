@@ -9,7 +9,8 @@ $rewriteTable = array(
 
 $rewriteRegexes = array(
     '#^/zf2/blog/entry/(?P<id>[^/]+)#' => '/blog/%id%.html',
-    '#^/manual(/(?P<version>\d+.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
+    '#^/manual/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(?P<page>.*)$#' => '/manual/1.12/%lang%%page%',
+    '#^/manual(/(?P<version>\d+\.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
         $lang    = isset($matches['lang'])    ? $matches['lang']    : 'en';
         $version = isset($matches['version']) ? $matches['version'] : '2.0';
         if ('1.' === substr($matches['version'], 0, 2)) {
@@ -57,7 +58,6 @@ $test = function () use ($rewriteTable, $rewriteRegexes, $rewrite) {
             $rewrite($rewriteUri);
             return;
         }
-
         $replacements = array();
         foreach ($matches as $key => $value) {
             if (is_int($key) || is_numeric($key)) {

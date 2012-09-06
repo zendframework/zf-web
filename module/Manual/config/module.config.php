@@ -8,7 +8,7 @@ return array(
                     'route' => '/manual/:version/:lang/:page',
                     'constraints' => array(
                         'lang'    => '[a-z]{2}',
-                        'version' => '[0-9\.a-z]+',
+                        'version' => '[0-9\.]+',
                         'page'    => '.+'
                     ),
                     'defaults' => array(
