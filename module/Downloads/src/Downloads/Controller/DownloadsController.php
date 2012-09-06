@@ -61,4 +61,12 @@ class DownloadsController extends AbstractActionController
     public function composerAction()
     {
     }
+
+    public function zfVersionAction()
+    {
+        $version  = $this->releases->getCurrentStableVersion();
+        $response = $this->getResponse();
+        $response->setContent($version);
+        return $response;
+    }
 }

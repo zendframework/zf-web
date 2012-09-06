@@ -179,6 +179,26 @@ return array(
                     ),
                 ),
             ),
+            'api' => array(
+                'type' => 'Literal',
+                'options' => array(
+                    'route'    => '/api',
+                ),
+                'may_terminate' => false,
+                'child_routes' => array(
+                    'zf-version' => array(
+                        'type' => 'Literal',
+                        'options' => array(
+                            'route' => '/zf-version',
+                            'defaults' => array(
+                                '__NAMESPACE__' => 'Downloads\Controller',
+                                'controller'    => 'Downloads',
+                                'action'        => 'zf-version',
+                            ),
+                        ),
+                    ),
+                ),
+            ),
         ),
     ),
 );
