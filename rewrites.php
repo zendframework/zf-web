@@ -5,6 +5,7 @@ $rewriteTable = array(
     '/zf2/blog'         => '/blog/index.html',
     '/cla'              => '/framework_cla_1.0.pdf',
     '/ccla'             => '/framework_cla_corporate_1.0.pdf',
+    '/code'             => '/code/',
     '/zf2'              => '/',
     '/zf2/status'       => '/',
     '/zf2/board'        => '/',
