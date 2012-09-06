@@ -422,6 +422,11 @@ class ReleaseModel
             ));
         }
 
+        list($major, $minor, $patch) = explode('.', $version, 3);
+        if ($major > 1 && $format == self::ARCHIVE_TAR) {
+            $format = 'tgz';
+        }
+
         return sprintf(
             $this->releaseTemplates['framework-manual'],
             $this->releaseBasePath,
@@ -456,6 +461,11 @@ class ReleaseModel
                 self::ARCHIVE_TAR,
                 self::ARCHIVE_ZIP
             ));
+        }
+
+        list($major, $minor, $patch) = explode('.', $version, 3);
+        if ($major > 1 && $format == self::ARCHIVE_TAR) {
+            $format = 'tgz';
         }
 
         return sprintf(
