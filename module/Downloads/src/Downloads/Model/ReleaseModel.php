@@ -352,6 +352,11 @@ class ReleaseModel
             ));
         }
 
+        list($major, $minor, $patch) = explode('.', $version, 3);
+        if ($major > 1 && $format == self::ARCHIVE_TAR) {
+            $format = 'tgz';
+        }
+
         $template = (strnatcasecmp($version, '2.0.0') >= 0) 
                   ? $this->releaseTemplates['framework-minimal-v2'] 
                   : $this->releaseTemplates['framework-minimal'];
