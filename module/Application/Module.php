@@ -10,6 +10,8 @@
 namespace Application;
 
 use Zend\Mvc\ModuleRouteListener;
+use Zend\ModuleManager\ModuleManager;
+use \Zend\Mvc\MvcEvent;
 
 class Module
 {
@@ -34,5 +36,18 @@ class Module
                 ),
             ),
         );
+    }
+
+    public function init(ModuleManager $moduleManager)
+    {
+        $sharedEvents = $moduleManager->getEventManager()->getSharedManager();
+        $sharedEvents->attach(__NAMESPACE__, MvcEvent::EVENT_DISPATCH, function($e) {
+            /** @var $e \Zend\Mvc\MvcEvent */
+            /** @var $response \Zend\Http\PhpEnvironment\Response */
+            $response = $e->getResponse();
+            if ($response instanceof \Zend\Http\Response) {
+                $response->getHeaders()->addHeaderLine('X-Powered-By', 'Symfony2');
+            }
+        });
     }
 }
