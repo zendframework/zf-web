@@ -175,7 +175,7 @@ class PageController extends AbstractActionController
         $pageContent['sidebar'] = '';
         $pageContent['title']   = '';
         if (false !== $hr) {
-            $pageContent['body'] = substr($content, $hr+6);
+            $pageContent['body'] = '<div id="manual-container" class="tundra">' . substr($content, $hr+6) . '</div>';
         }
         if (preg_match('{<ul[^>]*>(.*?)</ul>}s', $content, $matches)) {
             $pageContent['sidebar'] = $matches[0];
