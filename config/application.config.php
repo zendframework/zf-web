@@ -14,6 +14,7 @@ return array(
         'Changelog',
         'Downloads',
         'Manual',
+        'Search',
         'Security',
         'PhlyCommon',
         'PhlyBlog',
