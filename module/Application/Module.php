@@ -59,7 +59,7 @@ class Module
                 'Django',
                 'Spring',
                 'MVC.NET',
-                'Supreme Alied Commander',
+                'Supreme Allied Commander',
             );
 
             $response->getHeaders()
