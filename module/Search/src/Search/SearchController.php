@@ -24,11 +24,22 @@ class SearchController extends AbstractActionController
             return $model;
         }
 
-        $page  = $this->params()->fromQuery('page', 1);
+        $page    = $this->params()->fromQuery('page', 1);
+        $results = $this->search->search($query, $page);
+        if (!$results) {
+            $model->setVariables(array(
+                'query'    => $query,
+                'error'    => $this->search->getLastResult(),
+                'errorUri' => $this->search->getLastUri(),
+            ));
+            return $model;
+        }
+
         $model->setVariables(array(
             'query'   => $query,
             'page'    => $page,
-            'results' => $this->search->search($query, $page),
+            'lastUri' => $this->search->getLastUri(),
+            'results' => $results,
         ));
         return $model;
     }

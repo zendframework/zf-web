@@ -11,10 +11,12 @@ class GoogleCustomSearch
 
     protected $defaultQueryOptions = array(
         'prettyPrint' => 'true',
-        'fields'      => 'queries(nextPage,previousPage),items(htmlTitle,link,htmlSnippet)'
+        'fields'      => 'queries(nextPage,previousPage),items(htmlTitle,link,htmlFormattedUrl,htmlSnippet)'
     );
     protected $httpClient;
     protected $itemsPerPage = 10;
+    protected $lastResult;
+    protected $lastUri;
     protected $uri;
 
     public function __construct(HttpClient $client, $apiKey, $customSearchIdentifier, array $queryOptions = array())
@@ -48,18 +50,37 @@ class GoogleCustomSearch
      */
     public function search($query, $page = 1)
     {
+        if ($page > 10) {
+            $page = 10;
+        }
+
         $startIndex = $this->getStartIndexFromPage($page);
         $uri        = $this->uri . sprintf('&q=%s&start=%s', urlencode($query), $startIndex);
         $this->httpClient->setUri($uri);
 
-        $response   = $this->httpClient->send();
-        $json       = $response->getBody();
-        $results    = json_decode($json);
+        $response         = $this->httpClient->send();
+        $json             = $response->getBody();
+        $this->lastResult = $json;
+        $this->lastUri    = $uri;
+        $results          = json_decode($json);
+        if (null === $results) {
+            return false;
+        }
 
         $paginator  = new Paginator(new GoogleCustomSearchPaginator($results));
         $paginator->setCurrentPageNumber($page);
         $paginator->setItemCountPerPage($this->getItemsPerPage());
         return $paginator;
+    }
+
+    public function getLastResult()
+    {
+        return $this->lastResult;
+    }
+
+    public function getLastUri()
+    {
+        return $this->lastUri;
     }
 
     protected function getStartIndexFromPage($page)

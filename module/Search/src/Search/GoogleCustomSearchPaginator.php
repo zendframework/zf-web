@@ -18,7 +18,16 @@ class GoogleCustomSearchPaginator implements PaginatorAdapter
             ));
         }
 
-        $this->count = $searchResults->queries->nextPage->totalResults;
+        if (!isset($searchResults->queries) || !isset($searchResults->items) || empty($searchResults->items)) {
+            $this->count = 0;
+            $this->items = array();
+            return;
+        }
+
+        $pages       = isset($searchResults->queries->nextPage) ? $searchResults->queries->nextPage : $searchResults->queries->previousPage;
+        $page        = array_shift($pages);
+        $total       = ($page->totalResults > 100) ? 100 : $page->totalResults;
+        $this->count = $total;
         $this->items = $searchResults->items;
     }
 
