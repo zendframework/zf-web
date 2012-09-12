@@ -41,8 +41,7 @@ class FetchController extends AbstractActionController
         if (!$request instanceof ConsoleRequest){
             throw new \RuntimeException('You can only use this action from the console!');
         }
-        $version = $request->getParam('version');
-        if ($version == 'zf1') {
+        if ($request->getParam('zf1')) {
             return $this->fetchZf1();
         }
         return $this->fetchZf2();
@@ -68,7 +67,7 @@ class FetchController extends AbstractActionController
                      . var_export($issues, 1) 
                      . ";\nreturn \$issues;";
         
-        $this->console->writeLine("Writing to $changelogDataFile");
+        $this->console->writeLine("Writing to {$this->zf1DataFile}");
         file_put_contents($this->zf1DataFile, $fileContent);
         
         $this->console->writeLine("Removing duplicates");

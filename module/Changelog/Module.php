@@ -2,6 +2,7 @@
 
 namespace Changelog;
 
+use RuntimeException;
 use Zend\Console\Adapter\AdapterInterface as Console;
 use Zend\ModuleManager\Feature\ConsoleUsageProviderInterface;
 use Zend\ServiceManager\Exception\ServiceNotCreatedException;
@@ -27,7 +28,7 @@ class Module implements ConsoleUsageProviderInterface
     {
         return array('factories' => array(
             'Changelog\XmlRpc\Client' => function ($services) {
-                $config   = $services->get('Config');
+                $config = $services->get('Config');
                 if (!isset($config['changelog'])) {
                     throw new RuntimeException(
                         'Expecting a "changelog" key in configuration; none found'
@@ -40,11 +41,12 @@ class Module implements ConsoleUsageProviderInterface
                     );
                 }
                 $jiraUrl = isset($config['jira']['url']) ? $config['jira']['url'] : 'http://framework.zend.com/issues/rpc/xmlrpc';
-                $cxn    = new XmlRpcClient($jiraUrl);
-                $client = $cxn->getProxy('jira1');
+                $cxn     = new XmlRpcClient($jiraUrl);
+                $client  = $cxn->getProxy('jira1');
                 return $client;
             },
-            'Changlog\Jira\Auth' => function ($services) {
+            'Changelog\Jira\Auth' => function ($services) {
+                $config   = $services->get('Config');
                 if (!isset($config['changelog'])) {
                     throw new RuntimeException(
                         'Expecting a "changelog" key in configuration; none found'
@@ -58,7 +60,7 @@ class Module implements ConsoleUsageProviderInterface
                 }
                 $jiraCredentials = $config['jira'];
 
-                $client = $services->get('Changlog\XmlRpc\Client');
+                $client = $services->get('Changelog\XmlRpc\Client');
                 $auth   = $client->login(
                     $jiraCredentials['username'], 
                     $jiraCredentials['password']
