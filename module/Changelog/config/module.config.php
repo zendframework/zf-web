@@ -41,7 +41,7 @@ return array(
     'console' => array(
         'router' => array(
             'routes' => array(
-                'changelog-fetch-zf1' => array(
+                'changelog-fetch' => array(
                     'type'    => 'Simple',
                     'options' => array(
                         'route' => 'changelog fetch (zf1|zf2):version',

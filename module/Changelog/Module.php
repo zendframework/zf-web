@@ -4,6 +4,7 @@ namespace Changelog;
 
 use RuntimeException;
 use Zend\Console\Adapter\AdapterInterface as Console;
+use Zend\Http\Client as HttpClient;
 use Zend\ModuleManager\Feature\ConsoleUsageProviderInterface;
 use Zend\ServiceManager\Exception\ServiceNotCreatedException;
 use Zend\XmlRpc\Client as XmlRpcClient;
@@ -67,6 +68,15 @@ class Module implements ConsoleUsageProviderInterface
                 );
                 return $auth;
             },
+            'Changelog\Http\Client' => function ($services) {
+                $client = new HttpClient();
+                $client->setOptions(array(
+                    'adapter'   => 'Zend\Http\Client\Adapter\Curl',
+                    'keepalive' => true,
+                    'timeout'   => 10,
+                ));
+                return $client;
+            },
         ));
     }
 
@@ -113,16 +123,24 @@ class Module implements ConsoleUsageProviderInterface
                 $config = $config['changelog'];
                 if (!isset($config['zf1_file'])) {
                     throw new RuntimeException(
-                        'Expecting an "file" key in "changelog" configuration; none found'
+                        'Expecting a "zf1_file" key in "changelog" configuration; none found'
                     );
                 }
-                $changelogDataFile = $config['zf1_file'];
+                $zf1DataFile = $config['zf1_file'];
+                if (!isset($config['zf2_file'])) {
+                    throw new RuntimeException(
+                        'Expecting a "zf2_file" key in "changelog" configuration; none found'
+                    );
+                }
+                $zf2DataFile = $config['zf2_file'];
 
                 $controller = new Controller\FetchController();
                 $controller->setConsole($services->get('Console'));
-                $controller->setZf1DataFile($changelogDataFile);
+                $controller->setZf1DataFile($zf1DataFile);
+                $controller->setZf2DataFile($zf2DataFile);
                 $controller->setXmlRpcClient($services->get('Changelog\XmlRpc\Client'));
                 $controller->setJiraAuth($services->get('Changelog\Jira\Auth'));
+                $controller->setHttpClient($services->get('Changelog\Http\Client'));
 
                 return $controller;
             },

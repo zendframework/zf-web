@@ -5,19 +5,30 @@ namespace Changelog\Controller;
 use Zend\Console\Adapter\AdapterInterface as Console;
 use Zend\Console\ColorInterface as Color;
 use Zend\Console\Request as ConsoleRequest;
+use Zend\Http\Client as HttpClient;
 use Zend\Mvc\Controller\AbstractActionController;
 use Zend\XmlRpc\Client\ServerProxy as XmlRpcClient;
 
 class FetchController extends AbstractActionController
 {
+    const GITHUB_ZF2_TAGS = 'https://api.github.com/repos/zendframework/zf2/tags';
+    const GITHUB_ZF2_REFS = 'https://api.github.com/repos/zendframework/zf2/git/refs/tags/';
+
     protected $console;
+    protected $httpClient;
     protected $jiraAuth;
     protected $xmlRpc;
     protected $zf1DataFile;
+    protected $zf2DataFile;
 
     public function setConsole(Console $console)
     {
         $this->console = $console;
+    }
+
+    public function setHttpClient(HttpClient $client)
+    {
+        $this->httpClient = $client;
     }
 
     public function setJiraAuth($auth)
@@ -33,6 +44,11 @@ class FetchController extends AbstractActionController
     public function setZf1DataFile($path)
     {
         $this->zf1DataFile = $path;
+    }
+
+    public function setZf2DataFile($path)
+    {
+        $this->zf2DataFile = $path;
     }
 
     public function changelogAction()
@@ -99,5 +115,44 @@ class FetchController extends AbstractActionController
 
     public function fetchZf2()
     {
+        $data = array();
+        $filter = function ($string) {
+            return preg_replace("/\n\-+(?:BEGIN PGP SIGNATURE).*/s", '', $string);
+        };
+        
+        $this->console->writeLine("Fetching list of all tags");
+        $this->httpClient->setUri(self::GITHUB_ZF2_TAGS);
+        $response = $this->httpClient->send();
+        $tags     = json_decode($response->getBody());
+        foreach ($tags as $info) {
+            $tag = $info->name;
+            if (preg_match('/dev(?:el)?(?:\d+(?:[a-z]+)?)?$/', $tag)) {
+                // skip development tags
+                continue;
+            }
+        
+            $this->console->writeLine("    Fetching ref info for tag '$tag'");
+            $this->httpClient->setUri(self::GITHUB_ZF2_REFS . $tag);
+            $response = $this->httpClient->send();
+            $refInfo  = json_decode($response->getBody());
+            $tagUrl   = $refInfo->object->url;
+        
+            $this->console->writeLine("    Fetching tag metadata for tag '$tag'");
+            $this->httpClient->setUri($tagUrl);
+            $response = $this->httpClient->send();
+            $tagInfo  = json_decode($response->getBody());
+        
+            $tag = str_replace('release-', '', $tag);
+            $data[$tag] = $filter($tagInfo->message);
+        }
+        
+        $fileContent = "<?php\n\$tags = " 
+                     . var_export($data, 1) 
+                     . ";\nreturn \$tags;";
+        
+        $this->console->writeLine("Writing to {$this->zf2DataFile}");
+        file_put_contents($this->zf2DataFile, $fileContent);
+
+        $this->console->writeLine('[DONE]', Color::GREEN);
     }
 }
