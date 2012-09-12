@@ -1,6 +1,10 @@
 <?php
 namespace ZfSite;
 
+if (!isset($_SERVER['REQUEST_URI'])) {
+    return;
+}
+
 $rewriteTable = array(
     '/zf2/blog'         => '/blog/index.html',
     '/cla'              => '/framework_cla_1.0.pdf',

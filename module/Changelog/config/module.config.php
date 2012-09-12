@@ -38,6 +38,22 @@ return array(
             ),
         ),
     ),
+    'console' => array(
+        'router' => array(
+            'routes' => array(
+                'changelog-fetch-zf1' => array(
+                    'type'    => 'Simple',
+                    'options' => array(
+                        'route' => 'changelog fetch (zf1|zf2):version',
+                        'defaults' => array(
+                            'controller' => 'Changelog\Controller\Fetch',
+                            'action'     => 'changelog',
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
     'view_manager' => array(
         'template_path_stack' => array(
             'changelog' => __DIR__ . '/../view',
