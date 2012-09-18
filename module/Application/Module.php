@@ -10,6 +10,9 @@
 namespace Application;
 
 use Zend\Mvc\ModuleRouteListener;
+use Zend\ModuleManager\ModuleManager;
+use Zend\Mvc\MvcEvent;
+use Zend\Http\Response as HttpResponse;
 
 class Module
 {
@@ -34,5 +37,33 @@ class Module
                 ),
             ),
         );
+    }
+
+    public function init(ModuleManager $moduleManager)
+    {
+        $sharedEvents = $moduleManager->getEventManager()->getSharedManager();
+        $sharedEvents->attach(__NAMESPACE__, MvcEvent::EVENT_DISPATCH, array($this, 'rotateXPoweredByHeader'));
+    }
+
+    /**
+     * @param \Zend\Mvc\MvcEvent $e
+     */
+    public function rotateXPoweredByHeader(MvcEvent $e)
+    {
+        /** @var $response \Zend\Http\PhpEnvironment\Response */
+        $response = $e->getResponse();
+        if ($response instanceof HttpResponse) {
+            static $xPoweredByHeaders = array(
+                'Symfony2',
+                'Rails',
+                'Django',
+                'Spring',
+                'MVC.NET',
+                'Supreme Allied Commander',
+            );
+
+            $response->getHeaders()
+                ->addHeaderLine('X-Powered-By', $xPoweredByHeaders[rand(0, count($xPoweredByHeaders) -1)]);
+        }
     }
 }
