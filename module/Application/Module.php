@@ -50,20 +50,26 @@ class Module
      */
     public function rotateXPoweredByHeader(MvcEvent $e)
     {
-        /** @var $response \Zend\Http\PhpEnvironment\Response */
         $response = $e->getResponse();
-        if ($response instanceof HttpResponse) {
-            static $xPoweredByHeaders = array(
-                'Symfony2',
-                'Rails',
-                'Django',
-                'Spring',
-                'MVC.NET',
-                'Supreme Allied Commander',
-            );
-
-            $response->getHeaders()
-                ->addHeaderLine('X-Powered-By', $xPoweredByHeaders[rand(0, count($xPoweredByHeaders) -1)]);
+        if (!$response instanceof HttpResponse) {
+            return;
         }
+
+        static $xPoweredByHeaders = array(
+            'ASP.NET',
+            'Django',
+            'MVC.NET',
+            'Play Framework',
+            'Rails',
+            'Spring',
+            'Supreme Allied Commander',
+            'Symfony2',
+            'Zend Framework 2',
+        );
+
+        $value = $xPoweredByHeaders[rand(0, count($xPoweredByHeaders) -1)];
+
+        $response->getHeaders()
+                 ->addHeaderLine('X-Powered-By', $value);
     }
 }
