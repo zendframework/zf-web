@@ -10,6 +10,7 @@ if (file_exists('/var/local/framework/zfweb-config')
 return array(
     'modules' => array(
         'Application',
+        'Archives',
         'PageController',
         'Changelog',
         'Downloads',
