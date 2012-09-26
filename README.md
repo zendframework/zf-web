@@ -63,7 +63,9 @@ and we'll review for inclusion.
 
 To compile the blog, do the following from the root of the application:
 
-    ./console PhlyBlog:compile -e -c -r
+```php
+php public/index.php blog compile -e -c -r
+```
 
 Then add and commit the new and updated files.
 
