@@ -9,12 +9,14 @@
 
 namespace Application;
 
-use Zend\Mvc\ModuleRouteListener;
+use Zend\Console\Adapter\AdapterInterface as Console;
+use Zend\ModuleManager\Feature\ConsoleUsageProviderInterface;
 use Zend\ModuleManager\ModuleManager;
+use Zend\Mvc\ModuleRouteListener;
 use Zend\Mvc\MvcEvent;
 use Zend\Http\Response as HttpResponse;
 
-class Module
+class Module implements ConsoleUsageProviderInterface
 {
     public function onBootstrap($e)
     {
@@ -36,6 +38,29 @@ class Module
                     __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
                 ),
             ),
+        );
+    }
+
+    public function getControllerConfig()
+    {
+        return array('factories' => array(
+            'Application\Controller\Console' => function ($controllers) {
+                $services = $controllers->getServiceLocator();
+                $config   = $services->get('Config');
+                $config   = $config['console'];
+
+                $controller = new Controller\ConsoleController();
+                $controller->setConsole($services->get('Console'));
+                $controller->setConfig($config);
+                return $controller;
+            }
+        ));
+    }
+
+    public function getConsoleUsage(Console $console)
+    {
+        return array(
+            'github fetch contributors' => 'Fetch and cache list of contributors',
         );
     }
 

@@ -95,4 +95,21 @@ return array(
             'formrow' => 'Application\View\Helper\FormRow',
         ),
     ),
+    'console' => array(
+        'github-contributors' => array(
+            'output_file' => 'data/contributors/contributors.pson',
+        ),
+        'router' => array('routes' => array(
+            'github-contributors' => array(
+                'type' => 'Simple',
+                'options' => array(
+                    'route' => 'github fetch contributors',
+                    'defaults' => array(
+                        'controller' => 'Application\Controller\Console',
+                        'action'     => 'github-contributors',
+                    ),
+                ),
+            ),
+        )),
+    ),
 );
