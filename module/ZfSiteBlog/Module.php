@@ -3,6 +3,7 @@
 namespace ZfSiteBlog;
 
 use Zend\Config\Config;
+use Zend\Console\Console;
 use Zend\Http\PhpEnvironment\Request;
 use Zend\Http\PhpEnvironment\Response;
 use Zend\Mvc\ModuleRouteListener;
@@ -10,6 +11,8 @@ use Zend\Mvc\Router\Http\TreeRouteStack;
 use Zend\Mvc\View\Http\ViewManager;
 use Zend\Stdlib\ArrayUtils;
 use Zend\View\Model;
+use Zend\View\HelperPluginManager;
+use Zend\View\Helper as ViewHelper;
 
 class Module
 {
@@ -34,30 +37,25 @@ class Module
 
     public function getServiceConfig()
     {
-        // If we're in the console environment, we need to force usage
-        // of the HTTP environment to ensure our routing and view 
-        // usage is consistent with the site while generating the
-        // static blog files.
-
-        if (!defined('ZFSITE_CONSOLE') || !constant('ZFSITE_CONSOLE')) {
-            return array();
-        }
-
-        return array('factories' => array(
-            'request' => function ($services) {
-                return new Request();
-            },
-            'response' => function ($services) {
-                return new Response();
-            },
-            'router' => function ($services) {
-                $config       = $services->get('Configuration');
-                $routerConfig = isset($config['router']) ? $config['router'] : array();
-                $router       = TreeRouteStack::factory($routerConfig);
-                return $router;
-            },
-            'viewmanager' => function ($services) {
-                return new ViewManager();
+        return array('initializers' => array(
+            function ($instance, $services) {
+                if (!Console::isConsole()) {
+                    return;
+                }
+                if (!$instance instanceof HelperPluginManager) {
+                    return;
+                }
+                $instance->setFactory('basepath', function ($sm) use ($services) {
+                    $config = $services->get('Config');
+                    $config = $config['view_manager'];
+                    $basePathHelper = new ViewHelper\BasePath;
+                    $basePath = '/';
+                    if (isset($config['base_path'])) {
+                        $basePath = $config['base_path'];
+                    }
+                    $basePathHelper->setBasePath($basePath);
+                    return $basePathHelper;
+                });
             },
         ));
     }
@@ -79,7 +77,7 @@ class Module
 
     public static function prepareCompilerView($view, $config, $services)
     {
-        $renderer = $services->get('ViewRenderer');
+        $renderer = $services->get('BlogRenderer');
         $view->addRenderingStrategy(function($e) use ($renderer) {
             return $renderer;
         }, 100);
