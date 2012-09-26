@@ -63,7 +63,9 @@ and we'll review for inclusion.
 
 To compile the blog, do the following from the root of the application:
 
-    ./console PhlyBlog:compile -e -c -r
+```php
+% php public/index.php blog compile -e -c -r
+```
 
 Then add and commit the new and updated files.
 
@@ -72,13 +74,17 @@ Generating Changelogs
 
 To generate the ZF1 changelog, execute the following:
 
-    php public/index.php changelog fetch zf1
+```bash
+% php public/index.php changelog fetch zf1
+```
 
 This will, by default, write to `data/zf1-changelog.php`. You will need to
 ensure your local configuration includes appropriate JIRA credentials.
 
 To generate the ZF2 changelog, execute the following:
 
-    php public/index.php changelog fetch zf2
+```bash
+% php public/index.php changelog fetch zf2
+```
 
 This will, by default, write to `data/zf2-changelog.php`.;
