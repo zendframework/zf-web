@@ -73,7 +73,7 @@ $test = function () use ($rewriteTable, $rewriteRegexes, $rewrite) {
             $rewrite($rewriteUri);
             return;
         }
-        $replacements = array();
+
         foreach ($matches as $key => $value) {
             if (is_int($key) || is_numeric($key)) {
                 continue;
