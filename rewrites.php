@@ -36,7 +36,7 @@ $rewriteRegexes = array(
         return sprintf('/manual/%s/%s/%s', $version, $lang, $file);
     },
     '#^/community*#' => '/participate',
-    '/#^/releases/(?P<path>[^?]+\.(?:zip|tar.gz|tgz))#' => 'http://packages.zendframework.com/releases/%path%',
+    '#^/releases/(?P<path>[^?]+\.(?:zip|tar.gz|tgz))#' => 'http://packages.zendframework.com/releases/%path%',
 );
 
 $rewrite = function ($uri) {
@@ -53,7 +53,6 @@ $test = function () use ($rewriteTable, $rewriteRegexes, $rewrite) {
         return;
     }
 
-    $uri = strtolower($uri);
     if (isset($rewriteTable[strtolower($uri)])) {
         $rewriteTo = $rewriteTable[strtolower($uri)];
         if (is_callable($rewriteTo)) {
@@ -81,7 +80,7 @@ $test = function () use ($rewriteTable, $rewriteRegexes, $rewrite) {
             }
             $rewriteUri = str_replace(sprintf('%%%s%%', $key), $value, $rewriteUri);
         }
-        $rewrite(strtolower($rewriteUri));
+        $rewrite($rewriteUri);
         return;
     }
 };
