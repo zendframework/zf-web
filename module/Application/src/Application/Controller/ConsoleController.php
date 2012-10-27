@@ -66,16 +66,32 @@ class ConsoleController extends AbstractActionController
 
         $client = new HttpClient();
         $client->setAdapter('Zend\Http\Client\Adapter\Curl');
+        
+        //zf2
         $client->setUri('https://api.github.com/repos/zendframework/zf2/contributors');
         $response = $client->send();
         if (!$response->isSuccess()) {
             // report failure
-            $message = $response->getStatusCode() . ': ' . $response->getStatusMessage();
+            $message = $response->getStatusCode() . ': ' . $response->getReasonPhrase();
             $this->reportError($width, 0, $message);
             return;
         }
-        $body         = $response->getBody();
-        $contributors = json_decode($body, true);
+        $body                   = $response->getBody();
+        $zf2_code_contrib       = json_decode($body, true);
+        
+        //zf2-documentation
+        $client->setUri('https://api.github.com/repos/zendframework/zf2-documentation/contributors');
+        $response = $client->send();
+        if (!$response->isSuccess()) {
+            // report failure
+            $message = $response->getStatusCode() . ': ' . $response->getReasonPhrase();
+            $this->reportError($width, 0, $message);
+            return;
+        }
+        $body                   = $response->getBody();
+        $zf2_doc_contrib        = json_decode($body, true);
+        
+        $contributors  = array_merge($zf2_code_contrib, $zf2_doc_contrib);
         $total        = count($contributors);
 
         foreach ($contributors as $i => $contributor) {
@@ -85,7 +101,7 @@ class ConsoleController extends AbstractActionController
             $response = $client->send();
             if (!$response->isSuccess()) {
                 // report failure
-                $error = $response->getStatusCode() . ': ' . $response->getStatusMessage();
+                $error = $response->getStatusCode() . ': ' . $response->getReasonPhrase();
                 $this->reportError($width, strlen($message), $error);
             }
             $body     = $response->getBody();
