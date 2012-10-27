@@ -63,6 +63,7 @@ class ConsoleController extends AbstractActionController
 
         $width = $this->console->getWidth();
         $this->console->writeLine('Fetching GitHub Contributors', Color::GREEN);
+        
 
         $client = new HttpClient();
         $client->setAdapter('Zend\Http\Client\Adapter\Curl');
@@ -70,7 +71,7 @@ class ConsoleController extends AbstractActionController
         $response = $client->send();
         if (!$response->isSuccess()) {
             // report failure
-            $message = $response->getStatusCode() . ': ' . $response->getStatusMessage();
+            $message = $response->getStatusCode() . ': ' . $response->getReasonPhrase();
             $this->reportError($width, 0, $message);
             return;
         }
@@ -85,7 +86,7 @@ class ConsoleController extends AbstractActionController
             $response = $client->send();
             if (!$response->isSuccess()) {
                 // report failure
-                $error = $response->getStatusCode() . ': ' . $response->getStatusMessage();
+                $error = $response->getStatusCode() . ': ' . $response->getReasonPhrase();
                 $this->reportError($width, strlen($message), $error);
             }
             $body     = $response->getBody();
