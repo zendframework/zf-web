@@ -33,11 +33,93 @@ $post->setBody($body);
 
 $extended =<<<'EOC'
 
+<h2>Changes</h2>
+
+<p>
+    ZF2 has shipped with two "view strategies" aimed at simplifying common use 
+    cases around developing JSON and XML APIs: <code>Zend\View\Strategy\JsonStrategy</code> 
+    and <code>Zend\View\Strategy\FeedStrategy</code>. Each of these would
+    select an appropriate renderer based on one of the following criteria:
+</p>
+
+<ul>
+    <li>If the view model present was of a specific type (e.g., 
+        <code>JsonModel</code>, <code>FeedModel</code>).
+    </li>
+    <li>If the <code>Accept</code> header contained the appropriate media type.</li>
+</ul>
+
+<p>
+    This latter condition sparked some worry that, when enabled at the 
+    application level (vs. enabled based on selected module, controller, action, or
+    other more specific criteria), any endpoint could be forced to return JSON or Atom
+    (based on the strategies registered), regardless of whether or not it was appropriate.
+    This could lead to a couple bad situations:
+</p>
+
+<ul>
+    <li>Data present in the view model not intended for actual display now being displayed.</li>
+    <li>Raising of exceptions due to insuitability of certain view variables 
+        for serialization in the selected format (e.g., invalid feed data, 
+        non-JSON-serializeable objects, etc.); this could lead to resource 
+        consumption and potentially other vulnerabilities.</li>
+</ul>
+
+<p>
+    Based on these concerns, we made the following changes:
+</p>
+
+<ul>
+    <li>The <code>JsonStrategy</code> and <code>FeedStrategy</code> now only ever select
+        a renderer based on the current view model type: e.g. if you want to 
+        expose something as JSON, you must return a <code>JsonModel</code>.
+    </li>
+
+    <li>Introduced a new controller plugin, <code>acceptableViewModelSelector()</code>.
+        This helper can be used to select an appropriate view model if the <code>Accept</code>
+        header meets criteria you specify.
+    </li>
+</ul>
+
+As an example of the latter:
+
+<pre class="highlight">
+class SomeController extends AbstractActionController
+{
+    protected $acceptCriteria = array(
+        'Zend\View\Model\JsonModel' => array(
+            'application/json',
+        ),
+        'Zend\View\Model\FeedModel' => array(
+            'application/rss+xml',
+        ),
+    );
+
+    public function apiAction()
+    {
+        $viewModel = $this->acceptableViewModelSelector($this->acceptCriteria);
+        
+        // Potentially vary execution based on model returned
+        if ($viewModel instanceof JsonModel) {
+            // ...
+        }
+    }
+}
+</pre>
+
+<p>
+    The above would return a standard <code>Zend\View\Model\ViewModel</code> instance
+    if the criteria is not met, and the specified view model types if the 
+    specific criteria is met. Rules are matched in order, with the first match "winning."
+</p>
+
+
 <h2>Changelog</h2>
 
 <p>
-    This release included more than 40 changes, ranging from minor docblock 
-    improvements to bugfixes.  The full list is as follows:
+    In addition to the changes mentioned above, this release included more than 
+    40 patches, ranging from minor docblock improvements to bugfixes.  The full 
+    list is as follows:
 </p>
 
 <ul>
