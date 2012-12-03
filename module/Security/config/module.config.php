@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2012-04' => array(
+                'title' => 'ZF2012-04: Potential Proxy Injection Vulnerabilities in Multiple Zend Framework 2 Components',
+                'date'  => 'Thu, 29 November 2012 16:00:00 +0100',
+            ),
             'ZF2012-03' => array(
                 'title' => 'ZF2012-03: Potential XSS Vectors in Multiple Zend Framework 2 Components',
                 'date'  => 'Thu, 20 September 2012 16:00:00 -0500',
