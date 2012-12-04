@@ -1,7 +1,7 @@
 <?php
 return array(
     'downloads' => array(
-        'release_base_path' => 'http://packages.zendframework.com/releases/',
+        'release_base_path' => 'https://packages.zendframework.com/releases/',
         'manual_languages' => array(
             array(
                 'version_match' => array(
