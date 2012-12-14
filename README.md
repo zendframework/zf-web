@@ -42,7 +42,7 @@ end with the ``/`` (slash) character.
 The 2.0 documentation files are generated using the
 [Sphinx](http://sphinx.pocoo.org/) project. For more information on how to
 generate the ZF2 documentation, read the
-[CONTRIBUTE.md](https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTE.md)
+[CONTRIBUTING.md](https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTING.md)
 file of the [zf2-documentation project](https://github.com/zendframework/zf2-documentation).
 
 The path of the ZF1 documentation must point to the folder
