@@ -131,6 +131,15 @@ return array(
                         'page'          => 'license',
                     ),
                 ),
+                'may_terminate' => true,
+                'child_routes' => array(
+                    'new-bsd' => array(
+                        'type' => 'Literal',
+                        'options' => array(
+                            'route' => 'new-bsd',
+                        ),
+                    ),
+                ),
             ),
         ),
     ),
