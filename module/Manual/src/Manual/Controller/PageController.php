@@ -74,6 +74,12 @@ class PageController extends AbstractActionController
             $page = preg_replace('/\.html/','.phtml', $page);
         }
         $docFile = $this->params[$version][$lang] . $page;
+        
+        $docFile = str_replace(
+            '/var/local/framework/ZendFramework-2.0/manual',
+            $_SERVER['DOCUMENT_ROOT'] . '/manual',
+            $docFile
+        );
 
         if (!file_exists($docFile)) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
@@ -142,6 +148,25 @@ class PageController extends AbstractActionController
     {
         $model = new ViewModel();
         $model->setTemplate('manual/page-controller/api');
+        $model->setVariable(
+            'versions',
+            array(
+                 1 => array(
+                     '1.12.0',
+                     '1.11.13',
+                     '1.10.9',
+                     '1.9.8',
+                     '1.8.5',
+                     '1.7.9',
+                     '1.6.2',
+                     '1.5.3',
+                     '1.0.3',
+                 ),
+                 2 => array(
+                     '2.0.0',
+                 ),
+            )
+        );
         return $model;
     }
 
@@ -201,17 +226,40 @@ class PageController extends AbstractActionController
         // body
         $elem = $doc->queryXpath('//div[@class="body"]')->current();
         $pageContent['body'] = $elem->ownerDocument->saveXML($elem);
-        $pageContent['body'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['body']);
+        $pageContent['body'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/zf-web/public/images/manual', $pageContent['body']);
         $pageContent['body'] = preg_replace('/width: [6-9][0-9]{2}/i','width: 650', $pageContent['body']);
 
         // navigation
-        $elem = $doc->queryXpath('//div[@class="related"]/ul')->current();
-        $pageContent['body'] .= '<div class="related">' . $elem->ownerDocument->saveXML($elem) . '</div>';
+        $nextLink  = $doc->queryXpath('//div[@class="related"]/ul/li/a[text() = "next"]')->current();
+        $prevLink  = $doc->queryXpath('//div[@class="related"]/ul/li/a[text() = "previous"]')->current();
+        
+        $navigation = '<div class="related hide-on-print"><ul>';
+        if (count($prevLink)) {
+            $prevLink    = str_replace('<a', '<a class="has-tip tip-right noradius" ', $prevLink->ownerDocument->saveXML($prevLink));
+            $navigation .= '<li class="prev">' . $prevLink . '</li>';
+        }
+        if (count($nextLink)) {
+            $nextLink    = str_replace('<a', '<a class="has-tip tip-left noradius" ', $nextLink->ownerDocument->saveXML($nextLink));
+            $navigation .= '<li class="next">' . $nextLink . '</li>';
+        }
+        $navigation .= '</ul></div>';
+        
+        $pageContent['body'] = $navigation . $pageContent['body'] . $navigation;
 
         // sidebar
         $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
         $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
-        $pageContent['sidebar'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['sidebar']);
+        $pageContent['sidebar'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/zf-web/public/images/manual', $pageContent['sidebar']);
+        
+        $pageContent['sidebar'] = str_replace('<h3><a href="#">Table Of Contents</a></h3>','<h1>Table Of Contents</h1>', $pageContent['sidebar']);
+        
+        $pageContent['sidebar'] = str_replace('<h4>','<h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('</h4>','</h1>', $pageContent['sidebar']);
+        
+        $pageContent['sidebar'] = str_replace('<h3>','<h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('</h3>','</h1>', $pageContent['sidebar']);
+        
+        $pageContent['sidebar'] = str_replace('<p style="font-size: 12px">','<p class="note">', $pageContent['sidebar']);
 
         // title
         $elem = $doc->queryXpath('//title')->current();
