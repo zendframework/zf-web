@@ -111,7 +111,7 @@ class Module
             $headMeta = $renderer->plugin('headMeta');
             $headMeta->getContainer()->exchangeArray(array());
 
-            foreach (array('top-nav', 'sidebar', 'scripts') as $name) {
+            foreach (array('sidebar', 'scripts') as $name) {
                 $placeholder = $renderer->placeholder($name);
                 $placeholder->exchangeArray(array());
             }
