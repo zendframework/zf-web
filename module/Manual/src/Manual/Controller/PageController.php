@@ -70,9 +70,6 @@ class PageController extends AbstractActionController
         }
         $name = $page;
         
-        if ('1.' === substr($version, 0, 2)) {
-            $page = preg_replace('/\.html/','.phtml', $page);
-        }
         $docFile = $this->params[$version][$lang] . $page;
 
         if (!file_exists($docFile)) {
