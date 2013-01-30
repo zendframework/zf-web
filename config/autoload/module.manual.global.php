@@ -21,7 +21,7 @@ foreach ($zf1versions as $minorVersion => $specificVersion) {
 }
 
 $zf2ManualPath = '/var/local/framework/ZendFramework-%s/manual/%s/';
-$zf2versions    = array('2.0');
+$zf2versions    = array('2.1', '2.0');
 $zf2langs       = array('en');
 foreach ($zf2versions as $version) {
     $paths[$version] = array();
