@@ -14,7 +14,7 @@ $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
 $post->setCreated(new DateTime('2013-01-30 14:15', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2013-01-30 14:15', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2013-01-30 16:55', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>
     The Zend Framework community is pleased to announce the immediate availability
@@ -27,6 +27,11 @@ $body =<<<'EOS'
         <a href="/downloads/latest">http://framework.zend.com/downloads/latest</a>
     </li>
 </ul>
+
+<p>
+    All existing users of ZF 2.0.x are encouraged to upgrade to 2.1.0; if you prefer 
+    to only obtain fixes without new features, you may upgrade to 2.0.7.
+</p>
 
 EOS;
 $post->setBody($body);
