@@ -153,12 +153,26 @@ class FetchController extends AbstractActionController
             $this->console->writeLine("    Fetching ref info for tag '$tag'");
             $this->httpClient->setUri(self::GITHUB_ZF2_REFS . $tag);
             $response = $this->httpClient->send();
+
+            if (!$response->isOk()) {
+                $this->console->writeLine("[FAILED]", Color::RED);
+                $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+                return;
+            }
+
             $refInfo  = json_decode($response->getBody());
             $tagUrl   = $refInfo->object->url;
         
             $this->console->writeLine("    Fetching tag metadata for tag '$tag'");
             $this->httpClient->setUri($tagUrl);
             $response = $this->httpClient->send();
+
+            if (!$response->isOk()) {
+                $this->console->writeLine("[FAILED]", Color::RED);
+                $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+                return;
+            }
+
             $tagInfo  = json_decode($response->getBody());
         
             $tag = str_replace('release-', '', $tag);
