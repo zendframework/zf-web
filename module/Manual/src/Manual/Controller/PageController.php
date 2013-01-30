@@ -141,7 +141,7 @@ class PageController extends AbstractActionController
             'versions',
             array(
                  1 => array(
-                     '1.12.0',
+                     '1.12.1',
                      '1.11.13',
                      '1.10.9',
                      '1.9.8',
@@ -152,7 +152,8 @@ class PageController extends AbstractActionController
                      '1.0.3',
                  ),
                  2 => array(
-                     '2.0.0',
+                     '2.1.0',
+                     '2.0.7',
                  ),
             )
         );
