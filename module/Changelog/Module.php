@@ -144,6 +144,10 @@ class Module implements ConsoleUsageProviderInterface
                 $controller->setJiraAuth($services->get('Changelog\Jira\Auth'));
                 $controller->setHttpClient($services->get('Changelog\Http\Client'));
 
+                if (isset($config['github_token']) && $config['github_token']) {
+                    $controller->setGithubToken($config['github_token']);
+                }
+
                 return $controller;
             },
         ));

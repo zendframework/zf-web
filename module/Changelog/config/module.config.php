@@ -7,6 +7,7 @@ return array(
         ),
         'zf1_file' => 'data/zf1-changelog.php',
         'zf2_file' => 'data/zf2-changelog.php',
+        'github_token' => false,
     ),
     'router' => array(
         'routes' => array(

@@ -37,8 +37,7 @@ $extended =<<<'EOC'
 
 <p>
     This is the last scheduled release in the 2.0 series, and contains over 150
-    bugfixes. <a href="<?php echo $this->url('changelog/release', 
-    array('version' => '2.0.7')) ?>">Read the changelog for the full set of 
+    bugfixes. <a href="/changelog/2.0.7">Read the changelog for the full set of 
     improvements</a>.
 </p>
 
@@ -144,8 +143,7 @@ $extended =<<<'EOC'
 
 <p>
     For the complete list of more than 140 changes, 
-    <a href="<?php echo $this->url('changelog/release', 
-    array('version' => '2.1.0')) ?>">read the changelog</a>.
+    <a href="/changelog/2.1.0">read the changelog</a>.
 </p>
 
 <h2>New Components</h2>
