@@ -91,6 +91,7 @@ return array(
         'github-contributors' => array(
             'output_file' => 'data/contributors/contributors.pson',
         ),
+        'github_token' => false,
         'router' => array('routes' => array(
             'github-contributors' => array(
                 'type' => 'Simple',

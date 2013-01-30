@@ -67,6 +67,12 @@ class ConsoleController extends AbstractActionController
         $client = new HttpClient();
         $client->setAdapter('Zend\Http\Client\Adapter\Curl');
         $client->setUri('https://api.github.com/repos/zendframework/zf2/contributors');
+
+        if (isset($this->config['github_token']) && $this->config['github_token']) {
+            $httpRequest = $client->getRequest();
+            $httpRequest->getHeaders()->addHeaderLine('Authorization', 'token ' . $this->config['github_token']);
+        }
+
         $response = $client->send();
         if (!$response->isSuccess()) {
             // report failure

@@ -15,6 +15,7 @@ class FetchController extends AbstractActionController
     const GITHUB_ZF2_REFS = 'https://api.github.com/repos/zendframework/zf2/git/refs/tags/';
 
     protected $console;
+    protected $githubToken;
     protected $httpClient;
     protected $jiraAuth;
     protected $xmlRpc;
@@ -24,6 +25,11 @@ class FetchController extends AbstractActionController
     public function setConsole(Console $console)
     {
         $this->console = $console;
+    }
+
+    public function setGithubToken($token)
+    {
+        $this->githubToken = $token;
     }
 
     public function setHttpClient(HttpClient $client)
@@ -122,7 +128,20 @@ class FetchController extends AbstractActionController
         
         $this->console->writeLine("Fetching list of all tags");
         $this->httpClient->setUri(self::GITHUB_ZF2_TAGS);
+
+        if ($this->githubToken) {
+            $httpRequest = $this->httpClient->getRequest();
+            $httpRequest->getHeaders()->addHeaderLine('Authorization', 'token ' . $this->githubToken);
+        }
+
         $response = $this->httpClient->send();
+
+        if (!$response->isOk()) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            return;
+        }
+
         $tags     = json_decode($response->getBody());
         foreach ($tags as $info) {
             $tag = $info->name;
@@ -134,12 +153,26 @@ class FetchController extends AbstractActionController
             $this->console->writeLine("    Fetching ref info for tag '$tag'");
             $this->httpClient->setUri(self::GITHUB_ZF2_REFS . $tag);
             $response = $this->httpClient->send();
+
+            if (!$response->isOk()) {
+                $this->console->writeLine("[FAILED]", Color::RED);
+                $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+                return;
+            }
+
             $refInfo  = json_decode($response->getBody());
             $tagUrl   = $refInfo->object->url;
         
             $this->console->writeLine("    Fetching tag metadata for tag '$tag'");
             $this->httpClient->setUri($tagUrl);
             $response = $this->httpClient->send();
+
+            if (!$response->isOk()) {
+                $this->console->writeLine("[FAILED]", Color::RED);
+                $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+                return;
+            }
+
             $tagInfo  = json_decode($response->getBody());
         
             $tag = str_replace('release-', '', $tag);

@@ -70,9 +70,6 @@ class PageController extends AbstractActionController
         }
         $name = $page;
         
-        if ('1.' === substr($version, 0, 2)) {
-            $page = preg_replace('/\.html/','.phtml', $page);
-        }
         $docFile = $this->params[$version][$lang] . $page;
 
         if (!file_exists($docFile)) {
@@ -83,8 +80,7 @@ class PageController extends AbstractActionController
         if (false === $content) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
-        $css = $this->getCss($version);
-        
+
         $model->setVariable('name', $name);
         $model->setVariable('lang', $lang);
         $model->setVariable('title', $content['title']);
@@ -92,7 +88,6 @@ class PageController extends AbstractActionController
         $model->setVariable('sidebar', $content['sidebar']);
         $model->setVariable('version', $version);
         $model->setVariable('versions', array_keys($this->params));
-        $model->setVariable('css', $css);
         $model->setTemplate('manual/page-controller/manual');
         return $model;
     }
@@ -142,6 +137,25 @@ class PageController extends AbstractActionController
     {
         $model = new ViewModel();
         $model->setTemplate('manual/page-controller/api');
+        $model->setVariable(
+            'versions',
+            array(
+                 1 => array(
+                     '1.12.0',
+                     '1.11.13',
+                     '1.10.9',
+                     '1.9.8',
+                     '1.8.5',
+                     '1.7.9',
+                     '1.6.2',
+                     '1.5.3',
+                     '1.0.3',
+                 ),
+                 2 => array(
+                     '2.0.0',
+                 ),
+            )
+        );
         return $model;
     }
 
@@ -169,19 +183,175 @@ class PageController extends AbstractActionController
     protected function getV1PageContent($file)
     {
         $pageContent            = array();
-        $content                = file_get_contents($file);
-        $hr                     = strpos($content, '<hr />');
+        $doc                    = new DomQuery(file_get_contents($file));
         $pageContent['body']    = '';
         $pageContent['sidebar'] = '';
         $pageContent['title']   = '';
-        if (false !== $hr) {
-            $pageContent['body'] = '<div id="manual-container" class="tundra">' . substr($content, $hr+6) . '</div>';
+
+        // Body (standard)
+        $content = $doc->queryXpath('//div[@class="section"]');
+        if (count($content)) {
+            // Replace headlines (h1 => h2)
+            $xpath    = new \DOMXpath($content->getDocument());
+            $nodelist = $xpath->query('//div/div[@class = "section"]/div/h1[@class = "title"]');
+
+            foreach ($nodelist as $node) {
+                $newElement = $content->getDocument()->createElement(
+                    'h2', $node->nodeValue
+                );
+                $node->parentNode->replaceChild($newElement, $node);
+            }
+
+            $pageContent['body'] = $content->current()->ownerDocument->saveXML(
+                $content->current()
+            );
         }
-        if (preg_match('{<ul[^>]*>(.*?)</ul>}s', $content, $matches)) {
-            $pageContent['sidebar'] = $matches[0];
+
+        // Body (table of contents)
+        $headline    = $doc->queryXpath('//div[@id="the.index"]/strong/text()')->current();
+        $contentList = $doc->queryXpath('//div[@id="the.index"]/ul')->current();
+        if (count($headline) && count($contentList)) {
+            $pageContent['body'] = '<h1>'
+                                 . $headline->ownerDocument->saveXML($headline)
+                                 . '</h1>'
+                                 . $contentList->ownerDocument->saveXML($contentList);
         }
-        if (preg_match('{<h1[^>]*>([^<]*)</h1>}s', $content, $matches)) {
-            $pageContent['title'] = $matches[0];
+
+        // Body (part)
+        $part = $doc->queryXpath('//div[@class="part"]')->current();
+        if (count($part)) {
+            $h1          = $doc->queryXpath('//div[@class="part"]/h1')->current();
+            $h2          = $doc->queryXpath('//div[@class="part"]/strong/text()')->current();
+            $contentList = $doc->queryXpath('//div[@class="part"]/ul')->current();
+
+            if (count($h1) && count($h2) && count($contentList)) {
+                $pageContent['body'] = $h1->ownerDocument->saveXML($h1)
+                                     . '<h2>'
+                                     . $h2->ownerDocument->saveXML($h2)
+                                     . '</h2>'
+                                     . $contentList->ownerDocument->saveXML($contentList);
+            }
+        }
+        // Body (chapter and appendix)
+        $body = $doc->queryXpath('//div[@class="chapter" or @class="appendix"]')->current();
+        if (count($body)) {
+            $h1          = $doc->queryXpath('//div[@class="chapter" or @class="appendix"]//h1')->current();
+            $h2          = $doc->queryXpath('//div[@class="chapter" or @class="appendix"]//strong/text()')->current();
+            $contentList = $doc->queryXpath('//div[@class="chapter" or @class="appendix"]//ul')->current();
+
+            if (count($h1) && count($h2) && count($contentList)) {
+                $pageContent['body'] = $h1->ownerDocument->saveXML($h1)
+                                     . '<h2>'
+                                     . $h2->ownerDocument->saveXML($h2)
+                                     . '</h2>'
+                                     . $contentList->ownerDocument->saveXML($contentList);
+            } else  {
+                $pageContent['body'] = $body->ownerDocument->saveXML($body);
+            }
+        }
+
+        // Sidebar
+
+        // Headline (table of contents)
+        $headline = $doc->queryXpath('//ul[@class="toc"]/li[@class = "header home"]/a');
+        if (count($headline)) {
+            $pageContent['sidebar'] = sprintf(
+                '<h1><a href="%s">Table Of Contents</a></h1>',
+                $headline->current()->getAttribute('href')
+            );
+        }
+
+        $pageContent['sidebar'] .= "<ul>\n";
+
+        // First list item (section)
+        $firstItem = $doc->queryXpath('//ul[@class="toc"]/li[@class = "header up"][last()]')->current();
+        if (count($firstItem)) {
+            $pageContent['sidebar'] .= $firstItem->ownerDocument->saveXML($firstItem);
+        }
+
+        // Content list items
+        $elements = $doc->queryXpath('//div[@class="section" and @name and @id]');
+        if (count($elements)) {
+            // Active page
+            $active = $doc->queryXpath('//ul[@class="toc"]/li[@class = "active"]/a')->current();
+
+            // Content list
+            $pageContent['sidebar'] .= "<ul>\n";
+            foreach ($elements as $element) {
+                $pageContent['sidebar'] .= sprintf(
+                    '<li><a href="%s">%s</a></li>',
+                    $active->getAttribute('href') . '#' . $element->getAttribute('id'),
+                    $element->childNodes->item(0)->nodeValue
+                );
+            }
+            $pageContent['sidebar'] .= "</ul>\n";
+        }
+        $pageContent['sidebar'] .= "</ul>\n";
+
+        // Previous topic
+        $prevTopic  = $doc->queryXpath('//div[@class="next"]/parent::td/preceding-sibling::td/a')->current();
+
+        if (count($prevTopic)) {
+            $pageContent['sidebar'] .= '<h1>Previous topic</h1>';
+            $pageContent['sidebar'] .= sprintf(
+                '<p class="topless"><a href="%s" title="previous chapter">%s</a></p>',
+                $prevTopic->getAttribute('href'),
+                $prevTopic->nodeValue
+            );
+        }
+
+        // Next topic
+        $nextTopic  = $doc->queryXpath('//div[@class="next"]/a')->current();
+
+        if (count($nextTopic)) {
+            $pageContent['sidebar'] .= '<h1>Next topic</h1>';
+            $pageContent['sidebar'] .= sprintf(
+                '<p class="topless"><a href="%s" title="next chapter">%s</a></p>',
+                $nextTopic->getAttribute('href'),
+                $nextTopic->nodeValue
+            );
+        }
+
+        // Head title
+        $elem = $doc->queryXpath('//ul[@class="toc"]/li[@class = "active"]/a/text()')->current();
+        if (count($elem)) {
+            $pageContent['title'] = $elem->ownerDocument->saveXML($elem);
+        }
+
+        $elem = $doc->queryXpath('//ul[@class="toc"]/li[@class="header up"][last()]/a/text()')->current();
+        if (count($elem)) {
+            $pageContent['title'] .= ' - ' . $elem->ownerDocument->saveXML($elem);
+        }
+
+        // Navigation
+        $navigation = '';
+
+        // Previous link
+        $prevLink  = $doc->queryXpath('//div[@class="next"]/parent::td/preceding-sibling::td/a')->current();
+        if (count($prevLink)) {
+            $navigation .= sprintf(
+                '<li class="prev"><a href="%s">%s</a>',
+                $prevLink->getAttribute('href'),
+                $prevLink->nodeValue
+            );
+        }
+
+        // Next link
+        $nextLink  = $doc->queryXpath('//div[@class="next"]/a')->current();
+        if (count($nextLink)) {
+            $navigation .= sprintf(
+                '<li class="next"><a href="%s">%s</a>',
+                $nextLink->getAttribute('href'),
+                $nextLink->nodeValue
+            );
+        }
+
+        if (!empty($navigation)) {
+            $navigation = sprintf(
+                '<div class="related hide-on-print"><ul>%s</ul></div>',
+                $navigation
+            );
+            $pageContent['body'] = $navigation . $pageContent['body'] . $navigation;
         }
 
         return $pageContent;
@@ -201,42 +371,80 @@ class PageController extends AbstractActionController
         // body
         $elem = $doc->queryXpath('//div[@class="body"]')->current();
         $pageContent['body'] = $elem->ownerDocument->saveXML($elem);
-        $pageContent['body'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['body']);
-        $pageContent['body'] = preg_replace('/width: [6-9][0-9]{2}/i','width: 650', $pageContent['body']);
+        $pageContent['body'] = preg_replace(
+            '/(\.\.\/)*(_static|_images)/i',
+            '/images/manual',
+            $pageContent['body']
+        );
+        $pageContent['body'] = preg_replace(
+            '/width: [6-9][0-9]{2}/i',
+            'width: 650',
+            $pageContent['body']
+        );
 
-        // navigation
-        $elem = $doc->queryXpath('//div[@class="related"]/ul')->current();
-        $pageContent['body'] .= '<div class="related">' . $elem->ownerDocument->saveXML($elem) . '</div>';
+        // Navigation
+        $navigation = '';
+
+        // Previous link
+        $prevLink  = $doc->queryXpath('//link[@rel="prev"]')->current();
+        if (count($prevLink)) {
+            $navigation .= sprintf(
+                '<li class="prev"><a href="%s">%s</a>',
+                $prevLink->getAttribute('href'),
+                $prevLink->getAttribute('title')
+            );
+        }
+
+        // Next link
+        $nextLink  = $doc->queryXpath('//link[@rel="next"]')->current();
+        if (count($nextLink)) {
+            $navigation .= sprintf(
+                '<li class="next"><a href="%s">%s</a>',
+                $nextLink->getAttribute('href'),
+                $nextLink->getAttribute('title')
+            );
+        }
+
+        if (!empty($navigation)) {
+            $navigation = sprintf(
+                '<div class="related hide-on-print"><ul>%s</ul></div>',
+                $navigation
+            );
+            $pageContent['body'] = $navigation . $pageContent['body'] . $navigation;
+        }
 
         // sidebar
         $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
         $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
-        $pageContent['sidebar'] = preg_replace('/(\.\.\/)*(_static|_images)/i','/images/manual', $pageContent['sidebar']);
+        $pageContent['sidebar'] = preg_replace(
+            '/(\.\.\/)*(_static|_images)/i',
+            '/images/manual',
+            $pageContent['sidebar']
+        );
+        
+        $pageContent['sidebar'] = str_replace(
+            '<h3><a href="#">Table Of Contents</a></h3>',
+            '<h1>Table Of Contents</h1>',
+            $pageContent['sidebar']
+        );
+        
+        $pageContent['sidebar'] = str_replace('<h4>','<h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('</h4>','</h1>', $pageContent['sidebar']);
+        
+        $pageContent['sidebar'] = str_replace('<h3>','<h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('</h3>','</h1>', $pageContent['sidebar']);
+        
+        $pageContent['sidebar'] = str_replace(
+            '<p style="font-size: 12px">',
+            '<p class="note">',
+            $pageContent['sidebar']
+        );
 
         // title
         $elem = $doc->queryXpath('//title')->current();
         $pageContent['title'] = $elem->nodeValue;
 
         return $pageContent;
-    }
-
-    /**
-     * Get the css for the specific version
-     * 
-     * @param  string $version 
-     * @return array
-     */
-    protected function getCss($version)
-    {
-        $css = array();
-        if ('1.' === substr($version, 0, 2)) {
-            $css[] = '/css/manual/1/manual.css';
-            $css[] = '/css/manual/1/styles.css';
-        } elseif ('2.0' === $version) {
-            $css[] = '/css/manual/2/default.css';
-            $css[] = '/css/manual/2/pygments.css';
-        }
-        return $css;
     }
 
     /**

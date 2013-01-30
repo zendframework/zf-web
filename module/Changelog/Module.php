@@ -14,9 +14,11 @@ class Module implements ConsoleUsageProviderInterface
     public function getAutoloaderConfig()
     {
         return array(
-            'Zend\Loader\StandardAutoloader' => array('namespaces' => array(
-                __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
-            ))
+            'Zend\Loader\StandardAutoloader' => array(
+                'namespaces' => array(
+                    __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
+                )
+            )
         );
     }
 
@@ -141,6 +143,10 @@ class Module implements ConsoleUsageProviderInterface
                 $controller->setXmlRpcClient($services->get('Changelog\XmlRpc\Client'));
                 $controller->setJiraAuth($services->get('Changelog\Jira\Auth'));
                 $controller->setHttpClient($services->get('Changelog\Http\Client'));
+
+                if (isset($config['github_token']) && $config['github_token']) {
+                    $controller->setGithubToken($config['github_token']);
+                }
 
                 return $controller;
             },
