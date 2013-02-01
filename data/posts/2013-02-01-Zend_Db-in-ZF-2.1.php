@@ -18,21 +18,22 @@ $post->setUpdated(new DateTime('2013-02-01 11:00', new DateTimezone('America/Chi
 $body =<<<'EOS'
 
 <p>
-    Zend\Db just got a little better with the release of Zend Framework 2.1.  All the cool things you could do on Mysql, SQLite, Postgresql and SQL Server can now be done on DB2 and Oracle.  In addition, a number of additions were brought into the Zend\Db\Sql\Select object as well.
+    <code>Zend\Db</code> just got a little better with the release of Zend 
+    Framework 2.1.  All the cool things you could do on Mysql, SQLite, 
+    Postgresql and SQL Server can now be done on DB2 and Oracle.  In addition, 
+    a number of additions were brought into the <code>Zend\Db\Sql\Select</code> object as 
+    well.
 </p>
 
 EOS;
 $post->setBody($body);
 $extended =<<<'EOS'
 
-<p>
-    Zend\Db just got a little better with the release of Zend Framework 2.1.  All the cool things you could do on Mysql, SQLite, Postgresql and SQL Server can now be done on DB2 and Oracle.  In addition, a number of additions were brought into the Zend\Db\Sql\Select object as well.
-</p>
-
 <h3>Connecting to DB2 and Oracle</h3>
 
 <p>
-    Connecting to DB2 whether on Windows, *nix, Mac, or the IBM iSeries, is the same as any other driver - using the array notation:
+    Connecting to DB2 whether on Windows, *nix, Mac, or the IBM iSeries, is the 
+    same as any other driver - using the array notation:
 </p>
 
 <pre class="highlight">
@@ -61,11 +62,23 @@ $adapter = new DbAdapter(array(
 </pre>
 
 <p>
-    Both Oracle and DB2 carry different conventional usage patterns and workflows than their more modern successors in the relational database space.  As such, certain default behaviors can be turned off.  For example, by default, when queries are generated via any of the Zend\Db\Sql object (SQL abstraction), all known identifiers are identifier quoted.  That means if a developer wrote: $select->from('foo'); then ```foo``` would be quoted in the database platform specific way.  For MySQL this means back-ticks, like `foo`, and for most other database that means being quoted with double quotes.  In cases of Oracle and DB2 where there is a pronounced history of not quoting identifiers, Zend\Db\Adapter can be provided an option to turn this off - as you can see above in the ```platform_options```.
+    Both Oracle and DB2 carry different conventional usage patterns and 
+    workflows than their more modern successors in the relational database 
+    space.  As such, certain default behaviors can be turned off.  For example, 
+    by default, when queries are generated via any of the <code>Zend\Db\Sql</code> object
+    (SQL abstraction), all known identifiers are identifier quoted.  That means 
+    if a developer wrote: <code>$select->from('foo');</code> then "foo" would be quoted 
+        in the database platform specific way.  For MySQL this means 
+        back-ticks, like <code>`foo`</code>, and for most other database that means being 
+        quoted with double quotes.  In cases of Oracle and DB2 where there is a 
+        pronounced history of not quoting identifiers, <code>Zend\Db\Adapter</code> can be 
+        provided an option to turn this off - as you can see above in the 
+        "platform_options".
 </p>
 
 <p>
-    Once an adapter is created, it can be used by any of the Zend\Db API.  Here are a few examples of what you can do:
+    Once an adapter is created, it can be used by any of the <code>Zend\Db</code> API.  Here 
+    are a few examples of what you can do:
 </p>
 
 <pre class="highlight">
@@ -136,7 +149,11 @@ $select->order(new Expression('RAND()'));
 <h3>Call to Action</h3>
 
 <p>
-    Since our DB2 and Oracle drivers are new, we are sure they are not perfect yet and can be improved to better allow a more natural workflow for the database needs of a DB2 or Oracle developer.  If you find anything that is a bug, or feature request, please take the time to fill out an issue on our github repository for ZF2:
+    Since our DB2 and Oracle drivers are new, we are sure they are not perfect 
+    yet and can be improved to better allow a more natural workflow for the 
+    database needs of a DB2 or Oracle developer.  If you find anything that is 
+    a bug, or feature request, please take the time to fill out an issue on our 
+    github repository for ZF2:
 </p>
 
 <p>
@@ -150,5 +167,3 @@ EOS;
 $post->setExtended($extended);
 
 return $post;
-
-
