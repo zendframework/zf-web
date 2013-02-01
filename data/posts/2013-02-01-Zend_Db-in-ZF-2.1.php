@@ -156,9 +156,9 @@ $select->order(new Expression('RAND()'));
     github repository for ZF2:
 </p>
 
-<p>
-    https://github.com/zendframework/zf2/issues
-</p>
+<ul>
+    <li><a href="https://github.com/zendframework/zf2/issues">https://github.com/zendframework/zf2/issues</a></li>
+</ul>
 
 <p>
 Happy ZFing!
