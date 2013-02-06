@@ -192,9 +192,36 @@ class PageController extends AbstractActionController
         // Body (standard)
         $content = $doc->queryXpath('//div[@class="section"]');
         if (count($content)) {
+            $xpath = new \DOMXpath($content->getDocument());
+
+            // Replace headlines (h1 => h4)
+            $nodelist = $xpath->query(
+                '//div/div[@class = "section"]/div[@class = "section"]/div[@class = "section"]/div/h1[@class = "title"]'
+            );
+
+            foreach ($nodelist as $node) {
+                $newElement = $content->getDocument()->createElement(
+                    'h4', $node->nodeValue
+                );
+                $node->parentNode->replaceChild($newElement, $node);
+            }
+
+            // Replace headlines (h1 => h3)
+            $nodelist = $xpath->query(
+                '//div/div[@class = "section"]/div[@class = "section"]/div/h1[@class = "title"]'
+            );
+
+            foreach ($nodelist as $node) {
+                $newElement = $content->getDocument()->createElement(
+                    'h3', $node->nodeValue
+                );
+                $node->parentNode->replaceChild($newElement, $node);
+            }
+
             // Replace headlines (h1 => h2)
-            $xpath    = new \DOMXpath($content->getDocument());
-            $nodelist = $xpath->query('//div/div[@class = "section"]/div/h1[@class = "title"]');
+            $nodelist = $xpath->query(
+                '//div/div[@class = "section"]/div/h1[@class = "title"]'
+            );
 
             foreach ($nodelist as $node) {
                 $newElement = $content->getDocument()->createElement(
@@ -271,19 +298,43 @@ class PageController extends AbstractActionController
         }
 
         // Content list items
-        $elements = $doc->queryXpath('//div[@class="section" and @name and @id]');
+        $elements = $doc->queryXpath('//body/table/tr/td/div/div[@class="section" and @name and @id]');
         if (count($elements)) {
             // Active page
             $active = $doc->queryXpath('//ul[@class="toc"]/li[@class = "active"]/a')->current();
+
+            $xpath = new \DOMXpath($elements->getDocument());
 
             // Content list
             $pageContent['sidebar'] .= "<ul>\n";
             foreach ($elements as $element) {
                 $pageContent['sidebar'] .= sprintf(
-                    '<li><a href="%s">%s</a></li>',
+                    '<li><a href="%s">%s</a>',
                     $active->getAttribute('href') . '#' . $element->getAttribute('id'),
                     $element->childNodes->item(0)->nodeValue
                 );
+
+                // Sub elements
+                $nodelist = $xpath->query(
+                    'div[@class="section" and @name and @id]',
+                    $element
+                );
+
+                if ($nodelist->length) {
+                    $pageContent['sidebar'] .= '<ul>';
+
+                    foreach ($nodelist as $node) {
+                        $pageContent['sidebar'] .= sprintf(
+                            '<li><a href="%s">%s</a></li>',
+                            $active->getAttribute('href') . '#' . $node->getAttribute('id'),
+                            $node->childNodes->item(0)->nodeValue
+                        );
+                    }
+
+                    $pageContent['sidebar'] .= '</ul>';
+                }
+
+                $pageContent['sidebar'] .= '</li>';
             }
             $pageContent['sidebar'] .= "</ul>\n";
         }
@@ -414,34 +465,40 @@ class PageController extends AbstractActionController
             $pageContent['body'] = $navigation . $pageContent['body'] . $navigation;
         }
 
-        // sidebar
+        // Sidebar
         $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
         $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
-        $pageContent['sidebar'] = preg_replace(
-            '/(\.\.\/)*(_static|_images)/i',
-            '/images/manual',
-            $pageContent['sidebar']
+
+        // Remove logo
+        $pageContent['sidebar'] = substr(
+            $pageContent['sidebar'],
+            strpos($pageContent['sidebar'], '</p>')
         );
-        
+
+        $pageContent['sidebar'] = substr($pageContent['sidebar'], 0, -6);
+
+        // Replace empty links
         $pageContent['sidebar'] = str_replace(
             '<h3><a href="#">Table Of Contents</a></h3>',
             '<h1>Table Of Contents</h1>',
             $pageContent['sidebar']
         );
-        
+
+        // Change headlines
         $pageContent['sidebar'] = str_replace('<h4>','<h1>', $pageContent['sidebar']);
         $pageContent['sidebar'] = str_replace('</h4>','</h1>', $pageContent['sidebar']);
         
         $pageContent['sidebar'] = str_replace('<h3>','<h1>', $pageContent['sidebar']);
         $pageContent['sidebar'] = str_replace('</h3>','</h1>', $pageContent['sidebar']);
-        
+
+        // Add CSS class for notes
         $pageContent['sidebar'] = str_replace(
             '<p style="font-size: 12px">',
             '<p class="note">',
             $pageContent['sidebar']
         );
 
-        // title
+        // Title
         $elem = $doc->queryXpath('//title')->current();
         $pageContent['title'] = $elem->nodeValue;
 
