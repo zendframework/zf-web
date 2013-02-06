@@ -152,7 +152,7 @@ class PageController extends AbstractActionController
                      '1.0.3',
                  ),
                  2 => array(
-                     '2.1.0',
+                     '2.1.1',
                      '2.0.7',
                  ),
             )
