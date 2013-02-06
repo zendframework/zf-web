@@ -56,7 +56,7 @@ $extended =<<<'EOC'
 <p>
     <strong>2.1.0</strong> is the first new feature release for ZF2. Most
     features are incremental improvements on existing components; we also
-    have one brand new component as well. Thinks you'll see include:
+    have one brand new component as well. Things you'll see include:
 </p>
 
 <ul>
