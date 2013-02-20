@@ -1,376 +1,204 @@
 <?php
 $tags = array (
-  '2.0.0' => 'Zend Framework 2.0.0
-====================
+  '2.1.2' => 'Zend Framework 2.1.2
 
-This is the first stable release of the new version 2 release branch.
+- 3085: create controller via Zend\\Mvc\\Controller\\ControllerManager
+  (https://github.com/zendframework/zf2/issues/3085)
+- 3469: ConnectionInterface docblock is wrong or implementation is wrong..
+  (https://github.com/zendframework/zf2/issues/3469)
+- 3506: [WIP] [#3113] Fix spelling in error validation messages
+  (https://github.com/zendframework/zf2/issues/3506)
+- 3636: If route has child routes and in URL has arbitrary query like "?lang=de"
+  it does not work
+  (https://github.com/zendframework/zf2/issues/3636)
+- 3652: Query parameter ?action=somevalue will get 404 error
+  (https://github.com/zendframework/zf2/issues/3652)
+- 3683: Fix to make sure NotEmpty validator is not already set
+  (https://github.com/zendframework/zf2/issues/3683)
+- 3691: Fix for GitHub issue 3469
+  (https://github.com/zendframework/zf2/issues/3691)
+- 3698: Openssl error string
+  (https://github.com/zendframework/zf2/issues/3698)
+- 3699: Certain servers may not set a whitespace after a colon
+  (Set-Cookie: header)
+  (https://github.com/zendframework/zf2/issues/3699)
+- 3701: Synced pt\\_BR\\Zend\\_Validate.php with en\\Zend\\_Validate.php
+  (https://github.com/zendframework/zf2/issues/3701)
+- 3702: added new file: resources\\languages\\pt\\_BR\\Zend\\_Captcha.php
+  (https://github.com/zendframework/zf2/issues/3702)
+- 3703: [WIP] Adding parallel testing ANT build configuration and related files
+  (https://github.com/zendframework/zf2/issues/3703)
+- 3705: Recent composer.json update of stdlib package
+  (https://github.com/zendframework/zf2/issues/3705)
+- 3706: clear joins and create without columns
+  (https://github.com/zendframework/zf2/issues/3706)
+- 3707: quoteIdentifier problem in sequence
+  (https://github.com/zendframework/zf2/issues/3707)
+- 3708: Filter\\File\\RenameUpload: wrap move\\_uploaded\\_file to be easly mocked
+  (https://github.com/zendframework/zf2/issues/3708)
+- 3712: Fix for URIs with a query string not matching
+  (https://github.com/zendframework/zf2/issues/3712)
+- 3713: Session Container Mismatch & Version Compare fixes for 5.3.3
+  (https://github.com/zendframework/zf2/issues/3713)
+- 3715: [#3705] Fix autoload.files setting in composer.json
+  (https://github.com/zendframework/zf2/issues/3715)
+- 3716: Added the Zend\\Form decepence in composer.json for Zend\\Mvc
+  (https://github.com/zendframework/zf2/issues/3716)
+- 3721: Created README.md files for each component
+  (https://github.com/zendframework/zf2/issues/3721)
+- 3722: [Form] [DateTimeSelect] Filter, manager, and view helper fixes
+  (https://github.com/zendframework/zf2/issues/3722)
+- 3725: Use built-in php constants
+  (https://github.com/zendframework/zf2/issues/3725)
+- 3729: Zend\\Barcode (Fixes #2862)
+  (https://github.com/zendframework/zf2/issues/3729)
+- 3732: Fix for #2531 - Multiplie navigation don\'t work
+  (https://github.com/zendframework/zf2/issues/3732)
+- 3733: Fix/select where
+  (https://github.com/zendframework/zf2/issues/3733)
+- 3735: [Form] [FormElementManager] don\'t overwrite form factory if already set
+  (https://github.com/zendframework/zf2/issues/3735)
+- 3742: Object+hydrator element annotation fix
+  (https://github.com/zendframework/zf2/issues/3742)
+- 3743: [#3739 & #3740] Using version-compare in accept header handler params.
+  (https://github.com/zendframework/zf2/issues/3743)
+- 3746: Fix bugs for some locales!
+  (https://github.com/zendframework/zf2/issues/3746)
+- 3757: Fixed a bug where mail messages were malformed when using the Sendmail
+  (https://github.com/zendframework/zf2/issues/3757)
+- 3764: Validator File MimeType (IsImage & IsCompressed)
+  (https://github.com/zendframework/zf2/issues/3764)
+- 3771: Zend\\File\\Transfer\\Adapter\\Http on receive : error "File was not found"  in ZF 2.1
+  (https://github.com/zendframework/zf2/issues/3771)
+- 3778: [#3711] Fix regression in query string matching
+  (https://github.com/zendframework/zf2/issues/3778)
+- 3782: [WIP] Zend\\Di\\Di::get() with call parameters ignored shared instances.
+  (https://github.com/zendframework/zf2/issues/3782)
+- 3783: Provide branch-alias entries for each component composer.json
+  (https://github.com/zendframework/zf2/issues/3783)
+- 3785: Zend\\Db\\Sql\\Literal Fix when % is used in string
+  (https://github.com/zendframework/zf2/issues/3785)
+- 3786: Inject shared event manager in initializer
+  (https://github.com/zendframework/zf2/issues/3786)
+- 3789: Update library/Zend/Mail/Header/AbstractAddressList.php
+  (https://github.com/zendframework/zf2/issues/3789)
+- 3793: Resolved Issue: #3748 - offsetGet and __get should do a direct proxy to
+  $_SESSION
+  (https://github.com/zendframework/zf2/issues/3793)
+- 3794: Implement query and fragment assembling into the HTTP router itself
+  (https://github.com/zendframework/zf2/issues/3794)
+- 3797: remove @category, @package, and @subpackage docblocks
+  (https://github.com/zendframework/zf2/issues/3797)
+- 3798: Remove extra semicolons
+  (https://github.com/zendframework/zf2/issues/3798)
+- 3803: Fix identical validator
+  (https://github.com/zendframework/zf2/issues/3803)
+- 3806: Remove obsolete catch statement
+  (https://github.com/zendframework/zf2/issues/3806)
+- 3807: Resolve undefined classes in phpDoc
+  (https://github.com/zendframework/zf2/issues/3807)
+- 3808: Add missing @return annotations
+  (https://github.com/zendframework/zf2/issues/3808)
+- 3813: Bug fix for GlobIterator extending service
+  (https://github.com/zendframework/zf2/issues/3813)
+- 3817: Add failing tests for Simple console route
+  (https://github.com/zendframework/zf2/issues/3817)
+- 3819: Allow form element filter to convert a string to array
+  (https://github.com/zendframework/zf2/issues/3819)
+- 3828: Cannot validate form when keys of collection in data are non consecutive
+  (https://github.com/zendframework/zf2/issues/3828)
+- 3831: Non-matching argument type for ArrayObject
+  (https://github.com/zendframework/zf2/issues/3831)
+- 3832: Zend\\Db\\Sql\\Predicate\\Predicate->literal() does not work with integer 0
+  as $expressionParameters
+  (https://github.com/zendframework/zf2/issues/3832)
+- 3836: Zend\\Db\\Sql\\Predicate\\Predicate Fix for literal() usage
+  (https://github.com/zendframework/zf2/issues/3836)
+- 3837: Fix for legacy Transfer usage of File Validators
+  (https://github.com/zendframework/zf2/issues/3837)
+- 3838: Stdlib\\ArrayObject & Zend\\Session\\Container Compatibility with ArrayObject
+  (https://github.com/zendframework/zf2/issues/3838)
+- 3839: Fixes #2477 - Implemented optional subdomains using regex
+  (https://github.com/zendframework/zf2/issues/3839)',
+  '2.1.1' => 'Zend Framework 2.1.1
 
-04 September 2012
-
-NEW IN ZEND FRAMEWORK 2
------------------------
-
-New and/or refactored components include:
-
-- EventManager - provides subject/observer, pubsub, aspect-oriented programming,
-  signal slots, and event systems for your applications.
-- ServiceManager - provides an Inversion of Control (IoC) container for managing
-  object life-cycles and dependencies via a configurable and programmable
-  interface.
-- DI - provides a Dependency Injection Container, another form of IoC.
-- MVC - a newly written MVC layer for ZF2, using controllers as services, and
-  wiring everything together using events.
-- ModuleManager - a solution for providing plug-and-play functionality for
-  either MVC applications or any application requiring pluggable 3rd party code.
-  Within ZF2, the ModuleManager provides the MVC with services, and assists in
-  wiring events.
-- Loader - provides new options for autoloading, including standard, performant
-  PSR-0 loading and class-map-based autoloading.
-- Code - provides support for code reflection, static code scanning, and
-  annotation parsing.
-- Config - more performant and more flexible configuration parsing and creation.
-- Escaper - a new component for providing context-specific escaping solutions
-  for HTML, HTML attributes, CSS, JavaScript, and combinations of contexts as
-  well.
-- HTTP - rewritten to provide better header, request, and response abstraction.
-- I18n - a brand new internationalization and localization layer built on top of
-  PHP\'s ext/intl extension.
-- InputFilter - a new component for providing normalization and validation of
-  sets of data.
-- Form - rewritten from the ground up to properly separate validation, domain
-  modeling, and presentation concerns. Allows binding objects to forms, defining
-  forms and input filters via annotations, and more.
-- Log - rewritten to be more flexible and provide better capabilities
-  surrounding message formats and filtering.
-- Mail - rewritten to separate concerns more cleanly between messages and
-  transports.
-- Session - rewritten to make testing easier, as well as to make it more
-  configurable for end users.
-- Uri - rewritten to provide a cleaner, more object oriented interface.
-
-Many components have been ported from Zend Framework 1, and operate in
-practically identical manners to their 1.X equivalent. Others, such as the
-service components, have been moved to their own repositories to ensure that as
-APIs change, they do not need to wait on the framework to release new versions.
-
-Welcome to a new generation of Zend Framework!',
-  '2.0.0beta4' => 'Zend Framework 2.0.0beta4
-
-THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
-PLEASE USE AT YOUR OWN RISK.
-
-This is the fourth in a series of planned beta releases. The beta release
-cycle will follow the "gmail" style of betas, whereby new features will
-be added in each new release, and BC will not be guaranteed; beta
-releases will happen _approximately_ every six weeks.
-
-Once the established milestones have been reached and the featureset has reached
-maturity and reasonable stability, we will freeze the API and prepare for
-Release Candidate (RC) status. At this time, we are only planning for one more
-beta release (beta5) before starting the RC process.
-
-PLEASE NOTE: this beta includes a large number of breaks from the previous beta,
-due to introduction of the ServiceManager, changes to the EventManager, renaming
-of the ModuleManager, rewrite of the Form component (and removal of the Dojo
-component), and several changes in the View layer. Please consult the
-ZendSkeletonApplication to get an idea of the changes necessary to make your
-application work with beta4.
-
- - Config component (Enrico Zimuel)
-    -  Added reader and writer implementations for JSON and YAML configuration
- - Crypt and Math (Enrico Zimuel)
-    - Creates a generic API for string and stream en/decryption
-    - Provides bcrypt support
-    - Provides BigInteger support
-    - Provides common methodology surrounding credential encryption and hashing
- - Db layer (Ralph Schindler)
-    - Zend\\Db\\Adapter: added buffer() to the ResultInterface, added that feature
-      to Mysqli Result object
-    - Zend\\Db\\Adapter: added ability to subselect Sqlite for returning a true
-      count()
-    - Zend\\Db\\Adapter: added API to return helper closures from the Adapter API
-    - Renamed "database" to "schema" in all usages across Zend\\Db
-    - Zend\\Db\\Adapter: Various fixes for PDO connection parameters
-    - Zend\\Db\\Sql: created a shared AbstractSql implementation to share
-      expression processing
-    - Zend\\Db\\Sql: created a more robust "Expression" object for use in Select
-      and Predicates
-    - Zend\\Db\\Sql: created an internal workflow and architecture to handle the
-      creation of platform specific queries
-    - Zend\\Db\\Sql: implemented limit() and offset() API to Select
-    - Zend\\Db\\Sql: added having(), order() to SELECT API
-    - Zend\\Db\\Sql: added alias support to Select::columns()
-    - Zend\\Db\\TableGateway: reorganized AbstractTableGateway and TableGateway,
-      removed other extensions in favor of "Features"
-    - Zend\\Db\\TableGateway: created a "Features" API in TableGatway to promote
-      horizontal extension of TableGatway
- - Di (Ralph Schindler, Marco Pivetta)
-    - Added method injectDependencies($instance), to allow injecting an object
-      after an instance is already available (used in the ServiceManager)
-    - Various fixes based on issue reports
- - Dojo
-    - REMOVED. Support was for out-dated versions of Dojo, and with the new Form
-      rewrite, it needs to be completely rewritten. This is targetted for post
-      2.0.0 at this time.
- - EventManager (Matthew Weier O\'Phinney)
-    - New SharedEventManager, a non-static version of the original
-      StaticEventManager
-    - StaticEventManager now extends SharedEventManager and implements a
-      singleton pattern
-    - New ServiceManager creates a shared instance of SharedEventManager and
-      injects it in a non-shared EventManager instance per service; static usage
-      is discouraged at this time.
-    - attachAggregate() now accepts an optional $priority, which, when present,
-      will be passed to the ListenerAggregate, allowing specifying a priority
-      during attachment of its events.
-    - EventManager now can handle arrays of events as well as wildcard events
-    - SharedEventManager now can handle arrays of contexts, wildcard contexts,
-      and arrays/wildcard events.
- - Form (Matthew Weier O\'Phinney, Kyle Spraggs, Guilherme Blanco)
-    - Complete rewrite
-    - Elements compose a name and attributes
-    - Fieldsets compose a name, attributes, and elements and fieldsets
-    - Forms compose a name, attributes, elements, fieldsets, an InputFilter, and
-      optionally a Hydrator and bound object.
-    - New form view helpers accept the Form objects in order to generate markup.
-    - Object binding allows direct binding of model data to and from the Form.
- - InputFilter (Matthew Weier O\'Phinney)
-    - New component for object-oriented creation of input filters
-    - Input objects compose filter and validator chains, as well as metadata
-      such as required, allow empty, break on failure, and more.
-    - InputFilter objects compose Input and InputFilter objects, and allow
-      validating the entire set or specified validation groups.
- - Log (Enrico Zimuel, Benoit Durand)
-    - Refactored to provide more flexibility
-    - Adds API discoverability (instead of method overloading)
-    - Uses the PluginBroker for loading writers and formatters
-    - Uses PriorityQueue to manage writer priority
-    - Uses FilterChain for filtering messages
-    - Adds a renderer for exceptions, a JSON formatter, and additional interfaces
- - Mail (Enrico Zimuel)
-    - Allow batch sending via the SMTP transport
- - ModuleManager (Evan Coury, Matthew Weier O\'Phinney)
-    - Renamed from "Module" to "ModuleManager"
-    - Renamed "Consumer" subnamespace to "Feature"
-    - Added new listeners:
-      - OnBootstrapListener (Module classes defining onBootstrap() will have
-        that method attached as a listener on the Application bootstrap event)
-      - LocatorRegistrationListener (Module classes implementing the
-        LocatorRegisteredInterface feature will be injected in the
-        ServiceManager)
-      - ServiceListener (Module classes defining getServiceConfiguration() will
-        have that method called, and the configuration merged; once all modules
-        are loaded, that merged configuration will be passed to the
-        ServiceManager)
- - MVC (Matthew Weier O\'Phinney, Ralph Schindler, Evan Coury)
-    - Removed Bootstrap class and rewrote Application class
-      - Composes a ServiceManager, and simply fires events
-    - Added RouteListener and DispatchListener classes, implementing the default
-      route and dispatch strategies.
-    - Created a new "Service" subnamespace, with ServiceManager configuration
-      and factories for the default MVC services.
-    - Created a new "ViewManager" class, which triggers on the bootstrap event,
-      at which time it creates the various objects of the view layer and wires
-      them together as well as registers them with the appropriate events.
-    - InjectTemplateListener now uses the controller namespace to further
-      namespace the view template; the default is now
-      "<normalized top-level namespace>/<normalized controller name>/<action>"
- - ServiceManager component (Ralph Schindler, Matthew Weier O\'Phinney)
-    - Highly performant, programmatic service creation
-    - Largely replaces DI, but can also consume Zend\\Di
-    - Allows:
-      - Service registration
-      - Lazy-loaded service objects
-      - Service factories
-      - Service aliasing
-      - Abstract (fallback) factories
-      - Initializers (manipulate instances after creation)
-    - Fully integrated in the MVC solution
- - Renamed interfaces (Gabriel Baker, Sascha Prolic, Maks3w)
-   - Most, if not all, interfaces were renamed to suffix with the word
-     "Interface". This is to promote discovery of interfaces, as well as make
-     naming simpler.
-   - Exceptions are affected by this as well. Exception marker interfaces were
-     renamed to ExceptionInterface and pushed into the Exception subnamespace of
-     each component
- - Composer support (Rob Allen, Marco Pivetta, Kyle Spraggs)
-   - Zend Framework is now installable via Composer (http://packagist.org/), as
-     are each of its individual components
- - Travis CI integration (Marco Pivetta, Maks3w)
-   - ZF2 is tested on each commit by http://travis-ci.org/
-
-Over *400* pull requests for a variety of features and bugfixes were handled
-since beta3!',
-  '2.0.6' => 'Zend Framework 2.0.6
-
-19 Dec 2012
-
-- 2885: Zend\\Db\\TableGateway\\AbstractTableGateway won\'t work with Sqlsrv
-  db adapter (https://github.com/zendframework/zf2/issues/2885)
-- 2922: Fix #2902 (https://github.com/zendframework/zf2/issues/2922)
-- 2961: Revert PR #2943 for 5.3.3 fix
-  (https://github.com/zendframework/zf2/issues/2961)
-- 2962: Allow Accept-Encoding header to be set explicitly by http
-  request (https://github.com/zendframework/zf2/issues/2962)
-- 3033: Fix error checking on Zend\\Http\\Client\\Adapter\\Socket->write().
-  (https://github.com/zendframework/zf2/issues/3033)
-- 3040: remove unused \'use DOMXPath\' and property $count and $xpath
-  (https://github.com/zendframework/zf2/issues/3040)
-- 3043: improve conditional : reduce file size
-  (https://github.com/zendframework/zf2/issues/3043)
-- 3044: Extending Zend\\Mvc\\Router\\Http\\Segment causes error
-  (https://github.com/zendframework/zf2/issues/3044)
-- 3047: Fix Zend\\Console\\Getopt::getUsageMessage()
-  (https://github.com/zendframework/zf2/issues/3047)
-- 3049: Hotfix/issue #3033
-  (https://github.com/zendframework/zf2/issues/3049)
-- 3050: Fix : The annotation @\\Zend\\Form\\Annotation\\AllowEmpty declared
-  on does not accept any values
-  (https://github.com/zendframework/zf2/issues/3050)
-- 3052: Fixed #3051 (https://github.com/zendframework/zf2/issues/3052)
-- 3061: changed it back \'consist\' => the \'must\' should be applied to all
-  parts of the sentence
-  (https://github.com/zendframework/zf2/issues/3061)
-- 3063: hotfix: change sha382 to sha384 in
-  Zend\\Crypt\\Key\\Derivation\\SaltedS2k
-  (https://github.com/zendframework/zf2/issues/3063)
-- 3070: Fix default value unavailable exception for in-build php classes
-  (https://github.com/zendframework/zf2/issues/3070)
-- 3074: Hotfix/issue #2451 (https://github.com/zendframework/zf2/issues/3074)
-- 3091: console exception strategy displays previous exception message
-  (https://github.com/zendframework/zf2/issues/3091)
-- 3114: Fixed Client to allow also empty passwords in HTTP
-  Authentication. (https://github.com/zendframework/zf2/issues/3114)
-- 3125: #2607 - Fixing how headers are accessed
-  (https://github.com/zendframework/zf2/issues/3125)
-- 3126: Fix for GitHub issue 2605
-  (https://github.com/zendframework/zf2/issues/3126)
-- 3127: fix cs: add space after casting
-  (https://github.com/zendframework/zf2/issues/3127)
-- 3130: Obey PSR-2 (https://github.com/zendframework/zf2/issues/3130)
-- 3144: Zend\\Form\\View\\Helper\\Captcha\\AbstractWord input and hidden
-  attributes (https://github.com/zendframework/zf2/issues/3144)
-- 3148: Fixing obsolete method of checking headers, made it use the new
-  method. (https://github.com/zendframework/zf2/issues/3148)
-- 3149: Zf2634 - Adding missing method Client::encodeAuthHeader
-  (https://github.com/zendframework/zf2/issues/3149)
-- 3151: Rename variable to what it probably should be
-  (https://github.com/zendframework/zf2/issues/3151)
-- 3155: strip duplicated semicolon
-  (https://github.com/zendframework/zf2/issues/3155)
-- 3156: fix typos in docblocks
-  (https://github.com/zendframework/zf2/issues/3156)
-- 3162: Allow Forms to have an InputFilterSpecification
-  (https://github.com/zendframework/zf2/issues/3162)
-- 3163: Added support of driver\\_options to Mysqli DB Driver
-  (https://github.com/zendframework/zf2/issues/3163)
-- 3164: Cast $step to float in \\Zend\\Validator\\Step
-  (https://github.com/zendframework/zf2/issues/3164)
-- 3166: [#2678] Sqlsrv driver incorrectly throwing exception when
-  $sqlOrResource... (https://github.com/zendframework/zf2/issues/3166)
-- 3167: Fix #3161 by checking if the server port already exists in the
-  host (https://github.com/zendframework/zf2/issues/3167)
-- 3169: Fixing issue #3036 (https://github.com/zendframework/zf2/issues/3169)
-- 3170: Fixing issue #2554 (https://github.com/zendframework/zf2/issues/3170)
-- 3171: hotfix : add  \'$argName\' as \'argument %s\' in sprintf ( at 1st
-  parameter ) (https://github.com/zendframework/zf2/issues/3171)
-- 3178: Maintain priority flag when cloning a Fieldset
-  (https://github.com/zendframework/zf2/issues/3178)
-- 3184: fix misspelled getCacheStorge()
-  (https://github.com/zendframework/zf2/issues/3184)
-- 3186: Dispatching to a good controller but wrong action triggers a
-  Fatal Error (https://github.com/zendframework/zf2/issues/3186)
-- 3187: Fixing ansiColorMap by removing extra m\'s showed in the console
-  (https://github.com/zendframework/zf2/issues/3187)
-- 3194: Write clean new line for writeLine method (no background color)
-  (https://github.com/zendframework/zf2/issues/3194)
-- 3197: Fix spelling error (https://github.com/zendframework/zf2/issues/3197)
-- 3201: Session storage set save path
-  (https://github.com/zendframework/zf2/issues/3201)
-- 3204: [wip] Zend\\Http\\Client makes 2 requests to url if
-  setStream(true) is called
-  (https://github.com/zendframework/zf2/issues/3204)
-- 3207: dead code clean up.
-  (https://github.com/zendframework/zf2/issues/3207)
-- 3208: Zend\\Mime\\Part: Added EOL paramter to getEncodedStream()
-  (https://github.com/zendframework/zf2/issues/3208)
-- 3213: [#3173] Incorrect creating instance
-  Zend/Code/Generator/ClassGenerator.php by fromArray
-  (https://github.com/zendframework/zf2/issues/3213)
-- 3214: Fix passing of tags to constructor of docblock generator class
-  (https://github.com/zendframework/zf2/issues/3214)
-- 3217: Cache: Optimized Filesystem::setItem with locking enabled by
-  writing the... (https://github.com/zendframework/zf2/issues/3217)
-- 3220: [2.0] Log Writer support for MongoClient driver class
-  (https://github.com/zendframework/zf2/issues/3220)
-- 3226: Licence is not accessable via web
-  (https://github.com/zendframework/zf2/issues/3226)
-- 3229: fixed bug in DefinitionList::hasMethod()
-  (https://github.com/zendframework/zf2/issues/3229)
-- 3234: Removed old Form TODO since all items are complete
-  (https://github.com/zendframework/zf2/issues/3234)
-- 3236: Issue #3222 - Added suport for multi-level nested ini config
-  variables (https://github.com/zendframework/zf2/issues/3236)
-- 3237: [BUG] Service Manager Not Shared Duplicate new Instance with
-  multiple Abstract Factories
-  (https://github.com/zendframework/zf2/issues/3237)
-- 3238: Added French translation for captcha
-  (https://github.com/zendframework/zf2/issues/3238)
-- 3250: Issue #2912 - Fix for LicenseTag generation
-  (https://github.com/zendframework/zf2/issues/3250)
-- 3252: subject prepend text in options for Log\\Writer\\Mail
-  (https://github.com/zendframework/zf2/issues/3252)
-- 3254: Better capabilities surrounding console notFoundAction
-  (https://github.com/zendframework/zf2/issues/3254)',
-  '2.0.0rc5' => 'Zend Framework 2.0.0rc5
-
-This is the fifth release candidate for 2.0.0. We will be releasing RCs
-on a weekly basis until we feel all critical issues are addressed. At
-this time, we anticipate few API changes before the stable release, and
-recommend testing your production applications against it.
-
-23 August 2012
-
-- Zend\\Db
-  - Now handles null values properly in execute mode.
-  - Added SqlSrv integration tests (prompted by a bug report of issues with
-    establishing a connection).
-- Zend\\Form
-  - The FormButton helper now allows translation. However, to make this work, it
-    now requires that the label value is set in the element.
-  - Fixed an issue with the MultiCheckBox helper to ensure checked/unchecked
-    values are properly populated.
-  - The FormCheckbox view helper now requires that the element is a Checkbox
-    element; this is done to ensure the required options are available.
-- Zend\\Log
-  - The table name constructor option is now optional, allowing you to pass it
-    in a configuration array.
-  - Now allows using DateTime with the Db Writer.
-- Zend\\Http
-  - Added ability to set the SSL capath option.
-  - Added a check for the sslcapath being set if sslverifypeer is enabled when
-    first connecting to an SSL-enabled site; an exception is thrown if all
-    conditions are not met.
-  - PhpEnvironment\\Request object now falls back to \'/\' for the base path if the
-    SCRIPT_FILENAME server variable is not present (true in PHP 5.4 web server
-    and several others).
-- Zend\\I18n
-  - Caching translations now works.
-- Zend\\Mvc
-  - forward() plugin no longer results in double template rendering.
-- Zend\\ServiceManager
-  - Now ensures that when $allowOverride is enabled that services registered
-    with the same name overwrite properly.
-- Zend\\Validator
-  - The Uri validator is now listed in the validator plugin manager.
-  - The EmailAddress validator now allows setting custom error messages.
-- General fixes
-  - Removed all locations of error suppression remaining in the framework.
-  - Synced the implementations of Zend\\Mvc\\Controller\\Plugin\\Url and
-    Zend\\View\\Helper\\Url.
-
-More than 20 pull requests for a variety of features and bugfixes were handled
-since RC4, as well as around 30 documentation changes!',
+- 2510: Zend\\Session\\Container does not allow modification by reference
+  (https://github.com/zendframework/zf2/issues/2510)
+- 2899: Can\'t inherit abstract function
+  Zend\\Console\\Prompt\\PromptInterface::show()
+  (https://github.com/zendframework/zf2/issues/2899)
+- 3455: Added DISTINCT on Zend\\Db\\Sql\\Select
+  (https://github.com/zendframework/zf2/issues/3455)
+- 3456: Connection creation added in Pgsql.php createStatement method
+  (https://github.com/zendframework/zf2/issues/3456)
+- 3608: Fix validate data contains arrays as values
+  (https://github.com/zendframework/zf2/issues/3608)
+- 3610: Form: rely on specific setter
+  (https://github.com/zendframework/zf2/issues/3610)
+- 3618: Fix bug when $indent have some string
+  (https://github.com/zendframework/zf2/issues/3618)
+- 3622: Updated Changelog with BC notes for 2.1 and 2.0.7
+  (https://github.com/zendframework/zf2/issues/3622)
+- 3623: Authentication using DbTable Adapter doesn\'t work for 2.1.0
+  (https://github.com/zendframework/zf2/issues/3623)
+- 3625: Missing instance/object for parameter route upgrading to 2.1.\\*
+  (https://github.com/zendframework/zf2/issues/3625)
+- 3627: Making relative links in Markdown files
+  (https://github.com/zendframework/zf2/issues/3627)
+- 3629: Zend\\Db\\Select using alias in joins can results in wrong SQL
+  (https://github.com/zendframework/zf2/issues/3629)
+- 3638: Fixed method that removed part from parts in Mime\\Message
+  (https://github.com/zendframework/zf2/issues/3638)
+- 3639: Session Metadata and SessionArrayStorage requestaccesstime fixes.
+  (https://github.com/zendframework/zf2/issues/3639)
+- 3640: [#3625] Do not query abstract factories for registered invokables
+  (https://github.com/zendframework/zf2/issues/3640)
+- 3641: Zend\\Db\\Sql\\Select Fix for #3629
+  (https://github.com/zendframework/zf2/issues/3641)
+- 3645: Exception on destructing the SMTP Transport instance
+  (https://github.com/zendframework/zf2/issues/3645)
+- 3648: Ensure run() always returns Application instance
+  (https://github.com/zendframework/zf2/issues/3648)
+- 3649: Created script to aggregate return status
+  (https://github.com/zendframework/zf2/issues/3649)
+- 3650: InjectControllerDependencies initializer overriding an previously
+  defined EventManager
+  (https://github.com/zendframework/zf2/issues/3650)
+- 3651: Hotfix/3650
+  (https://github.com/zendframework/zf2/issues/3651)
+- 3656: Zend\\Validator\\Db\\AbstractDb.php and mysqli
+  (https://github.com/zendframework/zf2/issues/3656)
+- 3658: Zend\\Validator\\Db\\AbstractDb.php and mysqli (issue: 3656)
+  (https://github.com/zendframework/zf2/issues/3658)
+- 3661: ZF HTTP Status Code overwritten
+  (https://github.com/zendframework/zf2/issues/3661)
+- 3662: Remove double injection in Plugin Controller Manager
+  (https://github.com/zendframework/zf2/issues/3662)
+- 3663: Remove useless shared in ServiceManager
+  (https://github.com/zendframework/zf2/issues/3663)
+- 3671: Hotfix/restful head identifier
+  (https://github.com/zendframework/zf2/issues/3671)
+- 3673: Add translations for Zend\\Validator\\File\\UploadFile
+  (https://github.com/zendframework/zf2/issues/3673)
+- 3679: remove \'\\\' character from Traversable
+  (https://github.com/zendframework/zf2/issues/3679)
+- 3680: Zend\\Validator\\Db Hotfix (supersedes #3658)
+  (https://github.com/zendframework/zf2/issues/3680)
+- 3681: [#2899] Remove redundant method declaration
+  (https://github.com/zendframework/zf2/issues/3681)
+- 3682: Zend\\Db\\Sql\\Select Quantifier (DISTINCT, ALL, + Expression) support -
+  supersedes #3455
+  (https://github.com/zendframework/zf2/issues/3682)
+- 3684: Remove the conditional class declaration of ArrayObject
+  (https://github.com/zendframework/zf2/issues/3684)
+- 3687: fix invalid docblock
+  (https://github.com/zendframework/zf2/issues/3687)
+- 3689: [#3684] Polyfill support for version-dependent classes
+  (https://github.com/zendframework/zf2/issues/3689)
+- 3690: oracle transaction support
+  (https://github.com/zendframework/zf2/issues/3690)
+- 3692: Hotfix/db parametercontainer mixed use
+  (https://github.com/zendframework/zf2/issues/3692)',
   '2.1.0' => 'Zend Framework 2.1.0
 
 - 2378: ZF2-417 Form Annotation Hydrator options support
@@ -685,271 +513,6 @@ since RC4, as well as around 30 documentation changes!',
 - 3606: Zend\\Db\\Sql\\Select Add Support For SubSelect in Join Table - #2881 &
   #2884
   (https://github.com/zendframework/zf2/issues/3606)',
-  '2.0.1' => 'This is the first maintenance release for the 2.0 series.
-
-20 Sep 2012
-
-- 2285: Seed RouteMatch params as long as params is set. This permits setting an
-  empty array. (https://github.com/zendframework/zf2/pull/2285)
-- 2286: prepareNotFoundViewModel listner -  eventResult as ViewModel if set
-  (https://github.com/zendframework/zf2/pull/2286)
-- 2290: <span>$label</span> only when filled
-  (https://github.com/zendframework/zf2/pull/2290)
-- 2292: Allow (int)0 in coomments count in entry feed
-  (https://github.com/zendframework/zf2/pull/2292)
-- 2295: force to check className parameters
-  (https://github.com/zendframework/zf2/pull/2295)
-- 2296: mini-fix in controller plugin manager
-  (https://github.com/zendframework/zf2/pull/2296)
-- 2297: fixed phpdoc in Zend\\Mvc\\ApplicationInterface
-  (https://github.com/zendframework/zf2/pull/2297)
-- 2298: Update to Date element use statements to make it clearer which DateTime
-  (https://github.com/zendframework/zf2/pull/2298)
-- 2300: FormRow translate label fix (#ZF2-516)
-  (https://github.com/zendframework/zf2/pull/2300)
-- 2302: Notifications now to #zftalk.dev
-  (https://github.com/zendframework/zf2/pull/2302)
-- 2306: Fix several cs (https://github.com/zendframework/zf2/pull/2306)
-- 2307: Removed comment about non existent Zend_Tool
-  (https://github.com/zendframework/zf2/pull/2307)
-- 2308: Fix pluginmanager get method error
-  (https://github.com/zendframework/zf2/pull/2308)
-- 2309: Add consistency with event name
-  (https://github.com/zendframework/zf2/pull/2309)
-- 2310: Update library/Zend/Db/Sql/Select.php
-  (https://github.com/zendframework/zf2/pull/2310)
-- 2311: Version update (https://github.com/zendframework/zf2/pull/2311)
-- 2312: Validator Translations (https://github.com/zendframework/zf2/pull/2312)
-- 2313: ZF2-336: Zend\\Form adds enctype attribute as multipart/form-data
-  (https://github.com/zendframework/zf2/pull/2313)
-- 2317: Make Fieldset constructor consistent with parent Element class
-  (https://github.com/zendframework/zf2/pull/2317)
-- 2321: ZF2-534 Zend\\Log\\Writer\\Syslog prevents setting application name
-  (https://github.com/zendframework/zf2/pull/2321)
-- 2322: Jump to cache-storing instead of returning
-  (https://github.com/zendframework/zf2/pull/2322)
-- 2323: Conditional statements improved(minor changes).
-  (https://github.com/zendframework/zf2/pull/2323)
-- 2324: Fix for ZF2-517: Zend\\Mail\\Header\\GenericHeader fails to parse empty
-  header (https://github.com/zendframework/zf2/pull/2324)
-- 2328: Wrong \\__clone method (https://github.com/zendframework/zf2/pull/2328)
-- 2331: added validation support for optgroups
-  (https://github.com/zendframework/zf2/pull/2331)
-- 2332: README-GIT update with optional pre-commit hook
-  (https://github.com/zendframework/zf2/pull/2332)
-- 2334: Mail\\Message::getSubject() should return value the way it was set
-  (https://github.com/zendframework/zf2/pull/2334)
-- 2335: ZF2-511 Updated refactored names and other fixes
-  (https://github.com/zendframework/zf2/pull/2335)
-- 2336: ZF-546 Remove duplicate check for time
-  (https://github.com/zendframework/zf2/pull/2336)
-- 2337: ZF2-539 Input type of image should not have attribute value
-  (https://github.com/zendframework/zf2/pull/2337)
-- 2338: ZF2-543: removed linked but not implemented cache adapters
-  (https://github.com/zendframework/zf2/pull/2338)
-- 2341: Updated Zend_Validate.php pt_BR translation to 25.Jul.2011 EN Revision
-  (https://github.com/zendframework/zf2/pull/2341)
-- 2342: ZF2-549 Zend\\Log\\Formatter\\ErrorHandler does not handle complex events
-  (https://github.com/zendframework/zf2/pull/2342)
-- 2346: updated Page\\Mvc::isActive to check if the controller param was
-  tinkered (https://github.com/zendframework/zf2/pull/2346)
-- 2349: Zend\\Feed Added unittests for more code coverage
-  (https://github.com/zendframework/zf2/pull/2349)
-- 2350: Bug in Zend\\ModuleManager\\Listener\\LocatorRegistrationListener
-  (https://github.com/zendframework/zf2/pull/2350)
-- 2351: ModuleManagerInterface is never used
-  (https://github.com/zendframework/zf2/pull/2351)
-- 2352: Hotfix for AbstractDb and Csrf Validators
-  (https://github.com/zendframework/zf2/pull/2352)
-- 2354: Update library/Zend/Feed/Writer/AbstractFeed.php
-  (https://github.com/zendframework/zf2/pull/2354)
-- 2355: Allow setting CsrfValidatorOptions in constructor
-  (https://github.com/zendframework/zf2/pull/2355)
-- 2356: Update library/Zend/Http/Cookies.php
-  (https://github.com/zendframework/zf2/pull/2356)
-- 2357: Update library/Zend/Barcode/Object/AbstractObject.php
-  (https://github.com/zendframework/zf2/pull/2357)
-- 2358: Update library/Zend/ServiceManager/AbstractPluginManager.php
-  (https://github.com/zendframework/zf2/pull/2358)
-- 2359: Update library/Zend/Server/Method/Parameter.php
-  (https://github.com/zendframework/zf2/pull/2359)
-- 2361: Zend\\Form Added extra unit tests and some code improvements
-  (https://github.com/zendframework/zf2/pull/2361)
-- 2364: Remove unused use statements
-  (https://github.com/zendframework/zf2/pull/2364)
-- 2365: Resolve undefined classes and constants
-  (https://github.com/zendframework/zf2/pull/2365)
-- 2366: fixed typo in Zend\\View\\HelperPluginManager
-  (https://github.com/zendframework/zf2/pull/2366)
-- 2370: Error handling in AbstractWriter::write using Zend\\Stdlib\\ErrorHandler
-  (https://github.com/zendframework/zf2/pull/2370)
-- 2372: Update library/Zend/ServiceManager/Config.php
-  (https://github.com/zendframework/zf2/pull/2372)
-- 2375: zend-inputfilter already requires
-  (https://github.com/zendframework/zf2/pull/2375)
-- 2376: Activate the new GitHub feature: Contributing Guidelines
-  (https://github.com/zendframework/zf2/pull/2376)
-- 2377: Update library/Zend/Mvc/Controller/AbstractController.php
-  (https://github.com/zendframework/zf2/pull/2377)
-- 2379: Typo in property name in Zend/Db/Metadata/Object/AbstractTableObject.php
-  (https://github.com/zendframework/zf2/pull/2379)
-- 2382: PHPDoc params in AbstractTableGateway.php
-  (https://github.com/zendframework/zf2/pull/2382)
-- 2384: Replace Router with Http router in url view helper
-  (https://github.com/zendframework/zf2/pull/2384)
-- 2387: Replace PHP internal fmod function because it gives false negatives
-  (https://github.com/zendframework/zf2/pull/2387)
-- 2388: Proposed fix for ZF2-569 validating float with trailing 0\'s (10.0,
-  10.10) (https://github.com/zendframework/zf2/pull/2388)
-- 2391: clone in Filter\\FilterChain
-  (https://github.com/zendframework/zf2/pull/2391)
-- Security fix: a number of classes were not using the Escaper component in
-  order to perform URL, HTML, and/or HTML attribute escaping. Please see
-  http://framework.zend.com/security/advisory/ZF2012-03 for more details.',
-  '2.0.0beta5' => '*Zend Framework 2.0.0beta5*
-
-6 July 2012
-
-THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
-PLEASE USE AT YOUR OWN RISK.
-
-This is the fifth and last in a series of planned beta releases. The
-beta release cycle has followed the "gmail" style of betas, whereby new
-features have been added in each new release, and BC has not been
-guaranteed.
-
-Following this release, we plan to perform some repository cleanup, a
-standards audit, and documentation migration. Once these tasks are
-complete, we will prepare our first Release Candidate (RC).
-
-PLEASE NOTE: this beta includes a number of breaks from the previous
-beta. Please read the notes below prefixed with "BC BREAK" for specific
-breakages. The ZendSkeletonApplication typically reflects any BC changes
-that have been made, and is a good resource.
-
- - Escaper component (Padraic Brady)
-    - Provides context-specific escaping mechanisms for HTML content,
-      HTML attributes, URLs, CSS, and JavaScript.
-    - BC BREAK: The escape() view helper was removed, and replaced with
-      escapeHtml(), escapeHtmlAttr(), escapeJs(), escapeCss(), and
-      escapeUrl() implementations.
- - New I18n component (Ben Scholzen, Chris Martin, Dennis Portnov,
-   Matthew Weier O\'Phinney)
-    - New component leveraging PHP\'s ext/intl extension to provide
-      internationalization (i18n) and localization (L10n) features and
-      capabilities to applications.
-    - LEVERAGES:
-        - DateTime, DateTimezone, IntlDateFormatter
-        - Locale
-        - NumberFormatter
-    - BC BREAK: REMOVES the following components:
-        - Zend\\Currency
-        - Zend\\Date
-        - Zend\\Locale
-        - Zend\\Measure
-        - Zend\\Translator
-        - All filters, validators, and view helpers that relied on the
-          above.
-    - PROVIDES:
-        - Zend\\I18n\\Translator, including support for gettext and
-          PHP-array-based translations (more are planned).
-        - Zend\\I18n\\Filter, containing localized filtering capabilites
-          for Alnum (alphanumeric), Alpha (alphabetic), and NumberFormat
-          (numerical strings).
-        - Zend\\I18n\\Validator, containing localized validation
-          capabilities for Alnum (alphanumeric), Alpha (alphabetic),
-          Iban (international bank account number standard), Int
-          (integer), and PostCode (localized postal codes).
-        - Zend\\I18n\\View, containing localized view helpers for
-          CurrencyFormat, DateFormat, NumberFormat, Translate, and
-          TranslatePlural.
- - Db layer additions (Ralph Schindler, Rob Allen, Guillaume Metayer,
-   Sascha Howe, Chris Testroet, Evan Coury, Ben Youngblood)
-    - Metadata support
-    - Postgresql adapter/driver
-    - New HydratingResultSet, allowing the ability to specify a custom
-      hydrator (from Zend\\Stdlib\\Hydrator) for hydrating row objects.
-    - Many bugfixes and stabilizations
- - Form additions (Matthew Weier O\'Phinney, Michaël Gallego, Yanick Rochon)
-    - Annotations support: Ability to use annotations with a domain
-      object in order to define a form, fieldsets, elements, inputs and
-      input filters, and more.
-    - Hydration of fieldsets; fieldsets may compose their own hydrators
-      if desired.
-    - Collection support; allows multiple instances of the same
-      fieldset. As an example, you might have an interface that
-      allows adding a set of form elements via an XHR call; on the
-      backend, these would be defined as a collection, allowing
-      arbitrary numbers of these fieldsets to be submitted.
-    - New view helpers covering most HTML5-specific element types, most
-      XHTML-specific element types. Additionally, a number of the
-      HTML5-specific element types now have Element implementations to
-      create turn-key solutions that include validation and filtering.
-    - BC BREAK: Options support. Many attributes were being used not as
-      HTML attributes but to define behavior. The ElementInterface now
-      has an accessor and mutator for options. Examples of options
-      include labels for non-radio/checkbox/select elements, the CAPTCHA
-      adapter for CAPTCHA elements, CSRF tokens, etc. If you were
-      defining labels in your forms, please move the label and label
-      attributes definitions from the "attributes" to the "options" of
-      the element, fieldset, or form.
-    - BC BREAK: new interface, ElementPrepareAwareInterface, defining
-      the method "prepareElement(Form $form)". The FieldsetInterface,
-      and, by extension, FormInterface, extend this new interface. It is
-      used to allow preparing elements prior to creating a
-      representation.
- - MVC additions (Kyle Spraggs, Evan Coury, Matthew Weier O\'Phinney)
-    - New "Params" controller plugin. Allows retrieving query, post,
-      cookie, header, and route parameters. Usage is
-      $this->params()->fromQuery($name, $default).
-    - New listener, Zend\\Mvc\\ModuleRouteListener. When enabled, if a
-      route match contains a "\\__NAMESPACE__" key, that namespace value
-      will be prepended to the value of the "controller" key. This
-      should typically be used in the root route for a given module, to
-      ensure controller names do not clash.
-    - Bootstrap simplification. A new "init()" method was created that
-      accepts the path to a configuration file, and then creates and
-      bootstraps the application; this eliminates all common boilerplate
-      for the bootstrap scripts.
- - Hydrator changes (Adam Lundrigan)
-    - BC BREAK: the ClassMethods hydrator now assumes by default that
-      it should convert between underscore_separated names and
-      camelCase.
- - BC BREAK: Doctrine Annotations Parser (Matthew Weier O\'Phinney, Marco
-   Pivetta, Guilherme Blanco)
-    - Zend\\Code\\Annotation now has a dependency on Doctrine\\Common for
-      its annotation parser.
-    - Annotations now conform to Doctrine\'s standards by default, but
-      the AnnotationManager in ZF2 allows attaching alternate parsers
-      for specific annotation types.
- - BC BREAK: Removal of Plugin Broker usage (Matthew Weier O\'Phinney,
-   Evan Coury)
-    - All uses of the Plugin Broker / Plugin Class Locator combination
-      were removed. A new class, Zend\\ServiceManager\\AbstractPluginManager,
-      was created and used to replace all previous usages of the plugin
-      broker. This provides more flexibility in creation of plugins, as
-      well as reduces the number of APIs developers need to learn.
-    - Configuration of plugin managers is now done at the top-level. All
-      plugin manager configuration follows the format utilized by
-      Zend\\ServiceManager\\ServiceConfiguration, and
-      Zend\\ModuleManager\\Listener\\ServiceListener has been updated to
-      allow informing it of plugin manager instances it should manage,
-      as well as the configuration key to utilize.
- - BC BREAK: Coding Standards (Maks3w, Sascha Prolic, Rob Allen)
-    - Renamed most abstract classes to prefix them with the term
-      "Abstract". In particular, ActionController and RestfulController
-      are now AbstractActionController and AbstractRestfulController.
-    - Renamed getters in HTTP, EventManager, and Mail components. These
-      components were using accessors such as "events()", "query()",
-      "headers()", etc. All such accessors were renamed to prepend
-      "get", and, in the case of "events()", renamed to indicate the
-      actual object retrieved ("getEventManager()").
- - SECURITY FIX: XmlRpc (Matthew Weier O\'Phinney)
-    - A security issue arising from XML eXternal Entity (XXE) injection
-      was patched; see http://framework.zend.com/security/advisory/ZF2012-01
-
-Over *400* pull requests for a variety of features and bugfixes were handled
-since beta4!',
   '2.0.7' => 'Zend Framework 2.0.7
 
 - 1992: [2.1] Adding simple Zend/I18n/Loader/Tmx
@@ -1274,390 +837,230 @@ since beta4!',
 - 3604: fixed Zend\\Log\\Logger::registerErrorHandler() doesn\'t log previous
   exceptions
   (https://github.com/zendframework/zf2/issues/3604)',
-  '2.0.0rc6' => 'Zend Framework 2.0.0rc6
+  '2.0.6' => 'Zend Framework 2.0.6
 
-This is the sixth release candidate for 2.0.0. At this time, we anticipate that
-this will be the final release candidate before issuing a stable release.
-We highly recommend testing your production applications against it.
+19 Dec 2012
 
-29 August 2012
+- 2885: Zend\\Db\\TableGateway\\AbstractTableGateway won\'t work with Sqlsrv
+  db adapter (https://github.com/zendframework/zf2/issues/2885)
+- 2922: Fix #2902 (https://github.com/zendframework/zf2/issues/2922)
+- 2961: Revert PR #2943 for 5.3.3 fix
+  (https://github.com/zendframework/zf2/issues/2961)
+- 2962: Allow Accept-Encoding header to be set explicitly by http
+  request (https://github.com/zendframework/zf2/issues/2962)
+- 3033: Fix error checking on Zend\\Http\\Client\\Adapter\\Socket->write().
+  (https://github.com/zendframework/zf2/issues/3033)
+- 3040: remove unused \'use DOMXPath\' and property $count and $xpath
+  (https://github.com/zendframework/zf2/issues/3040)
+- 3043: improve conditional : reduce file size
+  (https://github.com/zendframework/zf2/issues/3043)
+- 3044: Extending Zend\\Mvc\\Router\\Http\\Segment causes error
+  (https://github.com/zendframework/zf2/issues/3044)
+- 3047: Fix Zend\\Console\\Getopt::getUsageMessage()
+  (https://github.com/zendframework/zf2/issues/3047)
+- 3049: Hotfix/issue #3033
+  (https://github.com/zendframework/zf2/issues/3049)
+- 3050: Fix : The annotation @\\Zend\\Form\\Annotation\\AllowEmpty declared
+  on does not accept any values
+  (https://github.com/zendframework/zf2/issues/3050)
+- 3052: Fixed #3051 (https://github.com/zendframework/zf2/issues/3052)
+- 3061: changed it back \'consist\' => the \'must\' should be applied to all
+  parts of the sentence
+  (https://github.com/zendframework/zf2/issues/3061)
+- 3063: hotfix: change sha382 to sha384 in
+  Zend\\Crypt\\Key\\Derivation\\SaltedS2k
+  (https://github.com/zendframework/zf2/issues/3063)
+- 3070: Fix default value unavailable exception for in-build php classes
+  (https://github.com/zendframework/zf2/issues/3070)
+- 3074: Hotfix/issue #2451 (https://github.com/zendframework/zf2/issues/3074)
+- 3091: console exception strategy displays previous exception message
+  (https://github.com/zendframework/zf2/issues/3091)
+- 3114: Fixed Client to allow also empty passwords in HTTP
+  Authentication. (https://github.com/zendframework/zf2/issues/3114)
+- 3125: #2607 - Fixing how headers are accessed
+  (https://github.com/zendframework/zf2/issues/3125)
+- 3126: Fix for GitHub issue 2605
+  (https://github.com/zendframework/zf2/issues/3126)
+- 3127: fix cs: add space after casting
+  (https://github.com/zendframework/zf2/issues/3127)
+- 3130: Obey PSR-2 (https://github.com/zendframework/zf2/issues/3130)
+- 3144: Zend\\Form\\View\\Helper\\Captcha\\AbstractWord input and hidden
+  attributes (https://github.com/zendframework/zf2/issues/3144)
+- 3148: Fixing obsolete method of checking headers, made it use the new
+  method. (https://github.com/zendframework/zf2/issues/3148)
+- 3149: Zf2634 - Adding missing method Client::encodeAuthHeader
+  (https://github.com/zendframework/zf2/issues/3149)
+- 3151: Rename variable to what it probably should be
+  (https://github.com/zendframework/zf2/issues/3151)
+- 3155: strip duplicated semicolon
+  (https://github.com/zendframework/zf2/issues/3155)
+- 3156: fix typos in docblocks
+  (https://github.com/zendframework/zf2/issues/3156)
+- 3162: Allow Forms to have an InputFilterSpecification
+  (https://github.com/zendframework/zf2/issues/3162)
+- 3163: Added support of driver\\_options to Mysqli DB Driver
+  (https://github.com/zendframework/zf2/issues/3163)
+- 3164: Cast $step to float in \\Zend\\Validator\\Step
+  (https://github.com/zendframework/zf2/issues/3164)
+- 3166: [#2678] Sqlsrv driver incorrectly throwing exception when
+  $sqlOrResource... (https://github.com/zendframework/zf2/issues/3166)
+- 3167: Fix #3161 by checking if the server port already exists in the
+  host (https://github.com/zendframework/zf2/issues/3167)
+- 3169: Fixing issue #3036 (https://github.com/zendframework/zf2/issues/3169)
+- 3170: Fixing issue #2554 (https://github.com/zendframework/zf2/issues/3170)
+- 3171: hotfix : add  \'$argName\' as \'argument %s\' in sprintf ( at 1st
+  parameter ) (https://github.com/zendframework/zf2/issues/3171)
+- 3178: Maintain priority flag when cloning a Fieldset
+  (https://github.com/zendframework/zf2/issues/3178)
+- 3184: fix misspelled getCacheStorge()
+  (https://github.com/zendframework/zf2/issues/3184)
+- 3186: Dispatching to a good controller but wrong action triggers a
+  Fatal Error (https://github.com/zendframework/zf2/issues/3186)
+- 3187: Fixing ansiColorMap by removing extra m\'s showed in the console
+  (https://github.com/zendframework/zf2/issues/3187)
+- 3194: Write clean new line for writeLine method (no background color)
+  (https://github.com/zendframework/zf2/issues/3194)
+- 3197: Fix spelling error (https://github.com/zendframework/zf2/issues/3197)
+- 3201: Session storage set save path
+  (https://github.com/zendframework/zf2/issues/3201)
+- 3204: [wip] Zend\\Http\\Client makes 2 requests to url if
+  setStream(true) is called
+  (https://github.com/zendframework/zf2/issues/3204)
+- 3207: dead code clean up.
+  (https://github.com/zendframework/zf2/issues/3207)
+- 3208: Zend\\Mime\\Part: Added EOL paramter to getEncodedStream()
+  (https://github.com/zendframework/zf2/issues/3208)
+- 3213: [#3173] Incorrect creating instance
+  Zend/Code/Generator/ClassGenerator.php by fromArray
+  (https://github.com/zendframework/zf2/issues/3213)
+- 3214: Fix passing of tags to constructor of docblock generator class
+  (https://github.com/zendframework/zf2/issues/3214)
+- 3217: Cache: Optimized Filesystem::setItem with locking enabled by
+  writing the... (https://github.com/zendframework/zf2/issues/3217)
+- 3220: [2.0] Log Writer support for MongoClient driver class
+  (https://github.com/zendframework/zf2/issues/3220)
+- 3226: Licence is not accessable via web
+  (https://github.com/zendframework/zf2/issues/3226)
+- 3229: fixed bug in DefinitionList::hasMethod()
+  (https://github.com/zendframework/zf2/issues/3229)
+- 3234: Removed old Form TODO since all items are complete
+  (https://github.com/zendframework/zf2/issues/3234)
+- 3236: Issue #3222 - Added suport for multi-level nested ini config
+  variables (https://github.com/zendframework/zf2/issues/3236)
+- 3237: [BUG] Service Manager Not Shared Duplicate new Instance with
+  multiple Abstract Factories
+  (https://github.com/zendframework/zf2/issues/3237)
+- 3238: Added French translation for captcha
+  (https://github.com/zendframework/zf2/issues/3238)
+- 3250: Issue #2912 - Fix for LicenseTag generation
+  (https://github.com/zendframework/zf2/issues/3250)
+- 3252: subject prepend text in options for Log\\Writer\\Mail
+  (https://github.com/zendframework/zf2/issues/3252)
+- 3254: Better capabilities surrounding console notFoundAction
+  (https://github.com/zendframework/zf2/issues/3254)',
+  '2.0.5' => 'Zend Framework 2.0.5
 
-- Zend\\Config
-  - The INI adapter now allows bracket notation for appending values to an array
-    within INI definitions.
-- Zend\\Db
-  - ResultInterface adds isBuffered() method for checking if the resultset is
-    buffered or not. Allows for more fine grained control of result set
-    buffering, including using the database engine\'s native buffering.
-  - Insertions with multi-part keys now work properly.
-  - Expression objects may now be passed to the order() method of a Select
-    object.
-- Zend\\Form
-  - You can now omit error messages on elements when rendering via formRow(), by
-    passing a boolean false as the third argument of the helper.
-  - You can now use concrete hydrator instances with the factory.
-  - You may now set the CSRF validator class and/or options to use on the Csrf
-    element
-  - The Select, Radio, and MultiCheckbox elements and view helpers were
-    refactored to move value options into properties, instead of attributes.
-    This makes them more consistent with other elements, and simplifies the
-    interfaces.
-  - Forms now lazy-load an input filter if none has been specified; this should
-    simplify usage for many, and remove the "no input filter attached"
-    exception.
-  - All form helpers for buttons (button, submit, reset) now allow translation.
-  - The formRow() view helper now allows you to set the CSS class used to
-    designate an input with errors.
-- Zend\\Http
-  - Some browser/web server combingations set SERVER_NAME to the IPv6 address,
-    and enclose it in brackets. The PhpEnvironment\\Request object now correctly
-    detects such situations.
-  - The Socket client will only fallback to SSLv3 if the ssltransport
-    configuration key is not set (instead of also allowing SSLv2).
-- Zend\\I18n\\Translator
-  - Loader\\LoaderInterface was splitted into Loader\\FileLoaderInterface and
-    Loader\\RemoteLoaderInterface. The latter one will be used in ZF 2.1 for
-    a database loader.
-  - Translator::addTranslationPattern() and the option "translation_patterns"
-    were renamed to Translator::addTranslationFilePattern and
-    "translation_file_patterns".
-  - A new method Translator::addRemoteTranslations() was added.
-- Zend\\Mvc
-  - Application no longer defines the "application" identifier for its composed
-    EventManager instance. If you had listeners listening on that context,
-    update them to use "Zend\\Mvc\\Application". See this thread for more details:
+- 3004: Zend\\Db unit tests fail with code coverage enabled
+  (https://github.com/zendframework/zf2/issues/3004)
+- 3039: combine double if into single conditional
+  (https://github.com/zendframework/zf2/issues/3039)
+- 3042: fix typo \'consist of\' should be \'consists of\' in singular
+  (https://github.com/zendframework/zf2/issues/3042)
+- 3045: Reduced the #calls of rawurlencode() using a cache mechanism
+  (https://github.com/zendframework/zf2/issues/3045)
+- 3048: Applying quickfix for zendframework/zf2#3004
+  (https://github.com/zendframework/zf2/issues/3048)
+- 3095: Process X-Forwarded-For header in correct order
+  (https://github.com/zendframework/zf2/issues/3095)',
+  '2.0.4' => 'Zend Framework 2.0.4
 
-      http://zend-framework-community.634137.n4.nabble.com/Change-to-Zend-Mvc-Application-s-event-identifiers-tp4656517.html
+Resolves the following issues and/or includes the following changes:
 
-  - The redirect plugin\'s toRoute() method signature is now synced with that of
-    the url plugin\'s fromRoute() method.
-  - The PRG plugin now allows passing no arguments; if you do so, the currently
-    matched route will be used for the redirect.
-- Zend\\Paginator
-  - Removes the factory() and related methods. This was done to be more
-    consistent with other components, and also because the utility was not
-    terribly useful; in most cases, developers needed to configure the adapter
-    up-front anyways.
-- Zend\\Stdlib
-  - ClassMethods Hydrator now supports boolean getters prefixed with "is".
-- Zend\\Validator
-  - DB validators no longer mix positional and named parameters.
-
-More than 30 pull requests for a variety of features and bugfixes were handled
-since RC5, as well as almost 20 documentation changes!',
-  '2.1.1' => 'Zend Framework 2.1.1
-
-- 2510: Zend\\Session\\Container does not allow modification by reference
-  (https://github.com/zendframework/zf2/issues/2510)
-- 2899: Can\'t inherit abstract function
-  Zend\\Console\\Prompt\\PromptInterface::show()
-  (https://github.com/zendframework/zf2/issues/2899)
-- 3455: Added DISTINCT on Zend\\Db\\Sql\\Select
-  (https://github.com/zendframework/zf2/issues/3455)
-- 3456: Connection creation added in Pgsql.php createStatement method
-  (https://github.com/zendframework/zf2/issues/3456)
-- 3608: Fix validate data contains arrays as values
-  (https://github.com/zendframework/zf2/issues/3608)
-- 3610: Form: rely on specific setter
-  (https://github.com/zendframework/zf2/issues/3610)
-- 3618: Fix bug when $indent have some string
-  (https://github.com/zendframework/zf2/issues/3618)
-- 3622: Updated Changelog with BC notes for 2.1 and 2.0.7
-  (https://github.com/zendframework/zf2/issues/3622)
-- 3623: Authentication using DbTable Adapter doesn\'t work for 2.1.0
-  (https://github.com/zendframework/zf2/issues/3623)
-- 3625: Missing instance/object for parameter route upgrading to 2.1.\\*
-  (https://github.com/zendframework/zf2/issues/3625)
-- 3627: Making relative links in Markdown files
-  (https://github.com/zendframework/zf2/issues/3627)
-- 3629: Zend\\Db\\Select using alias in joins can results in wrong SQL
-  (https://github.com/zendframework/zf2/issues/3629)
-- 3638: Fixed method that removed part from parts in Mime\\Message
-  (https://github.com/zendframework/zf2/issues/3638)
-- 3639: Session Metadata and SessionArrayStorage requestaccesstime fixes.
-  (https://github.com/zendframework/zf2/issues/3639)
-- 3640: [#3625] Do not query abstract factories for registered invokables
-  (https://github.com/zendframework/zf2/issues/3640)
-- 3641: Zend\\Db\\Sql\\Select Fix for #3629
-  (https://github.com/zendframework/zf2/issues/3641)
-- 3645: Exception on destructing the SMTP Transport instance
-  (https://github.com/zendframework/zf2/issues/3645)
-- 3648: Ensure run() always returns Application instance
-  (https://github.com/zendframework/zf2/issues/3648)
-- 3649: Created script to aggregate return status
-  (https://github.com/zendframework/zf2/issues/3649)
-- 3650: InjectControllerDependencies initializer overriding an previously
-  defined EventManager
-  (https://github.com/zendframework/zf2/issues/3650)
-- 3651: Hotfix/3650
-  (https://github.com/zendframework/zf2/issues/3651)
-- 3656: Zend\\Validator\\Db\\AbstractDb.php and mysqli
-  (https://github.com/zendframework/zf2/issues/3656)
-- 3658: Zend\\Validator\\Db\\AbstractDb.php and mysqli (issue: 3656)
-  (https://github.com/zendframework/zf2/issues/3658)
-- 3661: ZF HTTP Status Code overwritten
-  (https://github.com/zendframework/zf2/issues/3661)
-- 3662: Remove double injection in Plugin Controller Manager
-  (https://github.com/zendframework/zf2/issues/3662)
-- 3663: Remove useless shared in ServiceManager
-  (https://github.com/zendframework/zf2/issues/3663)
-- 3671: Hotfix/restful head identifier
-  (https://github.com/zendframework/zf2/issues/3671)
-- 3673: Add translations for Zend\\Validator\\File\\UploadFile
-  (https://github.com/zendframework/zf2/issues/3673)
-- 3679: remove \'\\\' character from Traversable
-  (https://github.com/zendframework/zf2/issues/3679)
-- 3680: Zend\\Validator\\Db Hotfix (supersedes #3658)
-  (https://github.com/zendframework/zf2/issues/3680)
-- 3681: [#2899] Remove redundant method declaration
-  (https://github.com/zendframework/zf2/issues/3681)
-- 3682: Zend\\Db\\Sql\\Select Quantifier (DISTINCT, ALL, + Expression) support -
-  supersedes #3455
-  (https://github.com/zendframework/zf2/issues/3682)
-- 3684: Remove the conditional class declaration of ArrayObject
-  (https://github.com/zendframework/zf2/issues/3684)
-- 3687: fix invalid docblock
-  (https://github.com/zendframework/zf2/issues/3687)
-- 3689: [#3684] Polyfill support for version-dependent classes
-  (https://github.com/zendframework/zf2/issues/3689)
-- 3690: oracle transaction support
-  (https://github.com/zendframework/zf2/issues/3690)
-- 3692: Hotfix/db parametercontainer mixed use
-  (https://github.com/zendframework/zf2/issues/3692)',
-  '2.0.2' => 'This is the second maintenance release for the 2.0 series.
-
-21 Sep 2012
-
-- 2383: Changed unreserved char definition in Zend\\Uri (ZF2-533) and added shell
-  escaping to the test runner (https://github.com/zendframework/zf2/pull/2383)
-- 2393: Trying to solve issue ZF2-558
-  (https://github.com/zendframework/zf2/pull/2393)
-- 2398: Segment route: add fix for optional groups within optional groups
-  (https://github.com/zendframework/zf2/pull/2398)
-- 2400: Use \'Router\' in http env and \'HttpRouter\' in cli
-  (https://github.com/zendframework/zf2/pull/2400)
-- 2401: Better precision for userland fmod algorithm
-  (https://github.com/zendframework/zf2/pull/2401)',
-  '2.0.0rc1' => '*Zend Framework 2.0.0rc1*
-
-This is the first release candidate for 2.0.0. We will be releasing RCs
-on a weekly basis until we feel all critical issues are addressed. At
-this time, we anticipate no API changes before the stable release, and
-recommend testing your production applications against it.
-
-25 July 2012
-
- - Documentation
-   - is now in a new repository,
-     https://github.com/zendframework/zf2-documentation
-   - Documentation has been converted from DocBook5 to ReStructured Text
-     (reST or rst).
- - Coding standards fixes
-   - We are (mostly) PSR-2 compliant at this time
- - Moved all Service components, include Cloud, GData, OAuth, OpenID,
-   and Rest to separate repositories under the zendframework
-   organization on GitHub. This will allow them to be versioned
-   separately, which allows them to break backwards compatibility when
-   necessitated by API changes.
- - Removed Zend\\InfoCard as InfoCard has been declared obsolete by
-   MicroSoft.
- - Removed Zend\\Registry; without the singleton nature, it was confusing
-   and no longer relevant.
- - Removed Zend\\Test component. Most features are now part of PHPUnit,
-   and the others were ZF1-specific.
- - Removed Zend\\Wildfire, as its API was specific to ZF1, and because we
-   can easily leverage FirePHP at this time.
- - Removed Zend\\DocBook, as it was primarily to assist in creating
-   DocBook5 skeletons for the manual; since we\'ve moved to rst, this is
-   no longer relevant.
- - Removed Zend\\Dojo, as the implementation was ZF1 specific, and
-   out-of-date with recent Dojo releases.
- - Moved Amf, Markup, Pdf, Queue, Search, and TimeSync to separate
-   repositories, as their APIs are not yet stable. PDF will be released
-   with 2.0.0rc1, but only to provide a dependency for Zend\\Barcode.
- - Renamed any classes, properties, or methods referencing the word
-   "configuration" to read "config" instead; this provides consistency
-   internally, and with the Zend\\Config component.
- - Moved Zend\\Acl to Zend\\Permissions\\Acl.
- - Console
-   - Added features for console routing, providing more flexibility over the
-     traditional Getopt methodology.
-   - Added colorization, tables, prompts, and a variety of other interactive
-     features.
-   - Added ability to use controllers to respond to console routes.
- - Crypt, Math, Filter\\Encrypt and Filter\\Decrypt
-   - Random number generation was consolidated to Zend\\Math.
-   - Removed the Mcrypt adapter in Filter and replaced with a
-     BlockCipher algorithm.
- - DB
-   - Metadata now understands enums and sets
-   - Added Replace SQL statement type
-   - AbstractRowGateway provides more cohesive access to field values.
- - EventManager
-   - The first call to setSharedManager() will now seed the
-     StaticEventManager, in order to match user expectations that the
-     shared event manager is the same everywhere.
- - Form
-   - Select-style elements now have options populated as value => label
-     pairs instead of label => value pairs. This is done to ensure that
-     option values are unique.
-   - Added getValue() and setValue() to the ElementInterface to make a
-     semantic distinction between an element value and attributes. This
-     allows for easier handling of non-string or calculated values, such
-     as those found in the Csrf and DateTime-family of elements.
-   - getMessages() now omits any elements that have an empty messages
-     array.
-   - Allows removing elements from Collections
-   - Fixed default validators for MultiCheckbox and Radio elements
-   - Custom options are now allowed for all elements, fieldsets, and
-     forms.
-   - Labels and several other view helpers are now translator-capable
- - Http
-   - set/getServer() and set/getEnv() were removed from Http\\Request
-     and now part of Http\\PhpEnvironment\\Request
-   - set/getFile() methods in Http\\PhpEnvironment\\Request
-     were renamed to set/getFiles(). Also above methods
-   - When submitted form has file inputs with brackets (name="file[]")
-     $fileParams parameters in Http\\PhpEnvironment\\Request will be
-     re-structured to have the same look as query/post/server/envParams
-   - each of get(Post|Query|Headers|Files|Env|Server) were provided with
-     two optional arguments, a specific key to retrieve, and a default
-     value to return if not found.
-   - Accept header parsing is more robust with regards to priority.
- - InputFilter
-   - Added ability to retrieve input objects
- - I18n
-   - Moved Zend\\I18n\\Validator\\Iban to Zend\\Validator\\Iban
-     and replaced the option "locale" with "country_code"
- - Json
-   - Enabled a number of additional flags for json_encode
- - Loader
-   - Removed the PrefixPathLoader, and replaced all usages of it in the
-     framework with custom AbstractPluginManager implementations; this
-     includes Zend\\Feed, Zend\\Text, and Zend\\File\\Transfer.
- - Log
-   - Added a MongoDB log writer
-   - Added a FirePHP log writer
-   - Refactored how filters are instantiated and managed to use an
-     AbstractPluginManager instance.
- - Mail
-   - Added a MessageId header class
- - ModuleManager
-   - Made it possible to substitute alternate ServiceListener
-     implementations
-   - Moved default service configuration from the ModuleManager to the
-     ServiceListener
- - MVC
-   - Fixed a potential security issue in the ControllerLoader whereby
-     arbitrary, non-controller classes could be instantiated. This
-     involves removing the ability to fetch controllers via the DI Proxy
-     (a minor backwards compatibility break).
-   - Restful controller now provides a simpler way to marshal input data
-     and override the default behavior.
-   - Most View-related services were moved to their own factories to
-     allow easier overriding by developers.
-   - New PostRedirectGet plugin, to simplify PRG strategies for form
-     submissions.
- - Serializer was refactored to make better use of PHP 5.3 features and
-   to simplify the API.
- - ServiceManager
-   - Allow passing the SM instance to initializers
-   - Allow specifying the classname of an InitializerInterface
-     implementation to addInitializer()
- - Validator
-   - ValidatorChain now has a getValidators() method
-   - InArray validator now does context-aware strict checks to prevent
-     false positive matches, fixing a potential security vulnerability.
- - View
-   - New AbstractTranslatorHelper, for helpers that should allow
-     translations.
-
-Almost *200* pull requests for a variety of features and bugfixes were handled
-since beta5!',
-  '2.0.0rc7' => 'Zend Framework 2.0.0rc7
-
-This is the seventh release candidate for 2.0.0. At this time, we anticipate
-that this will be the final release candidate before issuing a stable release.
-We highly recommend testing your production applications against it.
-
-31 August 2012
-
-- Zend\\Di
-  - Fixes ArrayDefinition and ClassDefinition hasMethods() methods to return
-    boolean values.
-- Zend\\Form
-  - Fixes issue with multi-checkbox rendering.
-- Zend\\I18n
-  - DateFormat view helper now correctly falls back to date.timezone setting
-    instead of system timezone.
-- Zend\\Ldap
-  - Fixes an error nesting condition
-- Zend\\Log
-  - Fixes an issue with Zend\\Log\\Formatter\\Simple whereby it was using a legacy
-    key ("info") instead of the key standardized upon in ZF2 ("extra").
-  - Simple formatter now defaults to JSON-encoding for array and object
-    serialization (prevents issues with some writers.)
-- Zend\\Mail
-  - The Date header is now properly encoded as ASCII.
-- Zend\\Mvc
-  - Fixes an issue in the ViewHelperManagerFactory whereby a condition was
-    testing against an uninitialized value.
-  - Added zend-console to composer.json dependencies.
-- Zend\\View
-  - Breadcrumbs helper allows passing string container name now, allowing
-    multiple navigation containers.
-  - ServerUrl now works for servers behind proxies.',
-  '2.0.0beta1' => 'Zend Framework 2.0.0beta1
-
-THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
-PLEASE USE AT YOUR OWN RISK.
-
-This is the first in a series of planned beta releases. The beta release
-cycle will follow the "gmail" style of betas, whereby new features will
-be added in each new release, and BC will not be guaranteed; beta
-releases will happen no less than every six weeks.
-
-Once the established milestones have been reached and the featureset has
-reached maturity and reasonable stability, we will freeze the API and
-prepare for Release Candidate status.
-
-NEW FEATURES
-------------
-
-- New and refactored autoloaders:
-  - Zend\\Loader\\StandardAutoloader
-  - Zend\\Loader\\ClassMapAutoloader
-  - Zend\\Loader\\AutoloaderFactory
-- New plugin broker strategy
-  - Zend\\Loader\\Broker and Zend\\Loader\\PluginBroker
-- Reworked Exception system
-  - Allow catching by specific Exception type
-  - Allow catching by component Exception type
-  - Allow catching by SPL Exception type
-  - Allow catching by base Exception type
-- Rewritten Session component
-- Refactored View component
-  - Split helpers into a PluginBroker
-  - Split variables into a Variables container
-  - Split script paths into a TemplateResolver
-  - Renamed base View class "PhpRenderer"
-  - Refactored helpers to utilize __invoke() when possible
-- Refactored HTTP component
-- New Zend\\Cloud\\Infrastructure component
-- New EventManager component
-- New Dependency Injection (Zend\\Di) component
-- New Code component
-  - Incorporates refactored versions of former Reflection and
-    CodeGenerator components.
-  - Introduces Scanner component.
-  - Introduces annotation system.
-- New MVC layer
-  - Zend\\Module, for developing modular application architectures.
-  - Zend\\Mvc, a completely reworked MVC layer built on top of HTTP,
-    EventManager, and Di.
-- Introduces new packaging system, allowing the usage of Pyrus
-  (http://pear2.php.net) to install individual components and/or groups
-  of components.',
+- 2808: Add serializer better inheritance and extension
+  (https://github.com/zendframework/zf2/issues/2808)
+- 2813: Add test on canonical name with the ServiceManager
+  (https://github.com/zendframework/zf2/issues/2813)
+- 2832: bugfix: The helper DateFormat does not cache correctly when a pattern is
+  set. (https://github.com/zendframework/zf2/issues/2832)
+- 2837: Add empty option before empty check
+  (https://github.com/zendframework/zf2/issues/2837)
+- 2843: change self:: with static:: in call-ing static property/method
+  (https://github.com/zendframework/zf2/issues/2843)
+- 2857: Unnecessary path assembly on return in
+  Zend\\Mvc\\Router\\Http\\TreeRouteStack->assemble() line 236
+  (https://github.com/zendframework/zf2/issues/2857)
+- 2867: Enable view sub-directories when using ModuleRouteListener
+  (https://github.com/zendframework/zf2/issues/2867)
+- 2872: Resolve naming conflicts in foreach statements
+  (https://github.com/zendframework/zf2/issues/2872)
+- 2878: Fix : change self:: with static:: in call-ing static property/method()
+  in other components ( all ) (https://github.com/zendframework/zf2/issues/2878)
+- 2879: remove unused const in Zend\\Barcode\\Barcode.php
+  (https://github.com/zendframework/zf2/issues/2879)
+- 2896: Constraints in Zend\\Db\\Metadata\\Source\\AbstractSource::getTable not
+  initalised (https://github.com/zendframework/zf2/issues/2896)
+- 2907: Fixed proxy adapter keys being incorrectly set due Zend\\Http\\Client
+  (https://github.com/zendframework/zf2/issues/2907)
+- 2909: Change format of Form element DateTime and DateTimeLocal
+  (https://github.com/zendframework/zf2/issues/2909)
+- 2921: Added Chinese translations for zf2 validate/captcha resources
+  (https://github.com/zendframework/zf2/issues/2921)
+- 2924: small speed-up of Zend\\EventManager\\EventManager::triggerListeners()
+  (https://github.com/zendframework/zf2/issues/2924)
+- 2929: SetCookie::getFieldValue() always uses urlencode() for cookie values,
+  even in case they are already encoded
+  (https://github.com/zendframework/zf2/issues/2929)
+- 2930: Add minor test coverage to MvcEvent
+  (https://github.com/zendframework/zf2/issues/2930)
+- 2932: Sessions: SessionConfig does not allow setting non-directory save path
+  (https://github.com/zendframework/zf2/issues/2932)
+- 2937: preserve matched route name within route match instance while
+  forwarding... (https://github.com/zendframework/zf2/issues/2937)
+- 2940: change \'Cloud\\Decorator\\Tag\' to \'Cloud\\Decorator\\AbstractTag\'
+  (https://github.com/zendframework/zf2/issues/2940)
+- 2941: Logical operator fix : \'or\' change to \'||\' and \'and\' change to \'&&\'
+  (https://github.com/zendframework/zf2/issues/2941)
+- 2952: Various Zend\\Mvc\\Router\\Http routers turn + into a space in path
+  segments (https://github.com/zendframework/zf2/issues/2952)
+- 2957: Make Partial proxy to view render function
+  (https://github.com/zendframework/zf2/issues/2957)
+- 2971: Zend\\Http\\Cookie undefined self::CONTEXT_REQUEST
+  (https://github.com/zendframework/zf2/issues/2971)
+- 2976: Fix for #2541 (https://github.com/zendframework/zf2/issues/2976)
+- 2981: Controller action HttpResponse is not used by SendResponseListener
+  (https://github.com/zendframework/zf2/issues/2981)
+- 2983: replaced all calls to $this->xpath with $this->getXpath() to always
+  have... (https://github.com/zendframework/zf2/issues/2983)
+- 2986: Add class to file missing a class (fixes #2789)
+  (https://github.com/zendframework/zf2/issues/2986)
+- 2987: fixed Zend\\Session\\Container::exchangeArray
+  (https://github.com/zendframework/zf2/issues/2987)
+- 2994: Fixes #2993 - Add missing asterisk to method docblock
+  (https://github.com/zendframework/zf2/issues/2994)
+- 2997: Fixing abstract factory instantiation time
+  (https://github.com/zendframework/zf2/issues/2997)
+- 2999: Fix for GitHub issue 2579
+  (https://github.com/zendframework/zf2/issues/2999)
+- 3002: update master\'s resources/ja Zend_Validate.php message
+  (https://github.com/zendframework/zf2/issues/3002)
+- 3003: Adding tests for zendframework/zf2#2593
+  (https://github.com/zendframework/zf2/issues/3003)
+- 3006: Hotfix for #2497 (https://github.com/zendframework/zf2/issues/3006)
+- 3007: Fix for issue 3001 Zend\\Db\\Sql\\Predicate\\Between fails with min and max
+  ... (https://github.com/zendframework/zf2/issues/3007)
+- 3008: Hotfix for #2482 (https://github.com/zendframework/zf2/issues/3008)
+- 3009: Hotfix for #2451 (https://github.com/zendframework/zf2/issues/3009)
+- 3013: Solved Issue 2857 (https://github.com/zendframework/zf2/issues/3013)
+- 3025: Removing the separator between the hidden and the visible inputs. As
+  the... (https://github.com/zendframework/zf2/issues/3025)
+- 3027: Reduced #calls of plugin() in PhpRenderer using a cache mechanism
+  (https://github.com/zendframework/zf2/issues/3027)
+- 3029: Fixed the pre-commit script, missed the fix command
+  (https://github.com/zendframework/zf2/issues/3029)
+- 3030: Mark module as loaded before trigginer EVENT_LOAD_MODULE
+  (https://github.com/zendframework/zf2/issues/3030)
+- 3031: Zend\\Db\\Sql Fix for Insert\'s Merge and Set capabilities with simlar keys
+  (https://github.com/zendframework/zf2/issues/3031)',
   '2.0.3' => 'Zend Framework 2.0.3
 
 Resolves the following issues and/or includes the following changes:
@@ -1860,6 +1263,350 @@ Resolves the following issues and/or includes the following changes:
 - 2779: Allow forms that have been added as fieldsets to bind values to bound
   ob... (https://github.com/zendframework/zf2/issues/2779)
 - 2782: Issue 2781 (https://github.com/zendframework/zf2/issues/2782)',
+  '2.0.2' => 'This is the second maintenance release for the 2.0 series.
+
+21 Sep 2012
+
+- 2383: Changed unreserved char definition in Zend\\Uri (ZF2-533) and added shell
+  escaping to the test runner (https://github.com/zendframework/zf2/pull/2383)
+- 2393: Trying to solve issue ZF2-558
+  (https://github.com/zendframework/zf2/pull/2393)
+- 2398: Segment route: add fix for optional groups within optional groups
+  (https://github.com/zendframework/zf2/pull/2398)
+- 2400: Use \'Router\' in http env and \'HttpRouter\' in cli
+  (https://github.com/zendframework/zf2/pull/2400)
+- 2401: Better precision for userland fmod algorithm
+  (https://github.com/zendframework/zf2/pull/2401)',
+  '2.0.1' => 'This is the first maintenance release for the 2.0 series.
+
+20 Sep 2012
+
+- 2285: Seed RouteMatch params as long as params is set. This permits setting an
+  empty array. (https://github.com/zendframework/zf2/pull/2285)
+- 2286: prepareNotFoundViewModel listner -  eventResult as ViewModel if set
+  (https://github.com/zendframework/zf2/pull/2286)
+- 2290: <span>$label</span> only when filled
+  (https://github.com/zendframework/zf2/pull/2290)
+- 2292: Allow (int)0 in coomments count in entry feed
+  (https://github.com/zendframework/zf2/pull/2292)
+- 2295: force to check className parameters
+  (https://github.com/zendframework/zf2/pull/2295)
+- 2296: mini-fix in controller plugin manager
+  (https://github.com/zendframework/zf2/pull/2296)
+- 2297: fixed phpdoc in Zend\\Mvc\\ApplicationInterface
+  (https://github.com/zendframework/zf2/pull/2297)
+- 2298: Update to Date element use statements to make it clearer which DateTime
+  (https://github.com/zendframework/zf2/pull/2298)
+- 2300: FormRow translate label fix (#ZF2-516)
+  (https://github.com/zendframework/zf2/pull/2300)
+- 2302: Notifications now to #zftalk.dev
+  (https://github.com/zendframework/zf2/pull/2302)
+- 2306: Fix several cs (https://github.com/zendframework/zf2/pull/2306)
+- 2307: Removed comment about non existent Zend_Tool
+  (https://github.com/zendframework/zf2/pull/2307)
+- 2308: Fix pluginmanager get method error
+  (https://github.com/zendframework/zf2/pull/2308)
+- 2309: Add consistency with event name
+  (https://github.com/zendframework/zf2/pull/2309)
+- 2310: Update library/Zend/Db/Sql/Select.php
+  (https://github.com/zendframework/zf2/pull/2310)
+- 2311: Version update (https://github.com/zendframework/zf2/pull/2311)
+- 2312: Validator Translations (https://github.com/zendframework/zf2/pull/2312)
+- 2313: ZF2-336: Zend\\Form adds enctype attribute as multipart/form-data
+  (https://github.com/zendframework/zf2/pull/2313)
+- 2317: Make Fieldset constructor consistent with parent Element class
+  (https://github.com/zendframework/zf2/pull/2317)
+- 2321: ZF2-534 Zend\\Log\\Writer\\Syslog prevents setting application name
+  (https://github.com/zendframework/zf2/pull/2321)
+- 2322: Jump to cache-storing instead of returning
+  (https://github.com/zendframework/zf2/pull/2322)
+- 2323: Conditional statements improved(minor changes).
+  (https://github.com/zendframework/zf2/pull/2323)
+- 2324: Fix for ZF2-517: Zend\\Mail\\Header\\GenericHeader fails to parse empty
+  header (https://github.com/zendframework/zf2/pull/2324)
+- 2328: Wrong \\__clone method (https://github.com/zendframework/zf2/pull/2328)
+- 2331: added validation support for optgroups
+  (https://github.com/zendframework/zf2/pull/2331)
+- 2332: README-GIT update with optional pre-commit hook
+  (https://github.com/zendframework/zf2/pull/2332)
+- 2334: Mail\\Message::getSubject() should return value the way it was set
+  (https://github.com/zendframework/zf2/pull/2334)
+- 2335: ZF2-511 Updated refactored names and other fixes
+  (https://github.com/zendframework/zf2/pull/2335)
+- 2336: ZF-546 Remove duplicate check for time
+  (https://github.com/zendframework/zf2/pull/2336)
+- 2337: ZF2-539 Input type of image should not have attribute value
+  (https://github.com/zendframework/zf2/pull/2337)
+- 2338: ZF2-543: removed linked but not implemented cache adapters
+  (https://github.com/zendframework/zf2/pull/2338)
+- 2341: Updated Zend_Validate.php pt_BR translation to 25.Jul.2011 EN Revision
+  (https://github.com/zendframework/zf2/pull/2341)
+- 2342: ZF2-549 Zend\\Log\\Formatter\\ErrorHandler does not handle complex events
+  (https://github.com/zendframework/zf2/pull/2342)
+- 2346: updated Page\\Mvc::isActive to check if the controller param was
+  tinkered (https://github.com/zendframework/zf2/pull/2346)
+- 2349: Zend\\Feed Added unittests for more code coverage
+  (https://github.com/zendframework/zf2/pull/2349)
+- 2350: Bug in Zend\\ModuleManager\\Listener\\LocatorRegistrationListener
+  (https://github.com/zendframework/zf2/pull/2350)
+- 2351: ModuleManagerInterface is never used
+  (https://github.com/zendframework/zf2/pull/2351)
+- 2352: Hotfix for AbstractDb and Csrf Validators
+  (https://github.com/zendframework/zf2/pull/2352)
+- 2354: Update library/Zend/Feed/Writer/AbstractFeed.php
+  (https://github.com/zendframework/zf2/pull/2354)
+- 2355: Allow setting CsrfValidatorOptions in constructor
+  (https://github.com/zendframework/zf2/pull/2355)
+- 2356: Update library/Zend/Http/Cookies.php
+  (https://github.com/zendframework/zf2/pull/2356)
+- 2357: Update library/Zend/Barcode/Object/AbstractObject.php
+  (https://github.com/zendframework/zf2/pull/2357)
+- 2358: Update library/Zend/ServiceManager/AbstractPluginManager.php
+  (https://github.com/zendframework/zf2/pull/2358)
+- 2359: Update library/Zend/Server/Method/Parameter.php
+  (https://github.com/zendframework/zf2/pull/2359)
+- 2361: Zend\\Form Added extra unit tests and some code improvements
+  (https://github.com/zendframework/zf2/pull/2361)
+- 2364: Remove unused use statements
+  (https://github.com/zendframework/zf2/pull/2364)
+- 2365: Resolve undefined classes and constants
+  (https://github.com/zendframework/zf2/pull/2365)
+- 2366: fixed typo in Zend\\View\\HelperPluginManager
+  (https://github.com/zendframework/zf2/pull/2366)
+- 2370: Error handling in AbstractWriter::write using Zend\\Stdlib\\ErrorHandler
+  (https://github.com/zendframework/zf2/pull/2370)
+- 2372: Update library/Zend/ServiceManager/Config.php
+  (https://github.com/zendframework/zf2/pull/2372)
+- 2375: zend-inputfilter already requires
+  (https://github.com/zendframework/zf2/pull/2375)
+- 2376: Activate the new GitHub feature: Contributing Guidelines
+  (https://github.com/zendframework/zf2/pull/2376)
+- 2377: Update library/Zend/Mvc/Controller/AbstractController.php
+  (https://github.com/zendframework/zf2/pull/2377)
+- 2379: Typo in property name in Zend/Db/Metadata/Object/AbstractTableObject.php
+  (https://github.com/zendframework/zf2/pull/2379)
+- 2382: PHPDoc params in AbstractTableGateway.php
+  (https://github.com/zendframework/zf2/pull/2382)
+- 2384: Replace Router with Http router in url view helper
+  (https://github.com/zendframework/zf2/pull/2384)
+- 2387: Replace PHP internal fmod function because it gives false negatives
+  (https://github.com/zendframework/zf2/pull/2387)
+- 2388: Proposed fix for ZF2-569 validating float with trailing 0\'s (10.0,
+  10.10) (https://github.com/zendframework/zf2/pull/2388)
+- 2391: clone in Filter\\FilterChain
+  (https://github.com/zendframework/zf2/pull/2391)
+- Security fix: a number of classes were not using the Escaper component in
+  order to perform URL, HTML, and/or HTML attribute escaping. Please see
+  http://framework.zend.com/security/advisory/ZF2012-03 for more details.',
+  '2.0.0rc7' => 'Zend Framework 2.0.0rc7
+
+This is the seventh release candidate for 2.0.0. At this time, we anticipate
+that this will be the final release candidate before issuing a stable release.
+We highly recommend testing your production applications against it.
+
+31 August 2012
+
+- Zend\\Di
+  - Fixes ArrayDefinition and ClassDefinition hasMethods() methods to return
+    boolean values.
+- Zend\\Form
+  - Fixes issue with multi-checkbox rendering.
+- Zend\\I18n
+  - DateFormat view helper now correctly falls back to date.timezone setting
+    instead of system timezone.
+- Zend\\Ldap
+  - Fixes an error nesting condition
+- Zend\\Log
+  - Fixes an issue with Zend\\Log\\Formatter\\Simple whereby it was using a legacy
+    key ("info") instead of the key standardized upon in ZF2 ("extra").
+  - Simple formatter now defaults to JSON-encoding for array and object
+    serialization (prevents issues with some writers.)
+- Zend\\Mail
+  - The Date header is now properly encoded as ASCII.
+- Zend\\Mvc
+  - Fixes an issue in the ViewHelperManagerFactory whereby a condition was
+    testing against an uninitialized value.
+  - Added zend-console to composer.json dependencies.
+- Zend\\View
+  - Breadcrumbs helper allows passing string container name now, allowing
+    multiple navigation containers.
+  - ServerUrl now works for servers behind proxies.',
+  '2.0.0rc6' => 'Zend Framework 2.0.0rc6
+
+This is the sixth release candidate for 2.0.0. At this time, we anticipate that
+this will be the final release candidate before issuing a stable release.
+We highly recommend testing your production applications against it.
+
+29 August 2012
+
+- Zend\\Config
+  - The INI adapter now allows bracket notation for appending values to an array
+    within INI definitions.
+- Zend\\Db
+  - ResultInterface adds isBuffered() method for checking if the resultset is
+    buffered or not. Allows for more fine grained control of result set
+    buffering, including using the database engine\'s native buffering.
+  - Insertions with multi-part keys now work properly.
+  - Expression objects may now be passed to the order() method of a Select
+    object.
+- Zend\\Form
+  - You can now omit error messages on elements when rendering via formRow(), by
+    passing a boolean false as the third argument of the helper.
+  - You can now use concrete hydrator instances with the factory.
+  - You may now set the CSRF validator class and/or options to use on the Csrf
+    element
+  - The Select, Radio, and MultiCheckbox elements and view helpers were
+    refactored to move value options into properties, instead of attributes.
+    This makes them more consistent with other elements, and simplifies the
+    interfaces.
+  - Forms now lazy-load an input filter if none has been specified; this should
+    simplify usage for many, and remove the "no input filter attached"
+    exception.
+  - All form helpers for buttons (button, submit, reset) now allow translation.
+  - The formRow() view helper now allows you to set the CSS class used to
+    designate an input with errors.
+- Zend\\Http
+  - Some browser/web server combingations set SERVER_NAME to the IPv6 address,
+    and enclose it in brackets. The PhpEnvironment\\Request object now correctly
+    detects such situations.
+  - The Socket client will only fallback to SSLv3 if the ssltransport
+    configuration key is not set (instead of also allowing SSLv2).
+- Zend\\I18n\\Translator
+  - Loader\\LoaderInterface was splitted into Loader\\FileLoaderInterface and
+    Loader\\RemoteLoaderInterface. The latter one will be used in ZF 2.1 for
+    a database loader.
+  - Translator::addTranslationPattern() and the option "translation_patterns"
+    were renamed to Translator::addTranslationFilePattern and
+    "translation_file_patterns".
+  - A new method Translator::addRemoteTranslations() was added.
+- Zend\\Mvc
+  - Application no longer defines the "application" identifier for its composed
+    EventManager instance. If you had listeners listening on that context,
+    update them to use "Zend\\Mvc\\Application". See this thread for more details:
+
+      http://zend-framework-community.634137.n4.nabble.com/Change-to-Zend-Mvc-Application-s-event-identifiers-tp4656517.html
+
+  - The redirect plugin\'s toRoute() method signature is now synced with that of
+    the url plugin\'s fromRoute() method.
+  - The PRG plugin now allows passing no arguments; if you do so, the currently
+    matched route will be used for the redirect.
+- Zend\\Paginator
+  - Removes the factory() and related methods. This was done to be more
+    consistent with other components, and also because the utility was not
+    terribly useful; in most cases, developers needed to configure the adapter
+    up-front anyways.
+- Zend\\Stdlib
+  - ClassMethods Hydrator now supports boolean getters prefixed with "is".
+- Zend\\Validator
+  - DB validators no longer mix positional and named parameters.
+
+More than 30 pull requests for a variety of features and bugfixes were handled
+since RC5, as well as almost 20 documentation changes!',
+  '2.0.0rc5' => 'Zend Framework 2.0.0rc5
+
+This is the fifth release candidate for 2.0.0. We will be releasing RCs
+on a weekly basis until we feel all critical issues are addressed. At
+this time, we anticipate few API changes before the stable release, and
+recommend testing your production applications against it.
+
+23 August 2012
+
+- Zend\\Db
+  - Now handles null values properly in execute mode.
+  - Added SqlSrv integration tests (prompted by a bug report of issues with
+    establishing a connection).
+- Zend\\Form
+  - The FormButton helper now allows translation. However, to make this work, it
+    now requires that the label value is set in the element.
+  - Fixed an issue with the MultiCheckBox helper to ensure checked/unchecked
+    values are properly populated.
+  - The FormCheckbox view helper now requires that the element is a Checkbox
+    element; this is done to ensure the required options are available.
+- Zend\\Log
+  - The table name constructor option is now optional, allowing you to pass it
+    in a configuration array.
+  - Now allows using DateTime with the Db Writer.
+- Zend\\Http
+  - Added ability to set the SSL capath option.
+  - Added a check for the sslcapath being set if sslverifypeer is enabled when
+    first connecting to an SSL-enabled site; an exception is thrown if all
+    conditions are not met.
+  - PhpEnvironment\\Request object now falls back to \'/\' for the base path if the
+    SCRIPT_FILENAME server variable is not present (true in PHP 5.4 web server
+    and several others).
+- Zend\\I18n
+  - Caching translations now works.
+- Zend\\Mvc
+  - forward() plugin no longer results in double template rendering.
+- Zend\\ServiceManager
+  - Now ensures that when $allowOverride is enabled that services registered
+    with the same name overwrite properly.
+- Zend\\Validator
+  - The Uri validator is now listed in the validator plugin manager.
+  - The EmailAddress validator now allows setting custom error messages.
+- General fixes
+  - Removed all locations of error suppression remaining in the framework.
+  - Synced the implementations of Zend\\Mvc\\Controller\\Plugin\\Url and
+    Zend\\View\\Helper\\Url.
+
+More than 20 pull requests for a variety of features and bugfixes were handled
+since RC4, as well as around 30 documentation changes!',
+  '2.0.0rc4' => 'Zend Framework 2.0.0rc4
+
+This is the fourth release candidate for 2.0.0. We will be releasing RCs
+on a weekly basis until we feel all critical issues are addressed. At
+this time, we anticipate few API changes before the stable release, and
+recommend testing your production applications against it.
+
+17 August 2012
+
+- Zend\\Db
+  - RowGateway:  delete() now works; RowGateway objects now no longer duplicates
+    the content internally leading to a larger than necessary memory footprint.
+  - Adapter for PDO: fixed such that all calls to rowCount() will always be an
+    integer; also fixed disconnect() from unsetting property
+  - Zend\\Validator\\Db: fixed such that TableIdentifier can be used to promote
+    schema.table identifiers
+  - Sql\\Select: added reset() API to reset parts of a Select object, also
+    includes updated constants to refer to the parts by
+  - Sql\\Select and others: Added subselect support in Select, In Expression and
+    the processExpression() abstraction for Zend\\Db\\Sql
+  - Metadata: fixed various incorrect keys when refering to contstraint data in
+    metadata value objects
+- Zend\\Filter
+  - StringTrim filter now properly handles unicode whitespace
+- Zend\\Form
+  - FieldsetInterface now defines the methods allowObjectBinding() and
+    allowValueBinding().
+  - New interface, FieldsetPrepareAwareInterface. Collection and Fieldset both
+    implement this.
+    - See https://github.com/zendframework/zf2/pull/2184 for details
+  - Select elements now handle options and validation more consistently with
+    other multi-value elements.
+- Zend\\Http
+  - SSL options are now propagated to all Socket Adapter subclasses
+- Zend\\InputFilter
+  - Allows passing ValidatorChain and FilterChain instances to the factory
+- Zend\\Log
+  - Fixed xml formatter to not display empty extra information
+- Zend\\Loader
+  - SplAutoloader was renamed to SplAutoloaderInterface (consistency issue)
+- Zend\\Mvc
+  - params() helper now allows fetching full parameter containers if no
+    arguments are provided to its various methods (consistency issue)
+- Zend\\Paginator
+  - The DbSelect adapter now works
+- Zend\\View
+  - ViewModel now allows unsetting variables properly
+- Security
+  - Fixed issues in Zend\\Dom, Zend\\Soap, Zend\\Feed, and Zend\\XmlRpc with regards
+    to the way libxml2 allows xml entity expansion from DOCTYPE entities when it
+    is provided.
+
+Around 50 pull requests for a variety of features and bugfixes were handled
+since RC3, as well as almost 30 documentation changes!',
+  '2.0.0rc3' => 'Release Version 2.0.0rc3 Tag
+',
   '2.0.0rc2' => 'Zend Framework 2.0.0rc2
 
 This is the second release candidate for 2.0.0. We will be releasing RCs
@@ -1919,157 +1666,433 @@ recommend testing your production applications against it.
 
 Around *70* pull requests for a variety of features and bugfixes were handled
 since beta5!',
-  '2.0.0beta2' => 'RELEASE INFORMATION
----------------
-Zend Framework 2.0.0beta2
+  '2.0.0rc1' => '*Zend Framework 2.0.0rc1*
+
+This is the first release candidate for 2.0.0. We will be releasing RCs
+on a weekly basis until we feel all critical issues are addressed. At
+this time, we anticipate no API changes before the stable release, and
+recommend testing your production applications against it.
+
+25 July 2012
+
+ - Documentation
+   - is now in a new repository,
+     https://github.com/zendframework/zf2-documentation
+   - Documentation has been converted from DocBook5 to ReStructured Text
+     (reST or rst).
+ - Coding standards fixes
+   - We are (mostly) PSR-2 compliant at this time
+ - Moved all Service components, include Cloud, GData, OAuth, OpenID,
+   and Rest to separate repositories under the zendframework
+   organization on GitHub. This will allow them to be versioned
+   separately, which allows them to break backwards compatibility when
+   necessitated by API changes.
+ - Removed Zend\\InfoCard as InfoCard has been declared obsolete by
+   MicroSoft.
+ - Removed Zend\\Registry; without the singleton nature, it was confusing
+   and no longer relevant.
+ - Removed Zend\\Test component. Most features are now part of PHPUnit,
+   and the others were ZF1-specific.
+ - Removed Zend\\Wildfire, as its API was specific to ZF1, and because we
+   can easily leverage FirePHP at this time.
+ - Removed Zend\\DocBook, as it was primarily to assist in creating
+   DocBook5 skeletons for the manual; since we\'ve moved to rst, this is
+   no longer relevant.
+ - Removed Zend\\Dojo, as the implementation was ZF1 specific, and
+   out-of-date with recent Dojo releases.
+ - Moved Amf, Markup, Pdf, Queue, Search, and TimeSync to separate
+   repositories, as their APIs are not yet stable. PDF will be released
+   with 2.0.0rc1, but only to provide a dependency for Zend\\Barcode.
+ - Renamed any classes, properties, or methods referencing the word
+   "configuration" to read "config" instead; this provides consistency
+   internally, and with the Zend\\Config component.
+ - Moved Zend\\Acl to Zend\\Permissions\\Acl.
+ - Console
+   - Added features for console routing, providing more flexibility over the
+     traditional Getopt methodology.
+   - Added colorization, tables, prompts, and a variety of other interactive
+     features.
+   - Added ability to use controllers to respond to console routes.
+ - Crypt, Math, Filter\\Encrypt and Filter\\Decrypt
+   - Random number generation was consolidated to Zend\\Math.
+   - Removed the Mcrypt adapter in Filter and replaced with a
+     BlockCipher algorithm.
+ - DB
+   - Metadata now understands enums and sets
+   - Added Replace SQL statement type
+   - AbstractRowGateway provides more cohesive access to field values.
+ - EventManager
+   - The first call to setSharedManager() will now seed the
+     StaticEventManager, in order to match user expectations that the
+     shared event manager is the same everywhere.
+ - Form
+   - Select-style elements now have options populated as value => label
+     pairs instead of label => value pairs. This is done to ensure that
+     option values are unique.
+   - Added getValue() and setValue() to the ElementInterface to make a
+     semantic distinction between an element value and attributes. This
+     allows for easier handling of non-string or calculated values, such
+     as those found in the Csrf and DateTime-family of elements.
+   - getMessages() now omits any elements that have an empty messages
+     array.
+   - Allows removing elements from Collections
+   - Fixed default validators for MultiCheckbox and Radio elements
+   - Custom options are now allowed for all elements, fieldsets, and
+     forms.
+   - Labels and several other view helpers are now translator-capable
+ - Http
+   - set/getServer() and set/getEnv() were removed from Http\\Request
+     and now part of Http\\PhpEnvironment\\Request
+   - set/getFile() methods in Http\\PhpEnvironment\\Request
+     were renamed to set/getFiles(). Also above methods
+   - When submitted form has file inputs with brackets (name="file[]")
+     $fileParams parameters in Http\\PhpEnvironment\\Request will be
+     re-structured to have the same look as query/post/server/envParams
+   - each of get(Post|Query|Headers|Files|Env|Server) were provided with
+     two optional arguments, a specific key to retrieve, and a default
+     value to return if not found.
+   - Accept header parsing is more robust with regards to priority.
+ - InputFilter
+   - Added ability to retrieve input objects
+ - I18n
+   - Moved Zend\\I18n\\Validator\\Iban to Zend\\Validator\\Iban
+     and replaced the option "locale" with "country_code"
+ - Json
+   - Enabled a number of additional flags for json_encode
+ - Loader
+   - Removed the PrefixPathLoader, and replaced all usages of it in the
+     framework with custom AbstractPluginManager implementations; this
+     includes Zend\\Feed, Zend\\Text, and Zend\\File\\Transfer.
+ - Log
+   - Added a MongoDB log writer
+   - Added a FirePHP log writer
+   - Refactored how filters are instantiated and managed to use an
+     AbstractPluginManager instance.
+ - Mail
+   - Added a MessageId header class
+ - ModuleManager
+   - Made it possible to substitute alternate ServiceListener
+     implementations
+   - Moved default service configuration from the ModuleManager to the
+     ServiceListener
+ - MVC
+   - Fixed a potential security issue in the ControllerLoader whereby
+     arbitrary, non-controller classes could be instantiated. This
+     involves removing the ability to fetch controllers via the DI Proxy
+     (a minor backwards compatibility break).
+   - Restful controller now provides a simpler way to marshal input data
+     and override the default behavior.
+   - Most View-related services were moved to their own factories to
+     allow easier overriding by developers.
+   - New PostRedirectGet plugin, to simplify PRG strategies for form
+     submissions.
+ - Serializer was refactored to make better use of PHP 5.3 features and
+   to simplify the API.
+ - ServiceManager
+   - Allow passing the SM instance to initializers
+   - Allow specifying the classname of an InitializerInterface
+     implementation to addInitializer()
+ - Validator
+   - ValidatorChain now has a getValidators() method
+   - InArray validator now does context-aware strict checks to prevent
+     false positive matches, fixing a potential security vulnerability.
+ - View
+   - New AbstractTranslatorHelper, for helpers that should allow
+     translations.
+
+Almost *200* pull requests for a variety of features and bugfixes were handled
+since beta5!',
+  '2.0.0beta5' => '*Zend Framework 2.0.0beta5*
+
+6 July 2012
 
 THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
 PLEASE USE AT YOUR OWN RISK.
 
-This is the second in a series of planned beta releases. The beta release
+This is the fifth and last in a series of planned beta releases. The
+beta release cycle has followed the "gmail" style of betas, whereby new
+features have been added in each new release, and BC has not been
+guaranteed.
+
+Following this release, we plan to perform some repository cleanup, a
+standards audit, and documentation migration. Once these tasks are
+complete, we will prepare our first Release Candidate (RC).
+
+PLEASE NOTE: this beta includes a number of breaks from the previous
+beta. Please read the notes below prefixed with "BC BREAK" for specific
+breakages. The ZendSkeletonApplication typically reflects any BC changes
+that have been made, and is a good resource.
+
+ - Escaper component (Padraic Brady)
+    - Provides context-specific escaping mechanisms for HTML content,
+      HTML attributes, URLs, CSS, and JavaScript.
+    - BC BREAK: The escape() view helper was removed, and replaced with
+      escapeHtml(), escapeHtmlAttr(), escapeJs(), escapeCss(), and
+      escapeUrl() implementations.
+ - New I18n component (Ben Scholzen, Chris Martin, Dennis Portnov,
+   Matthew Weier O\'Phinney)
+    - New component leveraging PHP\'s ext/intl extension to provide
+      internationalization (i18n) and localization (L10n) features and
+      capabilities to applications.
+    - LEVERAGES:
+        - DateTime, DateTimezone, IntlDateFormatter
+        - Locale
+        - NumberFormatter
+    - BC BREAK: REMOVES the following components:
+        - Zend\\Currency
+        - Zend\\Date
+        - Zend\\Locale
+        - Zend\\Measure
+        - Zend\\Translator
+        - All filters, validators, and view helpers that relied on the
+          above.
+    - PROVIDES:
+        - Zend\\I18n\\Translator, including support for gettext and
+          PHP-array-based translations (more are planned).
+        - Zend\\I18n\\Filter, containing localized filtering capabilites
+          for Alnum (alphanumeric), Alpha (alphabetic), and NumberFormat
+          (numerical strings).
+        - Zend\\I18n\\Validator, containing localized validation
+          capabilities for Alnum (alphanumeric), Alpha (alphabetic),
+          Iban (international bank account number standard), Int
+          (integer), and PostCode (localized postal codes).
+        - Zend\\I18n\\View, containing localized view helpers for
+          CurrencyFormat, DateFormat, NumberFormat, Translate, and
+          TranslatePlural.
+ - Db layer additions (Ralph Schindler, Rob Allen, Guillaume Metayer,
+   Sascha Howe, Chris Testroet, Evan Coury, Ben Youngblood)
+    - Metadata support
+    - Postgresql adapter/driver
+    - New HydratingResultSet, allowing the ability to specify a custom
+      hydrator (from Zend\\Stdlib\\Hydrator) for hydrating row objects.
+    - Many bugfixes and stabilizations
+ - Form additions (Matthew Weier O\'Phinney, Michaël Gallego, Yanick Rochon)
+    - Annotations support: Ability to use annotations with a domain
+      object in order to define a form, fieldsets, elements, inputs and
+      input filters, and more.
+    - Hydration of fieldsets; fieldsets may compose their own hydrators
+      if desired.
+    - Collection support; allows multiple instances of the same
+      fieldset. As an example, you might have an interface that
+      allows adding a set of form elements via an XHR call; on the
+      backend, these would be defined as a collection, allowing
+      arbitrary numbers of these fieldsets to be submitted.
+    - New view helpers covering most HTML5-specific element types, most
+      XHTML-specific element types. Additionally, a number of the
+      HTML5-specific element types now have Element implementations to
+      create turn-key solutions that include validation and filtering.
+    - BC BREAK: Options support. Many attributes were being used not as
+      HTML attributes but to define behavior. The ElementInterface now
+      has an accessor and mutator for options. Examples of options
+      include labels for non-radio/checkbox/select elements, the CAPTCHA
+      adapter for CAPTCHA elements, CSRF tokens, etc. If you were
+      defining labels in your forms, please move the label and label
+      attributes definitions from the "attributes" to the "options" of
+      the element, fieldset, or form.
+    - BC BREAK: new interface, ElementPrepareAwareInterface, defining
+      the method "prepareElement(Form $form)". The FieldsetInterface,
+      and, by extension, FormInterface, extend this new interface. It is
+      used to allow preparing elements prior to creating a
+      representation.
+ - MVC additions (Kyle Spraggs, Evan Coury, Matthew Weier O\'Phinney)
+    - New "Params" controller plugin. Allows retrieving query, post,
+      cookie, header, and route parameters. Usage is
+      $this->params()->fromQuery($name, $default).
+    - New listener, Zend\\Mvc\\ModuleRouteListener. When enabled, if a
+      route match contains a "\\__NAMESPACE__" key, that namespace value
+      will be prepended to the value of the "controller" key. This
+      should typically be used in the root route for a given module, to
+      ensure controller names do not clash.
+    - Bootstrap simplification. A new "init()" method was created that
+      accepts the path to a configuration file, and then creates and
+      bootstraps the application; this eliminates all common boilerplate
+      for the bootstrap scripts.
+ - Hydrator changes (Adam Lundrigan)
+    - BC BREAK: the ClassMethods hydrator now assumes by default that
+      it should convert between underscore_separated names and
+      camelCase.
+ - BC BREAK: Doctrine Annotations Parser (Matthew Weier O\'Phinney, Marco
+   Pivetta, Guilherme Blanco)
+    - Zend\\Code\\Annotation now has a dependency on Doctrine\\Common for
+      its annotation parser.
+    - Annotations now conform to Doctrine\'s standards by default, but
+      the AnnotationManager in ZF2 allows attaching alternate parsers
+      for specific annotation types.
+ - BC BREAK: Removal of Plugin Broker usage (Matthew Weier O\'Phinney,
+   Evan Coury)
+    - All uses of the Plugin Broker / Plugin Class Locator combination
+      were removed. A new class, Zend\\ServiceManager\\AbstractPluginManager,
+      was created and used to replace all previous usages of the plugin
+      broker. This provides more flexibility in creation of plugins, as
+      well as reduces the number of APIs developers need to learn.
+    - Configuration of plugin managers is now done at the top-level. All
+      plugin manager configuration follows the format utilized by
+      Zend\\ServiceManager\\ServiceConfiguration, and
+      Zend\\ModuleManager\\Listener\\ServiceListener has been updated to
+      allow informing it of plugin manager instances it should manage,
+      as well as the configuration key to utilize.
+ - BC BREAK: Coding Standards (Maks3w, Sascha Prolic, Rob Allen)
+    - Renamed most abstract classes to prefix them with the term
+      "Abstract". In particular, ActionController and RestfulController
+      are now AbstractActionController and AbstractRestfulController.
+    - Renamed getters in HTTP, EventManager, and Mail components. These
+      components were using accessors such as "events()", "query()",
+      "headers()", etc. All such accessors were renamed to prepend
+      "get", and, in the case of "events()", renamed to indicate the
+      actual object retrieved ("getEventManager()").
+ - SECURITY FIX: XmlRpc (Matthew Weier O\'Phinney)
+    - A security issue arising from XML eXternal Entity (XXE) injection
+      was patched; see http://framework.zend.com/security/advisory/ZF2012-01
+
+Over *400* pull requests for a variety of features and bugfixes were handled
+since beta4!',
+  '2.0.0beta4' => 'Zend Framework 2.0.0beta4
+
+THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
+PLEASE USE AT YOUR OWN RISK.
+
+This is the fourth in a series of planned beta releases. The beta release
 cycle will follow the "gmail" style of betas, whereby new features will
 be added in each new release, and BC will not be guaranteed; beta
-releases will happen approximately every six weeks.
+releases will happen _approximately_ every six weeks.
 
-Once the established milestones have been reached and the featureset has
-reached maturity and reasonable stability, we will freeze the API and
-prepare for Release Candidate status.
+Once the established milestones have been reached and the featureset has reached
+maturity and reasonable stability, we will freeze the API and prepare for
+Release Candidate (RC) status. At this time, we are only planning for one more
+beta release (beta5) before starting the RC process.
 
-NEW FEATURES IN BETA2
----------------------
+PLEASE NOTE: this beta includes a large number of breaks from the previous beta,
+due to introduction of the ServiceManager, changes to the EventManager, renaming
+of the ModuleManager, rewrite of the Form component (and removal of the Dojo
+component), and several changes in the View layer. Please consult the
+ZendSkeletonApplication to get an idea of the changes necessary to make your
+application work with beta4.
 
-- Refactored Mail component
-  - Does not change existing Storage API, except:
-    - Zend\\Mail\\MailMessage was moved to Zend\\Mail\\Storage\\MailMessage
-    - Zend\\Mail\\MailPart was moved to Zend\\Mail\\Storage\\MailPart
-    - Zend\\Mail\\Message was moved to Zend\\Mail\\Storage\\Message
-    - Zend\\Mail\\Part was moved to Zend\\Mail\\Storage\\Part
-  - Zend\\Mail\\Mail was renamed to Zend\\Mail\\Message
-    - Encapsulates a mail message and all headers
-    - MIME messages are created by attaching a Zend\\Mime\\Message object as the
-      mail message body
-  - Added Zend\\Mail\\Address and Zend\\Mail\\AddressList
-    - Used to represent single addresses and address collections, particularly
-      within mail headers
-  - Added Zend\\Mail\\Header\\* and Zend\\Mail\\Headers
-    - Representations of mail headers
-  - Zend\\Mail\\Transport interface defines simply "send(Message $message)"
-    - Smtp, File, and Sendmail transports rewritten to consume Message objects,
-      and to introduce Options classes.
-- Refactored Zend\\Cache
-  - Completely rewritten component.
-  - New API features storage adapters and adapter plugins for implementing cache
-    storage and features such as serialization, clearing, and optimizing.
-    - Current adapters include filesystem, APC, memcached, and memory.
-    - All adapters can describe capabilities.
-    - Plugins are implemented as event listeners.
-  - New "Pattern" API created to simplify things like method, class, object, and
-    output caching.
-- MVC updates
-  - Zend\\Module\\Manager was stripped of most functionality; it now simply
-    iterates requested modules and triggers events.
-  - Former manager functionality such as class loading and instantiation,
-    "init()" triggering, configuration gathering, and autoloader seeding were
-    moved to event listeners.
-  - Post-module loading configuration globbing support was added.
-    - Simplifies story of overriding module configuration.
-  - Recommended filesystem no longer uses plurals for directory names.
-  - Recommendations now include a chdir(__DIR__ . \'/../\') from the
-    public/index.php file, and specifying configuration paths to be relative to
-    application directory.
+ - Config component (Enrico Zimuel)
+    -  Added reader and writer implementations for JSON and YAML configuration
+ - Crypt and Math (Enrico Zimuel)
+    - Creates a generic API for string and stream en/decryption
+    - Provides bcrypt support
+    - Provides BigInteger support
+    - Provides common methodology surrounding credential encryption and hashing
+ - Db layer (Ralph Schindler)
+    - Zend\\Db\\Adapter: added buffer() to the ResultInterface, added that feature
+      to Mysqli Result object
+    - Zend\\Db\\Adapter: added ability to subselect Sqlite for returning a true
+      count()
+    - Zend\\Db\\Adapter: added API to return helper closures from the Adapter API
+    - Renamed "database" to "schema" in all usages across Zend\\Db
+    - Zend\\Db\\Adapter: Various fixes for PDO connection parameters
+    - Zend\\Db\\Sql: created a shared AbstractSql implementation to share
+      expression processing
+    - Zend\\Db\\Sql: created a more robust "Expression" object for use in Select
+      and Predicates
+    - Zend\\Db\\Sql: created an internal workflow and architecture to handle the
+      creation of platform specific queries
+    - Zend\\Db\\Sql: implemented limit() and offset() API to Select
+    - Zend\\Db\\Sql: added having(), order() to SELECT API
+    - Zend\\Db\\Sql: added alias support to Select::columns()
+    - Zend\\Db\\TableGateway: reorganized AbstractTableGateway and TableGateway,
+      removed other extensions in favor of "Features"
+    - Zend\\Db\\TableGateway: created a "Features" API in TableGatway to promote
+      horizontal extension of TableGatway
+ - Di (Ralph Schindler, Marco Pivetta)
+    - Added method injectDependencies($instance), to allow injecting an object
+      after an instance is already available (used in the ServiceManager)
+    - Various fixes based on issue reports
+ - Dojo
+    - REMOVED. Support was for out-dated versions of Dojo, and with the new Form
+      rewrite, it needs to be completely rewritten. This is targetted for post
+      2.0.0 at this time.
+ - EventManager (Matthew Weier O\'Phinney)
+    - New SharedEventManager, a non-static version of the original
+      StaticEventManager
+    - StaticEventManager now extends SharedEventManager and implements a
+      singleton pattern
+    - New ServiceManager creates a shared instance of SharedEventManager and
+      injects it in a non-shared EventManager instance per service; static usage
+      is discouraged at this time.
+    - attachAggregate() now accepts an optional $priority, which, when present,
+      will be passed to the ListenerAggregate, allowing specifying a priority
+      during attachment of its events.
+    - EventManager now can handle arrays of events as well as wildcard events
+    - SharedEventManager now can handle arrays of contexts, wildcard contexts,
+      and arrays/wildcard events.
+ - Form (Matthew Weier O\'Phinney, Kyle Spraggs, Guilherme Blanco)
+    - Complete rewrite
+    - Elements compose a name and attributes
+    - Fieldsets compose a name, attributes, and elements and fieldsets
+    - Forms compose a name, attributes, elements, fieldsets, an InputFilter, and
+      optionally a Hydrator and bound object.
+    - New form view helpers accept the Form objects in order to generate markup.
+    - Object binding allows direct binding of model data to and from the Form.
+ - InputFilter (Matthew Weier O\'Phinney)
+    - New component for object-oriented creation of input filters
+    - Input objects compose filter and validator chains, as well as metadata
+      such as required, allow empty, break on failure, and more.
+    - InputFilter objects compose Input and InputFilter objects, and allow
+      validating the entire set or specified validation groups.
+ - Log (Enrico Zimuel, Benoit Durand)
+    - Refactored to provide more flexibility
+    - Adds API discoverability (instead of method overloading)
+    - Uses the PluginBroker for loading writers and formatters
+    - Uses PriorityQueue to manage writer priority
+    - Uses FilterChain for filtering messages
+    - Adds a renderer for exceptions, a JSON formatter, and additional interfaces
+ - Mail (Enrico Zimuel)
+    - Allow batch sending via the SMTP transport
+ - ModuleManager (Evan Coury, Matthew Weier O\'Phinney)
+    - Renamed from "Module" to "ModuleManager"
+    - Renamed "Consumer" subnamespace to "Feature"
+    - Added new listeners:
+      - OnBootstrapListener (Module classes defining onBootstrap() will have
+        that method attached as a listener on the Application bootstrap event)
+      - LocatorRegistrationListener (Module classes implementing the
+        LocatorRegisteredInterface feature will be injected in the
+        ServiceManager)
+      - ServiceListener (Module classes defining getServiceConfiguration() will
+        have that method called, and the configuration merged; once all modules
+        are loaded, that merged configuration will be passed to the
+        ServiceManager)
+ - MVC (Matthew Weier O\'Phinney, Ralph Schindler, Evan Coury)
+    - Removed Bootstrap class and rewrote Application class
+      - Composes a ServiceManager, and simply fires events
+    - Added RouteListener and DispatchListener classes, implementing the default
+      route and dispatch strategies.
+    - Created a new "Service" subnamespace, with ServiceManager configuration
+      and factories for the default MVC services.
+    - Created a new "ViewManager" class, which triggers on the bootstrap event,
+      at which time it creates the various objects of the view layer and wires
+      them together as well as registers them with the appropriate events.
+    - InjectTemplateListener now uses the controller namespace to further
+      namespace the view template; the default is now
+      "<normalized top-level namespace>/<normalized controller name>/<action>"
+ - ServiceManager component (Ralph Schindler, Matthew Weier O\'Phinney)
+    - Highly performant, programmatic service creation
+    - Largely replaces DI, but can also consume Zend\\Di
+    - Allows:
+      - Service registration
+      - Lazy-loaded service objects
+      - Service factories
+      - Service aliasing
+      - Abstract (fallback) factories
+      - Initializers (manipulate instances after creation)
+    - Fully integrated in the MVC solution
+ - Renamed interfaces (Gabriel Baker, Sascha Prolic, Maks3w)
+   - Most, if not all, interfaces were renamed to suffix with the word
+     "Interface". This is to promote discovery of interfaces, as well as make
+     naming simpler.
+   - Exceptions are affected by this as well. Exception marker interfaces were
+     renamed to ExceptionInterface and pushed into the Exception subnamespace of
+     each component
+ - Composer support (Rob Allen, Marco Pivetta, Kyle Spraggs)
+   - Zend Framework is now installable via Composer (http://packagist.org/), as
+     are each of its individual components
+ - Travis CI integration (Marco Pivetta, Maks3w)
+   - ZF2 is tested on each commit by http://travis-ci.org/
 
-In addition, over 100 bug and feature requests were handled since beta1.',
-  '2.0.4' => 'Zend Framework 2.0.4
-
-Resolves the following issues and/or includes the following changes:
-
-- 2808: Add serializer better inheritance and extension
-  (https://github.com/zendframework/zf2/issues/2808)
-- 2813: Add test on canonical name with the ServiceManager
-  (https://github.com/zendframework/zf2/issues/2813)
-- 2832: bugfix: The helper DateFormat does not cache correctly when a pattern is
-  set. (https://github.com/zendframework/zf2/issues/2832)
-- 2837: Add empty option before empty check
-  (https://github.com/zendframework/zf2/issues/2837)
-- 2843: change self:: with static:: in call-ing static property/method
-  (https://github.com/zendframework/zf2/issues/2843)
-- 2857: Unnecessary path assembly on return in
-  Zend\\Mvc\\Router\\Http\\TreeRouteStack->assemble() line 236
-  (https://github.com/zendframework/zf2/issues/2857)
-- 2867: Enable view sub-directories when using ModuleRouteListener
-  (https://github.com/zendframework/zf2/issues/2867)
-- 2872: Resolve naming conflicts in foreach statements
-  (https://github.com/zendframework/zf2/issues/2872)
-- 2878: Fix : change self:: with static:: in call-ing static property/method()
-  in other components ( all ) (https://github.com/zendframework/zf2/issues/2878)
-- 2879: remove unused const in Zend\\Barcode\\Barcode.php
-  (https://github.com/zendframework/zf2/issues/2879)
-- 2896: Constraints in Zend\\Db\\Metadata\\Source\\AbstractSource::getTable not
-  initalised (https://github.com/zendframework/zf2/issues/2896)
-- 2907: Fixed proxy adapter keys being incorrectly set due Zend\\Http\\Client
-  (https://github.com/zendframework/zf2/issues/2907)
-- 2909: Change format of Form element DateTime and DateTimeLocal
-  (https://github.com/zendframework/zf2/issues/2909)
-- 2921: Added Chinese translations for zf2 validate/captcha resources
-  (https://github.com/zendframework/zf2/issues/2921)
-- 2924: small speed-up of Zend\\EventManager\\EventManager::triggerListeners()
-  (https://github.com/zendframework/zf2/issues/2924)
-- 2929: SetCookie::getFieldValue() always uses urlencode() for cookie values,
-  even in case they are already encoded
-  (https://github.com/zendframework/zf2/issues/2929)
-- 2930: Add minor test coverage to MvcEvent
-  (https://github.com/zendframework/zf2/issues/2930)
-- 2932: Sessions: SessionConfig does not allow setting non-directory save path
-  (https://github.com/zendframework/zf2/issues/2932)
-- 2937: preserve matched route name within route match instance while
-  forwarding... (https://github.com/zendframework/zf2/issues/2937)
-- 2940: change \'Cloud\\Decorator\\Tag\' to \'Cloud\\Decorator\\AbstractTag\'
-  (https://github.com/zendframework/zf2/issues/2940)
-- 2941: Logical operator fix : \'or\' change to \'||\' and \'and\' change to \'&&\'
-  (https://github.com/zendframework/zf2/issues/2941)
-- 2952: Various Zend\\Mvc\\Router\\Http routers turn + into a space in path
-  segments (https://github.com/zendframework/zf2/issues/2952)
-- 2957: Make Partial proxy to view render function
-  (https://github.com/zendframework/zf2/issues/2957)
-- 2971: Zend\\Http\\Cookie undefined self::CONTEXT_REQUEST
-  (https://github.com/zendframework/zf2/issues/2971)
-- 2976: Fix for #2541 (https://github.com/zendframework/zf2/issues/2976)
-- 2981: Controller action HttpResponse is not used by SendResponseListener
-  (https://github.com/zendframework/zf2/issues/2981)
-- 2983: replaced all calls to $this->xpath with $this->getXpath() to always
-  have... (https://github.com/zendframework/zf2/issues/2983)
-- 2986: Add class to file missing a class (fixes #2789)
-  (https://github.com/zendframework/zf2/issues/2986)
-- 2987: fixed Zend\\Session\\Container::exchangeArray
-  (https://github.com/zendframework/zf2/issues/2987)
-- 2994: Fixes #2993 - Add missing asterisk to method docblock
-  (https://github.com/zendframework/zf2/issues/2994)
-- 2997: Fixing abstract factory instantiation time
-  (https://github.com/zendframework/zf2/issues/2997)
-- 2999: Fix for GitHub issue 2579
-  (https://github.com/zendframework/zf2/issues/2999)
-- 3002: update master\'s resources/ja Zend_Validate.php message
-  (https://github.com/zendframework/zf2/issues/3002)
-- 3003: Adding tests for zendframework/zf2#2593
-  (https://github.com/zendframework/zf2/issues/3003)
-- 3006: Hotfix for #2497 (https://github.com/zendframework/zf2/issues/3006)
-- 3007: Fix for issue 3001 Zend\\Db\\Sql\\Predicate\\Between fails with min and max
-  ... (https://github.com/zendframework/zf2/issues/3007)
-- 3008: Hotfix for #2482 (https://github.com/zendframework/zf2/issues/3008)
-- 3009: Hotfix for #2451 (https://github.com/zendframework/zf2/issues/3009)
-- 3013: Solved Issue 2857 (https://github.com/zendframework/zf2/issues/3013)
-- 3025: Removing the separator between the hidden and the visible inputs. As
-  the... (https://github.com/zendframework/zf2/issues/3025)
-- 3027: Reduced #calls of plugin() in PhpRenderer using a cache mechanism
-  (https://github.com/zendframework/zf2/issues/3027)
-- 3029: Fixed the pre-commit script, missed the fix command
-  (https://github.com/zendframework/zf2/issues/3029)
-- 3030: Mark module as loaded before trigginer EVENT_LOAD_MODULE
-  (https://github.com/zendframework/zf2/issues/3030)
-- 3031: Zend\\Db\\Sql Fix for Insert\'s Merge and Set capabilities with simlar keys
-  (https://github.com/zendframework/zf2/issues/3031)',
-  '2.0.0rc3' => 'Release Version 2.0.0rc3 Tag
-',
+Over *400* pull requests for a variety of features and bugfixes were handled
+since beta3!',
   '2.0.0beta3' => 'This is the third in a series of planned beta releases. The beta release
 cycle will follow the "gmail" style of betas, whereby new features will
 be added in each new release, and BC will not be guaranteed; beta
@@ -2158,73 +2181,170 @@ NEW FEATURES IN BETA3
 
 Around 200 pull requests for a variety of features and bugfixes were handled
 since beta2.',
-  '2.0.5' => 'Zend Framework 2.0.5
+  '2.0.0beta2' => 'RELEASE INFORMATION
+---------------
+Zend Framework 2.0.0beta2
 
-- 3004: Zend\\Db unit tests fail with code coverage enabled
-  (https://github.com/zendframework/zf2/issues/3004)
-- 3039: combine double if into single conditional
-  (https://github.com/zendframework/zf2/issues/3039)
-- 3042: fix typo \'consist of\' should be \'consists of\' in singular
-  (https://github.com/zendframework/zf2/issues/3042)
-- 3045: Reduced the #calls of rawurlencode() using a cache mechanism
-  (https://github.com/zendframework/zf2/issues/3045)
-- 3048: Applying quickfix for zendframework/zf2#3004
-  (https://github.com/zendframework/zf2/issues/3048)
-- 3095: Process X-Forwarded-For header in correct order
-  (https://github.com/zendframework/zf2/issues/3095)',
-  '2.0.0rc4' => 'Zend Framework 2.0.0rc4
+THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
+PLEASE USE AT YOUR OWN RISK.
 
-This is the fourth release candidate for 2.0.0. We will be releasing RCs
-on a weekly basis until we feel all critical issues are addressed. At
-this time, we anticipate few API changes before the stable release, and
-recommend testing your production applications against it.
+This is the second in a series of planned beta releases. The beta release
+cycle will follow the "gmail" style of betas, whereby new features will
+be added in each new release, and BC will not be guaranteed; beta
+releases will happen approximately every six weeks.
 
-17 August 2012
+Once the established milestones have been reached and the featureset has
+reached maturity and reasonable stability, we will freeze the API and
+prepare for Release Candidate status.
 
-- Zend\\Db
-  - RowGateway:  delete() now works; RowGateway objects now no longer duplicates
-    the content internally leading to a larger than necessary memory footprint.
-  - Adapter for PDO: fixed such that all calls to rowCount() will always be an
-    integer; also fixed disconnect() from unsetting property
-  - Zend\\Validator\\Db: fixed such that TableIdentifier can be used to promote
-    schema.table identifiers
-  - Sql\\Select: added reset() API to reset parts of a Select object, also
-    includes updated constants to refer to the parts by
-  - Sql\\Select and others: Added subselect support in Select, In Expression and
-    the processExpression() abstraction for Zend\\Db\\Sql
-  - Metadata: fixed various incorrect keys when refering to contstraint data in
-    metadata value objects
-- Zend\\Filter
-  - StringTrim filter now properly handles unicode whitespace
-- Zend\\Form
-  - FieldsetInterface now defines the methods allowObjectBinding() and
-    allowValueBinding().
-  - New interface, FieldsetPrepareAwareInterface. Collection and Fieldset both
-    implement this.
-    - See https://github.com/zendframework/zf2/pull/2184 for details
-  - Select elements now handle options and validation more consistently with
-    other multi-value elements.
-- Zend\\Http
-  - SSL options are now propagated to all Socket Adapter subclasses
-- Zend\\InputFilter
-  - Allows passing ValidatorChain and FilterChain instances to the factory
-- Zend\\Log
-  - Fixed xml formatter to not display empty extra information
-- Zend\\Loader
-  - SplAutoloader was renamed to SplAutoloaderInterface (consistency issue)
-- Zend\\Mvc
-  - params() helper now allows fetching full parameter containers if no
-    arguments are provided to its various methods (consistency issue)
-- Zend\\Paginator
-  - The DbSelect adapter now works
-- Zend\\View
-  - ViewModel now allows unsetting variables properly
-- Security
-  - Fixed issues in Zend\\Dom, Zend\\Soap, Zend\\Feed, and Zend\\XmlRpc with regards
-    to the way libxml2 allows xml entity expansion from DOCTYPE entities when it
-    is provided.
+NEW FEATURES IN BETA2
+---------------------
 
-Around 50 pull requests for a variety of features and bugfixes were handled
-since RC3, as well as almost 30 documentation changes!',
+- Refactored Mail component
+  - Does not change existing Storage API, except:
+    - Zend\\Mail\\MailMessage was moved to Zend\\Mail\\Storage\\MailMessage
+    - Zend\\Mail\\MailPart was moved to Zend\\Mail\\Storage\\MailPart
+    - Zend\\Mail\\Message was moved to Zend\\Mail\\Storage\\Message
+    - Zend\\Mail\\Part was moved to Zend\\Mail\\Storage\\Part
+  - Zend\\Mail\\Mail was renamed to Zend\\Mail\\Message
+    - Encapsulates a mail message and all headers
+    - MIME messages are created by attaching a Zend\\Mime\\Message object as the
+      mail message body
+  - Added Zend\\Mail\\Address and Zend\\Mail\\AddressList
+    - Used to represent single addresses and address collections, particularly
+      within mail headers
+  - Added Zend\\Mail\\Header\\* and Zend\\Mail\\Headers
+    - Representations of mail headers
+  - Zend\\Mail\\Transport interface defines simply "send(Message $message)"
+    - Smtp, File, and Sendmail transports rewritten to consume Message objects,
+      and to introduce Options classes.
+- Refactored Zend\\Cache
+  - Completely rewritten component.
+  - New API features storage adapters and adapter plugins for implementing cache
+    storage and features such as serialization, clearing, and optimizing.
+    - Current adapters include filesystem, APC, memcached, and memory.
+    - All adapters can describe capabilities.
+    - Plugins are implemented as event listeners.
+  - New "Pattern" API created to simplify things like method, class, object, and
+    output caching.
+- MVC updates
+  - Zend\\Module\\Manager was stripped of most functionality; it now simply
+    iterates requested modules and triggers events.
+  - Former manager functionality such as class loading and instantiation,
+    "init()" triggering, configuration gathering, and autoloader seeding were
+    moved to event listeners.
+  - Post-module loading configuration globbing support was added.
+    - Simplifies story of overriding module configuration.
+  - Recommended filesystem no longer uses plurals for directory names.
+  - Recommendations now include a chdir(__DIR__ . \'/../\') from the
+    public/index.php file, and specifying configuration paths to be relative to
+    application directory.
+
+In addition, over 100 bug and feature requests were handled since beta1.',
+  '2.0.0beta1' => 'Zend Framework 2.0.0beta1
+
+THIS RELEASE IS A DEVELOPMENT RELEASE AND NOT INTENDED FOR PRODUCTION USE.
+PLEASE USE AT YOUR OWN RISK.
+
+This is the first in a series of planned beta releases. The beta release
+cycle will follow the "gmail" style of betas, whereby new features will
+be added in each new release, and BC will not be guaranteed; beta
+releases will happen no less than every six weeks.
+
+Once the established milestones have been reached and the featureset has
+reached maturity and reasonable stability, we will freeze the API and
+prepare for Release Candidate status.
+
+NEW FEATURES
+------------
+
+- New and refactored autoloaders:
+  - Zend\\Loader\\StandardAutoloader
+  - Zend\\Loader\\ClassMapAutoloader
+  - Zend\\Loader\\AutoloaderFactory
+- New plugin broker strategy
+  - Zend\\Loader\\Broker and Zend\\Loader\\PluginBroker
+- Reworked Exception system
+  - Allow catching by specific Exception type
+  - Allow catching by component Exception type
+  - Allow catching by SPL Exception type
+  - Allow catching by base Exception type
+- Rewritten Session component
+- Refactored View component
+  - Split helpers into a PluginBroker
+  - Split variables into a Variables container
+  - Split script paths into a TemplateResolver
+  - Renamed base View class "PhpRenderer"
+  - Refactored helpers to utilize __invoke() when possible
+- Refactored HTTP component
+- New Zend\\Cloud\\Infrastructure component
+- New EventManager component
+- New Dependency Injection (Zend\\Di) component
+- New Code component
+  - Incorporates refactored versions of former Reflection and
+    CodeGenerator components.
+  - Introduces Scanner component.
+  - Introduces annotation system.
+- New MVC layer
+  - Zend\\Module, for developing modular application architectures.
+  - Zend\\Mvc, a completely reworked MVC layer built on top of HTTP,
+    EventManager, and Di.
+- Introduces new packaging system, allowing the usage of Pyrus
+  (http://pear2.php.net) to install individual components and/or groups
+  of components.',
+  '2.0.0' => 'Zend Framework 2.0.0
+====================
+
+This is the first stable release of the new version 2 release branch.
+
+04 September 2012
+
+NEW IN ZEND FRAMEWORK 2
+-----------------------
+
+New and/or refactored components include:
+
+- EventManager - provides subject/observer, pubsub, aspect-oriented programming,
+  signal slots, and event systems for your applications.
+- ServiceManager - provides an Inversion of Control (IoC) container for managing
+  object life-cycles and dependencies via a configurable and programmable
+  interface.
+- DI - provides a Dependency Injection Container, another form of IoC.
+- MVC - a newly written MVC layer for ZF2, using controllers as services, and
+  wiring everything together using events.
+- ModuleManager - a solution for providing plug-and-play functionality for
+  either MVC applications or any application requiring pluggable 3rd party code.
+  Within ZF2, the ModuleManager provides the MVC with services, and assists in
+  wiring events.
+- Loader - provides new options for autoloading, including standard, performant
+  PSR-0 loading and class-map-based autoloading.
+- Code - provides support for code reflection, static code scanning, and
+  annotation parsing.
+- Config - more performant and more flexible configuration parsing and creation.
+- Escaper - a new component for providing context-specific escaping solutions
+  for HTML, HTML attributes, CSS, JavaScript, and combinations of contexts as
+  well.
+- HTTP - rewritten to provide better header, request, and response abstraction.
+- I18n - a brand new internationalization and localization layer built on top of
+  PHP\'s ext/intl extension.
+- InputFilter - a new component for providing normalization and validation of
+  sets of data.
+- Form - rewritten from the ground up to properly separate validation, domain
+  modeling, and presentation concerns. Allows binding objects to forms, defining
+  forms and input filters via annotations, and more.
+- Log - rewritten to be more flexible and provide better capabilities
+  surrounding message formats and filtering.
+- Mail - rewritten to separate concerns more cleanly between messages and
+  transports.
+- Session - rewritten to make testing easier, as well as to make it more
+  configurable for end users.
+- Uri - rewritten to provide a cleaner, more object oriented interface.
+
+Many components have been ported from Zend Framework 1, and operate in
+practically identical manners to their 1.X equivalent. Others, such as the
+service components, have been moved to their own repositories to ensure that as
+APIs change, they do not need to wait on the framework to release new versions.
+
+Welcome to a new generation of Zend Framework!',
 );
 return $tags;
