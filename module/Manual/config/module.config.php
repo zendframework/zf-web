@@ -3,7 +3,7 @@ return array(
     'router' => array(
         'routes' => array(
             'manual' => array(
-                'type' => 'Zend\Mvc\Router\Http\Segment',
+                'type' => 'Segment',
                 'options' => array(
                     'route' => '/manual/:version/:lang/:page',
                     'constraints' => array(
@@ -15,7 +15,7 @@ return array(
                         'controller' => 'Manual/Controller/Page',
                         'action'     => 'manual',
                         'lang'       => 'en',
-                        'version'    => '2.0',
+                        'version'    => '2.1',
                         'page'       => 'index.html',
                     ),
                 ),
@@ -54,7 +54,7 @@ return array(
                 ),
             ),
             'docs' => array(
-                'type' => 'Zend\Mvc\Router\Http\Segment',
+                'type' => 'Segment',
                 'options' => array(
                     'route' => '/docs[/]',
                     'defaults' => array(
@@ -65,7 +65,7 @@ return array(
                 'may_terminate' => true,
                 'child_routes'  => array(
                     'api' => array(
-                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'type' => 'Segment',
                         'options' => array(
                             'route'    => 'api[/]',
                             'defaults' => array(
