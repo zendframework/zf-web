@@ -29,6 +29,9 @@ foreach ($zf2versions as $version) {
         $paths[$version][$lang] = sprintf($zf2ManualPath, $version, $lang);
     }
 }
+
+krsort($paths);
+
 return array(
     'zf_document_path' => $paths,
 );
