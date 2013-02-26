@@ -88,3 +88,24 @@ To generate the ZF2 changelog, execute the following:
 ```
 
 This will, by default, write to `data/zf2-changelog.php`.;
+
+CSS
+---
+
+We use [SASS](http://sass-lang.com/) as a CSS framework. Make changes to the
+`.scss` files under `public/css/scss/`, and then compile them. To compile them,
+first ensure you have SASS installed:
+
+```bash
+% sudo gem install sass
+```
+
+Once you have, you can compile the CSS using the following:
+
+```bash
+% cd public/css
+% sass scss/app.scss app.min.css
+```
+
+This will also generate a `public/css/.sass-cache` directory; do _not_ commit
+this when you commit your changes.
