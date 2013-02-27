@@ -92,19 +92,27 @@ This will, by default, write to `data/zf2-changelog.php`.;
 CSS
 ---
 
-We use [SASS](http://sass-lang.com/) as a CSS framework. Make changes to the
-`.scss` files under `public/css/scss/`, and then compile them. To compile them,
-first ensure you have SASS installed:
+We use [Sass](http://sass-lang.com/) as stylesheet language and the Sass 
+mixing library [Bourbon](http://bourbon.io/).
+
+Make changes to the `.scss` files under `public/css/scss/`, and then compile 
+them. To compile them, first ensure you have Sass installed:
 
 ```bash
 % sudo gem install sass
+```
+
+and Bourbon:
+
+```bash
+% sudo gem install bourbon
 ```
 
 Once you have, you can compile the CSS using the following:
 
 ```bash
 % cd public/css
-% sass scss/app.scss app.min.css
+% sass scss/app.scss:../app.min.css --style compressed
 ```
 
 This will also generate a `public/css/.sass-cache` directory; do _not_ commit
