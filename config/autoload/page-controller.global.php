@@ -74,6 +74,16 @@ return array(
                         ),
                         'may_terminate' => true,
                     ),
+                    'logos' => array(
+                        'type' => 'Zend\Mvc\Router\Http\Segment',
+                        'options' => array(
+                            'route'    => 'logos[/]',
+                            'defaults' => array(
+                                'page'          => 'participate/logos',
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
                 ),
             ),
             'irc' => array(
