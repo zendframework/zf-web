@@ -4,7 +4,7 @@ return array(
         'page_size' => 15,
         'advisories' => array(
             'ZF2013-03' => array(
-                'title' => 'ZF2013-03: SQL injection due to execution of platform-specific SQL containing interpolations',
+                'title' => 'ZF2013-03: Potential SQL injection due to execution of platform-specific SQL containing interpolations',
                 'date'  => 'Thu, 14 March 2012 10:00:00 -0500',
             ),
             'ZF2013-02' => array(

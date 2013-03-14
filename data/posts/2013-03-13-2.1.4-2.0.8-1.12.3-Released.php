@@ -9,13 +9,13 @@ $author->setEmail('matthew@zend.com');
 $author->setUrl('http://mwop.net/');
 
 $post = new EntryEntity();
-$post->setId('2013-03-13-zend-framework-3-for-1-release-day');
+$post->setId('2013-03-14-zend-framework-3-for-1-release-day');
 $post->setTitle('Zend Framework 2.1.4, 2.0.8, and 1.12.3 Released!');
 $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
-$post->setCreated(new DateTime('2013-03-13 20:30', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2013-03-13 20:30', new DateTimezone('America/Chicago')));
+$post->setCreated(new DateTime('2013-03-14 10:30', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2013-03-14 10:30', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>
     The Zend Framework community is pleased to announce the immediate availability
@@ -83,7 +83,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 
 <p>
     For more information on the security vector, please see
-    <a href="http://framework.zend.com/security/ZF2013-01">ZF2013-01</a>.
+    <a href="http://framework.zend.com/security/advisory/ZF2013-01">ZF2013-01</a>.
 </p>
 
 <h3>Random Number Generation</h3>
@@ -109,7 +109,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 
 <p>
     For more information on this security vector, please see
-    <a href="http://framework.zend.com/security/ZF2013-02">ZF2013-02</a>.
+    <a href="http://framework.zend.com/security/advisory/ZF2013-02">ZF2013-02</a>.
 </p>
 
 <h3>Database Platform Quoting</h3>
@@ -133,7 +133,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 
 <p>
     For more information on this security vector, please see
-    <a href="http://framework.zend.com/security/ZF2013-03">ZF2013-03</a>.
+    <a href="http://framework.zend.com/security/advisory/ZF2013-03">ZF2013-03</a>.
 </p>
 
 <h2>Twitter API Updates</h2>
