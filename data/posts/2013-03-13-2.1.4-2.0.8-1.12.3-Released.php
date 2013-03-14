@@ -83,7 +83,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 
 <p>
     For more information on the security vector, please see
-    <a href="http://framework.zend.com/security/advisory/ZF2013-01">ZF2013-01</a>.
+    <a href="/security/advisory/ZF2013-01">ZF2013-01</a>.
 </p>
 
 <h3>Random Number Generation</h3>
@@ -109,7 +109,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 
 <p>
     For more information on this security vector, please see
-    <a href="http://framework.zend.com/security/advisory/ZF2013-02">ZF2013-02</a>.
+    <a href="/security/advisory/ZF2013-02">ZF2013-02</a>.
 </p>
 
 <h3>Database Platform Quoting</h3>
@@ -133,7 +133,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 
 <p>
     For more information on this security vector, please see
-    <a href="http://framework.zend.com/security/advisory/ZF2013-03">ZF2013-03</a>.
+    <a href="/security/advisory/ZF2013-03">ZF2013-03</a>.
 </p>
 
 <h2>Twitter API Updates</h2>
