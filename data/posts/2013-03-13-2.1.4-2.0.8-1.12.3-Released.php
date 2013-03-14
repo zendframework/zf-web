@@ -177,7 +177,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
     alias the appropriate polyfill base as an import. The stub class then 
     extends the base.</li>
 
-    <li>The <code>compatibility/autoload.php</code> files in each component affected was altered to trigger an <code>E_USER_DEPRECATED</code> error asking the user to remove the require statement for the file.</li>
+    <li>The <code>compatibility/autoload.php</code> file in each component affected was altered to trigger an <code>E_USER_DEPRECATED</code> error asking the user to remove the require statement for the file.</li>
 </ul>
 
 <p>
