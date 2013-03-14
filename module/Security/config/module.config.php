@@ -3,6 +3,18 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2013-03' => array(
+                'title' => 'ZF2013-03: SQL injection due to execution of platform-specific SQL containing interpolations',
+                'date'  => 'Thu, 14 March 2012 10:00:00 -0500',
+            ),
+            'ZF2013-02' => array(
+                'title' => 'ZF2013-02: Potential Information Disclosure and Insufficient Entropy vulnerabilities in Zend\Math\Rand and Zend\Validate\Csrf Components',
+                'date'  => 'Thu, 14 March 2012 10:00:00 -0500',
+            ),
+            'ZF2013-01' => array(
+                'title' => 'ZF2013-01: Route Parameter Injection Via Query String in Zend\Mvc',
+                'date'  => 'Thu, 14 March 2012 10:00:00 -0500',
+            ),
             'ZF2012-05' => array(
                 'title' => 'ZF2012-05: Potential Proxy Injection Vulnerabilities in Multiple Zend Framework 2 Components',
                 'date'  => 'Tue, 18 December 2012 13:00:00 -0500',
