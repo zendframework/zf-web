@@ -202,7 +202,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 <p>
     I'd like to thank our main contributors to this release. In particular, 
     Pádraic Brady and Enrico Zimuel for researching and implementing the Random
-    Number Generator vulnerability and fixes; Ben Scholzen for implemting fixes
+    Number Generator vulnerability and fixes; Ben Scholzen for implementing fixes
     for the Query route; Ralph Schindler, for his fixes for the database platform
     quoting vulnerabilities; and Mike Willbanks, for continuing to work on 
     solutions for session storage and timing issues.
