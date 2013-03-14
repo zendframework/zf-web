@@ -188,12 +188,12 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 <h2>Changelog</h2>
 
 <p>
-    Below are links to the changelogs for each version. (2.0.8 does not have a 
-    separate changelog as it incorporates fixes backported from 2.1.4.)
+    Below are links to the changelogs for each version.
 </p>
 
 <ul>
     <li><a href="/changelog/2.1.4">2.1.4 Changelog</a></li>
+    <li><a href="/changelog/2.0.8">2.0.8 Changelog</a></li>
     <li><a href="/changelog/1.12.3">1.12.3 Changelog</a></li>
 </ul>
 
