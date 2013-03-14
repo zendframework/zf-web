@@ -89,7 +89,7 @@ $rendererOrController->url('foo', array(), array('query' => $request->getQuery()
 <h3>Random Number Generation</h3>
 
 <p>
-    The <code>Zend\Math\Rand<code> component generates random bytes using the OpenSSL
+    The <code>Zend\Math\Rand</code> component generates random bytes using the OpenSSL
     or Mcrypt extensions when available but will otherwise use PHP's
     <code>mt_rand()</code> function as a fallback. All outputs from <code>mt_rand()</code> are
     predictable for the same PHP process if an attacker can brute force
