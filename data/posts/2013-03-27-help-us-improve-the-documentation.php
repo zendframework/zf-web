@@ -42,11 +42,19 @@ $post->setBody($body);
 
 $extended =<<<'EOC'
 <p>
+    If you'd like to start contributing to the documentation by submitting patches and improvements, best start is to read the <a href="https://github.com/zendframework/zf2-documentation/blob/master/CONTRIBUTING.md">contributing guide</a>.
+</p>
+
+<p>
     Just so you know that we do really work on improving the documentation, a week or so ago we held our first dochunt. It was a weekend dedicated to improving the documentation and <a href="https://gist.github.com/Bittarman/27575710b347bdb73631">as you can see from the results</a> quite a few fixes and improvements were made thanks to the contributors. In the coming weeks we will hold the next dochunt. This time we will try to strictly focus on writing new and improving existing tutorials, but any and all contributions are welcomed.
 </p>
 
 <p>
-    We don't know yet when the second dochunt will be held, but we will let you know.
+    We don't know yet when the second dochunt will be held, but we will let you know. Until then, <a href="http://framework.zend.com/manual/2.1/en/index.html">start reading through the manual</a>, look for things to improve, what's missing and <a href="https://github.com/zendframework/zf2-documentation/issues">give us feedback</a>!
+</p>
+
+<p>
+    The contributors and the Zend Framework team thank you!
 </p>
 EOC;
 $post->setExtended($extended);
