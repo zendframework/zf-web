@@ -13,7 +13,7 @@ $post->setId('2013-03-28-help-us-improve-the-documentation');
 $post->setTitle('Help us improve the documentation!');
 $post->setAuthor($author);
 $post->setDraft(false);
-$post->setPublic(false);
+$post->setPublic(true);
 $post->setCreated(new DateTime('2013-03-28 10:15', new DateTimezone('Europe/Belgrade')));
 $post->setUpdated(new DateTime('2013-03-28 10:15', new DateTimezone('Europe/Belgrade')));
 
