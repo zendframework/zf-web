@@ -25,7 +25,7 @@ class Module
         $services = $app->getServiceManager();
         $events->attach('route', function ($e) use ($services) {
             $matches = $e->getRouteMatch();
-            $matches->getParam('controller');
+            $controller = $matches->getParam('controller');
             if ($controller != 'Api\UserController') {
                 return;
             }
