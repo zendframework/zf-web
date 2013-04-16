@@ -29,7 +29,7 @@ HOMEPAGE_PATH ?= $(CURDIR)/module/Application/view/application/index/index.phtml
 HOMEPAGE_TEMPLATE ?= $(CURDIR)/data/homepage.phtml
 SECURITY_CONFIG ?= $(CURDIR)/module/Security/config/module.config.php
 
-.PHONY : all changelog checkVersion download-version homepage
+.PHONY : all changelog check-version download-version homepage
 
 all : download-version changelog homepage
 
@@ -38,12 +38,12 @@ homepage :
 	$(PHP) $(BIN)/update-homepage-feeds.php $(BLOG_FEED) $(SECURITY_CONFIG) $(HOMEPAGE_TEMPLATE) $(HOMEPAGE_PATH)
 	@echo "[DONE] Updating homepage feeds."
 
-changelog : checkVersion
+changelog : check-version
 	@echo "Updating changelog for version $(VERSION)..."
 	$(PHP) public/index.php changelog fetch --version=$(VERSION)
 	@echo "[DONE] Updating changelog."
 
-download-version : checkVersion
+download-version : check-version
 	@echo "Adding version $(VERSION) to release downloads..."
 	$(PHP) "$(BIN)/update-download-versions.php" $(VERSION) $(RELEASE_DATE) > module.downloads.global.php
 ifeq ($$?,0)
@@ -53,7 +53,7 @@ endif
 	-mv module.downloads.global.php config/autoload/module.downloads.global.php
 	@echo "[DONE] Adding version to release downloads."
 
-manual-version: checkVersion
+manual-version: check-version
 	@echo "Adding version $(VERSION) manual mapping..."
 	$(PHP) $(BIN)/update-manual-versions.php $(VERSION) > zf$(VERSION_MAJOR)-manual-versions.php
 ifeq ($$?,0)
@@ -63,7 +63,7 @@ endif
 	-mv zf$(VERSION_MAJOR)-manual-versions.php config/autoload/zf$(VERSION_MAJOR)-manual-versions.php
 	@echo "[DONE] Adding version manual mapping."
 
-checkVersion :
+check-version :
 ifeq ($(VERSION),false)
 	@echo "Missing VERSION assignment on commandline"
 	exit 1
