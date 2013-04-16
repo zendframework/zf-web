@@ -6,7 +6,7 @@
 #
 # Release checklist:
 # - [ ] Update config/autoload/module.downloads.global.php
-#   - [ ] Add VERSION and RELEASE_DATE mapping
+#   - [X] Add VERSION and RELEASE_DATE mapping
 #   - [ ] For ZF1 versions, update config/autoload/module.manual.global.php to map
 #     minor -> maintenance version.
 #   - [ ] For ZF2 versions, update config/autoload/module.manual.global.php to
@@ -45,7 +45,7 @@ changelog : checkVersion
 
 download-version : checkVersion
 	@echo "Adding version $(VERSION) to release downloads..."
-	$(eval DOWNLOAD_RELEASES := $(shell $(PHP) "$(BIN)/generate-download-versions.php" $(VERSION) $(RELEASE_DATE)))
+	$(eval DOWNLOAD_RELEASES := $(shell $(PHP) "$(BIN)/update-download-versions.php" $(VERSION) $(RELEASE_DATE)))
 ifeq ($$?,0)
 	@echo "[FAILED] Failed to generate download versions"
 	exit 1
