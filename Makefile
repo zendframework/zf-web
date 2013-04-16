@@ -15,10 +15,11 @@
 #   - currently in Manual\Controller\PageController::apiAction
 # - [ ] Need a target to copy/unzip manual/API docs to appropriate location on
 #   server
-# - [ ] Update changelog for appropriate ZF version
+# - [X] Update changelog for appropriate ZF version
 # - [X] Need a target for updating homepage based on most recent blog posts in feed
 
 VERSION ?= false
+RELEASE_DATE ?= $(shell date +%F)
 PHP ?= /usr/local/zend/bin/php
 
 BIN = $(CURDIR)/bin
@@ -28,9 +29,9 @@ HOMEPAGE_PATH ?= $(CURDIR)/module/Application/view/application/index/index.phtml
 HOMEPAGE_TEMPLATE ?= $(CURDIR)/data/homepage.phtml
 SECURITY_CONFIG ?= $(CURDIR)/module/Security/config/module.config.php
 
-.PHONY : all changelog checkVersion homepage
+.PHONY : all changelog checkVersion download-version homepage
 
-all : homepage
+all : download-version changelog homepage
 
 homepage :
 	@echo "Updating homepage feeds..."
@@ -41,6 +42,16 @@ changelog : checkVersion
 	@echo "Updating changelog for version $(VERSION)..."
 	$(PHP) public/index.php changelog fetch --version=$(VERSION)
 	@echo "[DONE] Updating changelog."
+
+download-version : checkVersion
+	@echo "Adding version $(VERSION) to release downloads..."
+	$(eval DOWNLOAD_RELEASES := $(shell $(PHP) "$(BIN)/generate-download-versions.php" $(VERSION) $(RELEASE_DATE)))
+ifeq ($$?,0)
+	@echo "[FAILED] Failed to generate download versions"
+	exit 1
+endif
+	$(shell echo "$(DOWNLOAD_RELEASES)" > "config/autoload/module.downloads.global.php")
+	@echo "[DONE] Adding version to release downloads."
 
 checkVersion :
 ifeq ($(VERSION),false)

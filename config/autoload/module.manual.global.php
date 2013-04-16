@@ -24,5 +24,5 @@ krsort($paths);
 
 return array(
     'zf_document_path' => $paths,
-    'zf_apidoc_versions' => include __DIR__ . 'zf-apidoc-versions.php',
+    'zf_apidoc_versions' => include __DIR__ . '/zf-apidoc-versions.php',
 );
