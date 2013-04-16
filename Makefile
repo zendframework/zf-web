@@ -45,16 +45,28 @@ changelog : checkVersion
 
 download-version : checkVersion
 	@echo "Adding version $(VERSION) to release downloads..."
-	$(eval DOWNLOAD_RELEASES := $(shell $(PHP) "$(BIN)/update-download-versions.php" $(VERSION) $(RELEASE_DATE)))
+	$(PHP) "$(BIN)/update-download-versions.php" $(VERSION) $(RELEASE_DATE) > module.downloads.global.php
 ifeq ($$?,0)
 	@echo "[FAILED] Failed to generate download versions"
 	exit 1
 endif
-	$(shell echo "$(DOWNLOAD_RELEASES)" > "config/autoload/module.downloads.global.php")
+	-mv module.downloads.global.php config/autoload/module.downloads.global.php
 	@echo "[DONE] Adding version to release downloads."
+
+manual-version: checkVersion
+	@echo "Adding version $(VERSION) manual mapping..."
+	$(PHP) $(BIN)/update-manual-versions.php $(VERSION) > zf$(VERSION_MAJOR)-manual-versions.php
+ifeq ($$?,0)
+	@echo "[FAILED] Failed to generate manual version mapping"
+	exit 1
+endif
+	-mv zf$(VERSION_MAJOR)-manual-versions.php config/autoload/zf$(VERSION_MAJOR)-manual-versions.php
+	@echo "[DONE] Adding version manual mapping."
 
 checkVersion :
 ifeq ($(VERSION),false)
 	@echo "Missing VERSION assignment on commandline"
 	exit 1
 endif
+	$(eval VERSION_MAJOR := $(shell echo $(VERSION) | cut -f1 -d.))
+	$(eval VERSION_MINOR := $(shell echo $(VERSION) | cut -f2 -d.))
