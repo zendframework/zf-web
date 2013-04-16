@@ -1,5 +1,9 @@
 <?php
 return array(
+    // Feed this with pairs of version => (lang => path) sets
+    'zf_document_path' => array(),
+    // API versions; feed with major => (minor => version) sets
+    'zf_apidoc_versions' => array(),
     'router' => array(
         'routes' => array(
             'manual' => array(
@@ -89,6 +93,4 @@ return array(
             'manual' => __DIR__ . '/../view',
         ),
     ),
-    // Feed this with pairs of version => (lang => path) sets
-    'zf_document_path' => array()
 );
