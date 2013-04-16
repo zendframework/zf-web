@@ -45,7 +45,7 @@ return array(
                 'changelog-fetch' => array(
                     'type'    => 'Simple',
                     'options' => array(
-                        'route' => 'changelog fetch (zf1|zf2):version',
+                        'route' => 'changelog fetch (zf1|zf2) --version=',
                         'defaults' => array(
                             'controller' => 'Changelog\Controller\Fetch',
                             'action'     => 'changelog',

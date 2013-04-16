@@ -11,8 +11,8 @@ use Zend\XmlRpc\Client\ServerProxy as XmlRpcClient;
 
 class FetchController extends AbstractActionController
 {
-    const GITHUB_ZF2_TAGS = 'https://api.github.com/repos/zendframework/zf2/tags';
-    const GITHUB_ZF2_REFS = 'https://api.github.com/repos/zendframework/zf2/git/refs/tags/';
+    const GITHUB_REFS = 'https://api.github.com/repos/zendframework/%s/git/refs/tags/%s';
+    const GITHUB_TAGS = 'https://api.github.com/repos/zendframework/%s/tags';
 
     protected $console;
     protected $githubToken;
@@ -71,6 +71,65 @@ class FetchController extends AbstractActionController
 
     public function fetchZf1()
     {
+        $version = $this->params()->fromRoute('version', false);
+        if (!$version) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine('You must provide a version string in order to fetch the changelog for ZF1.');
+            return;
+        }
+
+        if ('1.' != substr($version, 0, 2)) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine('Invalid Zend Framework 1 version string; must begin with "1.".');
+            return;
+        }
+
+        if (version_compare('1.12.4', $version, 'gt')) {
+            return $this->fetchZf1ChangelogFromJira($version);
+        }
+
+        return $this->fetchZf1ChangelogFromGithub($version);
+    }
+
+    public function fetchZf2()
+    {
+        $version = $this->params()->fromRoute('version', false);
+        if (!$version) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine('You must provide a version string in order to fetch the changelog for ZF2.');
+            return;
+        }
+
+        if ('2.' != substr($version, 0, 2)) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine('Invalid Zend Framework 2 version string; must begin with "2.".');
+            return;
+        }
+
+
+        $tagData = $this->fetchGithubChangelog('zf2', 'release-' . $version);
+
+        $data = include($this->zf2DataFile);
+        $data[$version] = $tagData;
+
+        $fileContent = "<" . "?php\n\$tags = " 
+                     . var_export($data, 1) 
+                     . ";\nreturn \$tags;";
+        
+        $this->console->writeLine("Writing to {$this->zf2DataFile}");
+        file_put_contents($this->zf2DataFile, $fileContent);
+
+        $this->console->writeLine('[DONE]', Color::GREEN);
+    }
+
+    /**
+     * For legacy reasons only currently
+     *
+     * Create a route to this method in order to re-generate the entire 
+     * changelog at once.
+     */
+    public function fetchAllZf1Changelogs()
+    {
         $filters = $this->xmlRpc->getFavouriteFilters($this->jiraAuth);
         
         $versions = array();
@@ -82,57 +141,36 @@ class FetchController extends AbstractActionController
         
         $issues = array();
         foreach ($versions as $version => $filterId) {
-            $issues[$version] = $this->xmlRpc->getIssuesFromFilter($this->jiraAuth, $filterId);
+            $issues[$version] = $this->fetchZf1ChangelogByJiraFilter($version, $filterId);
         }
-        
-        $fileContent = "<?php\n\$issues = " 
-                     . var_export($issues, 1) 
-                     . ";\nreturn \$issues;";
         
         $this->console->writeLine("Writing to {$this->zf1DataFile}");
+        $fileContent = "<" . "?php\n\$tags = " 
+                     . var_export($issues, 1) 
+                     . ";\nreturn \$tags;";
         file_put_contents($this->zf1DataFile, $fileContent);
         
-        $this->console->writeLine("Removing duplicates");
-        unset($issues, $fileContent);
-        $allIssues = include $this->zf1DataFile;
-        foreach ($allIssues as $version => $versionIssues) {
-            $keys = array();
-            foreach ($versionIssues as $index => $issue) {
-                if (!array_key_exists('key', $issue)) {
-                    continue;
-                }
-                $key = $issue['key'];
-                if (in_array($key, $keys)) {
-                    unset($versionIssues[$index]);
-                    continue;
-                }
-                $keys[] = $key;
-            }
-            $allIssues[$version] = $versionIssues;
-        }
-        $fileContent = "<?php\n\$issues = " 
-                     . var_export($allIssues, 1) 
-                     . ";\nreturn \$issues;";
-        
-        $this->console->writeLine("Re-writing to {$this->zf1DataFile}");
-        file_put_contents($this->zf1DataFile, $fileContent);
         $this->console->writeLine('[DONE]', Color::GREEN);
     }
 
-    public function fetchZf2()
+    /**
+     * For legacy reasons only currently
+     *
+     * Create a route to this method in order to re-generate the entire 
+     * changelog at once.
+     */
+    public function fetchAllZf2Changelogs()
     {
         $data = array();
-        $filter = function ($string) {
-            return preg_replace("/\n\-+(?:BEGIN PGP SIGNATURE).*/s", '', $string);
-        };
-        
         $this->console->writeLine("Fetching list of all tags");
-        $this->httpClient->setUri(self::GITHUB_ZF2_TAGS);
 
         if ($this->githubToken) {
             $httpRequest = $this->httpClient->getRequest();
             $httpRequest->getHeaders()->addHeaderLine('Authorization', 'token ' . $this->githubToken);
         }
+
+        $uri = sprintf(self::GITHUB_TAGS, 'zf2');
+        $this->httpClient->setUri($uri);
 
         $response = $this->httpClient->send();
 
@@ -142,7 +180,7 @@ class FetchController extends AbstractActionController
             return;
         }
 
-        $tags     = json_decode($response->getBody());
+        $tags = json_decode($response->getBody());
         foreach ($tags as $info) {
             $tag = $info->name;
             if (preg_match('/dev(?:el)?(?:\d+(?:[a-z]+)?)?$/', $tag)) {
@@ -150,36 +188,17 @@ class FetchController extends AbstractActionController
                 continue;
             }
         
-            $this->console->writeLine("    Fetching ref info for tag '$tag'");
-            $this->httpClient->setUri(self::GITHUB_ZF2_REFS . $tag);
-            $response = $this->httpClient->send();
+            $tagData = $this->fetchGithubChangelog('zf2', $tag);
 
-            if (!$response->isOk()) {
-                $this->console->writeLine("[FAILED]", Color::RED);
-                $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            if (!$tagData) {
                 return;
             }
 
-            $refInfo  = json_decode($response->getBody());
-            $tagUrl   = $refInfo->object->url;
-        
-            $this->console->writeLine("    Fetching tag metadata for tag '$tag'");
-            $this->httpClient->setUri($tagUrl);
-            $response = $this->httpClient->send();
-
-            if (!$response->isOk()) {
-                $this->console->writeLine("[FAILED]", Color::RED);
-                $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
-                return;
-            }
-
-            $tagInfo  = json_decode($response->getBody());
-        
-            $tag = str_replace('release-', '', $tag);
-            $data[$tag] = $filter($tagInfo->message);
+            $tag     = str_replace('release-', '', $tag);
+            $data[$tag] = $tagData;
         }
         
-        $fileContent = "<?php\n\$tags = " 
+        $fileContent = "<" . "?php\n\$tags = " 
                      . var_export($data, 1) 
                      . ";\nreturn \$tags;";
         
@@ -187,5 +206,114 @@ class FetchController extends AbstractActionController
         file_put_contents($this->zf2DataFile, $fileContent);
 
         $this->console->writeLine('[DONE]', Color::GREEN);
+    }
+
+    protected function fetchZf1ChangelogFromJira($version)
+    {
+        $this->console->writeLine("Fetching JIRA filter for version $version");
+        $filters = $this->xmlRpc->getFavouriteFilters($this->jiraAuth);
+        
+        $filterId = false;
+        $versions = array();
+        $compare  = preg_quote($version);
+        foreach ($filters as $filter) {
+            if (preg_match('/fix.*?' . $compare . '/i', $filter['name'], $m)) {
+                $filterId = $filter['id'];
+            }
+        }
+
+        if (!$filterId) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            return;
+        }
+        
+        $this->console->writeLine("Fetching JIRA issues for version $version");
+        $issues = $this->fetchZf1ChangelogByJiraFilter($version, $filterId);
+
+        $this->console->writeLine("Writing to {$this->zf1DataFile}");
+        $changelog = include($this->zf1DataFile);
+        $changelog[$version] = $issues;
+        $fileContent = "<" . "?php\n\$tags = " 
+                     . var_export($issues, 1) 
+                     . ";\nreturn \$tags;";
+        file_put_contents($this->zf1DataFile, $fileContent);
+        
+        $this->console->writeLine('[DONE]', Color::GREEN);
+    }
+
+    protected function fetchZf1ChangelogByJiraFilter($version, $filterId)
+    {
+        $this->console->writeLine("Fetching JIRA issues for version $version");
+        $issues = $this->xmlRpc->getIssuesFromFilter($this->jiraAuth, $filterId);
+
+        $this->console->writeLine("Removing duplicates");
+        $keys = array();
+        foreach ($issues as $index => $issue) {
+            if (!array_key_exists('key', $issue)) {
+                continue;
+            }
+            $key = $issue['key'];
+            if (in_array($key, $keys)) {
+                unset($issues[$index]);
+                continue;
+            }
+            $keys[] = $key;
+        }
+        return $issues;
+    }
+
+    protected function fetchZf1ChangelogFromGithub($version)
+    {
+        $tagData = $this->fetchGithubChangelog('zf1', 'release-' . $version);
+
+        $data = include($this->zf1DataFile);
+        $data[$version] = $tagData;
+
+        $fileContent = "<" . "?php\n\$tags = " 
+                     . var_export($data, 1) 
+                     . ";\nreturn \$tags;";
+        
+        $this->console->writeLine("Writing to {$this->zf1DataFile}");
+        file_put_contents($this->zf1DataFile, $fileContent);
+
+        $this->console->writeLine('[DONE]', Color::GREEN);
+    }
+
+    protected function fetchGithubChangelog($zfVersion, $version)
+    {
+        $filter = function ($string) {
+            return preg_replace("/\n\-+(?:BEGIN PGP SIGNATURE).*/s", '', $string);
+        };
+        
+        $this->console->writeLine("    Fetching ref info for tag '$version'");
+        $uri = sprintf(self::GITHUB_REFS, $zfVersion, $version);
+        $this->httpClient->setUri($uri);
+        $response = $this->httpClient->send();
+
+        if (!$response->isOk()) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            return;
+        }
+
+        $refInfo  = json_decode($response->getBody());
+        $tagUrl   = $refInfo->object->url;
+    
+        $this->console->writeLine("    Fetching tag metadata for tag '$version'");
+        $this->httpClient->setUri($tagUrl);
+        $response = $this->httpClient->send();
+
+        if (!$response->isOk()) {
+            $this->console->writeLine("[FAILED]", Color::RED);
+            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            return;
+        }
+
+        $tagInfo  = json_decode($response->getBody());
+    
+        $this->console->writeLine(    '[DONE]', Color::GREEN);
+
+        return $filter($tagInfo->message);
     }
 }
