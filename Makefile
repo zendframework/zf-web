@@ -5,11 +5,11 @@
 # Also provides a target for updating the home page to capture new blog posts.
 #
 # Release checklist:
-# - [ ] Update config/autoload/module.downloads.global.php
+# - [X] Update config/autoload/module.downloads.global.php
 #   - [X] Add VERSION and RELEASE_DATE mapping
-#   - [ ] For ZF1 versions, update config/autoload/module.manual.global.php to map
+#   - [X] For ZF1 versions, update config/autoload/module.manual.global.php to map
 #     minor -> maintenance version.
-#   - [ ] For ZF2 versions, update config/autoload/module.manual.global.php to
+#   - [X] For ZF2 versions, update config/autoload/module.manual.global.php to
 #     ensure minor version is represented.
 # - [ ] Update API version map for appropriate ZF version
 #   - currently in Manual\Controller\PageController::apiAction
@@ -29,9 +29,9 @@ HOMEPAGE_PATH ?= $(CURDIR)/module/Application/view/application/index/index.phtml
 HOMEPAGE_TEMPLATE ?= $(CURDIR)/data/homepage.phtml
 SECURITY_CONFIG ?= $(CURDIR)/module/Security/config/module.config.php
 
-.PHONY : all changelog check-version download-version homepage
+.PHONY : all apidoc-version changelog check-version download-version homepage manual-version
 
-all : download-version changelog homepage
+all : download-version manual-version apidoc-version changelog homepage
 
 homepage :
 	@echo "Updating homepage feeds..."
@@ -54,14 +54,24 @@ endif
 	@echo "[DONE] Adding version to release downloads."
 
 manual-version: check-version
-	@echo "Adding version $(VERSION) manual mapping..."
+	@echo "Adding version $(VERSION) to manual mapping..."
 	$(PHP) $(BIN)/update-manual-versions.php $(VERSION) > zf$(VERSION_MAJOR)-manual-versions.php
 ifeq ($$?,0)
 	@echo "[FAILED] Failed to generate manual version mapping"
 	exit 1
 endif
 	-mv zf$(VERSION_MAJOR)-manual-versions.php config/autoload/zf$(VERSION_MAJOR)-manual-versions.php
-	@echo "[DONE] Adding version manual mapping."
+	@echo "[DONE] Adding manual version mapping."
+
+apidoc-version: check-version
+	@echo "Adding version $(VERSION) to apidoc mapping..."
+	$(PHP) $(BIN)/update-apidoc-versions.php $(VERSION) > zf-apidoc-versions.php
+ifeq ($$?,0)
+	@echo "[FAILED] Failed to generate apidoc version mapping"
+	exit 1
+endif
+	-mv zf-apidoc-versions.php config/autoload/zf-apidoc-versions.php
+	@echo "[DONE] Adding apidoc version mapping."
 
 check-version :
 ifeq ($(VERSION),false)
