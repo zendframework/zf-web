@@ -4,19 +4,17 @@
 #
 # Also provides a target for updating the home page to capture new blog posts.
 #
-# Release checklist:
-# - [X] Update config/autoload/module.downloads.global.php
-#   - [X] Add VERSION and RELEASE_DATE mapping
-#   - [X] For ZF1 versions, update config/autoload/module.manual.global.php to map
-#     minor -> maintenance version.
-#   - [X] For ZF2 versions, update config/autoload/module.manual.global.php to
-#     ensure minor version is represented.
-# - [ ] Update API version map for appropriate ZF version
-#   - currently in Manual\Controller\PageController::apiAction
-# - [ ] Need a target to copy/unzip manual/API docs to appropriate location on
-#   server
-# - [X] Update changelog for appropriate ZF version
-# - [X] Need a target for updating homepage based on most recent blog posts in feed
+# Configurable variables:
+# - PHP - path to PHP executable
+# - VERSION - version being released or added to site; required for all but
+#   homepage target
+# - RELEASE_DATE - release date in format Y-m-d, if other than current date
+#
+# Available targets:
+# - homepage - update the homepage with latest feeds from blog and security
+#   advisories
+# - all - add a release version, update manual and apidoc mappings, and update
+#   changelogs to include new version
 
 VERSION ?= false
 RELEASE_DATE ?= $(shell date +%F)
