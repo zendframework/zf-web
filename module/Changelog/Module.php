@@ -156,7 +156,8 @@ class Module implements ConsoleUsageProviderInterface
     public function getConsoleUsage(Console $console)
     {
         return array(
-            'changelog fetch (zf1|zf2)' => 'Retrieve and process ZF1 or ZF2 changelog',
+            'changelog fetch --version=' => 'Retrieve and process changelog',
+            array('--version=', 'The specific ZF version for which to generate a changelog'),
         );
     }
 }

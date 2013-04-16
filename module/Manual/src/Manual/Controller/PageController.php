@@ -12,6 +12,11 @@ use \DomElement;
 class PageController extends AbstractActionController
 {
     /**
+     * @var array
+     */
+    protected $apiDocVersions;
+
+    /**
      * @var array 
      */
     protected $params;
@@ -30,6 +35,18 @@ class PageController extends AbstractActionController
     public function setResolver(ResolverInterface $resolver)
     {
         $this->resolver = $resolver;
+        return $this;
+    }
+
+    /**
+     * Set API documentation version map
+     * 
+     * @param  array $versions 
+     * @return self
+     */
+    public function setApiDocVersions(array $versions)
+    {
+        $this->apiDocVersions = $versions;
         return $this;
     }
 
@@ -138,26 +155,7 @@ class PageController extends AbstractActionController
     {
         $model = new ViewModel();
         $model->setTemplate('manual/page-controller/api');
-        $model->setVariable(
-            'versions',
-            array(
-                 1 => array(
-                     '1.12.3',
-                     '1.11.13',
-                     '1.10.9',
-                     '1.9.8',
-                     '1.8.5',
-                     '1.7.9',
-                     '1.6.2',
-                     '1.5.3',
-                     '1.0.3',
-                 ),
-                 2 => array(
-                     '2.1.4',
-                     '2.0.7',
-                 ),
-            )
-        );
+        $model->setVariable('versions', $this->apiDocVersions);
         return $model;
     }
 
