@@ -23,12 +23,14 @@ class Module
     public function getControllerConfig()
     {
         return array('factories' => array(
-            'Manual\Controller\Page' => function ($sm) {
-                $services = $sm->getServiceLocator();
+            'Manual\Controller\Page' => function ($controllers) {
+                $services = $controllers->getServiceLocator();
                 $resolver = $services->get('ViewResolver');
                 $config   = $services->get('Config');
+
                 $controller = new Controller\PageController();
                 $controller->setResolver($resolver);
+                $controller->setApiDocVersions($config['zf_apidoc_versions']);
                 $controller->setParams($config['zf_document_path']);
                 return $controller;
             },

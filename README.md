@@ -8,14 +8,48 @@ Installation
 
 First step is grabbing dependencies. Run the following:
 
+```sh
     php composer.phar install
+```
 
 At that point, you can test with the built-in webserver of PHP 5.4:
 
-    cd public
-    php -S localhost:8080
+```sh
+cd public
+php -S localhost:8080
+```
 
 Alternately, configure a virtual host in the webserver of your choice.
+
+Adding a Release
+----------------
+
+To update the site to include a new release, do the following:
+
+```sh
+make all VERSION=X.Y.Z
+```
+
+This will update the homepage, changelogs, and download pages, and ensure that
+the manual and apidoc version mappings are correct.
+
+If the release date is other than the current date, you can also add a
+`RELEASE_DATE` variable on the commandline, in the format "YYYY-MM-DD".
+
+Updating the Home Page
+----------------------
+
+The template for the homepage is kept in `data/homepage.phtml`; if you need to
+make any additions or changes to it, please do so in that file.
+
+To regenerate the homepage from the template -- for instance, to bring in the
+latest blog and security posts, run the following:
+
+```sh
+make homepage
+```
+
+Don't forget to commit the modified homepage view script when done!
 
 Reference Guide
 ---------------
@@ -27,11 +61,13 @@ To configure the Reference Guide of ZF1 and ZF2, edit the file
 Each path is related to a specific language and version of the reference guide.
 For instance, the English version of the 2.0 documentation is represented by:
 
+```php
     'zf_document_path' => array(
         '2.0' => array (
             'en' => 'path to /zf2-documentation/docs/_build/html/'
         )
     )
+```
 
 The path of ZF2 documentation must point to the contents of a documenation build
 folder, generally found in ``docs/_build/html/`` of the [zf2-documentation project](https://github.com/zendframework/zf2-documentation); 
@@ -72,22 +108,16 @@ Then add and commit the new and updated files.
 Generating Changelogs
 ---------------------
 
-To generate the ZF1 changelog, execute the following:
+To add a new version to the changelog, execute the following:
 
-```bash
-% php public/index.php changelog fetch zf1
+```sh
+php public/index.php changelog fetch --version=X.Y.Z
 ```
 
-This will, by default, write to `data/zf1-changelog.php`. You will need to
-ensure your local configuration includes appropriate JIRA credentials.
-
-To generate the ZF2 changelog, execute the following:
-
-```bash
-% php public/index.php changelog fetch zf2
-```
-
-This will, by default, write to `data/zf2-changelog.php`.;
+This will, by default, write to either `data/zf1-changelog.php` or
+`data/zf2-changelog.php`. If generating a changelog for a version prior to
+1.12.4, you will need to ensure your local configuration includes appropriate
+JIRA credentials.
 
 CSS
 ---
