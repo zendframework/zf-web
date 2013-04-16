@@ -63,24 +63,24 @@ class FetchController extends AbstractActionController
         if (!$request instanceof ConsoleRequest){
             throw new \RuntimeException('You can only use this action from the console!');
         }
-        if ($request->getParam('zf1')) {
-            return $this->fetchZf1();
+
+        $version = $this->params()->fromRoute('version', false);
+
+        if ('1.' == substr($version, 0, 2)) {
+            return $this->fetchZf1($version);
         }
-        return $this->fetchZf2();
+
+        if ('2.' == substr($version, 0, 2)) {
+            return $this->fetchZf2($version);
+        }
+
+        $this->emitError('You must provide a valid version string in order to fetch a changelog.');
     }
 
-    public function fetchZf1()
+    public function fetchZf1($version)
     {
-        $version = $this->params()->fromRoute('version', false);
-        if (!$version) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine('You must provide a version string in order to fetch the changelog for ZF1.');
-            return;
-        }
-
         if ('1.' != substr($version, 0, 2)) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine('Invalid Zend Framework 1 version string; must begin with "1.".');
+            $this->emitError('Invalid Zend Framework 1 version string; must begin with "1.".');
             return;
         }
 
@@ -91,22 +91,8 @@ class FetchController extends AbstractActionController
         return $this->fetchZf1ChangelogFromGithub($version);
     }
 
-    public function fetchZf2()
+    public function fetchZf2($version)
     {
-        $version = $this->params()->fromRoute('version', false);
-        if (!$version) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine('You must provide a version string in order to fetch the changelog for ZF2.');
-            return;
-        }
-
-        if ('2.' != substr($version, 0, 2)) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine('Invalid Zend Framework 2 version string; must begin with "2.".');
-            return;
-        }
-
-
         $tagData = $this->fetchGithubChangelog('zf2', 'release-' . $version);
 
         $data = include($this->zf2DataFile);
@@ -175,8 +161,7 @@ class FetchController extends AbstractActionController
         $response = $this->httpClient->send();
 
         if (!$response->isOk()) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            $this->emitError(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
             return;
         }
 
@@ -223,8 +208,7 @@ class FetchController extends AbstractActionController
         }
 
         if (!$filterId) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            $this->emitError(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
             return;
         }
         
@@ -292,8 +276,7 @@ class FetchController extends AbstractActionController
         $response = $this->httpClient->send();
 
         if (!$response->isOk()) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            $this->emitError(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
             return;
         }
 
@@ -305,8 +288,7 @@ class FetchController extends AbstractActionController
         $response = $this->httpClient->send();
 
         if (!$response->isOk()) {
-            $this->console->writeLine("[FAILED]", Color::RED);
-            $this->console->writeLine(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
+            $this->emitError(sprintf('Received response code %d with body %s', $response->getStatusCode(), $response->getBody()));
             return;
         }
 
@@ -315,5 +297,12 @@ class FetchController extends AbstractActionController
         $this->console->writeLine(    '[DONE]', Color::GREEN);
 
         return $filter($tagInfo->message);
+    }
+
+    protected function emitError($message)
+    {
+        $this->getResponse()->setErrorLevel(1);
+        $this->console->writeLine("[FAILED]", Color::RED);
+        $this->console->writeLine($message);
     }
 }
