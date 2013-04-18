@@ -60,26 +60,26 @@ return array(
             'phly-blog' => array(
                 'type' => 'Literal',
                 'options' => array(
-                    'route' => '/blog/',
+                    'route' => '/blog',
                 ),
                 'may_terminate' => false,
                 'child_routes'  => array(
                     'index' => array(
                         'type' => 'Literal',
                         'options' => array(
-                            'route' => 'index.html',
+                            'route' => '/index.html',
                         ),
                     ),
                     'feed-atom' => array(
                         'type' => 'Literal',
                         'options' => array(
-                            'route' => 'feed-atom.xml',
+                            'route' => '/feed-atom.xml',
                         ),
                     ),
                     'feed-rss' => array(
                         'type' => 'Literal',
                         'options' => array(
-                            'route' => 'feed-rss.xml',
+                            'route' => '/feed-rss.xml',
                         ),
                     ),
                 ),
