@@ -51,12 +51,10 @@ class Disqus extends AbstractHelper
         }
 
         if (!preg_match('#^https?://#', $url)) {
-            $scheme = 'http://';
-            if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] && 'off' != $_SERVER['HTTPS']) {
-                $scheme = 'https://';
-            }
-            $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'mwop.net';
-            $url  = $scheme . $host . '/' . ltrim($url, '/');
+            // Ensure Disqus uses appropriate hostname!
+            $serverUrl = $this->getView()->plugin('serverUrl');
+            $serverUrl->setHost('framework.zend.com');
+            $url = $serverUrl($url);
         }
 
         $html =<<<EOH
