@@ -1,0 +1,218 @@
+<h2>ZF-3070: Check Filename scanning</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-08T10:49:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11287/Zend_Translate_Adapter.diff">Zend_Translate_Adapter.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Investigate possible problem with filename search.</p>
+
+<p>From Rob L.
+UPDATE:</p>
+
+<p>After a message from Robert Castley (thanks), I tried directory scan instead
+of filename scan. It seemed to work. Here is an example of what works and
+what doesn't work for me:</p>
+
+<hr /><p>WORKS:
+($dir contains folders zh_CN/ zh_TW/ en/ and de/ with translation files
+inside)</p>
+
+<p>$translate = new Zend_Translate('my_custom_adapter', $dir, null,
+array('scan' =&gt; Zend_Translate::LOCALE_DIRECTORY));
+print_r($translate-&gt;getList());</p>
+
+<p>prints: Array ( [en] =&gt; en [zh_TW] =&gt; zh_TW [zh_CN] =&gt; zh_CN [de] =&gt; de )</p>
+
+<hr /><p>DOESN'T WORK:
+($dir contains files zh_CN.txt zh_TW.txt en.txt and de.txt)</p>
+
+<p>$translate = new Zend_Translate('my_custom_adapter', $dir, null,
+array('scan' =&gt; Zend_Translate::LOCALE_FILENAME));
+print_r($translate-&gt;getList());</p>
+
+<p>prints: Array ( [en] =&gt; en [de] =&gt; de [zh] =&gt; zh )</p>
+
+<p>I will continue with DIRECTORY, but I would prefer to use FILENAME, but what
+am I doing wrong that it combines zh_CN and zh_TW into a single locale?</p>
+
+<p>Rob</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-04-11T05:19:07.000+0000</p> 
+        <div class="body">
+            <h2>Possible cause (from the german zfforum):</h2>
+
+<p>Ich habe das Ganze dann mit dem Debugger durchlaufen und das Problem liegt meiner Meinung nach im Code von Zend/Translate/Adapter.php in den Zeilen 124-127:</p>
+
+<p>Wieso wird hier (string) $info anstatt einfach $info-&gt;getFilename() verwendet? Durch (string) $info steht bei mir der komplette Pfadname (application/languages/default/de.mo) in $filename, wodurch die Überprüfung Zend_Locale::isLocale($filename) logischerweise false zurückliefert. Dadurch wird dann die Standardsprache gewählt und die messageIds werden immer durch die, der zuletzt verarbeiteten Datei überschrieben.</p>
+
+<h2>In der englischen Dokumentation habe ich ausserdem gelesen, dass sich die Sprache auch anhand der Dateiendung identifizieren lässt. Im obenstehenden Code jedoch wird die Dateiendung einfach entfernt ohne diese zu beachten.</h2>
+
+<p>Will be reviewed...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralf Barth (haggy) on 2008-05-08T05:49:07.000+0000</p> 
+        <div class="body">
+            <p>UPDATE:</p>
+
+<p>Directory scanning also seems to be broken. My directory structure is as follows:</p>
+
+<pre class="literal">
+languages/
+languages/de_DE
+languages/de_DE/LC_MESSAGES
+languages/de_DE/LC_MESSAGES/MailAdmin.mo
+languages/de_DE/LC_MESSAGES/MailAdmin.po
+languages/en_US
+languages/en_US/LC_MESSAGES
+languages/en_US/LC_MESSAGES/MailAdmin.mo
+languages/en_US/LC_MESSAGES/MailAdmin.po
+</pre>
+
+<p>Zend_Translate failes to retrieve locales in scan path. I'm invoking Zend_Translate this way:</p>
+
+<pre class="highlight"><code>
+$translate = new Zend_Translate('gettext', 
+    '../application/languages', null, array('scan' =&gt; Zend_Translate::LOCALE_DIRECTORY));
+</code></pre>
+
+<p>Debugging paths while scanning gives the following paths:</p>
+
+<pre class="literal">
+string(30) "../application/languages/de_DE"
+string(42) "../application/languages/de_DE/LC_MESSAGES"
+string(30) "../application/languages/en_US"
+string(42) "../application/languages/en_US/LC_MESSAGES"
+</pre>
+
+<p>which obviously don't match any locales. This happens in line 116 of Zend_Translate_Adapter.
+(string)$info is tested against Zend_Locale::isLocale() which returns false. Also there's the somewhat
+'suspicious' line 114:</p>
+
+<pre class="highlight"><code>
+$directory = $info-&gt;getPath();
+</code></pre>
+
+<p>for which i do not find any use since $directory is not used in throughout the whole method.</p>
+
+<p>I don't know if this issue is related to PHP or Zend_Translate. I'm using PHP 5.2.6</p>
+
+<pre class="literal">
+PHP 5.2.6-0.dotdeb.1 with Suhosin-Patch 0.9.6.2 (cli) (built: May  2 2008 09:37:37) 
+Copyright (c) 1997-2008 The PHP Group
+Zend Engine v2.2.0, Copyright (c) 1998-2008 Zend Technologies
+    with Suhosin v0.9.23, Copyright (c) 2007, by SektionEins GmbH
+</pre>
+
+<p>and Zend Framework v.1.5.1</p>
+
+<p>Hope this helps a bit - Thanks!
+Ralf.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralf Barth (haggy) on 2008-05-08T06:47:34.000+0000</p> 
+        <div class="body">
+            <p>Proposed patch for Zend/Translate/Adapter.php (solves the directory scan issue).</p>
+
+<p>Beware of your php version - 5.2.2 introduced a new method SPLFileInfo::getBasename() 
+which is used in the patch. A fallback for versions &lt; 5.2.2 is included but commented out.</p>
+
+<p>This is a <em>quick hack</em> which is not tested thoroughly, but worksforme :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-05-18T09:53:12.000+0000</p> 
+        <div class="body">
+            <p>Ralf, the problem you have, has nothing to do with the mentioned issue.</p>
+
+<p>Your problem was already fixed on 08.April and duplicates a closed issue.
+Your patch is not relevant to this problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralf Barth (haggy) on 2008-05-21T03:16:52.000+0000</p> 
+        <div class="body">
+            <p>So would you please be so kind to point me to the right issue - because i simply can't find it.
+If you meant ZF-3215, this simply does not solve the issue because resetting the internal file
+stack is not my problem...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralf Barth (haggy) on 2008-05-21T03:30:35.000+0000</p> 
+        <div class="body">
+            <p>After a quick check in ZF 1.5.2, the directory scanning is still broken - has your mentioned issue
+been merged with 1.5.2 ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-05-23T15:00:03.000+0000</p> 
+        <div class="body">
+            <p>Increased scanning on degraded locales
+Added tests for file and directory scanning</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:31.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

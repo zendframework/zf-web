@@ -1,0 +1,181 @@
+<h2>ZF-9366: Allow optional caching of plugin loader paths used similar to Zend_Db_Table meta data cache</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-08T05:56:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12855/PathCache.php">PathCache.php</a></li>
+            <li><a href="/issues/secure/attachment/12968/PluginLoader.php">PluginLoader.php</a></li>
+            <li><a href="/issues/secure/attachment/12856/PluginLoader.php">PluginLoader.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>After digging through my application figuring out what was causing everything to slow down so much I noticed there is a ton of stat calls used by the plugin loader checking to see if path contains a match to the plugin trying to be loaded.</p>
+
+<p>For Example:</p>
+
+<p>Zend_ namespace might have 3 locations
+App_  namespace might have 3 locations</p>
+
+<p>If the plugin we want is in App_ and we are loading via magic functions such as within the view ($this-&gt;helperName();) at least three stat calls will be made to check if the files for the Zend_ namespace "isReadable", what I propose is we cache the hits and misses basically creating a cache of the hierarchy of calls.</p>
+
+<p>For Example:</p>
+
+<p>If we have the namespace Zend_ first in our list we can log misses for each of the checks, so we log 3 misses, then for App_ we notice that the first path matches and hits our file.</p>
+
+<p>Now on subsequent calls, our plugin loader cache will remember that the paths within Zend_ were all misses and ignore them from it's return data, it will then find App_ was a hit on one of its paths, so the plugin loader cache returns JUST the App_ namespace with the path that matched ie: return array($prefix =&gt; array($path)); this way Zend_Loader_PluginLoader will do an isReadable check on this prefix/path combination and notice it is available and load this path.</p>
+
+<p>I noticed over a 100% increase of speed from this after exhausting other optimisation techniques, stat calls were reduced significantly also.</p>
+
+<p>I know this code is not perfect, however it definitely does the job of speeding it up with only minor changes to framework specific files, see attached files for implementation.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by William Vicary (willsemto) on 2010-03-08T06:01:26.000+0000</p> 
+        <div class="body">
+            <p>Please see PluginLoader.php line 369-476, I have had to alter core function load() in order to implement this, I would assume a faster method is possible with further modifications to the class but the general jist of the recommendation can be easily seen from these modifications.</p>
+
+<p>Implementation:</p>
+
+<p>Application/Bootstrap.php</p>
+
+<p>public function _initCaching()
+{
+   Zend_Loader_PluginLoader::setPathCache($cache); //$cache = instance of Zend_Cache_Core
+}</p>
+
+<p>I'm sorry the code doesn't follow Zend coding styles etc, however time didn't allow me to develop this any further, I hope you will be able to get to it and possibly evaluate and implement it into the framework!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jessie Hernandez (jrhernandez) on 2010-04-01T09:41:58.000+0000</p> 
+        <div class="body">
+            <p>I propose an even simpler change: change the code below in the Zend_Loader_PluginLoader::load method so that the class checks are all done first, and ONLY if none of the classes were found would the cycling through the paths be done. This, in conjunction with the includeFileCache setting, solves the problem elegantly IMHO.</p>
+
+<h2>OLD</h2>
+
+<pre><code>    foreach ($registry as $prefix =&gt; $paths) {
+        $className = $prefix . $name;
+        if (class_exists($className, false)) {
+            $found = true;
+            break;
+        }
+
+        $paths     = array_reverse($paths, true);
+
+        foreach ($paths as $path) {
+            $loadFile = $path . $classFile;
+            if (Zend_Loader::isReadable($loadFile)) {
+                include_once $loadFile;
+                if (class_exists($className, false)) {
+                    if (null !== $incFile) {
+                        self::_appendIncFile($loadFile);
+                    }
+                    $found = true;
+                    break 2;
+                }
+            }
+        }
+    }
+</code></pre>
+
+<h2>NEW</h2>
+
+<pre><code>    foreach ($registry as $prefix =&gt; $paths) {
+        $className = $prefix . $name;
+
+        if (class_exists($className, false)) {
+            $found = true;
+            break;
+        }
+    }
+
+    if (!$found) {
+        foreach ($registry as $prefix =&gt; $paths) {
+            $className = $prefix . $name;
+            $paths     = array_reverse($paths, true);
+
+            foreach ($paths as $path) {
+                $loadFile = $path . $classFile;
+                if (Zend_Loader::isReadable($loadFile)) {
+                    include_once $loadFile;
+                    if (class_exists($className, false)) {
+                        if (null !== $incFile) {
+                            self::_appendIncFile($loadFile);
+                        }
+                        $found = true;
+                        break 2;
+                    }
+                }
+            }
+        }
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jessie Hernandez (jrhernandez) on 2010-04-01T09:44:55.000+0000</p> 
+        <div class="body">
+            <p>Attached is the complete PluginLoader.php file with my proposed changes (starting at line 377).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by William Vicary (willsemto) on 2010-04-14T11:23:15.000+0000</p> 
+        <div class="body">
+            <p>Jessie there is a couple issues with that implementation, say for example you had the paths:</p>
+
+<p>Zend_ : /zend/;/view/helpers/
+Project_: /project/;/view/helpers/</p>
+
+<p>Now lets say Project_ has a plugin cached as "Abc.php", however Zend_ has priority for loading the plugin.</p>
+
+<p>If, Project_ plugin was cached as found, with your implementation even though the Zend_ namespace would find it on the internal loop because Project_ namespace plugin by the same name was already cached (very reasonable possibility, if a page is rarely accessed, or you add a new view helper) then your plugin would load Project_ while Zends (and my) implementation would return the Zend_ namespace plugin.</p>
+
+        </div>
+    </div>
+    </div>
+

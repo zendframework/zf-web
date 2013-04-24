@@ -1,0 +1,188 @@
+<h2>ZF-10486: Zend_Db_Profiler doesn't take into account the DESCRIBE queries used internally</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-09-22T13:00:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Profiler</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If I have a class like this one...</p>
+
+<pre class="highlight"><code>class Application_Model_DbTable_Languages extends Zend_Db_Table_Abstract
+{
+
+    protected $_name = 'languages';
+    protected $_primary = 'id_lang';
+
+}</code></pre>
+
+<p>... the framework will do a DESCRIBE TABLE query (at least on MySQL) before using it to gather info about the table.
+I can see those queries piling up on the MySQL log but the profiler won't take them into account using:</p>
+
+<pre class="highlight"><code>$adapter = Zend_Db_Table::getDefaultAdapter();
+$profiler = $adapter-&gt;getProfiler();
+var_dump($profiler-&gt;getTotalNumQueries());
+var_dump($profiler-&gt;getQueryProfiles(null, true));</code></pre>
+
+<p>When I set up the metadata cache the queries are not executed and the profiler still shows the same amount of queries as before.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-09-23T06:40:33.000+0000</p> 
+        <div class="body">
+            <p>This is by design as you would not want to hide anything that might happening between your application and the database by default.</p>
+
+<p>There are two work arounds for you: the first is to extend the profiler and check the first few characters of each query to determine if you want to log it.  The second is to give Zend_Db_Table a cache object so that it can cache the results of the DESCRIBE table lookup that it is doing.</p>
+
+<p>If anything, this is a feature request of Zend_Db_Profiler to selectively "listen in" on specific query types.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Julian Vidal (poisa) on 2010-09-23T07:33:21.000+0000</p> 
+        <div class="body">
+            <p>{quote}you would not want to hide anything that might happening between your application and the database by default.{quote}</p>
+
+<p>But it <em>is</em> hiding all the DESCRIBE queries. I think I might have not explained the problem correctly.</p>
+
+<p>Let me tell you how I came across this which might explain why I reported it as a bug rather than a feature request.</p>
+
+<p>A website I did got a popularity spike and MySQL started maxing out on its number of connections. The first thing I did was fire the profiler and do some math based on the result of getTotalNumQueries() and the hits reported by apache. The math didn't add up so I put the app in a sandbox and found that my ZF app was executing more queries than the profiler was reporting! This ended up having nothing to do with the actual website problem but it is how I learned that the DESCRIBE queries where not getting logged by the profiler.</p>
+
+<p>It thought that this was an odd default ZF behavior and started looking whether I could enable full logging in the profiler but apparently the profiler was set to show all the queries (but was obviously failing to log the DESCRIBE ones).</p>
+
+<p>I made the metadata cache comment as a sort of test case to provide some proof that the profiler wasn't logging correctly (according to my understandind of what it should do, that is). Basically what I meant was that for a <em>single</em> database <em>fetchAll()</em> operation:</p>
+
+<p>||_||Actual Query Count in MySQL log||Query Count on Profiler||
+|Without metadata cache|2|1|
+|With metadata cache|1|1|</p>
+
+<p>I don't think I'm ZF savvy enough yet to extend the profiler, but sounds like a fun enough challenge!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-09-24T12:07:02.000+0000</p> 
+        <div class="body">
+            <p>Are you using Mysqli or PDO_Mysql adapter?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Julian Vidal (poisa) on 2010-09-25T09:34:45.000+0000</p> 
+        <div class="body">
+            <p>Ralph, I completely forgot that there was another adapter available to me!</p>
+
+<p>My tests were using the mysqli adapter and also I wasn't specifying any charset. The MySQL version I'm using is  5.1.36. Here are the results of some more tests I've made, this time specifying a charset. Instead of giving you the query count I'll just copy paste the queries straight from the mysql log and profiler.</p>
+
+<p><em>I removed the timestamps and connection number from the mysql logs to make it more readable.</em></p>
+
+<pre class="highlight"><code>
+class IndexController extends Zend_Controller_Action
+{
+
+    public function indexAction()
+    {
+        $languageTable = new Application_Model_DbTable_Languages();
+        $languageTable-&gt;fetchAll();
+
+        $profiler = $languageTable-&gt;getAdapter()-&gt;getProfiler();
+        Zend_Debug::dump($profiler-&gt;getQueryProfiles(null, true));
+
+        die();
+    }
+
+}
+</code></pre>
+
+<p>I've marked in {color:red}red{color} all the things I believe the profiler is failing to log.</p>
+
+<p>h2. mysqli (without metadata cache)</p>
+
+<p>|| MySQL log || Profiler ||
+|{color:red} Connect    root@localhost on test{color}
+Query   {color:red} SET NAMES utf8{color}
+Query   {color:red} DESCRIBE <code>languages</code>{color}
+Prepare SELECT <code>languages</code>.* FROM <code>languages</code>
+Execute SELECT <code>languages</code>.* FROM <code>languages</code>
+Reset stmt<br />
+Close stmt<br />
+Quit|SELECT <code>languages</code>.* FROM <code>languages</code></p>
+
+<p>h2. mysqli (with metadata cache)</p>
+
+<p>|| MySQL log || Profiler ||
+|{color:red}Connect root@localhost on test{color}
+Query   {color:red}SET NAMES utf8{color}
+Prepare SELECT <code>languages</code>.* FROM <code>languages</code>
+Execute SELECT <code>languages</code>.* FROM <code>languages</code>
+Reset stmt
+Close stmt
+Quit|SELECT <code>languages</code>.* FROM <code>languages</code></p>
+
+<hr /><p>h2. pdo_mysql (without metadata cache)</p>
+
+<p>|| MySQL log || Profiler ||
+|Connect    root@localhost on test
+Query   {color:red}SET NAMES 'utf8'{color}
+Query   DESCRIBE <code>languages</code>
+Query   SELECT <code>languages</code>.* FROM <code>languages</code>
+Quit|connect
+DESCRIBE <code>languages</code>
+SELECT <code>languages</code>.* FROM <code>languages</code></p>
+
+<p>h2. pdo_mysql (with metadata cache)</p>
+
+<p>|| MySQL log || Profiler ||
+|Connect    root@localhost on test
+Query   {color:red}SET NAMES 'utf8'{color}
+Query   SELECT <code>languages</code>.* FROM <code>languages</code>
+Quit|connect
+SELECT <code>languages</code>.* FROM <code>languages</code></p>
+
+        </div>
+    </div>
+    </div>
+

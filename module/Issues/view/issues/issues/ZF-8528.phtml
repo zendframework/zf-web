@@ -1,0 +1,130 @@
+<h2>ZF-8528: Patch to add SMTP pipelining support and suppression of RCPT exceptions to Zend_Mail_Protocol_Smtp</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-11T20:33:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:47.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10741">ZF-10741</a></li>
+            <li><a href="/issues/browse/ZF-8511">ZF-8511</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12490/Zend_Mail_Protocol_Smtp.patch">Zend_Mail_Protocol_Smtp.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>h2. Patch overview</p>
+
+<p>The attached patch adds two capabilities to Zend_Mail_Protocol_Smtp:</p>
+
+<p>(1) <em>Option to enable SMTP pipelining</em> (<a href="">www.ietf.org/rfc/rfc2920.txt</a>" rel="nofollow"&gt;rfc 2920).  This greatly speeds up SMTP delivery on high-latency connections or when delivering many emails or recipients as there are less round-trips waiting for server responses.  (To enable, use constructor $config option pipelining=true).</p>
+
+<pre class="highlight"><code>
+$transport = new Zend_Mail_Protocol_Smtp('smtp.domain.com', array('pipelining' =&gt; true));
+</code></pre>
+
+<p>(2) <em>Option to suppress exceptions on RCPT commands.</em>  Useful if you want a message to proceed to send even if one or more recipients are rejected by the server when the RCPT command is issued (use constructor $config option throwRcptExceptions=false).  Retrieve RCPT exceptions via getRcptExceptions() -- returns an array where the keys are the failed recipient address and the values are the stored exceptions -- use $exception-&gt;getMessage() to read each SMTP response.</p>
+
+<pre class="highlight"><code>
+$config = array('throwRcptExceptions' =&gt; false);
+$transport = new Zend_Mail_Transport_Smtp('smtphost', $config));
+
+$mail = new Zend_Mail;
+$mail-&gt;setfrom('foo@bar');
+$mail-&gt;setSubject('foo');
+$mail-&gt;setBodyText('foo');
+$mail-&gt;addTo('invalid@domain.com', 'foo'); /* would normally throw exception */
+$mail-&gt;addTo('valid@domain.com', 'foo');
+$transport-&gt;send($mail);
+        
+// iterate through rcpt exceptions
+foreach ($transport-&gt;getConnection()-&gt;getRcptExceptions() as $key =&gt; $exception) {
+    echo sprintf('Failed to send to %s - server responded "%s"', $key, $exception-&gt;getMessage());
+}
+
+// get list of failed recipients
+$exceptions       = $transport-&gt;getConnection()-&gt;getRcptExceptions();
+$failedRecipients = array_keys($exceptions);
+
+// get count of failed and successful recipients
+$numFailed     = count($exceptions);
+$numSuccessful = count($mail-&gt;getRecipients()) - $numFailed;
+</code></pre>
+
+<p>h2. Internals</p>
+
+<p>SMTP pipelining allows batches of commands (as implemented here, MAIL FROM, RCPT TO, and RSET) to be sent without waiting for server response.  This has been implemented in Zend_Mail_Protocol_Smtp by having the _expect() function queue expected server responses until a non-pipelining command (i.e. DATA) is issued, at which point all queued server responses are processed in sequence, evaluated against the expected responses.</p>
+
+<p>-Unfortunately there is currently very thin unit tests for the SMTP components of Zend_Mail.  As the parent class, Zend_Mail_Protocol_Abstract operates directly on sockets which is a necessity to facilitate TLS encryption features, I do not see an easy way to mock up a test adapter to use for testing.  Any suggestions about how to do this to allow better testing of the new functionality would be appreciated.- {color:green}Came up with a way to mock the socket connection for unit testing; now awaiting commit of ZF-10741 and will then add unit tests to this patch{color}</p>
+
+<p>The patch also adds internals to facilitate future improvements related to SMTP extensions.  EHLO response (the list of server-supported SMTP extensions) is now parsed and can be queried with $this-&gt;_supports().  So, future enhancements could include parsing of ENHANCEDSTATUSCODES (<a href="">www.ietf.org/rfc/rfc2034.txt</a>" rel="nofollow"&gt;rfc 2034), SIZE (<a href="">www.ietf.org/rfc/rfc1870.txt</a>" rel="nofollow"&gt;rfc 1870), etc.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2009-12-11T20:39:42.000+0000</p> 
+        <div class="body">
+            <p>Recommend applying (ZF-8511) before this patch (ZF-8528) as ZF-8511 resolves an issue with Zend_Mail not clearing the receive buffer when throwing an exception.  ZF-8528 needs this ability as it internally uses a try/catch block to continue processing after an RCPT error when throwRcptExceptions config option is set to false.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-05-27T11:22:51.000+0000</p> 
+        <div class="body">
+            <p>Satoru, could you please provide comment?  This patch was for ZF 1.9.6 and it would be nice to get this applied before we're too far along if you think it is acceptable.  Or, I'm happy to make changes if you feel they are needed.  Would like to get this into ZF so I can stop patching my local version with every release.  Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2010-06-12T06:23:10.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I have been inactive since last April.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-11-24T09:53:07.000+0000</p> 
+        <div class="body">
+            <p>Linking as depending on ZF-10741.  Will refactor this patch and add unit tests once the unit tests on ZF-10741 are committed</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,184 @@
+<h2>ZF-11663: Zend_Oauth_Client ignores GET parameters that are set via setParameterGet</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-08-11T12:51:36.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-28T15:18:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.11 (29/Sep/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Oauth</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Adding the following line (in file Zend/Oauth/Client.php in function prepareOauth()):</p>
+
+<p>$params = array_merge($params, $this-&gt;paramsGet);</p>
+
+<p>just before:</p>
+
+<p>if (!empty($this-&gt;paramsPost)) {</p>
+
+<p>fixed the bug for me.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-27T20:17:00.000+0000</p> 
+        <div class="body">
+            <p>The issue here is that {{Zend_Oauth_Client}} takes the GET parameters directly from the URI provided:</p>
+
+<pre class="highlight"><code>
+## Zend_Oauth_Client, Lines 265-273
+$query = $this-&gt;getUri()-&gt;getQuery();
+if ($query) {
+    $queryParts = explode('&amp;', $this-&gt;getUri()-&gt;getQuery());
+    foreach ($queryParts as $queryPart) {
+        $kvTuple = explode('=', $queryPart);
+        $params[urldecode($kvTuple[0])] =
+            (array_key_exists(1, $kvTuple) ? urldecode($kvTuple[1]) : null);
+    }
+}
+</code></pre>
+
+<p>So, we have two sources of GET parameters.  That begs the question: Which takes precedence, the ones set in the URI or the ones set directly in the client?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-27T21:01:15.000+0000</p> 
+        <div class="body">
+            <p>After talking with [~padraic] on IRC, it was decided that URI parameters should take precedence over those set by the client using {{setParameterGet}}.</p>
+
+<p>Reproducing test case:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Oauth/OauthTest.php
+===================================================================
+--- tests/Zend/Oauth/OauthTest.php      (revision 24413)
++++ tests/Zend/Oauth/OauthTest.php      (working copy)
+@@ -183,4 +183,43 @@
+         $this-&gt;assertNotContains('realm=""',$client-&gt;getHeader('Authorization'));
+         $this-&gt;assertContains('realm="someRealm"',$client-&gt;getHeader('Authorization'));
+     }
++
++    /**
++     * @group ZF-11663
++     */
++    public function testOauthClientAcceptsGetParametersThroughSetter()
++    {
++        require_once "Zend/Oauth/Token/Access.php";
++        $token = new Zend_Oauth_Token_Access();
++
++        $options = array(
++            'requestMethod' =&gt; 'GET',
++            'requestScheme' =&gt; Zend_Oauth::REQUEST_SCHEME_QUERYSTRING,
++            'realm'                    =&gt; 'someRealm'
++        );
++
++        require_once 'Zend/Oauth/Client.php';
++        $client = new Zend_Oauth_Client($options);
++        $client-&gt;setToken($token);
++        $client-&gt;setUri('<a href="http://www.example.com/?test=FooBar">http://www.example.com/?test=FooBar</a>');
++        $queryString = $client-&gt;getUri()-&gt;getQuery();
++
++        // Check that query string was set properly
++        $this-&gt;assertSame('test=FooBar', $queryString);
++
++        // Change the GET parameters
++        $client-&gt;setParameterGet('test', 'FooBaz');
++        $client-&gt;setParameterGet('second', 'TestTest');
++
++        // Prepare the OAuth request
++        $client-&gt;prepareOauth();
++        $queryString = $client-&gt;getUri()-&gt;getQuery();
++
++        // Ensure that parameter 'test' is unchanged, as URI parameters
++        // should take precedence over ones set with setParameterGet
++        $this-&gt;assertContains('test=FooBar', $queryString);
++
++        // Ensure that new parameter was added
++        $this-&gt;assertContains('second=TestTest', $queryString);
++    }
+ }
+</code></pre>
+
+<p>Fix:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Oauth/Client.php
+===================================================================
+--- library/Zend/Oauth/Client.php       (revision 24413)
++++ library/Zend/Oauth/Client.php       (working copy)
+@@ -261,7 +261,7 @@
+             $this-&gt;setRawData($raw, 'application/x-www-form-urlencoded');
+             $this-&gt;paramsPost = array();
+         } elseif ($requestScheme == Zend_Oauth::REQUEST_SCHEME_QUERYSTRING) {
+-            $params = array();
++            $params = $this-&gt;paramsGet;
+             $query = $this-&gt;getUri()-&gt;getQuery();
+             if ($query) {
+                 $queryParts = explode('&amp;', $this-&gt;getUri()-&gt;getQuery());
+</code></pre>
+
+<p>After applying fix, reproducing test case passes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-27T22:09:46.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24414
+Merged to release-1.11 in r24415</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-28T15:18:24.000+0000</p> 
+        <div class="body">
+            <p>GitHub pull request issued against {{padraic/zf2}} branch {{zend-oauth-cleanup}}
+<a href="https://github.com/padraic/zf2/pull/1">https://github.com/padraic/zf2/pull/1</a></p>
+
+        </div>
+    </div>
+    </div>
+

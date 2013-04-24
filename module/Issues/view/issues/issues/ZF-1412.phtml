@@ -1,0 +1,240 @@
+<h2>ZF-1412: Type issues in Zend/Xmlrpc/Request.php</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-05-21T06:12:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_XmlRpc_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1411">ZF-1411</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+- $type  = isset($param['type']) ? $param['type'] : null;
++ $type  = isset($param['type']) ? $param['type'] : AUTO_DETECT_TYPE; 
+</code></pre>
+
+<pre class="highlight"><code>
+- $params[] = Zend_XmlRpc_Value::getXmlRpcValue($value);
++ $params[] = Zend_XmlRpc_Value::getXmlRpcValue($value,$type); 
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Till Klampaeckel (till) on 2007-05-22T16:01:04.000+0000</p> 
+        <div class="body">
+            <p>The following code produces empty arrays for the date values in the request.</p>
+
+<pre class="highlight"><code>
+$this-&gt;xmlrpc_client = new Zend_XmlRpc_Client($this-&gt;xmlrpc_server);
+$start = new Zend_XmlRpc_Value_DateTime(time()-1000000);
+$end = new Zend_XmlRpc_Value_DateTime(time());
+$timezone = 'Europe/Berlin';
+
+$params   = array();
+$params[] = 'username';
+$params[] = ' password';
+$params[] = $start;
+$params[] = $end;
+$params[] = $timezone;
+
+$response = $this-&gt;xmlrpc_client-&gt;call($methos, $params);
+</code></pre>
+
+<p>We found the following "fix" - we just don't know where the parameters are lost with the above method.</p>
+
+<pre class="highlight"><code>
+$this-&gt;xmlrpc_client = new Zend_XmlRpc_Client($this-&gt;xmlrpc_server);
+$start = new Zend_Date(time());
+$end = new Zend_Date(time());
+$timezone = 'Europe/Berlin';
+
+
+$request = new Zend_XmlRpc_Request($method);
+$request-&gt;addParam($this-&gt;username);
+$request-&gt;addParam($this-&gt;password);
+$request-&gt;addParam($start,Zend_XmlRpc_Value::XMLRPC_TYPE_DATETIME);
+$request-&gt;addParam($end,Zend_XmlRpc_Value::XMLRPC_TYPE_DATETIME);
+$request-&gt;addParam($timezone);
+
+$this-&gt;xmlrpc_client-&gt;doRequest($request);
+return  $this-&gt;xmlrpc_client-&gt;getlastResponse();
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Till Klampaeckel (till) on 2007-05-23T07:43:29.000+0000</p> 
+        <div class="body">
+            <p>With the latest from SVN. Additional tests...</p>
+
+<pre class="highlight"><code>
+$params = array();
+
+$test = array(
+                'type'  =&gt; Zend_Xmlrpc_Value::XMLRPC_TYPE_DATETIME,
+                'value' =&gt; date('Ymd\TH:i:s)
+);
+array_push($params, $test);
+
+$myClient-&gt;call('foo.bar', $params);
+</code></pre>
+
+<p>No matter, the value is a string inside the request, never of type datetime.</p>
+
+<p>We also tried this:</p>
+
+<pre class="highlight"><code>
+$myClient = (...);
+$request = new Zend_XmlRpc_Request('foo.bar');
+$request-&gt;addParam(time(), Zend_XmlRpc_Value::XMLRPC_TYPE_DATETIME);
+$request-&gt;addParam(date('Ymd\TH:i:s'), Zend_XmlRpc_Value::XMLRPC_TYPE_DATETIME);
+
+$myClient-&gt;doRequest($request);
+</code></pre>
+
+<p>Neither works. Both parameters are strings.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-23T10:04:40.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Matthew.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-23T10:47:20.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r4901. The request object was not passing the registered value type on to Zend_XmlRpc_Value, which caused each of the behaviours reported. Added test cases for both the client and request objects to verify each use case now works.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Till Klampaeckel (till) on 2007-05-23T11:44:35.000+0000</p> 
+        <div class="body">
+            <p>Not yet!</p>
+
+<p>When I build a value ({{$test}}), it works, the struct {{$test4}} too.</p>
+
+<p>As soon as I try to stack a dateTime.iso8601 ({{$test5}}) in there it does recognize the date value. The integer, string and boolean values are guessed correct, but the date is not.</p>
+
+<p>In $test5 I tried stacking {{array('type' =&gt; Zend_Xmlrpc_value::XMLRPC_TYPE_DATETIME, 'value' =&gt; date('Ymd\Th:i:s'));}} in there, but it made type a paramter (of type "string") which contains "dateTime.iso8601" and the actual date value is a "string" as well. When I only supply {{'key5' =&gt; date('Ymd\Th:i:s')}} it's just a string as well.</p>
+
+<p>(Sounds confusing - let me know what I can do to help.)</p>
+
+<pre class="highlight"><code>
+$myClient = (...);
+
+// works
+$test = array(
+                'type'  =&gt; Zend_Xmlrpc_Value::XMLRPC_TYPE_DATETIME,
+                'value' =&gt; date('Ymd\TH:i:s')
+);
+
+// works
+$test4 = array(
+                    'type' =&gt; Zend_Xmlrpc_Value::XMLRPC_TYPE_STRUCT,
+                    'value' =&gt; array(
+                                    'key1' =&gt; 'Hallo Welt',
+                                    'key2' =&gt; 1,
+                                    'key3' =&gt; true,
+                                    'key4' =&gt; false
+                   )
+);
+
+// doesn't work
+$test5 = array(
+                    'type' =&gt; Zend_Xmlrpc_Value::XMLRPC_TYPE_STRUCT,
+                    'value' =&gt; array(
+                                    'key1' =&gt; 'Hallo Welt',
+                                    'key2' =&gt; 1,
+                                    'key3' =&gt; true,
+                                    'key4' =&gt; false,
+                                    'key5' =&gt; array('value' =&gt; date('Ymd\Th:i:s'), 'type' =&gt;  Zend_XmlRpc_Value::XMLRPC_TYPE_DATETIME)
+                   )
+);
+
+$params = array();
+array_push($params, $test);
+array_push($params, $test4);
+array_push($params, $test5);
+
+$myClient-&gt;call('foo.bar', $params);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Till Klampaeckel (till) on 2007-05-23T11:57:22.000+0000</p> 
+        <div class="body">
+            <p>Btw, is it a bug or a feature - I can not pass an object (Zend_XmlRpc_Value_*) to call:</p>
+
+<pre class="highlight"><code>
+$params = array();
+
+$val = new Zend_XmlRpc_Value_DateTime('now');
+
+array_push($params, $val);
+
+$myClient = new ...;
+$myClient-&gt;call('foo.bar', $params);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-23T12:18:03.000+0000</p> 
+        <div class="body">
+            <p>The use case you present in test 5 has never been supported, and can't be. There's no way to tell a value returned by time() from an int (it <em>is</em> an int), and with the variety of string date/time formats available, trying to autodetect would have been a nightmare.  Hence,to pass a value as a dateTime.iso8601, the only way to do so is via one of these two methods:</p>
+
+<ul><li>Create a Zend_XmlRpc_Request object, and populate it via addParam(), specifying types</li>
+<li>Cast the value to a Zend_XmlRpc_Value prior to passing it as an argument to the XML-RPC client</li>
+</ul><p>Regarding passing objects as parameters, internally, Zend_XmlRpc_Value casts objects to structs via the use of get_object_vars(). If the object has no public members, this will be an empty struct. (We cannot pass objects directly as XML-RPC has no concept of objects, only scalar and collection types.)</p>
+
+        </div>
+    </div>
+    </div>
+

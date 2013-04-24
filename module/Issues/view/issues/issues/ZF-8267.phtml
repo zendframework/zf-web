@@ -1,0 +1,127 @@
+<h2>ZF-8267: Significant memory leak in Zend_Search_Lucene_Search_QueryHit</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-09T20:07:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-12-11T07:30:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Searching an index with around 600 documents was consuming around 18M of memory.  After further investigation, I narrowed the problem down to the retrieval of field data via the Zend_Search_Lucene_Search_QueryHit object.  The following code examples illustrate the bug:</p>
+
+<pre class="highlight"><code> 
+&lt;?php
+// Normal page usage: 24285096
+
+$hits = $index-&gt;find($query);
+foreach ($hits as $hit) {
+  $value = $hit-&gt;nid;
+}
+echo memory_get_usage(); // 42294776
+
+?&gt;
+</code></pre>
+
+<pre class="highlight"><code> 
+&lt;?php
+// Executing same query with different retrieval method
+
+$hits = $index-&gt;find($query);
+foreach ($hits as $hit) {
+  $value = $index-&gt;getDocument($hit-&gt;id)-&gt;getFieldValue('nid');
+}
+echo memory_get_usage(); // 25824168
+
+?&gt;
+</code></pre>
+
+<p>The issue was originally reported in the Search Lucene API module for Drupal at <a href="http://drupal.org/node/628254">http://drupal.org/node/628254</a>.  Although the easy workaround is to use method #2, method #1 is more terse and would be the preferable retrieval method.</p>
+
+<p>Thanks for a great component,
+Chris</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2009-12-11T06:51:58.000+0000</p> 
+        <div class="body">
+            <p>That's not a memory leak. It's correct behavior.</p>
+
+<p>Each query hit object stores loaded document data. And it uses lazy loading.</p>
+
+<p>So your second example doesn't load document data within query hit processing. You do it manually. But! manually loaded document goes out of scape at each "foreach" iteration.</p>
+
+<p>Try this code:</p>
+
+<pre class="highlight"><code>
+$hits = $index-&gt;find($query);
+foreach ($hits as $hit) {
+  $value = $hit-&gt;nid;
+}
+printf("%d\n", memory_get_usage()); // 42294776
+
+unset($hits);
+
+printf("%d\n", memory_get_usage());
+</code></pre>
+
+<p>unset($hits) destroys query hits objects and returns used memory.</p>
+
+<p>On the other hand, you are right. It's not necessary to have documents stored in memory for some situations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Pliakas (cpliakas) on 2009-12-11T07:30:01.000+0000</p> 
+        <div class="body">
+            <p>Hey Alexander.</p>
+
+<p>Thanks for the detailed explanation, and I see why this is happening.  In terms of my implementation on Drupal.org, the $hit-&gt;nid works great for the paged results, but there is a cool faceted search feature that scans the results and calculates the number of each facet in the result set.  Surprisingly this is very quick even with thousands of documents, but I was reaching the memory limit when using the $hit-&gt;nid method.  $index-&gt;getDocument($hit-&gt;id)-&gt;getFieldValue('nid') has a much smaller footprint and avoided the memory spike making the module much more scalable, and I don't really need to store the document in memory after it is iterated over anyways.  Drupal sites tends to take up a significant amount of memory, so the less I can use the better.</p>
+
+<p>Thanks for a great component.  People on Drupal.org are finding it very useful.
+~Chris</p>
+
+        </div>
+    </div>
+    </div>
+

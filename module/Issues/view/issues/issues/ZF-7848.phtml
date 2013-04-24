@@ -1,0 +1,315 @@
+<h2>ZF-7848: Empty static route (empty string) will NEVER match (sample from docs, Route_Hostname, Route_Static)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-15T04:30:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-10-20T11:43:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.0 (02/Nov/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6299">ZF-6299</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The following is suggested in docs:</p>
+
+<pre class="highlight"><code>
+$hostnameRoute = new Zend_Controller_Router_Route_Hostname(
+    ':username.users.example.com',
+    array(
+        'controller' =&gt; 'profile',
+        'action'     =&gt; 'userinfo'
+    )
+);
+
+$plainPathRoute = new Zend_Controller_Router_Route_Static('');
+
+$router-&gt;addRoute('user', $hostnameRoute-&gt;chain($plainPathRoute);
+</code></pre>
+
+<p>The purpose of <em>$plainPathRoute</em>:  to create a default  route for users visiting the hostname <em>.users.example.com.
+Unfortunatelly this will never work, because static route of [empty string]  *will never match()</em>. Unfortunatelly, leaving only the Route_Hostname is not an option - because as stated in the manual, lone Route_Hostname will catch each and every request (?).</p>
+
+<p>The bug is here: (line 78 in Zend/Controller/Router/Route/Static.php)</p>
+
+<pre class="highlight"><code>
+    public function match($path, $partial = false)
+    {
+        if ($partial) {
+            if (substr($path, 0, strlen($this-&gt;_route)) === $this-&gt;_route) {
+                $this-&gt;setMatchedPath($this-&gt;_route);
+                return $this-&gt;_defaults;
+            }
+        } else {
+            if (trim($path, '/') == $this-&gt;_route) {
+                return $this-&gt;_defaults;
+            }
+        }
+</code></pre>
+
+<p>Why?   <em>substr()</em> of empty string always returns <em>false</em> - thus this route will never match and the whole chain is ommited.</p>
+
+<p>Fix:</p>
+
+<pre class="highlight"><code>
+    public function match($path, $partial = false)
+    {
+        if ($partial) {
+            if (($this-&gt;_route === '' &amp;&amp; $path === '') || substr($path, 0, strlen($this-&gt;_route)) === $this-&gt;_route) {
+                $this-&gt;setMatchedPath($this-&gt;_route);
+                return $this-&gt;_defaults;
+            }
+        } else {
+            if (($this-&gt;_route === '' &amp;&amp; $path === '') || trim($path, '/') == $this-&gt;_route) {
+                return $this-&gt;_defaults;
+            }
+        }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-09-15T05:00:49.000+0000</p> 
+        <div class="body">
+            <p>Modified fix to work with non-partial matches.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-09-30T00:37:36.000+0000</p> 
+        <div class="body">
+            <p>This will not work: <a href="http://stackoverflow.com/questions/1203441/route-chaining-with-the-zend-framework">http://stackoverflow.com/questions/1203441/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-09-30T00:57:24.000+0000</p> 
+        <div class="body">
+            <p><em>UPDATE</em></p>
+
+<p>It is also broken for simple chains, like the one in link above:</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+adminadminindexindexloginadminloginindex</code></pre>
+
+<p>Expected:
+To work for urls <em>/admin</em> and <em>/admin/login</em>.</p>
+
+<p>Actual:
+It will only match for <em>/admin/login</em>.</p>
+
+<p>Workaround:
+It's caused by the following snippet in <em>Zend_Controller_Router_Route_Chain</em>:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Matches a user submitted path with a previously defined route.
+     * Assigns and returns an array of defaults on a successful match.
+     *
+     * @param  Zend_Controller_Request_Http $request Request to get the path info from
+     * @return array|false An array of assigned values or a false on a mismatch
+     */
+    public function match($request, $partial = null)
+    {
+        $path    = trim($request-&gt;getPathInfo(), '/');
+        $subPath = $path;
+        $values  = array();
+        
+       foreach ($this-&gt;_routes as $key =&gt; $route) {
+            if ($key &gt; 0 &amp;&amp; $matchedPath !== null) {
+                $separator = substr($subPath, 0, strlen($this-&gt;_separators[$key]));
+                if ($separator !== $this-&gt;_separators[$key]) {
+                    return false;
+                }
+                
+                $subPath = substr($subPath, strlen($separator));
+            }
+</code></pre>
+
+<p>Below is a quick fix which takes into account the behaviour of <em>substr()</em> on empty strings, as in this case when chain has already consumed <em>admin</em> and an empty <em>''</em> $subpath is left for matching.</p>
+
+<pre class="highlight"><code>
+    /**
+     * Matches a user submitted path with a previously defined route.
+     * Assigns and returns an array of defaults on a successful match.
+     *
+     * @param  Zend_Controller_Request_Http $request Request to get the path info from
+     * @return array|false An array of assigned values or a false on a mismatch
+     */
+    public function match($request, $partial = null)
+    {
+        $path    = trim($request-&gt;getPathInfo(), '/');
+        $subPath = $path;
+        $values  = array();
+        
+       foreach ($this-&gt;_routes as $key =&gt; $route) {
+            if ($key &gt; 0 &amp;&amp; $matchedPath !== null) {
+                $separator = substr($subPath, 0, strlen($this-&gt;_separators[$key]));
+                if (($subPath !== '') &amp;&amp; $separator !== $this-&gt;_separators[$key]) {
+                    return false;
+                }
+                
+                $subPath = (string)substr($subPath, strlen($separator));
+            }
+</code></pre>
+
+<p>What happens is that we check for empty string '' and then force (string) as a result of substr(), because other routes would fail to match agains <em>false</em>.</p>
+
+<p>This allows "default" routes to work with simple non-host-based chains!</p>
+
+<p>Cheers!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maurice Fonk (naneau) on 2009-12-25T06:47:34.000+0000</p> 
+        <div class="body">
+            <p>In 1.10 alpha this patch does not give the required result.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-12-25T09:15:20.000+0000</p> 
+        <div class="body">
+            <p>Thank you for info.</p>
+
+<p>I am willing to analyze it and contribute a new patch as long as there is any chance of (finally) commiting and fixing it permanently!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Edvin Seferovic (seferovic) on 2010-02-06T18:55:24.000+0000</p> 
+        <div class="body">
+            <p>Artur it would be great if you could look into this problem, because it is a real blocker (for me).</p>
+
+<p>I need hostname based routing for my modules and the only "half"-workaround Ive managed to produce is following...</p>
+
+<p>$hostnameRoute = new Zend_Controller_Router_Route_Hostname('admin.test.local',array('module' =&gt; 'admin'));</p>
+
+<p>// Instead of empty static route...<br />
+// $oRoute = new Zend_Controller_Router_Route_Static('');</p>
+
+<p>$oRoute = new Zend_Controller_Router_Route('/:controller/:action/*',
+                                           array('module'     =&gt; 'admin',
+                                                 'controller' =&gt; 'index',
+                                                 'action'     =&gt; 'index'));</p>
+
+<p>$router-&gt;addRoute('admin', $hostnameRoute-&gt;chain($oRoute));</p>
+
+<p>With this Ive managed the routing part... but in the routing process the path information is build without "/" at the beginning. $this-&gt;_request-&gt;getPathInfo() returns "controller/action" instead of "/controller/action" This breaks the Zend_Navigation component !!</p>
+
+<p>Maybe there is another workaround I am not aware of?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2010-02-10T04:47:19.000+0000</p> 
+        <div class="body">
+            <p>Hey Edvin!</p>
+
+<p>Which version are you using?
+Have you patched your ZF with the snippets I provided?</p>
+
+<p>I use these routes (suggested by docs, sic!) every day and they work fine.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2010-02-18T05:10:32.000+0000</p> 
+        <div class="body">
+            <p>Same issue here. I really don't want to patch ZF. I can probably override match() and the method in the standard router to use the child class instead of Zend_Controller_Router_Route_Chain on "chain" in the config, but obviously that's hardly ideal.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2010-02-18T05:58:49.000+0000</p> 
+        <div class="body">
+            <p>I fixed this by overriding some methods in the involved route classes (thanks Artur), but one issue remains: it never produces a 404. It always goes to the index action of the default module. This is probably a separate related issue, but just wanted to check if people experiencing the issue in this ticket are also having this issue..</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steven Young (monkeyhybrid) on 2010-05-25T12:05:44.000+0000</p> 
+        <div class="body">
+            <p>I've just come up against the same issue.</p>
+
+<p>Is there a reason Artur's patches can not be commited in the trunk? I'm surprised more people aren't complaining about this problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-20T09:31:59.000+0000</p> 
+        <div class="body">
+            <p>I actually get the exact opposite of what the reporter and several commenters have discovered (when testing against current trunk, which is 1.11.0beta1): I can match the /admin route, but not the /admin/login route. I'm attempting to fix this issue now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-20T09:44:21.000+0000</p> 
+        <div class="body">
+            <p>Additionally, the behavior does not change with the "patch" applied.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2010-10-20T10:07:08.000+0000</p> 
+        <div class="body">
+            <p>Matthew: check if this is related to ZF-8812.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-20T11:07:55.000+0000</p> 
+        <div class="body">
+            <p>Kim -- nope. (I've applied your patches locally; doesn't change anything in regards to the environment and expectations presented here.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-20T11:43:47.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk and release branch. Patch had to change due to changes that have already been introduced; basic gist was that a check for (empty($path) &amp;&amp; empty($this-&gt;_route)) had to ORd to the existing partial conditional in the Static route.</p>
+
+        </div>
+    </div>
+    </div>
+

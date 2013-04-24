@@ -1,0 +1,184 @@
+<h2>ZF-1799: Zend_XmlRpc_Value_Base64 is saved to XML request in decoded form</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-01T14:24:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-11-20T15:40:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.3 (30/Nov/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_XmlRpc_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10860/xmlrpctest.tgz">xmlrpctest.tgz</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When XML request is created,  base64'parameters are not rendered correctly. Zend_XmlRpc_Value_Scalar::saveXML()  retrieves object's value via method getValue(), which returns decoded (base64_decode) form of value.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-08-04T11:22:44.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Matthew</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Martin (cgmartin) on 2007-10-10T14:55:49.000+0000</p> 
+        <div class="body">
+            <p>I've run into this issue as well using the main trunk (rev 6613)...</p>
+
+<pre class="highlight"><code>
+/**
+ * GetNames
+ *
+ * @return array
+ */
+function GetNames()
+{
+    $ret = array(
+        array(
+            'id'=&gt;1, 
+            'name'=&gt;'Jack', 
+            'created_dt'=&gt;new Zend_XmlRpc_Value_DateTime(1191877812), 
+            'encoded'=&gt;new Zend_XmlRpc_Value_Base64('testing 1..2..3')
+        )
+    );
+    return $ret;
+}
+$server-&gt;addFunction("GetNames");
+$response = $server-&gt;handle();
+</code></pre>
+
+<p>...The raw xml response from the server when calling this function is:</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+id1nameJackcreated_dt20071008T14:10:12encodedtesting 1..2..3</code></pre>
+
+<p>...which shows that the server is correctly wrapping the data values for the datetime and base64, but the base64 value is not encoded. The datetime value is correct.</p>
+
+<p>The Zend_XmlRpc_Client is handling the response differently which confused me a little: 
+(from $xmlrpcClient-&gt;getLastResponse())</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+id1nameJackcreated_dt20071008T14:10:12encodedÂµë­Šx5</code></pre>
+
+<p>...which shows:
+* The datetime value is wrapped as a string.
+* The base65 value has been  decoded, and is wrapped as a string (the server had encoded the value "improperly" (?)).</p>
+
+<p>Is the desired behavior of Zend_XmlRpc_Client to support automatic conversion of these datatypes, or is it up to the user to convert?</p>
+
+<p>Potential workaround is below, but is undesirable long term.</p>
+
+<pre class="highlight"><code>
+/**
+ * GetNames
+ *
+ * @return array
+ */
+function GetNames()
+{
+    $ret = array(
+        array(
+            'id'=&gt;1, 
+            'name'=&gt;'Jack', 
+            'created_dt'=&gt;new Zend_XmlRpc_Value_DateTime(1191877812),
+            'encoded'=&gt;base64_encode('testing 1..2..3')
+        )
+    );
+    return $ret;
+}  
+</code></pre>
+
+<p>... and then on the client...</p>
+
+<pre class="highlight"><code>
+$retval = $client-&gt;call('GetNames');
+for ($i=0; $i</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Martin (cgmartin) on 2007-10-10T14:57:04.000+0000</p> 
+        <div class="body">
+            <p>A test xmlrpc server and client that reproduces the issue(s).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lode Blomme (lode) on 2007-10-16T05:11:08.000+0000</p> 
+        <div class="body">
+            <p>I ran into the same problem with the release version 1.0.2.
+I sent an email to the mailing list about it (<a href="http://www.nabble.com/Zend_XmlRpc-and-base64-tf4609278s16154.html">http://nabble.com/Zend_XmlRpc-and-base64-tf4609278…</a>) because I hadn't seen this bug report yet.</p>
+
+<p>In short, what I did to fix it :
+In : XmlRpc/Value/Scalar.php
+Change : line 50
+From :</p>
+
+<pre class="literal"> 
+Into :
+</pre>
+
+<p>Reason :
+The method call {{getValue()}} refers back to the Zend_XmlRpc_Value_Base64 class.
+That function returns the base64 decoded value of the object, which you don't want in this case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-11-16T15:02:51.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for 1.0.3</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-11-20T15:40:58.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk and release branch as of r6882.</p>
+
+        </div>
+    </div>
+    </div>
+

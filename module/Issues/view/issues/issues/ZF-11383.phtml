@@ -1,0 +1,147 @@
+<h2>ZF-11383: S3 getObjectStream() gets stuck in an eternal loop in Zend_Http_Client_Adapter_Socket::read() when retrieving an S3 object within a double-level subdir</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-05-16T22:14:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-11-03T23:10:21.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+            <li>Zend_Service_Amazon</li>
+            <li>S3</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <h1>Put an image file of size ~1.8 MB on S3 in a double-level subdir (i.e. ///file.png</h1>
+
+<h1>Test if available via Zend's S3 isObjectAvailable() method (it should return true)</h1>
+
+<h1>Now getObjectStream() for the S3 object</h1>
+
+<h1>After drilling down a bit, Zend_Http_Client_Adapter_Socket::read() will sit spinning forever, when the original S3 put took only a few moments</h1>
+
+<p>Specifically, it gets stuck here:</p>
+
+<pre class="highlight"><code>
+for ($read_to = $current_pos + $contentLength;
+                 $read_to &gt; $current_pos;
+                 $current_pos = ftell($this-&gt;socket)) {
+                 if($this-&gt;out_stream) {
+                     if(@stream_copy_to_stream($this-&gt;socket, $this-&gt;out_stream, $read_to - $current_pos) == 0) {
+                         
+                         $this-&gt;_checkSocketReadTimeout();
+                          
+                          break;
+                     }
+                                          AG_Log::logThis("5");
+                     
+                 } else {
+                    $chunk = @fread($this-&gt;socket, $read_to - $current_pos);
+                    if ($chunk === false || strlen($chunk) === 0) {
+                        $this-&gt;_checkSocketReadTimeout();
+                        break;
+                    }
+
+                    $response .= $chunk;
+                }
+
+                // Break if the connection ended prematurely
+                if (feof($this-&gt;socket)) break;
+            }
+</code></pre>
+
+<p>You'll see that $current_pos never increases, and thus the for loop becomes an eternal loop.</p>
+
+<p>I've tested using the S3 streamWrapper functionality:</p>
+
+<pre class="highlight"><code>
+$sourceHandle = fopen("s3:://$s3object","r");
+        $targetHandle = fopen($localImageToFormat,"w");
+        $length = 102400;
+        $i=1;
+        while(!feof($sourceHandle))
+        {   
+            $result = fwrite($targetHandle, fread($sourceHandle, $length));
+            $i++;
+        }
+        
+        fclose($sourceHandle);
+        fclose($targetHandle);
+</code></pre>
+
+<p>The feof is never received.  I'm guessing the problem is that S3 doesn't send a feof.</p>
+
+<p>Please fix this ASAP.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2011-05-23T18:29:22.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>Are you sure that the 2nd problem you are describing (the S3 stream wrapper never reaches EOF) is really related to a bug in Zend_Http_Client?</p>
+
+<p>It's not true that $current_pos never increases - as you can see there's a call ``` in the iterator of the for loop. I've tested this with a file on S3 using the Socket adapter and write-to-stream interface, with a 5mb file on a 2nd level directory, this works very well.</p>
+
+<p>Can you try to isolate the problem from the s3 stream wrapper? E.g. provide a piece of code (preferrably with a URL to the exact public file on S3 you are testing with) that gets stuck in an infinite loop, but not using the s3 wrapper - only Zend_Http_Client.</p>
+
+<p>If the problem is not in Zend_Http_Client, this bug needs to be reassigned.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alex PHP (ngstylez) on 2011-11-03T19:29:03.000+0000</p> 
+        <div class="body">
+            <p>Philip, is there any follow up on this?</p>
+
+<p>I also see this issue in one of my environments, but not others.  I'm suspecting it may be a system configuration setting that is causing it to happen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Philip Schlesinger (theschles) on 2011-11-03T23:10:21.000+0000</p> 
+        <div class="body">
+            <p>We just gave up, as the only way to offer up an example of this happening was to post a file to our S3 and then provide our personal login details...</p>
+
+        </div>
+    </div>
+    </div>
+

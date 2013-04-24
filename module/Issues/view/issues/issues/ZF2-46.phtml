@@ -1,0 +1,239 @@
+<h2>ZF2-46: Definition/Compiler marks all setter-injection method arguments as optional</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-08-05T13:34:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-10-11T00:04:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Di</li>
+            <li>Zend\Di\Definition\Compiler</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Reproducing code (from <a href="http://pastie.org/2325111">http://pastie.org/2325111</a>)</p>
+
+<p>Target of setter injection:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+namespace DiTest;
+
+class ObjectOne
+{
+    protected $_objTwo = null;
+    
+    /**
+     * Set Dependency
+     * @param ObjectTwo $o
+     * @return ObjectOne 
+     */
+    public function setTwo(ObjectTwo $o)
+    {
+        $this-&gt;_objTwo = $o;
+        return $this;
+    }
+}
+</code></pre>
+
+<p>Definition Compiler:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+// Compile DI definitions
+$compiler = new Zend\Di\Definition\Compiler();
+$compiler-&gt;addCodeScannerDirectory(
+    new Zend\Code\Scanner\DirectoryScanner(
+        APPLICATION_PATH . "/../library/DiTest"
+    )
+);
+$definitions = $compiler-&gt;compile();
+</code></pre>
+
+<p>DiTest\ObjectTwo is an empty class.</p>
+
+<p>Resulting Definition for DiTest\ObjectOne (print_r):</p>
+
+<pre class="highlight"><code>
+[DiTest\ObjectOne] =&gt; Array
+    (
+        [superTypes] =&gt; Array
+            (
+            )
+
+        [instantiator] =&gt; __construct
+        [injectionMethods] =&gt; Array
+            (
+                [setTwo] =&gt; Array
+                    (
+                        [o] =&gt; Array
+                            (
+                                [0] =&gt; DiTest\ObjectTwo
+                                [1] =&gt; 1                 //&lt;-- Paramter $o marked as optional, which it isn't
+                                [2] =&gt; 1
+                            )
+
+                    )
+
+            )
+
+    )
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-05T13:47:29.000+0000</p> 
+        <div class="body">
+            <p>Possible fix:</p>
+
+<pre class="highlight"><code>
+diff --git a/library/Zend/Di/Definition/Compiler.php b/library/Zend/Di/Definition/Compiler.php
+index 5cdb446..d1523ad 100644
+--- a/library/Zend/Di/Definition/Compiler.php
++++ b/library/Zend/Di/Definition/Compiler.php
+@@ -257,8 +257,8 @@ class Compiler
+                 $params[$paramName][] = null;
+             }
+
+-            if ($introspectionType == IntrospectionRuleset::TYPE_SETTER &amp;&amp; $rules['paramCanBeOptional']) {
+-                $params[$paramName][] = true;
++            if ($introspectionType == IntrospectionRuleset::TYPE_SETTER &amp;&amp; !$rules['paramCanBeOptional']) {
++                $params[$paramName][] = false;
+             } else {
+                 $params[$paramName][] = $p-&gt;isOptional();
+             }
+</code></pre>
+
+<p>The first part of the existing logic says that "If method is setter and parameter can be optional, then it is optional", whereas it should be more along the lines of: "If method is setter and parameter cannot be optional, then it is not optional"</p>
+
+<p>I've placed this fix in my ZF2 fork:  <a href="https://github.com/adamlundrigan/zf2/tree/hotfix/ZF2-46">https://github.com/adamlundrigan/zf2/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Evan Coury (evan.pro) on 2011-08-06T16:38:00.000+0000</p> 
+        <div class="body">
+            <p>Confirmed. I went ahead and adjusted the unit tests in my fork to check for this, and with Adam's fix, the tests pass.</p>
+
+<p><a href="https://github.com/EvanDotPro/zf2/tree/hotfix/ZF2-46">https://github.com/EvanDotPro/zf2/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-06T16:47:37.000+0000</p> 
+        <div class="body">
+            <p>I've opened pull request <a href="https://github.com/zendframework/zf2/pull/321">#321</a> to have this fix + contributed tests merged into zendframework/zf2:master</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Evan Coury (evan.pro) on 2011-08-06T18:26:04.000+0000</p> 
+        <div class="body">
+            <p>Looking at this a bit deeper, it seems that "optional" in terms of Zend\Di is not strictly based off whether the parameter is literally optional with a default value in the setter (the parameter in a setter is generally always going to be required, otherwise you would not be calling the setter). For that reason, this fix is probably not exactly correct.</p>
+
+<p>What "optional" seems to mean here, is that the DI container should not allow an instance of a class without some property being defined in the DI definition / configuration.</p>
+
+<p>Interestingly, reversing the logic as Adam has in his patch in Zend\Di\Definition\RuntimeDefinition does actually fix the failing assertion in the Zend\Di\DependencyInjector test. This could be to another developer making the same assumption in this bug report, and coding some part of Zend\Di based on that assumption. I'll keep digging.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-08-25T17:28:59.000+0000</p> 
+        <div class="body">
+            <p>So, at the time of the writing of Zend\Di, there was plenty of code out there, including code matthew was writing for the example ZF2 quickstart that had setters that accepted type-hinted objects that were also not null.  They match the setter pattern: set[A-Z]\w(), but the author would not necessarily consider the presence of this method to mean there is a hard dependency from the class its in on the class in the typehint.</p>
+
+<p>The unit test currently failing is similar to the code below.  Also in the code below, you'll see the modification to the IntrosepctionRuleset that would make it behavior like you are expecting:</p>
+
+<pre class="highlight"><code>
+
+&lt;?php
+class X
+{
+    public $one = null;
+    public $two = null;
+    public function setOne($one)
+    {
+        $this-&gt;one = $one;
+    }
+    public function setTwo($two)
+    {
+        $this-&gt;two = $two;
+    }
+}
+
+class Y
+{
+    public $x = null;
+    public function setX(X $x)
+    {
+        $this-&gt;x = $x;
+    }
+}
+
+
+$di = new Zend\Di\DependencyInjector;
+$im = $di-&gt;getInstanceManager();
+
+// START change of the introspection rules
+$ir = $di-&gt;getDefinition()-&gt;getIntrospectionRuleset();
+$ir-&gt;addSetterRule('paramCanBeOptional', false);
+// END change of the introspection rules
+
+$im-&gt;setParameters('X', array('one' =&gt; 1, 'two' =&gt; 2));
+$y = $di-&gt;newInstance('Y');
+var_dump($y);
+</code></pre>
+
+<p>The question is, is this the correct default value for the introspection ruleset? Do we go stricter or less strict out of the box?  Basically, how do we handle situations like this?</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-11T00:04:49.000+0000</p> 
+        <div class="body">
+            <p>After further work with Zend\Di, and discussions with Evan on this issue, i've determined the issue isn't with Zend\Di but with the way I was using it.</p>
+
+        </div>
+    </div>
+    </div>
+

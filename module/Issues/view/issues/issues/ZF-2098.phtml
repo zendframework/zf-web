@@ -1,0 +1,196 @@
+<h2>ZF-2098: Problem with Content-Length value using raw POST data with mbstring extension</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-10-24T15:36:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-17T20:52:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6218">ZF-6218</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Http_Client to POST raw data, the strlen() function is called to determine the value for the Content-length header.  However, when using the mbstring extension and overriding the string functions (mbstring.func_overload = 4), the strlen() call (which is overridden using mb_strlen()) must be made with the second argument of "ASCII".  With string functions overridden by mbstring, the byte count of the raw POST data is less than its actual size as multibyte characters will be counted a single character.</p>
+
+<p>The patch below corrects the problem by performing an ini_get() and checking the value to see if the bit for string function overriding is set.  If it is, the Content-length will be set accordingly by calling $this-&gt;setHeaders('content-length', strlen($this-&gt;raw_post_data, 'ASCII'));.</p>
+
+<p>This patch was generated against trunk as of 10/24/2007.</p>
+
+<pre class="highlight"><code>
+--- library/Zend/Http/Client.php    (revision 6682)
++++ library/Zend/Http/Client.php    (working copy)
+@@ -913,7 +913,15 @@
+
+         // If we have raw_post_data set, just use it as the body.
+         if (isset($this-&gt;raw_post_data)) {
+-            $this-&gt;setHeaders('Content-length', strlen($this-&gt;raw_post_data));
++            // If user is not overriding string functions with mbstring, the
++            // call to strlen() with the data is sufficient.  Otherwise,
++            // ensure that we have the ASCII byte count for the POST data.
++            if (!ini_get('mbstring.func_overload') &amp; 4) {
++                $this-&gt;setHeaders('content-length', strlen($this-&gt;raw_post_data));
++            } else {
++                $this-&gt;setHeaders('content-length', strlen($this-&gt;raw_post_data, 'ASCII'));
++             }
++
+             return $this-&gt;raw_post_data;
+         }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:37:21.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-11-15T10:02:50.000+0000</p> 
+        <div class="body">
+            <p>First: the bitmask is 2 for str functions not 4.</p>
+
+<p>Second, I cannot reproduce this issue, either with a setting in php.ini oder with ini_set. my testcase looks as following:</p>
+
+<p>This is added into Zend_Http_Client_TestAdapterTest.</p>
+
+<pre class="highlight"><code>    /**
+     * Tests that overriding strlen with mb_strlen via php.ini option is recognized.
+     *
+     * @group ZF-2098
+     */
+    public function testStrlenFunctionOverrideByMbstringIsRecognized()
+    {
+        $client = new Zend_Http_Client('<a href="http://example.com">http://example.com</a>', array('adapter' =&gt; $this-&gt;adapter));
+        $string = "asdföäü€";
+
+        $previousSetting = ini_get("mbstring.func_overload");
+
+        ini_set("mbstring.func_overload", 0);
+        $client-&gt;setRawData($string);
+        $client-&gt;request("POST");
+
+        echo $client-&gt;getLastRequest();
+
+        ini_set("mbstring.func_overload", 2);
+        $client-&gt;setRawData($string);
+        $client-&gt;request("POST");
+
+        echo $client-&gt;getLastRequest();
+    }</code></pre>
+
+<p>any additional feedback or a fixed testsuite?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brian DeShong (bdeshong) on 2008-11-15T14:56:44.000+0000</p> 
+        <div class="body">
+            <p>A thread was started on the forums about this bug about a year ago:</p>
+
+<p><a href="http://www.nabble.com/Utility-functions:-Calculating-binary-string-length-td13431218.html">http://nabble.com/Utility-functions:-Calculating-b…</a></p>
+
+<p>I'm looking to try and reproduce it again. The particular use case I was running into was when POSTing the raw contents of a binary file to a virus scanning HTTP service.</p>
+
+<p>In that case, if the file was, say, 500 bytes, the Content-Length header was being set to less than 500 bytes because certain multi-byte characters were being counted as 1 byte instead of 2.</p>
+
+<p>I'm taking a look into this now to try to reproduce.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brian DeShong (bdeshong) on 2008-11-15T15:28:37.000+0000</p> 
+        <div class="body">
+            <p>I was able to reproduce this using an older version of Zend Framework and 1.6.2 on a RHEL4 machine.</p>
+
+<p>My file is 19,620 bytes on disk.  $string is the value of file_get_contents() for the file on disk.  In this case, I've got mbstring.func_overload set to 6.</p>
+
+<p>print "ASCII strlen = " . strlen($string) . "\n";
+print "mb strlen = " . mb_strlen($string) . "\n";
+print "mb strlen ASCII = " . mb_strlen($string, 'ASCII') . "\n";</p>
+
+<p>...yields:</p>
+
+<p>ASCII strlen = 13389
+mb strlen = 13389
+mb strlen ASCII = 19620</p>
+
+<p>...which means that Content-Length is being set to 13,389 bytes in the HTTP request:</p>
+
+<p>POST / HTTP/1.1
+Host: localhost
+Connection: close
+Accept-encoding: gzip, deflate
+Content-Type: application/x-www-form-urlencoded
+User-Agent: Zend_Http_Client
+Content-Length: 13389</p>
+
+<p>This is using PHP 5.2.2.  Note that I was NOT able to reproduce this on my Mac running Leopard and PHP 5.2.6, which is surprising.</p>
+
+<p>Hope this helps!  Sorry, though, it's been quite some time since I've looked into this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2008-11-17T10:15:41.000+0000</p> 
+        <div class="body">
+            <p>I was able to reproduce and create some tests for this, and it seem to depend on the current locale. I will try to share some tests and perhaps some fix code later this week.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2009-07-24T11:24:38.000+0000</p> 
+        <div class="body">
+            <p>Surprisingly, I actually fixed this in rev. 17041.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-11-17T20:52:37.000+0000</p> 
+        <div class="body">
+            <p>I set fix version. I find this at SVN r17118 in 1.9 branch.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,137 @@
+<h2>ZF-11419: Zend_Http_Client_Adapter_Socket duplicate memory usage of request body</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-05-30T12:08:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-09-05T12:23:12.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Http_Client_Adapter_Socket duplicate memory usage of request body for no good reason, when concatenating the body to the headers in Socket.php line 291. This may cause PHP to reach it's memory limit when sending large requests for no good reason.</p>
+
+<p>One possible solution is to write the headers then the body without creating a new variable concatenating both, and then returning both as an array - they will only be concatenated in the client's -&gt;getLastRequest() method, if needed - as this method is rarely called (only in debugging and testing scenarios).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-27T01:06:35.000+0000</p> 
+        <div class="body">
+            <p>Your suggested fix would require changing the return value of {{Zend_Http_Client_Adapter_Socket::write()}} from string to array.  Would that be considered a BC break, or is {{write}} only used internally (despite being public)?</p>
+
+<p>I've implemented the first part (write the headers and body separately) in the patch below:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Http/Client/Adapter/Socket.php
+===================================================================
+--- library/Zend/Http/Client/Adapter/Socket.php (revision 24408)
++++ library/Zend/Http/Client/Adapter/Socket.php (working copy)
+@@ -283,25 +283,25 @@
+             if (is_string($k)) $v = ucfirst($k) . ": $v";
+             $request .= "$v\r\n";
+         }
++        $request .= "\r\n";
+
+-        if(is_resource($body)) {
+-            $request .= "\r\n";
+-        } else {
+-            // Add the request body
+-            $request .= "\r\n" . $body;
+-        }
+-
+         // Send the request
+         if (! @fwrite($this-&gt;socket, $request)) {
+             require_once 'Zend/Http/Client/Adapter/Exception.php';
+             throw new Zend_Http_Client_Adapter_Exception('Error writing request to server');
+         }
+
++        // Send the body
+         if(is_resource($body)) {
+             if(stream_copy_to_stream($body, $this-&gt;socket) == 0) {
+                 require_once 'Zend/Http/Client/Adapter/Exception.php';
+                 throw new Zend_Http_Client_Adapter_Exception('Error writing request to server');
+             }
++        } else {
++            if (! @fwrite($this-&gt;socket, $body)) {
++                require_once 'Zend/Http/Client/Adapter/Exception.php';
++                throw new Zend_Http_Client_Adapter_Exception('Error writing request to server');
++            }
+         }
+
+         return $request;
+</code></pre>
+
+<p>We may also want to rename {{$request}} to {{$headers}} for clarity sake.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Hillerström (peterhil) on 2012-09-05T12:04:48.000+0000</p> 
+        <div class="body">
+            <p>Why this hasn't been fixed yet? It's trivial to fix, so why it's still open?</p>
+
+<p>I ran into this issue trying to upload a large video file, and got "PHP Fatal error:  Allowed memory size of 2147483648 bytes exhausted (tried to allocate 754951466 bytes) in /Users/peterhil/code/opetustarvike/oppimisymparisto/vendor/zf2/library/Zend/Http/Client/Adapter/Socket.php on line 280"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Hillerström (peterhil) on 2012-09-05T12:13:07.000+0000</p> 
+        <div class="body">
+            <p>I'd like to edit that comment to remove the unrelevant parts of the path...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-09-05T12:23:12.000+0000</p> 
+        <div class="body">
+            <p>@[~peterhil]
+Ask the author of the report.</p>
+
+        </div>
+    </div>
+    </div>
+

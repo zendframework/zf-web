@@ -1,0 +1,189 @@
+<h2>ZF-7665: MultiSearcher gives a document id out of range error</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-23T07:56:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-04T11:42:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>using Zend_Search_Lucene_Interface_MultiSearcher gives an error when the find function is used. The reason for this is that the find function searches through each index and increments each result document id based on its position in the combined results. Commenting out that for loop resolved in Zend/Search/Lucene/MultiSearcher.php from 467/471 fixes. Though this feature was in the 1.8 reslease is this a production ready feature? (there isn't mention of it in the documentation and the namespacing doesn't follow codiing standards.)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Deon Visagie (dcvisagie) on 2010-01-08T01:06:21.000+0000</p> 
+        <div class="body">
+            <p>Line 476 (ZF 1.9.6)
+$indexShift += $index-&gt;count();</p>
+
+<p>Should be changed to something like this:
+$indexShift += count($hits);</p>
+
+<p>The index id location should be incremented by the number of hits, not the complete size of the index. The above worked for me. Removing the loop might create duplicate id's if using multiple indexes in different locations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrey Petrenko (seriousdron) on 2010-09-04T23:30:35.000+0000</p> 
+        <div class="body">
+            <p>"$indexShift += count($hits);" still wrong, but it will work if you have hits only in one of indexes. 
+As far as I can see id is internal id of document in index and cannot be changed in any way or you will get this error. Each hit have index link so you can retrive document from right index.
+You can determine from which index this one is by comparing $hit-&gt;getIndex() withyour indexes or by adding unindexed field with type entity in all your documents. I have field "entity" to determine which kind of result is that hit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrey Petrenko (seriousdron) on 2010-09-05T00:24:24.000+0000</p> 
+        <div class="body">
+            <p>I dont  know how to add patch here (and I actually didn't patch but extend class) but there is my find function without that bug and with merging result to preserve sorting by score. It may be buggy as I just wrote it but seems working.</p>
+
+<p>public function find($query)
+    {
+        if (count($this-&gt;_indices) == 0) {
+            return array();
+        }</p>
+
+<pre><code>    $hitsList = array();
+
+    foreach ($this-&gt;_indices as $index) {
+        $hits = $index-&gt;find($query);
+        if (count($hits) &gt; 0) { //Adding only not empty results
+            $hitsList[] = $hits;
+        }
+    }
+
+    $partsCount = count($hitsList);
+    //No results in all indexes
+    if ($partsCount == 0) {
+        return array();
+    } elseif ($partsCount == 1) { //Only one index in results
+        return $hitsList[0];
+    }
+
+    /** Merging arrays with results to preserve sorting
+     *  (something like mergesort with any count of parts)
+     */
+    $result = array();
+    $values = array();//Max values of score in all arrays
+
+    foreach ($hitsList as $index =&gt; $hits) {
+        $values[$index] = $hits[0]-&gt;score;
+    }
+
+    do {
+        $max = reset($values);
+        $maxkey = key($values);
+        foreach ($values as $index =&gt; $value) {
+            if ($value &gt; $max) {
+                $max = $value;
+                $maxkey = $index;
+            }
+        }
+        //Now we now where is a best score
+        $result[] = array_shift($hitsList[$maxkey]);
+        if (empty($hitsList[$maxkey])) {
+            unset($values[$maxkey]);
+        } else {
+            $values[$maxkey] = reset($hitsList[$maxkey])-&gt;score;
+        }
+    } while(!empty($values));
+    return $result;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joseph Wynn (josephwynn) on 2011-06-03T15:18:39.000+0000</p> 
+        <div class="body">
+            <p>This is still an issue in 1.11.7.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Holdbrook (gawpertron) on 2012-07-04T11:42:41.000+0000</p> 
+        <div class="body">
+            <p>I extended Zend_Search_Lucene_Interface_MultiSearcher and overrode the find method with the below. This is a stripped down Merge Sort</p>
+
+<pre class="highlight"><code>
+public function find($query)
+{
+    if (count($this-&gt;_indices) == 0) {
+        return array();
+    }
+
+    $hitsList = array();
+    foreach ($this-&gt;_indices as $index) {
+        $hits = $index-&gt;find($query);
+
+        $hitsList = $this-&gt;merge($hits, $hitsList);
+    }
+
+    return $hitsList;
+}
+</code></pre>
+
+<pre class="highlight"><code>
+protected function merge(&amp;$leftList, &amp;$rightList)
+{
+    $results = array();
+    while(0 &lt; count($leftList) &amp;&amp; 0 &lt; count($rightList)) {
+        if($leftList[0]-&gt;score &lt; $rightList[0]-&gt;score) {
+            $results[] = array_shift($leftList);
+        } else {
+            $results[] = array_shift($rightList);
+        }
+    }
+
+    $results = count($leftList) &gt; count($rightList) 
+        ? array_merge($results, $leftList) : array_merge($results, $rightList);
+
+    return $results;
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

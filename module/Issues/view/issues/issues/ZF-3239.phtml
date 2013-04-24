@@ -1,0 +1,220 @@
+<h2>ZF-3239: 'From' table not available in $_parts in Zend_Db_Table_Select</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-05-11T14:36:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-04-25T12:57:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3235">ZF-3235</a></li>
+            <li><a href="/issues/browse/ZF-2546">ZF-2546</a></li>
+            <li><a href="/issues/browse/ZF-5830">ZF-5830</a></li>
+            <li><a href="/issues/browse/ZF-3719">ZF-3719</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11394/patch.diff">patch.diff</a></li>
+            <li><a href="/issues/secure/attachment/11289/Zend_Db_Table_Select.php">Zend_Db_Table_Select.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>As described in <a href="http://framework.zend.com/issues/browse/ZF-3235">#ZF-3235</a> it would be desirable to have access to the source table information in a Zend_Db_Table_Select instance.
+The current implementation sets the "from" information in the __toString() method, after which it's available in the $_parts array and thus accessible via getPart().
+It would make sense to have the "from" information available in $_parts directly after the Zend_Db_Table_Select object has been instantiated.
+Attached is a modified Zend_Db_Table_Select which provides an idea to a possible solution. There's a new method _setParts(), which loads some information into the $_parts array. This is copied from __toString().</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-06-09T12:12:16.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and fix/categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-07-16T15:39:07.000+0000</p> 
+        <div class="body">
+            <p>I'd like the priority of this issue to be reconsidered...  Because the way Zend_Db_Table_Select works the Zend_Paginator_Adapter_DbSelect can't utilize the existing method of modifying the provided select query. Currently it's done like so:</p>
+
+<pre class="highlight"><code>
+$expression = new Zend_Db_Expr('COUNT(*) AS ' . self::ROW_COUNT_COLUMN);
+
+$rowCount   = clone $this-&gt;_select;
+$rowCount-&gt;reset(Zend_Db_Select::COLUMNS)
+                     -&gt;columns($expression);
+</code></pre>
+
+<p>However, at this point the FROM part is not yet know and can't be altered. The expression is used as argument for the columns() method, but this gets overwritten again in the assemble method. The only solution at the moment is to modify the query string in case of a Zend_Db_Table_Select. This is absolutely not desirable. Zend_Db_Table_Select should basically function the same way as Zend_Db_Select.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-07-17T05:18:23.000+0000</p> 
+        <div class="body">
+            <p>Attached is a patch that sets the FROM clause directly on instantiating the Zend_Db_Table_Select object. This is done in the setTable part:</p>
+
+<pre class="highlight"><code>
+public function setTable(Zend_Db_Table_Abstract $table)
+{
+    $this-&gt;_adapter = $table-&gt;getAdapter();
+    $this-&gt;_info    = $table-&gt;info();
+    
+    $primary = $this-&gt;_info[Zend_Db_Table_Abstract::NAME];
+    $schema  = $this-&gt;_info[Zend_Db_Table_Abstract::SCHEMA];
+    $this-&gt;from($primary, self::SQL_WILDCARD, $schema);
+    
+    return $this;
+}
+</code></pre>
+
+<p>The code used is directly copied from the assemble method, so it could be argued that some code there has become redundant.</p>
+
+<p>I have tested the modified select query with Zend_Paginator and it now works the same as a Zend_Db_Select query. As far as I could find and run a unit test for this class (installing and configuring XDebug kinda messed with my PHPUnit's output) there don't seem to be any problems (at least no failed tests).</p>
+
+<p>This issue should be fixed in time for ZF 1.6 RC1, so people can get the best Paginator experience ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-08-19T03:36:57.000+0000</p> 
+        <div class="body">
+            <p>This bug also prevents using Zend_Db_Select::columns(), before the select has been converted to a string at least once:</p>
+
+<p>??Uncaught exception 'Zend_Db_Select_Exception' with message 'No table has been specified for the FROM clause' in /home/jaka/sites/iadmin.kubje.org/wcs/trunk/src/library/Zend/Db/Select.php:224??</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-08-21T02:46:59.000+0000</p> 
+        <div class="body">
+            <p>Even the examples from the manual do not work because of this bug:</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.db.table.html#zend.db.table.qry.rows.set.integrity.example">http://framework.zend.com/manual/en/…</a></p>
+
+<pre class="highlight"><code>
+$table = new Bugs();
+
+$select = $table-&gt;select()-&gt;setIntegrityCheck(false);
+$select-&gt;where('bug_status = ?', 'NEW')
+       -&gt;join('accounts', 'accounts.account_name = bugs.reported_by', 'account_name')
+       -&gt;where('accounts.account_name = ?', 'Bob');
+</code></pre>
+
+<p>This would cause an SQL error ??Unknown column 'bug_status' in 'where clause?? since the Bugs table itself wouldn't even be included in the select query, unless echoed out first.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-08-21T02:51:03.000+0000</p> 
+        <div class="body">
+            <p>(sorry to double-post)
+To be more precise: __toString() would have to run before doing the join(), otherwise "accounts" is not joined to bugs, but the only table used for the select.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-09-12T09:55:25.000+0000</p> 
+        <div class="body">
+            <p>Jurrien's patch has a minor BC problem (if I understand everything correctly):</p>
+
+<p>Currently, if you select only some columns, then only those would be returned, since * is added before converting to string ONLY if no columns are selected.</p>
+
+<p>With Jurrien's patch, * would always be selected, unless explicitly removed using reset(Zend_Db_Select::COLUMNS).</p>
+
+<p>In addition to Jurrien's change, I propose:
+ - adding a protected variable $_wildcardSelectedByDefault. This would then get set to true in setTable() at the same time as ?$this-&gt;from($primary, self::SQL_WILDCARD, $schema)?
+ - override columns() to remove ?self::SQL_WILDCARD?  from columns and set _wildcardSelectedByDefault to false if setting columns for the primary table and $_wildcardSelectedByDefault is true.</p>
+
+<p>This way * is selected unless columns() is called explicitly, and the Zend_Db_Table_Select object always reflects the current "state" (columns that will actually be selected).</p>
+
+<p>I will be testing this solution during the next week. If anyone has any other suggestions/worries, please speak :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-01-06T14:03:45.000+0000</p> 
+        <div class="body">
+            <p>Reassigned this issue to myself. I should be able to dig up an email conversation I had with Simon regarding this issue. Together with the comments in this post I should be able to fix this without BC breakage.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-01-07T03:32:36.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r. 13530</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-01-22T02:12:20.000+0000</p> 
+        <div class="body">
+            <p>Reverted in r. 13749 because of BC issues</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-06-21T14:21:08.000+0000</p> 
+        <div class="body">
+            <p>The solution of ZF-2798 is also a solution for this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-25T17:15:27.000+0000</p> 
+        <div class="body">
+            <p>Since 1.9 there has been a feature in place that allowed select() to be called on a table with that will load the from part into the object.</p>
+
+<p>Please see <a href="http://framework.zend.com/manual/en/zend.db.table.html#zend.db.table.qry.rows.set.refine.example">here</a>, and the api doc <a href="http://framework.zend.com/apidoc/core/Zend_Db/Table/Zend_Db_Table_Abstract.html#methodselect">here</a></p>
+
+<p>I think it might fix this problem.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Hofmann (ehofmann) on 2012-04-25T12:57:51.000+0000</p> 
+        <div class="body">
+            <p>I got this error today on Version 2.10.6.
+Is this bug fixed or not?</p>
+
+        </div>
+    </div>
+    </div>
+

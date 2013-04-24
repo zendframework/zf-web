@@ -1,0 +1,232 @@
+<h2>ZF-12048: Zend_View_Helper_HeadScript::setFile behavior inconsistent (based on order of file addition)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-02-09T15:46:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-04T14:43:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+            <li>FixForZF1.12</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14938/ZF-12048.patch">ZF-12048.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In my understanding, the "setFile" method in the headScript helper should replace all previously added items (the doc does not say much about this). This example works as expected:</p>
+
+<p>$view-&gt;headScript()-&gt;appendFile ("/_files/js/foo.js");
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/bar.js");</p>
+
+<p>...</p>
+
+<p>$view-&gt;headScript()-&gt;setFile ("/_files/js/baz.js");</p>
+
+<p>In this case, the result is that foo.js and bar.js are removed and baz.js is added.</p>
+
+<p>However:</p>
+
+<p>$view-&gt;headScript()-&gt;setFile ("/_files/js/foo.js");</p>
+
+<p>In this case, because foo.js has been appended before and there is an _isDuplicate() check first, the call is ignored.</p>
+
+<p>I would regard this an error, because IMHO "set" should replace all previously added content. Suggested fix:</p>
+
+<p>if (!$this-&gt;_isDuplicate($content)) {</p>
+
+<p>-&gt;</p>
+
+<p>if (!$this-&gt;_isDuplicate($content) || "set" == $action) {</p>
+
+<p>The same thing happends with headLink ()-&gt;setStylesheet (), although the code is a bit different.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ricardo Buquet (enkil2003) on 2012-02-11T00:14:30.000+0000</p> 
+        <div class="body">
+            <p>I cannot reproduce the error you are describing. This is my code, and output</p>
+
+<pre class="highlight"><code>
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/foo.js");
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/bar.js");
+$view-&gt;headScript()-&gt;setFile ("/_files/js/baz.js");
+$view-&gt;headScript()-&gt;setFile ("/_files/js/foo.js");
+        
+foreach($view-&gt;headScript() as $file) {
+    echo $file-&gt;attributes['src'] ."\n";
+}
+
+// output
+/_files/js/foo.js
+</code></pre>
+
+<p>which is what I'm expecting. I have also tried this code and works like a charm.</p>
+
+<pre class="highlight"><code>
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/foo.js");
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/bar.js");
+$view-&gt;headScript()-&gt;setFile ("/_files/js/baz.js");
+$view-&gt;headScript()-&gt;setFile ("/_files/js/foo.js");
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/bar.js");
+        
+foreach($view-&gt;headScript() as $file) {
+    echo $file-&gt;attributes['src'] ."\n";
+}
+
+// output
+/_files/js/foo.js
+/_files/js/bar.js
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Arno Schäfer (arnoschaefer) on 2012-02-11T08:14:35.000+0000</p> 
+        <div class="body">
+            <p>Sorry for being not entirely clear. Try this:</p>
+
+<p>$view-&gt;headScript()-&gt;appendFile ("/_files/js/foo.js");
+$view-&gt;headScript()-&gt;appendFile ("/_files/js/bar.js");
+$view-&gt;headScript()-&gt;setFile ("/_files/js/foo.js");</p>
+
+<p>foreach($view-&gt;headScript() as $file) {
+    echo $file-&gt;attributes['src'] ."\n";
+}</p>
+
+<p>// output
+/_files/js/foo.js
+/_files/js/bar.js</p>
+
+<p>I believe based on the "set" call, it should be</p>
+
+<p>/_files/js/foo.js</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-25T17:51:56.000+0000</p> 
+        <div class="body">
+            <p>Confirmed. Test:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/View/Helper/HeadScriptTest.php
+===================================================================
+--- tests/Zend/View/Helper/HeadScriptTest.php   (revision 24628)
++++ tests/Zend/View/Helper/HeadScriptTest.php   (working copy)
+@@ -451,6 +451,20 @@
+
+         $this-&gt;assertEquals($expected, $test);
+     }
++
++    /**
++     * @group ZF-12048
++     */
++    public function testSetFileStillOverwritesExistingFilesWhenItsADuplicate()
++    {
++        $this-&gt;helper-&gt;appendFile('foo.js');
++        $this-&gt;helper-&gt;appendFile('bar.js');
++        $this-&gt;helper-&gt;setFile('foo.js');
++
++        $expected = '';
++        $test = $this-&gt;helper-&gt;toString();
++        $this-&gt;assertEquals($expected, $test);
++    }
+ }
+
+ // Call Zend_View_Helper_HeadScriptTest::main() if this source file is executed directly.
+</code></pre>
+
+<p>Result:</p>
+
+<pre class="highlight"><code>
+1) Zend_View_Helper_HeadScriptTest::testSetFileStillOverwritesExistingFilesWhenItsADuplicate
+Failed asserting that two strings are equal.
+--- Expected
++++ Actual
+@@ @@
+ 
++
+
+tests/Zend/View/Helper/HeadScriptTest.php:466
+</code></pre>
+
+<p>Fix:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/View/Helper/HeadScript.php
+===================================================================
+--- library/Zend/View/Helper/HeadScript.php     (revision 24628)
++++ library/Zend/View/Helper/HeadScript.php     (working copy)
+@@ -245,7 +245,7 @@
+                     break;
+                 case 'file':
+                 default:
+-                    if (!$this-&gt;_isDuplicate($content)) {
++                    if (!$this-&gt;_isDuplicate($content) || $action=='set') {
+                         $attrs['src'] = $content;
+                         $item = $this-&gt;createData($type, $attrs);
+                         if ('offsetSet' == $action) {
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Arno Schäfer (arnoschaefer) on 2012-02-25T22:11:08.000+0000</p> 
+        <div class="body">
+            <p>Great, thanks for this.</p>
+
+<p>Please note that the same problem still exists with headLink ()-&gt;setStylesheet (), so you might not want to close this bug just yet. If I get around to it, I will look into the code, maybe I can suggest a fix for this as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-06-04T14:43:19.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24878</p>
+
+<p>Arno: The HeadLink problem is a distinct issue, so could you please open a new ticket for that one?  Thanks.</p>
+
+        </div>
+    </div>
+    </div>
+

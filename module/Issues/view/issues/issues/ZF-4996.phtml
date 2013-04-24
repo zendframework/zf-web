@@ -1,0 +1,200 @@
+<h2>ZF-4996: Zend_Db_Adapter_Pdo_Mssql-&gt;limit() Does Not Account For Multiple ORDER BY Columns</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-19T10:36:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-20T14:40:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4099">ZF-4099</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Db_Adapter_Pdo_Mssql-&gt;limit() does not account for multiple <em>ORDER BY</em> columns.</p>
+
+<p>The way the adapter reverses the sub-select to get the limit, by reversing the sort order, it reverses only the last column in the <em>ORDER BY</em> list.  It should be reversing all the columns.  By "reverse" I mean, <em>ASC</em> becomes <em>DESC</em>, and <em>DESC</em> becomes <em>ASC</em>.</p>
+
+<p>Then, in the outermost <em>SELECT</em>, it does not revert back to the original <em>ORDER BY</em> list.  Again, only the last column in the list is reverted.</p>
+
+<p>Below is an example (formatted for better reading):</p>
+
+<pre class="highlight"><code>
+SELECT * 
+FROM
+(
+    SELECT TOP 10 * 
+    FROM 
+    (
+        SELECT TOP 30 * 
+        FROM "people"
+        ORDER BY "lname" ASC, "fname" ASC
+    )
+    ORDER BY "lname" DESC, "fname" DESC
+)
+ORDER BY "lname" ASC, "fname" ASC
+</code></pre>
+
+<pre class="highlight"><code>
+SELECT * 
+FROM
+(
+    SELECT TOP 10 * 
+    FROM 
+    (
+        SELECT TOP 30 * 
+        FROM "people"
+        ORDER BY "lname" ASC, "fname" ASC
+    )
+    ORDER BY "lname" , "fname" DESC
+)
+ORDER BY "lname" , "fname" asc
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam VanBerlo (nix0n) on 2009-04-01T12:48:54.000+0000</p> 
+        <div class="body">
+            <p>The method limit() has not changed (functionally) since at least 1.0.0.  While this bug doesn't affect common direct usage.  In my scenario, this renders the desperately needed Zend_Paginator component effectively useless in my application.</p>
+
+<p>Let's take for example a common application, an "eCommerce" site.  This site would show various items "for sale" and limit the amount of items shown on a single page.  Well, let's say we want to re-sort those items in a different order; let's say price.  Price is definitely not a unique key, and duplicate values are certain to come up.  This is where the second "ORDER BY" is important.  It ensures that regardless of how many duplicate primary ordered columns, there is a secondary order enforcing boundaries in limits.  When this secondary order isn't enforced, it allows records to be returned in duplicate at various offsets.</p>
+
+<p>This bug not only doesn't support multiple ORDER BY columns, but renders them completely backwards by flipping <strong>only</strong> the least significant column (the last one).</p>
+
+<p>I could come up with all sorts of other scenarios where multiple ORDER BY columns, in league with limit() functionality, would be a <u>paramount</u> requirement for operation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam VanBerlo (nix0n) on 2009-04-02T16:09:42.000+0000</p> 
+        <div class="body">
+            <p>Ok, I have a fix, but it comes with a catch.  This code will generate the expected SQL above, but it does not support omitted ASC/DESC.  It must be defined otherwise it is ignored.</p>
+
+<p>There might be a better "placeholder" instead of zASC or zDESC, but it works regardless.  It reverses both ORDER BY columns; not just the least significant one.  I'm sure with a bit more crafty regex, omitted ASC/DESC can be supported.  However, internally, the framework tends to explicitly provide it regardless.  So it works well for my application.</p>
+
+<pre class="highlight"><code>
+    /**
+     * Adds an adapter-specific LIMIT clause to the SELECT statement.
+     *
+     * @link <a href="http://lists.bestpractical.com/pipermail/rt-devel/2005-June/007339.html">http://lists.bestpractical.com/pipermail/rt-devel/…</a>
+     *
+     * @param string $sql
+     * @param integer $count
+     * @param integer $offset OPTIONAL
+     * @throws Zend_Db_Adapter_Exception
+     * @return string
+     */
+     public function limit($sql, $count, $offset = 0)
+     {
+        $count = intval($count);
+        if ($count &lt;= 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument count=$count is not valid");
+        }
+
+        $offset = intval($offset);
+        if ($offset &lt; 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument offset=$offset is not valid");
+        }
+
+        $orderby = stristr($sql, 'ORDER BY');
+        if ($orderby !== false) {
+            $order = str_ireplace('ORDER BY', '', $orderby);
+            // A single pass will negate itself, so placeholders must be put in first
+            $orderFlipped = preg_replace(array("/\bASC\b/i", "/\bDESC\b/i"), array('zDESC', 'zASC'), $order);
+            $orderFlipped = preg_replace(array("/\bzASC\b/", "/\bzDESC\b/"), array('ASC', 'DESC'), $orderFlipped);
+        }
+
+        $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);
+
+        $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+        if ($orderby !== false) {
+            $sql .= ' ORDER BY ' . $orderFlipped;
+        }
+        $sql .= ') AS outer_tbl';
+        if ($orderby !== false) {
+            $sql .= ' ORDER BY ' . $order;
+        }
+
+        return $sql;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2009-05-14T05:16:11.000+0000</p> 
+        <div class="body">
+            <p>It duplicates ZF-4099 .</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-21T07:21:07.000+0000</p> 
+        <div class="body">
+            <p>A fix has been provided in r17706, please test.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam VanBerlo (nix0n) on 2009-08-21T08:41:21.000+0000</p> 
+        <div class="body">
+            <p>I'm noticing just a $ in the matching regex on lines 331 and 336.  We should allow for some whitespace to the right of the order direction since that is legal SQL.  It is acceptable to leave the whitespace out in the replacement though.</p>
+
+<p>Suggested for line 331:
+$inv = preg_replace('/\s+desc\s*$/i', ' ASC', $orderPart, 1, $pregReplaceCount);</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-21T12:37:35.000+0000</p> 
+        <div class="body">
+            <p>You are right, but since it is the replacement, i think removing whitespace is the better thing to do.</p>
+
+<p>Fixed in r17728</p>
+
+        </div>
+    </div>
+    </div>
+

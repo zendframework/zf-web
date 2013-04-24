@@ -1,0 +1,173 @@
+<h2>ZF-4594: Subselect in as column does not work</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-14T02:05:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:52:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Subselect queries as columns does not supported in current implementation of Zend_Db_Select</p>
+
+<p>For example:</p>
+
+<pre class="highlight"><code>
+$imprSubSelect = $this-&gt;getAdapter()-&gt;select();
+$imprSubSelect-&gt;from(array('I' =&gt; 'IMPRESSIONS'), array('IMPR_CNT' =&gt; 'COUNT(*)'))
+                      -&gt;where('I.CAR_ID = "C".CAR_ID');
+            
+$select = $this-&gt;getAdapter()-&gt;select();
+$select-&gt;from(array('C' =&gt; $this-&gt;_name), 
+          array('CAR_ID',
+            'MANUFACTURER', 
+            'IMPR_CNT' =&gt; $imprSubSelect))        
+    -&gt;where('DEALER_ID = ?', $dealer-&gt;getId());
+</code></pre>
+
+<p>This select object generate incorrect sql code.</p>
+
+<p>To improve this column object type checking need to be added to _renderColumns method.</p>
+
+<p>Old version:</p>
+
+<pre class="highlight"><code>
+if ($column instanceof Zend_Db_Expr) {
+  $columns[] = $this-&gt;_adapter-&gt;quoteColumnAs($column, $alias, true);
+}
+</code></pre>
+
+<p>New version:</p>
+
+<pre class="highlight"><code>
+if ($column instanceof Zend_Db_Expr || $column instanceof Zend_Db_Select) {
+  $columns[] = $this-&gt;_adapter-&gt;quoteColumnAs($column, $alias, true);
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-17T09:35:38.000+0000</p> 
+        <div class="body">
+            <p>Shouldnt the select object be wrapped inside a Zend_Db_Expr object to work as a subselect?</p>
+
+<p>Ie:</p>
+
+<pre class="highlight"><code>
+$imprSubSelect = $this-&gt;getAdapter()-&gt;select();
+$imprSubSelect-&gt;from(array('I' =&gt; 'IMPRESSIONS'), array('IMPR_CNT' =&gt; 'COUNT(*)'))
+                      -&gt;where('I.CAR_ID = "C".CAR_ID');
+            
+$select = $this-&gt;getAdapter()-&gt;select();
+$select-&gt;from(array('C' =&gt; $this-&gt;_name), 
+          array('CAR_ID',
+            'MANUFACTURER', 
+            'IMPR_CNT' =&gt; new Zend_Db_Expr($imprSubSelect)))
+    -&gt;where('DEALER_ID = ?', $dealer-&gt;getId());
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Denis Baklikov (denis.baklikov) on 2009-08-17T10:58:51.000+0000</p> 
+        <div class="body">
+            <p>Yes, it can we wrapped, but I think that pass Zend_Db_Select object as a parameter is easier to use. 
+I spent about an hour to identify this issue, because I thought this functionality is already built in ZF.</p>
+
+<p>There are only 2 classes, which can produce SQL code - Zend_Db_Expr and Zend_Db_Select itself.
+I think that adding the second condition to the "if" statement is acceptable solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-17T12:00:39.000+0000</p> 
+        <div class="body">
+            <p>Ok, I can see the use case.  One question: should it ensure that the select object being passed in is not a reference to the object in question itself?</p>
+
+<p>Ie: should we prevent this:</p>
+
+<pre class="highlight"><code>
+$select-&gt;from(array(..., 'C' =&gt; $select));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Denis Baklikov (denis.baklikov) on 2009-08-17T21:36:39.000+0000</p> 
+        <div class="body">
+            <p>Its a good point. I have just tested it and got recursive call of the <em>renderColumns</em> method.</p>
+
+<p>Here is sample code, which produces the error</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select()
+                         -&gt;from('dual');
+             
+$select-&gt;columns(array('c1' =&gt; new Zend_db_Expr('2'), 'c2' =&gt; $select));    
+</code></pre>
+
+<p>Also, I have found out the same issue, in the __join_  method (773 line).  In this case <em>assemble</em> method called recursively and PHP interpreter fails.</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select()
+             -&gt;from('dual');
+             
+$select-&gt;join($select, '1=1');
+</code></pre>
+
+<p>I think, this issue will also appears when several select objects references to each other.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:52:31.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

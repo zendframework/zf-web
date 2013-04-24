@@ -1,0 +1,177 @@
+<h2>ZF-9947: Zend_Paginator - problem with _getCacheInternalId</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-04T10:27:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-11-08T12:06:09.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Reopened</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+            <li>zf-caretaker-adamlundrigan</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6989">ZF-6989</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <ol><li>My controller:</li>
+</ol><pre class="highlight"><code>
+    public function indexAction()
+    {
+
+        $typeTopics = $this-&gt;_getParam('type');
+        $select = $topics-&gt;prepareSelect( array($typeTopics=&gt;0) );
+
+        $paginator = new Zend_Paginator( new Zend_Paginator_Adapter_DbTableSelect( $select ) );
+        Zend_View_Helper_PaginationControl::setDefaultViewPartial('pagination.phtml');
+        $paginator-&gt;setCurrentPageNumber( $this-&gt;getRequest()-&gt;getParam( 'page', 1 ) );
+        $paginator-&gt;setItemCountPerPage( 40 );
+        $paginator-&gt;setPageRange(32);
+
+        $this-&gt;view-&gt;paginator = $paginator;
+
+    }
+</code></pre>
+
+<ol><li>In Zend_Paginator added :</li>
+</ol><pre class="highlight"><code>
+    protected function _getCacheInternalId()
+    {
+        echo md5(serialize(array(
+            spl_object_hash($this-&gt;getAdapter()),
+            $this-&gt;getItemCountPerPage()
+        ))).'<br />';
+        return md5(serialize(array(
+            spl_object_hash($this-&gt;getAdapter()),
+            $this-&gt;getItemCountPerPage()
+        )));
+    }
+</code></pre>
+
+<ol><li>I removed all cache</li>
+<li>Refresh page with url params: 
+/type/new/page/1: _getCacheInternalId return: 322da30ae524a49ef490e50e873ab732
+/type/popular/page/1:  _getCacheInternalId return: b787e582a878f61ec149875f5484cfd6
+ok we have different hash</li>
+<li>I reload pages again and now paginator reading from cache: 
+/type/new/page/1: _getCacheInternalId return: b787e582a878f61ec149875f5484cfd6
+/type/popular/page/1:  _getCacheInternalId return: b787e582a878f61ec149875f5484cfd6
+hash is the same for both urls, if disable cache everythings works good :(</li>
+</ol>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wolfgang Bertl (fame23) on 2010-07-13T12:09:37.000+0000</p> 
+        <div class="body">
+            <p>I have the same problem in 1.10.6.</p>
+
+<p>I can't say why, but on a Windows 7 computer I get a different internal cache id but on a computer with linux debian I always get the same internal cache id.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wolfgang Bertl (fame23) on 2010-07-13T12:47:18.000+0000</p> 
+        <div class="body">
+            <p>Edit:
+On the Windows 7 is PHP version 5.3.1 installed and on the linux debian PHP version 5.2.8. Is it possible, that the PHP version is the problem?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Meißner (meisii) on 2010-08-18T05:40:54.000+0000</p> 
+        <div class="body">
+            <p>Have a look on my comment for issue <a href="http://framework.zend.com/issues/browse/ZF-9940?focusedCommentId=42002&amp;page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#action_42002">ZF-9940</a>. Caching should now working fine. This issue can be closed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-08-20T17:15:19.000+0000</p> 
+        <div class="body">
+            <p>Fixed by <a href="http://framework.zend.com/code/browse/Zend_Framework/standard/trunk/library/Zend/Paginator.php?r1=22354&amp;r2=22828">~bate] in revision [r22828</a>.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rich Tibbett (richt) on 2011-10-05T12:58:28.000+0000</p> 
+        <div class="body">
+            <p>I'm still observing this bug in the latest release.</p>
+
+<p>I took a look in to this issue and managed to hack caching to work as expected in Zend_Paginator as follows (diff to trunk r24489):</p>
+
+<h1>Index: library/Zend/Paginator.php</h1>
+
+<p>--- library/Zend/Paginator.php  (revision 24490)
++++ library/Zend/Paginator.php  (working copy)
+@@ -772,8 +772,10 @@
+     {
+         $pageNumber = $this-&gt;normalizePageNumber($pageNumber);</p>
+
+<ul><li>$cache_id = $this-&gt;_getCacheId($pageNumber);</li>
+<li>
+     if ($this-&gt;_cacheEnabled()) {</li>
+<li>$data = self::$_cache-&gt;load($this-&gt;_getCacheId($pageNumber));</li>
+<li><pre><code>     $data = self::$_cache-&gt;load($cache_id);
+     if ($data !== false) {
+         return $data;
+     }
+</code></pre>
+
+<p>@@ -794,7 +796,7 @@
+     }</p>
+
+<pre><code> if ($this-&gt;_cacheEnabled()) {
+</code></pre></li>
+<li>self::$_cache-&gt;save($items, $this-&gt;_getCacheId($pageNumber), array($this-&gt;_getCacheInternalId()));</li>
+<li><pre><code>     self::$_cache-&gt;save($items, $cache_id, array($this-&gt;_getCacheInternalId()));
+ }
+
+ return $items;
+</code></pre></li>
+</ul><hr /><p>Not sure if this is the solution but it worked for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-17T02:53:33.000+0000</p> 
+        <div class="body">
+            <p>Reopened due to comments</p>
+
+        </div>
+    </div>
+    </div>
+

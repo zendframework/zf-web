@@ -1,0 +1,176 @@
+<h2>ZF-11451: Zend Validate fails to validate emails with dot at the end</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-06-07T14:58:03.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-25T20:29:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.8 (07/Jul/11)</li>
+            <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11222">ZF-11222</a></li>
+            <li><a href="/issues/browse/ZF-6363">ZF-6363</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14346/ZF-11451.patch">ZF-11451.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Validate_EmailAddress fails to validate emails with a dot at the end.</p>
+
+<p>Example:</p>
+
+<pre class="highlight"><code>$validate = new Zend_Validate_EmailAddress();
+var_dump($validate-&gt;isValid('example@gmail.com.')); // Returns true, should be false</code></pre>
+
+<p>This seems like a bug that was recently introduced since i tested on version 1.10.5 and it works ok, returns false as expected.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-07T15:24:25.000+0000</p> 
+        <div class="body">
+            <p>My guess is that it was introduced in 1.11.2 with ZF-6363, which corrected the URI validator to accept a URI with a trailing period as valid. Since Zend_Validate_EmailAddress uses Zend_Validate_Hostname for host part validation by default, URIs with trailing dots then became valid email addresses.</p>
+
+<p>RFC-2822 (S3.4 - Address Specification) does not permit email addresses to have a trailing dot in the domain part, so IMO the current behavior is incorrect.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-07T15:34:50.000+0000</p> 
+        <div class="body">
+            <p>Reproduce test case:</p>
+
+<pre class="highlight"><code>
+/**
+ * @group ZF-11222
+ * @group ZF-11451
+ */
+public function testEmailAddressesWithTrailingDotInHostPartAreRejected()
+{
+    $this-&gt;assertFalse($this-&gt;_validator-&gt;isValid('example@gmail.com.'));
+    $this-&gt;assertFalse($this-&gt;_validator-&gt;isValid('test@test.co.'));
+    $this-&gt;assertFalse($this-&gt;_validator-&gt;isValid('test@test.co.za.'));
+}
+</code></pre>
+
+<p>Test fails until this modification is made to Zend_Validate_EmailAddress:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Validate/EmailAddress.php
+===================================================================
+--- library/Zend/Validate/EmailAddress.php      (revision 24123)
++++ library/Zend/Validate/EmailAddress.php      (working copy)
+@@ -527,8 +527,9 @@
+         $this-&gt;_setValue($value);
+
+         // Split email address up and disallow '..'
++        // and disallow addresses ending with a '.'
+         if ((strpos($value, '..') !== false) or
+-            (!preg_match('/^(.+)@([^@]+)$/', $value, $matches))) {
++            (!preg_match('/^(.+)@([^@]+[^.])$/', $value, $matches))) {
+             $this-&gt;_error(self::INVALID_FORMAT);
+             return false;
+         }
+</code></pre>
+
+<p>Then all email-related tests in Zend_Validate test suite pass.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-07T15:53:58.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24124</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-07T16:13:37.000+0000</p> 
+        <div class="body">
+            <p>Merged to release-1.11 in r24125</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-13T08:45:33.000+0000</p> 
+        <div class="body">
+            <p>Please note that for hostnames (the ending part of an email adress) an ending dot is a valid adress according to RFC.</p>
+
+<p>BUT:
+Only for local adresses, not for DNS names.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-27T17:57:26.000+0000</p> 
+        <div class="body">
+            <p>Adam: Your fix is bogus. When an individual hostname validator is used within the email validator then emails get now validated as fails even if they are correct.</p>
+
+<p>Note that for local hostnames a ending dot is allowed according to RFC as also for emails from a local domain.</p>
+
+<p>See GH-229 for the correct implementation. Your tests pass this change without touching the Email validator.</p>
+
+<p>Please backport this fix to ZF1 to fix this bug and remove your changes from the Email validator.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-30T01:32:32.000+0000</p> 
+        <div class="body">
+            <p>Reverted r24125 and r24124 from SVN repo in r24304 and r24305, respectively.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-30T02:01:05.000+0000</p> 
+        <div class="body">
+            <p>Issue will be fixed once backporting of GH-229 is completed (see ZF-6363)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-08-25T20:29:33.000+0000</p> 
+        <div class="body">
+            <p>Fixed in ZF2 with GH-279</p>
+
+        </div>
+    </div>
+    </div>
+

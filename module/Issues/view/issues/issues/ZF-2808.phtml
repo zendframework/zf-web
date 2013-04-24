@@ -1,0 +1,240 @@
+<h2>ZF-2808: Using $this-&gt;action to chain view content together causes unexpected content in body of response</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-05T06:37:22.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-07-25T15:19:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.5.3 (28/Jul/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3160">ZF-3160</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using $this-&gt;action to call another controller to generate content from a view script and that controller action also has a $this-&gt;action call in its view script the output will not be what is expected as the second $this-&gt;action call' output will be found twice in the body of the response object. Here is example code to reproduce the problem.</p>
+
+<p>============================</p>
+
+<p>--- IndexController.php ---
+&lt;?php
+
+require_once 'Zend/Controller/Action.php';
+
+class IndexController extends Zend_Controller_Action {
+       
+    public function testAction() {
+    }
+    
+    public function anotherAction() {
+        
+    }
+}
+?&gt;</p>
+
+<p>--- TestController.php ---
+&lt;?php
+
+require_once 'Zend/Controller/Action.php';
+
+class TestController extends Zend_Controller_Action {
+    
+    public function indexAction() {
+    }
+    
+}
+?&gt;</p>
+
+<p>--- views/scripts/index/test.phtml ---</p>
+
+<p>Here is the start of our test</p>
+
+&lt;?php echo $this-&gt;action("another", "index", "default"); ?&gt;
+
+<p>--- views/scripts/index/another.phtml ---</p>
+
+<p>Here is another file. We should only have on line above and one line below this one.</p>
+
+&lt;?php echo $this-&gt;action("index", "test", "default"); ?&gt;
+
+<p>--- views/scripts/test/index.phtml ---</p>
+
+<p>This should only be displayed once.</p>
+
+<p>=== WILL OUTPUT ===</p>
+
+<p>Here is the start of our test</p>
+
+<p>This should only be displayed once.</p>
+
+<p>Here is another file. We should only have on line above and one line below this one.</p>
+
+<p>This should only be displayed once.</p>
+
+<p>=== BUT SHOULD OUTPUT ===</p>
+
+<p>Here is the start of our test</p>
+
+<p>Here is another file. We should only have on line above and one line below this one.</p>
+
+<p>This should only be displayed once.</p>
+
+<p>==========================</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-03-07T15:52:21.000+0000</p> 
+        <div class="body">
+            <p>What action are you calling from the URL when you get the output? Without that crucial piece of information, it's hard to judge whether the expected output is what should really be expected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Coakley (mcoakley) on 2008-03-07T20:19:08.000+0000</p> 
+        <div class="body">
+            <p>I'm calling the IndexController / TestAction. URL - <a href="http://localhost/index/test">http://localhost/index/test</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Coakley (mcoakley) on 2008-04-04T10:44:44.000+0000</p> 
+        <div class="body">
+            <p>I performed some debugging today since I needed to get around/past this issue (and now that I know the Zend Framework a lot better). The problem is in the View Action Helper. In the action method the results are retrieved from the response object "$return = $this-&gt;response-&gt;getBody()". After this the response object is left alone. To test, I cleared the response object body and now the code example works as expected (as does the rest of my development site).</p>
+
+<p>Hopefully, I'm not breaking something else but it seems to make logical sense that since we are looking to return the output of the "action" method to the caller and let them deal with how the output is displayed, we should clear our buffering response object.</p>
+
+<p>Thanks,</p>
+
+<p>Mike</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-04T11:03:11.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Ralph.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2008-04-11T08:12:18.000+0000</p> 
+        <div class="body">
+            <p>It seems that the logic for the Action Helper is a little screwy... I see how this differs from render(), but should we really ever need to echo the output from an action() call? Shouldn't the result of that action get appended to the Response body, if auto-rendering is enabled...? Could this be the culprit instead, that ViewRenderer is appending the results of the action to the body AND echo is appending to the output buffer... I may be misunderstanding the changes from 1.0 to 1.5, though. :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Coakley (mcoakley) on 2008-04-11T09:21:06.000+0000</p> 
+        <div class="body">
+            <p>For the record the issues was present in 1.0 and 1.5 (and now 1.5.1).</p>
+
+<p>In response to the output being appended to the output buffer and then also echo'ed causing the issue; if you don't echo the output of the action call you don't get any output. To test further I modified the constructor of the Action View Helper to use the FrontController's Request, Response and Dispatch instances (not clones) and in this case (again without echo'ing the action response) you do get output but again not the expected output. Still using the same code given above with the same URL (<a href="http://localhost/index/test">http://localhost/index/test</a>) the output I got was:</p>
+
+<p>=================</p>
+
+<p>This should only be displayed once.</p>
+
+<p>Here is another file. We should only have on line above and one line below this one.</p>
+
+<p>Here is the start of our test</p>
+
+<p>=================</p>
+
+<p>Not what you would want or expect. So, this would mean one of two things, (a) due to the nature of the "logic" an echo is required and the fix that I've stated above (i.e. clearing the output buffer) or (b) there is a bug somewhere in the output buffering logic that needs to be fixed to make this work different and therefore output the proper ordering of content without the echo.</p>
+
+<p>In further review of the code, the underlying issue is the fact that we are dealing with a single instance of the Action View Helper (at least in my code because in my bootstrap I give a single View instance to the View Rendered helper). Because of this during the "action" method there is no code to contend with the fact that it "could" be called recursively. There is the resetObjects method that is called at the beginning of the method. This will clear the instances of the Response, Request and Dispatch objects that are being used. What isn't being taking into account is that during the dispatch call within the action method, the Action View Helper can be called again and while the resetObjects method of the 2nd (or 3rd... Nth) call will clear the required objects for the call present, these objects (i.e. Request, Response, Dispatch) will be left in a previous state when the dispatch from the 2nd (or 3rd ... Nth) call returns in the up stream call (i.e. 1st call). So upon return the objects should be put back into a proper state.</p>
+
+<p>Given what I've stated above, while clearing the response output buffer fixes my issue that I'm currently having it doesn't fix the underlying issue of recursive calls clobbering the state of the Response, Request, Dispatch objects internal the Action View Helper instance. The better fix would be to either clone new instances for each entry into the action method at which point it wouldn't matter what was done to the objects OR saving the state of the objects at the start of the action method and returning the object state at the end of the method. I'm not sure what the penalty of cloning an object is compared to saving its state but cloning would seem easier.</p>
+
+<p>I guess, that's my 2 cents. :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-05-09T11:11:41.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next mini release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Coakley (mcoakley) on 2008-05-13T15:19:41.000+0000</p> 
+        <div class="body">
+            <p>I seem to be having a similar issue with chaining and the ViewRenderer helper. I'm still digging into it but it appears that recursive calls can loose state and therefore drop "forward" calls.</p>
+
+<p>My current issue is I have a content part of a layout that calls the view-&gt;action helper to instantiate a controller/action, this controller action performs a controller-&gt;_forward to another module/controller/action. When the controller that was called from the view-&gt;action returns (after processing through dispatch) the dispatch process that owns the original view-&gt;action call doesn't know about the controller-&gt;_forward and it is lost, therefore not output any content that was supposed to be there.</p>
+
+<p>(If you are wondering why I'm going through such hoops, it is because I'm building reusable modules on top of the Zend Framework that an application can then call from within its own module infrastructure to process their own workflow.)</p>
+
+<p>I believe I have a handle on the cause of the issue which appears to be very similar to the recursive issues I've found in the view-&gt;action helper, which I'm still working on the best way to fix. Once I have both I will comment back here.</p>
+
+<p>Thanks,</p>
+
+<p>Mike</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Coakley (mcoakley) on 2008-05-20T11:39:35.000+0000</p> 
+        <div class="body">
+            <p>After a lot of debugging it simply appears to be a variable scoping issue within the Action View Helper. Hopefully here is a better description of the call stack when I was having the issue (last described):</p>
+
+<p>When rendering a view, the views script would call the Action view helper. During the Action call the controller that was called would forward to another controller. This would cause the original Action view helper call to complete at which point the forwarded controller should have run. But it didn't. When I reviewed the call stack and the variable contents of the objects involved I can see the proper controller information in the request object up until the return of the Action view helper.</p>
+
+<p>It appears to me that because the Action view helper makes clones of the Request, Response and Dispatch objects of the Front controller the forward call (in my example) is getting lost in the call stack. By making the object non-clone it works as expected.</p>
+
+<p>In thinking through it, it seems probable that this will cause other issues in regards to recursive calls to Action that act on other properties of the Request, Response and Dispatch objects. I haven't ran into this in my code yet but it does seem likely considering where this ticket started and my comments on April 11th.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-07-25T15:19:28.000+0000</p> 
+        <div class="body">
+            <p>Fixed by issue ZF-3456</p>
+
+<p>Fixed in trunk at r10438 
+Fixed in 1.5.3 at r10440
+Fixed in 1.6.0 at r10442</p>
+
+        </div>
+    </div>
+    </div>
+

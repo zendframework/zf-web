@@ -1,0 +1,212 @@
+<h2>ZF-10916: Zend_Validate_Date and Zend_Date parsing problem</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-05T08:21:25.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-06T00:50:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+            <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When trying to validate:</p>
+
+<pre class="highlight"><code>
+$vd = new Zend_Validate_Date(array('format'=&gt;'DD-MM-YYYY', 'locale'=&gt;new Zend_Locale('nl_NL')));
+Zend_Debug::dump($vd-&gt;isValid('01012011'));
+        
+$d = new Zend_Date('01012011', null, new Zend_Locale('nl_NL'));
+Zend_Debug::dump($d-&gt;getIso());
+</code></pre>
+
+<p>Output:</p>
+
+<pre class="highlight"><code>
+bool(true)
+
+string(25) "1970-01-12T18:06:51+01:00"
+</code></pre>
+
+<p>This is wrong. I digged in to it, and found that Zend_Locale_Format::_getDate returns the right information, but Zend_Date formats it wrong. I'd rather see the Zend_Validate_Date checking exactly, but if Zend_Date would ouput the right date, it would be nice already.</p>
+
+<p>In essence, I think the Validator has unexpected behaviour, i've created a new validator extending the functionality of the original validator.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require_once 'Zend/Validate/Date.php';
+
+&lt;?php
+
+
+class Storeman_Validate_DateFormat extends Zend_Validate_Date{
+
+    const INVALID_FORMAT = 'dateFormatInvalid';
+    
+    /**
+     * Validate using strict format, by default YYYY-MM-DD accepts "11-1-1" or "2011-01-01" when strict, only the last will validate correctly
+     * 
+     * @var bool
+     */
+    protected $_strict = false;
+    
+    /**
+     * Sets validator options
+     *
+     * @param  string|Zend_Config $options OPTIONAL
+     * @return void
+     */
+    public function __construct($options = array())
+    {
+        $this-&gt;_messageTemplates[ self::INVALID_FORMAT ] = "Invalid type given, value should be string or integer";
+        
+        if ($options instanceof Zend_Config) {
+            $options = $options-&gt;toArray();
+        } else if (!is_array($options)) {
+            $options = func_get_args();
+            $temp['format'] = array_shift($options);
+            if (!empty($options)) {
+                $temp['locale'] = array_shift($options);
+            }
+            if (!empty($options)) {
+                $temp['strict'] = array_shift($options);
+            }
+
+            $options = $temp;
+        }
+
+        if (array_key_exists('format', $options)) {
+            $this-&gt;setFormat($options['format']);
+        }
+
+        if (!array_key_exists('locale', $options)) {
+            require_once 'Zend/Registry.php';
+            if (Zend_Registry::isRegistered('Zend_Locale')) {
+                $options['locale'] = Zend_Registry::get('Zend_Locale');
+            }
+        }
+
+        if (array_key_exists('locale', $options)) {
+            $this-&gt;setLocale($options['locale']);
+        }
+
+        if (array_key_exists('strict', $options)) {
+            $this-&gt;setStrict($options['strict']);
+        }
+    }
+
+    /**
+     * Returns the strict option
+     *
+     * @return bool
+     */
+    public function getStrict()
+    {
+        return $this-&gt;_strict;
+    }
+
+    /**
+     * Sets the strict option
+     *
+     * @param  bool $strict
+     * @return Zend_Validate_Date provides a fluent interface
+     */
+    public function setStrict($strict = false)
+    {
+        $this-&gt;_strict = (bool)$strict;
+        return $this;
+    }
+    
+    /**
+     * Defined by Zend_Validate_Interface
+     *
+     * Returns true if $value is a valid date of the format YYYY-MM-DD
+     * If optional $format or $locale is set the date format is checked
+     * according to Zend_Date, see Zend_Date::isDate()
+     *
+     * @param  string
+     * @return boolean
+     */
+    public function isValid($value)
+    {
+        return $this-&gt;_validateFormat($value)?parent::isValid($value):false;
+    }
+    
+    /**
+     * Validate the format of the value
+     * 
+     * @param string
+     * @return bool
+     */
+    protected function _validateFormat($value)
+    {
+        if( !is_string($value) &amp;&amp; !is_int($value) &amp;&amp; !is_float($value) ){
+            $this-&gt;_error(self::INVALID_FORMAT);
+            return false;
+        }
+        
+        $format = $this-&gt;getFormat();
+        $format = str_replace( str_split('dEDMyYhHms', 1), 'd', $format );
+        
+        $regex = preg_quote($format);
+        
+        if( $this-&gt;getStrict() ){
+            // Use exact formatting
+            $regex = preg_replace('/d/', '\d', $regex);
+        }else{
+            $regex = preg_replace('/d+/', '\d+', $regex);
+        }
+        
+        if( !preg_match('/^'.$regex.'$/', $value) ){
+            $this-&gt;_error(self::FALSEFORMAT);
+            return false;
+        }
+        return true;
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

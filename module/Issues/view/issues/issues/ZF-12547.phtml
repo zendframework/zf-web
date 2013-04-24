@@ -1,0 +1,167 @@
+<h2>ZF-12547: Gettext adapter cannot translate plurals when the target language has only one plural form</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2013-03-22T13:57:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-04-05T16:06:55.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When a target language only has one plural form, calls to {{Zend_Translate::plural()}} just return the first character of the string.</p>
+
+<p>Consider these two translation files (French - 2 plural forms, Turkish - 1 plural form).  Compile them with the command "msgfmt XX.po -o XX.mo"</p>
+
+<pre class="highlight"><code>
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=2; plural=n &gt; 1;\n"
+
+msgid "There is %d fish"
+msgid_plural "There are %d fishes"
+msgstr[0] "Il ya %d poisson"
+msgstr[1] "Il ya %d poissons"
+</code></pre>
+
+<pre class="highlight"><code>
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "There is %d fish"
+msgid_plural "There are %d fishes"
+msgstr[0] "%d balıklar var"
+</code></pre>
+
+<p>Here is a test script</p>
+
+<pre class="highlight"><code>
+require 'Zend/Translate.php';
+
+// A language with more than one plural form - works OK
+$translate = new Zend_Translate('gettext', 'fr.mo', 'fr');
+for ($i=0; $i&lt;5; ++$i) {
+    echo $translate-&gt;plural('There is %d fish', 'There are %d fishes', $i), PHP_EOL;
+}
+
+// A language with only one plural form - does not work
+$translate = new Zend_Translate('gettext', 'tr.mo', 'tr');
+for ($i=0; $i&lt;5; ++$i) {
+    echo $translate-&gt;plural('There is %d fish', 'There are %d fishes', $i), PHP_EOL;
+}
+</code></pre>
+
+<p>The actual output is</p>
+
+<pre class="highlight"><code>
+Il ya %d poisson
+Il ya %d poisson
+Il ya %d poissons
+Il ya %d poissons
+Il ya %d poissons
+%
+%
+%
+%
+%
+</code></pre>
+
+<p>Note that the turkish translations contain just the first character of the sring.</p>
+
+<p>This comes from code in {{Zend_Translate_Adapter::plural()}} which assumes that plural translations are always arrays.  The [0] operator is finding the first character of a string, not the first element of an array.</p>
+
+<pre class="highlight"><code>
+            $rule = Zend_Translate_Plural::getPlural($number, $locale);
+            if (isset($this-&gt;_translate[$locale][$plural[0]][$rule])) {
+                $this-&gt;_routed = array();
+                return $this-&gt;_translate[$locale][$plural[0]][$rule];
+            }
+</code></pre>
+
+<p>As far as I can tell, the bug comes from Zend_Translate_Adapter_Gettext, and can be fixed by the following patch</p>
+
+<pre class="highlight"><code>
+Index: Gettext.php
+===================================================================
+--- Gettext.php (revision 25275)
++++ Gettext.php (working copy)
+@@ -122,7 +122,7 @@
+                 fseek($this-&gt;_file, $transtemp[$count * 2 + 2]);
+                 $translate = fread($this-&gt;_file, $transtemp[$count * 2 + 1]);
+                 $translate = explode("\0", $translate);
+-                if ((count($original) &gt; 1) &amp;&amp; (count($translate) &gt; 1)) {
++                if (count($original) &gt; 1) {
+                     $this-&gt;_data[$locale][$original[0]] = $translate;
+                     array_shift($original);
+                     foreach ($original as $orig) {
+</code></pre>
+
+<p>An explanation for the patch is that a translation is defined as a plural if there are more than one ENGLISH forms.  It does not matter whether there is only one TRANSLATED form.</p>
+
+<p>With the patch, the test script outputs the expected values:</p>
+
+<pre class="highlight"><code>
+Il ya %d poisson
+Il ya %d poisson
+Il ya %d poissons
+Il ya %d poissons
+Il ya %d poissons
+%d balıklar var
+%d balıklar var
+%d balıklar var
+%d balıklar var
+%d balıklar var
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2013-04-05T16:06:55.000+0000</p> 
+        <div class="body">
+            <p>This issue has been closed on Jira and moved to GitHub for issue tracking.  To continue following the resolution of this issues, please visit: <a href="https://github.com/zendframework/zf1/issues/66">https://github.com/zendframework/zf1/issues/66</a></p>
+
+        </div>
+    </div>
+    </div>
+

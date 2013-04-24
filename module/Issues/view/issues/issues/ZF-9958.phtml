@@ -1,0 +1,169 @@
+<h2>ZF-9958: Zend_Queue_Stomp_Client_Connection::read() loop</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-07T12:03:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-08T17:34:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Justin Plock (jplock)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Queue</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11696">ZF-11696</a></li>
+            <li><a href="/issues/browse/ZF-11967">ZF-11967</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13125/mqz3test.php">mqz3test.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>file# Zend/Queue/Stomp/Client/Connection.php
+line# 216</p>
+
+<p>[mistake]
+            if (ord($data) == 10 &amp;&amp; ord($prev) == 0) {</p>
+
+<p>[correct]
+            if (ord($data) == 0 &amp;&amp; ord($prev) == 10) {</p>
+
+<p>==============================================================
+Because English does not have a lot, I please consider a meaning</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by osada ishin (cbh34680) on 2010-06-08T11:19:23.000+0000</p> 
+        <div class="body">
+            <p>By the later investigation, It was recognized that loop forever.
+Because END_OF_FRAME is not "\n\0".
+On this account I performed the following implementation and evaded this</p>
+
+<p>===========================================================================&gt;&gt;&gt;
+class MyStompClient extends Zend_Queue_Stomp_Client_Connection
+{
+    public function read()
+    {
+        $this-&gt;ping();</p>
+
+<pre><code>    $response = '';
+
+    $proc_header = true;
+    while ($proc_header)
+    {
+        $line = fgets($this-&gt;_socket);
+        if ($line === "\n")
+        {
+            $proc_header = false;
+        }
+        $header = explode(':', $line);
+        if (trim($header[0]) === 'content-length')
+        {
+            $body_size = intval($header[1]);
+        }
+        $response .= $line;
+    }
+
+    if (isset($body_size))
+    {
+        # use 'content-length' for BODY like "abc\0def"
+
+        $data = fread($this-&gt;_socket, $body_size);
+        // check to make sure that the connection is not lost.
+        if ($data === false) {
+            require_once 'Zend/Queue/Exception.php';
+            throw new Zend_Queue_Exception('Connection lost');
+        }
+
+        // append last character read to $response
+        $response .= $data;
+
+        # eat the trailing null
+        fread($this-&gt;_socket, 1);
+    }
+    else
+    {
+        while (1)
+        {
+            $data = fread($this-&gt;_socket, 1);
+
+            // check to make sure that the connection is not lost.
+            if ($data === false) {
+                require_once 'Zend/Queue/Exception.php';
+                throw new Zend_Queue_Exception('Connection lost');
+            }
+
+            if (ord($data) == 0) {
+                break;
+            }
+
+            // append last character read to $response
+            $response .= $data;
+        }
+    }
+
+    if ($response === '') {
+        return false;
+    }
+
+    $frame = $this-&gt;createFrame();
+    $frame-&gt;fromFrame($response);
+    return $frame;
+}
+</code></pre>
+
+<p>}
+===========================================================================&lt;&lt;&lt;</p>
+
+<p>The server which I used is rabbitmq.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrey Niakhaichyk (gnomeby) on 2011-08-25T12:11:07.000+0000</p> 
+        <div class="body">
+            <p>RabbitMQ doesn't send newline after \x00, but ActiveMQ does. Anyway according to the official specification <a href="http://stomp.codehaus.org/Protocol">http://stomp.codehaus.org/Protocol</a> RabbitMQ should not send a newline after \x00. That why it should be fixed in Zend Framework.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-05T23:41:15.000+0000</p> 
+        <div class="body">
+            <p>I assume you mean that Zend Framework should detect both endings (\x00\x10 and \x10\x00)?</p>
+
+        </div>
+    </div>
+    </div>
+

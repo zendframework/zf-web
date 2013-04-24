@@ -1,0 +1,292 @@
+<h2>ZF-3379: Passing null value to Zend_Db_Select::where($cond, $value) leads to error in SQL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-04T01:19:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-21T08:09:55.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.6 (02/Mar/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5699">ZF-5699</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11760/dirty_hack.diff">dirty_hack.diff</a></li>
+            <li><a href="/issues/secure/attachment/11770/dirty_patch-with-test-case.diff">dirty_patch-with-test-case.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+$select = new Zend_Db_Select($db);
+$select-&gt;from('f_actualities');
+$select-&gt;where('act_name = ?', null);
+$db-&gt;query($select)-&gt;fetchAll();
+</code></pre>
+
+<p>Code aboe raises Zend_Db_Statement_Exception with message "SQLSTATE[HY093]: Invalid parameter number: no parameters were bound".</p>
+
+<p>Problem is in file Zend/Db/Select.php</p>
+
+<pre class="highlight"><code>
+785: if ($value !== null) {
+786:     $condition = $this-&gt;_adapter-&gt;quoteInto($condition, $value, $type);
+787: }
+</code></pre>
+
+<p>If null is passed as value, condition remains unchanged and so '?' remains there. This leads to SQL error above.
+It is quite a problem, because when using Zend_Db_Table::findby() and there is no matching row for some parent row, null value is supplied for it's primary key and it leads to above error.</p>
+
+<p>This bug was not present in 1.5.0 but strated in 1.5.1.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dmitry Pereslegin (dvp) on 2008-08-15T16:58:52.000+0000</p> 
+        <div class="body">
+            <p>This issue precludes the possibility of using "&lt;=&gt;" operator in MySQL</p>
+
+<p>instead</p>
+
+<pre class="highlight"><code>
+$param = $request-&gt;getParam('arg'); // some parameter
+
+$select = $db-&gt;select()-&gt;where('column &lt;=&gt; ?', $param);
+</code></pre>
+
+<p>accounting write</p>
+
+<pre class="highlight"><code>
+$param = $request-&gt;getParam('arg'); // some parameter
+
+$select = $db-&gt;select();
+
+if (is_null($param)) {
+    $select-&gt;where('column IS NULL');
+} else {
+    $select-&gt;where('column = ?', $param);
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ji?í Tomek (katulus) on 2008-09-06T04:30:15.000+0000</p> 
+        <div class="body">
+            <p>Your solution for using null value works, but it is not core of the problem. As I wrote, problem is with Zend_Db_Table::findby(). If there is no row for in parent table, null value is supplied for underlying statement. Solving this issue requires extra database statement to check, if parent table contains any rows and use Zend_Db_Table::findby() only if it contains something. Regarding your comment, this issue is probably related to Zend_Db_Table class where this should be checked.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-10T10:19:51.000+0000</p> 
+        <div class="body">
+            <p>I don't know if it's a correct solution but when I tried to remove the if statement and it works.</p>
+
+<p>But since I can't run the unit tests, I can't investigate more.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-13T09:18:37.000+0000</p> 
+        <div class="body">
+            <p>I can't upgrade from ZendFramework 1.0 to ZendFramework 1.7 because of this issue.</p>
+
+<p>I searched for a workaround but I use findDependentRowset with new a new row object too often to patch all my code base.</p>
+
+<p>Maybe someone have seen a workaround that I didn't found ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-17T08:10:52.000+0000</p> 
+        <div class="body">
+            <p>I know it's a really dirty trick... but it work with my code in issue ZF-5699</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-25T11:34:14.000+0000</p> 
+        <div class="body">
+            <p>Added test case to the patch so everyone can test it</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-25T11:36:52.000+0000</p> 
+        <div class="body">
+            <p>When you pass the test case, the problem seems to be solved but there is another thing in the profiler that bugs but I can't track it. PHPUnit just tell me this :</p>
+
+<pre class="literal">
+1) testProfilerPreparedStatementWithParams(Zend_Db_Profiler_Pdo_MysqlTest)
+Undefined offset:  0
+
+2) testProfilerPreparedStatementWithBoundParams(Zend_Db_Profiler_Pdo_MysqlTest)
+Undefined offset:  0
+</pre>
+
+<p>I tested my patch with sqlite and pdo_mysql</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-02-25T13:10:53.000+0000</p> 
+        <div class="body">
+            <p>I'm not sure there is an issue here actually.</p>
+
+<p>When you do this:</p>
+
+<pre class="highlight"><code>
+$select-&gt;where('something = ?', null);
+</code></pre>
+
+<p>its effectively the same as you doing this:</p>
+
+<pre class="highlight"><code>
+$select-&gt;where('something = ?');
+</code></pre>
+
+<p>and the latter is semantically wrong, and destined to fail.  You are passing in a PHP null value, and expecting it to be used as the SQL null value.  You are assuming that there is a direct mapping between PHP null and SQL NULL - which is not the case.  The select object in this case cannot determin what you "mean" by the php null, thus, no replacement is made.</p>
+
+<p>In SQL "something IS NULL" is not the same as "something = NULL" [<a href="http://dev.mysql.com/doc/refman/5.0/en/problems-with-null.html">http://dev.mysql.com/doc/refman/…</a>], and technically, Zend_Db_Select shouldn't be inferring meaning and re-writing SQL unless its a vendor specific implementation issue (for example limit in MSSQL) and not a PHP -&gt; SQL issue (what is null in php and what is null in SQL).</p>
+
+<p>That said, I think the proper logic (in your code) here would be this:</p>
+
+<pre class="highlight"><code>
+if ($value === null){
+   $select-&gt;where('something IS NULL');
+} else {
+   $select-&gt;where('something = ?', $value);
+}
+</code></pre>
+
+<p>I am inclined to close this as "Not An Issue"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-25T14:02:10.000+0000</p> 
+        <div class="body">
+            <p>Maybe the problem was not explained appropriately.</p>
+
+<p>In the code I wrote in the issue ZF-5699 (a duplicate of this issue, I think), I use a newly created row instance of Zend_Db_Table_Row_Abstract to find a dependent rowset :</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+set_include_path('/home/sylvain/Documents/ZendFramework-1.7.4/library');
+
+require_once('Zend/Loader.php');
+
+Zend_Loader::registerAutoload();
+
+class Application {
+
+        public static function setUp() {
+                $db = Zend_Db::factory('pdo_mysql', array(
+                        'dbname' =&gt; 'test',
+                        'host' =&gt; 'localhost',
+                        'username' =&gt; 'root',
+                        'password' =&gt; ''
+                ));
+                Zend_Db_Table_Abstract::setDefaultAdapter($db);
+
+                $db-&gt;query('DROP TABLE IF EXISTS projects');
+                $db-&gt;query('DROP TABLE IF EXISTS components');
+
+                $db-&gt;query('CREATE TABLE projects (id INTEGER AUTO_INCREMENT, name VARCHAR(15), PRIMARY KEY (id));');
+                $db-&gt;query('CREATE TABLE components (id INTEGER AUTO_INCREMENT, name VARCHAR(15), fk_parent INTEGER, PRIMARY KEY (id));');
+        }
+
+}
+
+class Projects extends Zend_Db_Table_Abstract {
+
+        protected $_name = 'projects';
+
+        protected $_dependentTables = array('Components');
+
+}
+
+class Components extends Zend_Db_Table_Abstract {
+
+        protected $_name = 'components';
+
+        protected $_referenceMap = array(
+                'Parent' =&gt; array(
+                        'columns' =&gt; 'fk_parent',
+                        'refTableClass' =&gt; 'Projects',
+                        'refColumns' =&gt; 'id'
+                )
+        );
+
+}
+
+Application::setUp();
+
+$tbl_projects = new Projects();
+$new_project = $tbl_projects-&gt;createRow();
+
+$components = $new_project-&gt;findDependentRowset('Components');
+echo count($components) . "\n";
+</code></pre>
+
+<p>This code fail because of the if statement in Zend_Db_Select.</p>
+
+<p>The same problem happen for the same reason when using Zend_Db_Table::findby() as explained in the description of this issue.</p>
+
+<p>Maybe my solution is not appropriate but this is an issue and I think it should not be closed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-02-25T14:33:11.000+0000</p> 
+        <div class="body">
+            <p>The above use case is not related to this issue. For that, I will leave my comments in issue ZF-5699.</p>
+
+<p>As for this issue, for the reasons I described above in the comments, I am marking as "not an issue".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by nike shox (nike shox) on 2012-11-21T08:09:55.000+0000</p> 
+        <div class="body">
+            <p>Med buzz Rundt utgivelsen, some folk <a href="http://www.nikeshoxsko.biz">http://www.nikeshoxsko.biz</a> stylte opp as dring as 24 timer. Jeg today limited to some few utvalgte amerikanske forhandlere, håpet many på <a href="http://www.nikeshoxsko.biz">http://www.nikeshoxsko.biz</a> "Miami Nights" would Baere lik long-term importance as already classic "South Beach" <a href="http://www.nikeshoxsko.biz">http://www.nikeshoxsko.biz</a> LeBron 8 Mid.Where it is a major time sneaker utgivelse, it is always kontrovers.</p>
+
+        </div>
+    </div>
+    </div>
+

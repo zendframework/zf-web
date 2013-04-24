@@ -1,0 +1,119 @@
+<h2>ZF-5411: Wrong behaviour of dispatcher when invalid controller found</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-06T04:52:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-01-06T08:39:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I think there is a bug during the dispatcher process. 
+If there was an invalid controller detected, the controller is rewritten to "IndexController". Ok, that's what is expected. But the $request-&gt;param[{$_actionKey}] in the request object is set to null also . So any call of the desired action failed after creation the default controller, because the in the $request--&gt;_param[$_actionkey] 
+does no longer exist .</p>
+
+<h2>Take a look at Zend/Controller/Request/Abstract.php, function setActionName($value)  line 155:</h2>
+
+<p>if (null === $value) {
+       $this-&gt;setParam($this-&gt;getActionKey(), $value);
+    }</p>
+
+<h2>I think it should be:</h2>
+
+<p>if (null !== $value) {
+       $this-&gt;setParam($this-&gt;getActionKey(), $value);
+   }</p>
+
+<p>or better be removed completly to get the behaviour of Zend 1.6.2:</p>
+
+<pre><code>1. Detect an invalid controller --&gt;  rewrite to default controller
+2. Call the desired action. If  the action method does not exist --&gt; invoke __call() for error handling.
+</code></pre>
+
+<p>another solution is, to change the getDefaultControllerClass(Zend_Controller_Request_Abstract $request)
+ in Zend/Controller/Dispatcher/Standard.php on line 426/427 
+from: 
+    $request-&gt;setControllerName($controller)
+                    -&gt;setActionName(null);
+to: 
+    $request-&gt;setControllerName($controller);</p>
+
+<p>Because I think it is not necessary to reset the actionName after falling back to the default controller.</p>
+
+<h2>Maybe I could be wrong but using it with the following code snipped in ZF 1.6.2 works as expected.</h2>
+
+<p>$controller = Zend_Controller_Front::getInstance();
+$controller-&gt;setControllerDirectory('/path-to/controller/directory');
+$controller-&gt;setParams(array('useDefaultControllerAlways' =&gt;true));
+$controller-&gt;throwExceptions(true);
+$controller-&gt;returnResponse(true);
+$controller-&gt;setBaseUrl("/custom/base-url/here');
+$controller-&gt;getRouter()-&gt;addRoute('default', new Zend_Controller_Router_Route_Regex('(?:([a-z-]+))(?:/([a-z-]+))?(?:/([a-z0-9-]+)/)?',
+                                                                            array ( 'controller' =&gt; 'index',
+                                                                                     'action'     =&gt; 'index'
+                                                                            ),
+                                                                            array(  1=&gt;'controller',
+                                                                                    2=&gt;'action',
+                                                                                    3=&gt;'value'
+                                                                                )
+                                                                            ));
+$output = $controller-&gt;dispatch();</p>
+
+<h2>return $output;</h2>
+
+<p>Any suggestions?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-01-06T08:39:26.000+0000</p> 
+        <div class="body">
+            <p>First off, the controller is only ever rewritten to IndexController if you have set the 'useDefaultControllerAlways' front controller parameter; otherwise, if the controller is not found, an exception indicating this is thrown, at which point you can determine the original action called by inspecting the request object stored in the error_handler parameter.</p>
+
+<p>BTW, this behavior is by design; if the controller cannot be found, in all liklihood the action does not exist in the IndexController and would throw an exception -- so when using useDefaultControllerAlways, the action is rewritten to the index action to ensure a dispatchable action.</p>
+
+<p>One way to capture the <em>matched</em> action is to capture it in a plugin that operates in either routeShutdown(), dispatchLoopStartup(), or preDispatch(); simply capture the value of the request object's action parameter.</p>
+
+        </div>
+    </div>
+    </div>
+

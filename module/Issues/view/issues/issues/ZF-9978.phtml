@@ -1,0 +1,128 @@
+<h2>ZF-9978: Zend_Db_Adapter_Abstract::fetchAssoc can perform better (including adding choice of column as key)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-11T01:00:06.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>method: Zend_Db_Adapter_Abstract::fetchAssoc()</p>
+
+<p>The current code uses array_slice and array_values to get the value of the first column:</p>
+
+<pre class="highlight"><code>
+while ($row = $stmt-&gt;fetch(Zend_Db::FETCH_ASSOC)) {
+    $tmp = array_values(array_slice($row, 0, 1));
+    $data[$tmp[0]] = $row;
+}
+</code></pre>
+
+<p>My first thought was that a clean and simple reset would be better, but to my surprise this was actually a bit slower:</p>
+
+<pre class="highlight"><code>
+// NOT faster (but it looks cleaner though)
+while ($row = $stmt-&gt;fetch(Zend_Db::FETCH_ASSOC)) {
+    $tmp = reset($row);
+    $data[$tmp] = $row;
+}
+</code></pre>
+
+<p>However, using key lookup, it became more than 3 times as fast, but you need additional code, executed once, to get the key name:</p>
+
+<pre class="highlight"><code>
+$row = $stmt-&gt;fetch(Zend_Db::FETCH_ASSOC);
+if ($row) {
+    $colName = key($row);
+    do {
+        $data[$row[$colName]] = $row;
+    } while ($row = $stmt-&gt;fetch(Zend_Db::FETCH_ASSOC));
+}
+</code></pre>
+
+<p>Note: local timing gave timings of about 3.2 versus 0.9 seconds for going through a 14000 record array a 100 times (thus excluding the fetch from the loop).</p>
+
+<p>Note: according to the PHP manual an array that has just been assigned to another variable is reset, thus a reset before the call to key() is not needed.</p>
+
+<p>Note: If you start indexing by column name as per this code, it would be fairly easy to add the column name to use as keys as a parameter to this method. This is even better when using "select * ..." and you thus cannot be sure of the order of the columns. This kind of changes the issue type to new feature as well.</p>
+
+<p>Code including changed doc:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Fetches all SQL result rows as an associative array.
+     *
+     * The given column (or first column if absent) is used as key.
+     * the entire row array is the value.
+     * You should construct the query to be sure that
+     * the key column contains unique values, or else
+     * rows with duplicate values in this column will
+     * overwrite previous data.
+     *
+     * @param string|Zend_Db_Select $sql An SQL SELECT statement.
+     * @param mixed $bind Data to bind into SELECT placeholders.
+     * @param string|null $col Column name to use as key. If null, the first column is used as key
+     * @return array
+     */
+    public function fetchAssoc($sql, $bind = array(), $col = null)
+    {
+        $stmt = $this-&gt;query($sql, $bind);
+        $data = array();
+        $row = $stmt-&gt;fetch(Zend_Db::FETCH_ASSOC);
+        if ($row) {
+            if ($col === null) {
+                $col = key($row);
+            }
+            do {
+                $data[$row[$col]] = $row;
+            } while ($row = $stmt-&gt;fetch(Zend_Db::FETCH_ASSOC));
+        }
+        return $data;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

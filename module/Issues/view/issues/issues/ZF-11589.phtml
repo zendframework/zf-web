@@ -1,0 +1,135 @@
+<h2>ZF-11589: PHP Fatal Error in Zend_Controller_Broker_PluginTest</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Unit Tests: Problem</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-21T22:48:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-28T21:58:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.10 (04/Aug/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When running the Zend_Controller_Plugin test suite ({{./runtests.sh Controller_Plugin}}) I get the following error:</p>
+
+<pre class="highlight"><code>
+Starting test 'Zend_Controller_Plugin_BrokerTest::testBrokerCatchesExceptions'.
+PHP Fatal error:  Call to a member function setDispatched() on a non-object in /usr/local/apache2/htdocs/lib/zfdev/trunk/library/Zend/Controller/Plugin/Broker.php on line 316
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-21T23:01:53.000+0000</p> 
+        <div class="body">
+            <p>In unit test {{Zend_Controller_Plugin_BrokerTest::testBrokerCatchesExceptions}}, the broker instance is only given the request object as a parameter to the hook methods (in this case, {{preDispatch}}), and not injected via {{setRequest}}.  This causes {{Zend_Controller_Plugin_Broker::preDispatch}} to throw a PHP fatal error because it calls {{$this-&gt;getRequest()-&gt;setDispatched(false)}}:</p>
+
+<pre class="highlight"><code>
+public function preDispatch(Zend_Controller_Request_Abstract $request)
+{
+    foreach ($this-&gt;_plugins as $plugin) {
+        try {
+            $plugin-&gt;preDispatch($request);
+        } catch (Exception $e) {
+            if (Zend_Controller_Front::getInstance()-&gt;throwExceptions()) {
+                throw new Zend_Controller_Exception($e-&gt;getMessage() . $e-&gt;getTraceAsString(), $e-&gt;getCode(), $e);
+            } else {
+                $this-&gt;getResponse()-&gt;setException($e);
+                // skip rendering of normal dispatch give the error handler a try
+                $this-&gt;getRequest()-&gt;setDispatched(false);     // &lt;---- ERROR IS TRIGGERED HERE
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>and {{getRequest()}} returns null as {{setRequest}} wasn't given a request instance.</p>
+
+<p>As I see it, there are two ways to fix this:
+1. Fix the unit test:  Inject {{$request}} via {{setRequest}}</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Controller/Plugin/BrokerTest.php
+===================================================================
+--- tests/Zend/Controller/Plugin/BrokerTest.php (revision 24251)
++++ tests/Zend/Controller/Plugin/BrokerTest.php (working copy)
+@@ -186,6 +186,7 @@
+         $response = new Zend_Controller_Response_Cli();
+         $broker   = new Zend_Controller_Plugin_Broker();
+         $broker-&gt;setResponse($response);
++        $broker-&gt;setRequest($request);
+         $broker-&gt;registerPlugin(new Zend_Controller_Plugin_BrokerTest_ExceptionTestPlugin());
+         try {
+             $broker-&gt;routeStartup($request);
+</code></pre>
+
+<ol><li>Change {{Zend_Controller_Plugin_Broker::preDispatch}} to call {{setDispatched}} directly it's argument {{$request}}:</li>
+</ol><pre class="highlight"><code>
+Index: library/Zend/Controller/Plugin/Broker.php
+===================================================================
+--- library/Zend/Controller/Plugin/Broker.php   (revision 24251)
++++ library/Zend/Controller/Plugin/Broker.php   (working copy)
+@@ -313,7 +313,7 @@
+                 } else {
+                     $this-&gt;getResponse()-&gt;setException($e);
+                                        // skip rendering of normal dispatch give the error handler a try
+-                                       $this-&gt;getRequest()-&gt;setDispatched(false);
++                                       $request-&gt;setDispatched(false);
+                 }
+             }
+         }
+</code></pre>
+
+<p>(Yes, that line and comment above it are tabbed and not space-indented.  That should be fixed)</p>
+
+<p>Thoughts?  Both options fix this specific issue, but which fix is best overall (ie: is this an implementation issue with the broker or a just a test construction issue?)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2011-07-28T21:58:08.000+0000</p> 
+        <div class="body">
+            <p>Fixed by r24295</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,297 @@
+<h2>ZF-5524: Zend_Http_Client_Adapter_Proxy doesn't support SSL Client Certificate</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-12T01:32:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-19T13:20:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.1 (10/Feb/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2946">ZF-2946</a></li>
+            <li><a href="/issues/browse/ZF-9143">ZF-9143</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Although Zend_Http_Client_Adapter_Socket fully support SSL Client certificate authentication, Zend_Http_Client_Adapter_Proxy doesn't.</p>
+
+<p>in the write() method of Zend_Http_Client_Adapter_Proxy, there is a call to method connectHandshake() if protocol is HTTPS.</p>
+
+<p>This method tries to send a CONNECT query to the proxy server and then, if ok, switch to crypto with PHP function stream_socket_enable_crypto().</p>
+
+<p>This fails if the remote server requires a SSL client certificate to be presented.</p>
+
+<p>The  stream_socket_enable_crypto() function is not well documented but it seems that an additional parameter allows to pass the context of another socket (including a local cert) to the function.</p>
+
+<p>In the connecHandshake() method, I changed the code here:</p>
+
+<pre><code>    $success = false; 
+    foreach($modes as $mode) {
+        $success = stream_socket_enable_crypto($this-&gt;socket, true, $mode);
+        if ($success) break;
+    }
+</code></pre>
+
+<p>to:</p>
+
+<pre><code>    $context = stream_context_create();
+    if (! stream_context_set_option($context, 'ssl', 'local_cert', 'path/to/my/local_cert')) {
+        die ('unable to set SSL cert');
+    }
+
+    $socket = stream_socket_client($host . ':' . $port, $errno,$errstr, (int) $this-&gt;config['timeout'], STREAM_CLIENT_CONNECT, $context);
+
+    if ($socket === false) {
+        die('Unable to set socket');
+    }
+
+    $success = false; 
+    foreach($modes as $mode) {
+        $success = stream_socket_enable_crypto($this-&gt;socket, true, $mode, $socket);
+        if ($success) break;
+    }
+</code></pre>
+
+<p>Currently, the apache child dies when processing this patched adapter (Apache 2.2.8 + PHP 5.2.8 on Ubuntu 8.04)</p>
+
+<p>Is it a valid method to achieve what I aim to? If positive, what is going wrong?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2009-07-23T15:44:01.000+0000</p> 
+        <div class="body">
+            <p>Sorry for taking so long with this :)</p>
+
+<p>Recent improvements to HTTP client allowed me to implement this by reducing most of the code in the connect() method, and simply relying on preset stream context for this task.</p>
+
+<p>This should now not be any different than using the Socket adapter with an SSL certificate - you can also look at the setStreamContext and getStreamContext methods for this, if you need "advanced" stuff like peer certificate validation forcing.</p>
+
+<p>Fixed in CS-17013</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikko Koppanen (mkoppanen) on 2009-08-26T04:48:33.000+0000</p> 
+        <div class="body">
+            <p>This change breaks backwards compatibility.</p>
+
+<p><a href="http://framework.zend.com/code/browse/Zend_Framework/standard/trunk/library/Zend/Http/Client/Adapter/Proxy.php?r1=17010&amp;r2=17013">http://framework.zend.com/code/browse/…</a></p>
+
+<blockquote>
+  <p>146     -           if ($this-&gt;connected_to[0] != $host || $this-&gt;connected_to[1] != $port) {
+          126 +           if ($this-&gt;connected_to[0] != "tcp://$host" || $this-&gt;connected_to[1] != $port) {</p>
+</blockquote>
+
+<p>At least in our environment there is no tcp:// prefix there as it is not required as far as I understand.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikko Koppanen (mkoppanen) on 2009-08-26T04:56:34.000+0000</p> 
+        <div class="body">
+            <p>Changing the line to:</p>
+
+<p>if (($this-&gt;connected_to[0] != "tcp://$host" &amp;&amp; $this-&gt;connected_to[0] != $host) || $this-&gt;connected_to[1] != $port) {</p>
+
+<p>Seems to fix this in our environment.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2009-08-26T05:37:34.000+0000</p> 
+        <div class="body">
+            <p>Reopening following previous comment</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikko Koppanen (mkoppanen) on 2009-08-26T06:15:15.000+0000</p> 
+        <div class="body">
+            <p>To actually fix the functionality:</p>
+
+<p><a href="http://pastebin.com/m604f9746">http://pastebin.com/m604f9746</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikko Koppanen (mkoppanen) on 2009-11-19T02:05:12.000+0000</p> 
+        <div class="body">
+            <p>I commented that this bug breaks backwards compatibility and it's still present in 1.9.5</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-11-19T12:37:00.000+0000</p> 
+        <div class="body">
+            <p>Mikko,</p>
+
+<p>Can you repost the fix you added on pastebin? The paste ID is no longer valid. I'll commit tomorrow once I have a fix I can run tests against.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikko Koppanen (mkoppanen) on 2009-11-19T13:09:59.000+0000</p> 
+        <div class="body">
+            <p>The following code can be used to test the issue:</p>
+
+<pre class="highlight"><code>
+$client = new Zend_Http_Client('<a href="https://test.example.com">https://test.example.com</a>', array('sslcert' =&gt; '/etc/pki/test.pem',
+                                                                 'proxy_host' =&gt; '127.0.0.1',
+                                         'proxy_port' =&gt; '8888',
+                                     'adapter' =&gt; 'Zend_Http_Client_Adapter_Proxy'));
+
+var_dump($client-&gt;request());
+</code></pre>
+
+<p>The whole issue explained briefly:</p>
+
+<p>Zend_Http_Client_Adapter_Proxy calls the parent::connect method setting $secure = false. This means that ssl context is not created for the connection. This is problematic in a scenario where the connection to proxy is over plain but SSL stream using client certs is negotiated inside that connection.</p>
+
+<p>The proposed fix:</p>
+
+<pre class="highlight"><code>
+### Eclipse Workspace Patch 1.0
+#P zf-trunk
+Index: src/Zend/Http/Client/Adapter/Socket.php
+===================================================================
+--- src/Zend/Http/Client/Adapter/Socket.php (revision 18996)
++++ src/Zend/Http/Client/Adapter/Socket.php (working copy)
+@@ -62,10 +62,11 @@
+      * @var array
+      */
+     protected $config = array(
+-        'persistent'    =&gt; false,
+-        'ssltransport'  =&gt; 'ssl',
+-        'sslcert'       =&gt; null,
+-        'sslpassphrase' =&gt; null
++        'persistent'      =&gt; false,
++        'ssltransport'    =&gt; 'ssl',
++        'sslcert'         =&gt; null,
++        'sslpassphrase'   =&gt; null,
++        'sslusecontext' =&gt; false
+     );
+ 
+     /**
+@@ -176,11 +177,11 @@
+         if (($this-&gt;connected_to[0] != $host || $this-&gt;connected_to[1] != $port)) {
+             if (is_resource($this-&gt;socket)) $this-&gt;close();
+         }
+-
++ 
+         // Now, if we are not connected, connect
+         if (! is_resource($this-&gt;socket) || ! $this-&gt;config['keepalive']) {
+             $context = $this-&gt;getStreamContext();
+-            if ($secure) {
++            if ($secure || $this-&gt;config['sslusecontext']) {
+                 if ($this-&gt;config['sslcert'] !== null) {
+                     if (! stream_context_set_option($context, 'ssl', 'local_cert',
+                                                     $this-&gt;config['sslcert'])) {
+Index: src/Zend/Http/Client/Adapter/Proxy.php
+===================================================================
+--- src/Zend/Http/Client/Adapter/Proxy.php  (revision 18996)
++++ src/Zend/Http/Client/Adapter/Proxy.php  (working copy)
+@@ -91,6 +91,11 @@
+         if (! $this-&gt;config['proxy_host']) {
+             return parent::connect($host, $port, $secure);
+         }
++        
++        /* Url might require stream context even if proxy connection doesn't */
++        if ($secure) {
++           $this-&gt;config['sslusecontext'] = true;
++        }
+ 
+         // Connect (a non-secure connection) to the proxy server
+         return parent::connect(
+</code></pre>
+
+<p>The issue can be tested using CA setup mentioned here (<a href="http://sial.org/howto/openssl/ca/">http://sial.org/howto/openssl/ca/</a>) and setting up for example apache to require the client certificate to be present. Note that this seems to only affect proxy adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-02-06T09:06:58.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r20946</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lorenzo Alberton (quipo) on 2010-06-14T08:33:00.000+0000</p> 
+        <div class="body">
+            <p>This issue is not completely fixed in 1.10.5: the</p>
+
+<p>'sslusecontext' =&gt; false</p>
+
+<p>entry is missing from the</p>
+
+<p>protected $config = array()</p>
+
+<p>causing a NOTICE (Undefined index sslusecontext) on line 92:</p>
+
+<p>if ($secure || $this-&gt;config['sslusecontext']) {</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-06-16T02:06:14.000+0000</p> 
+        <div class="body">
+            <p>next release should address this issue. There was one line missing in the merge</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-06-19T13:12:42.000+0000</p> 
+        <div class="body">
+            <p>Reopen due to misapplied patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-06-19T13:20:48.000+0000</p> 
+        <div class="body">
+            <p>Missing lines previously committed to release branch by bate.</p>
+
+<p>Note: If an issue is technically not fixed, it is fine to reopen it until properly resolved. Thanks for reporting the missing line!</p>
+
+        </div>
+    </div>
+    </div>
+

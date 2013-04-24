@@ -1,0 +1,409 @@
+<h2>ZF-1509: Zend_Auth_Adapter_DbTable not functional in Oracle Database environment</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-07T01:24:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-01-23T12:10:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Auth</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2236">ZF-2236</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In Zend_Auth_Adapter_DbTable, the following code is used to generate a SQL statement:</p>
+
+<pre class="highlight"><code>$credentialExpression = new Zend_Db_Expr(
+            $this-&gt;_zendDb-&gt;quoteInto(
+                $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn)
+                . ' = ' . $this-&gt;_credentialTreatment, $this-&gt;_credential
+                )
+            . ' AS zend_auth_credential_match'
+            );</code></pre>
+
+<p>which generates the following SQL:</p>
+
+<pre class="highlight"><code>SELECT auth_user.*, pwd  = '[[password hash]]'
+AS zend_auth_credential_match
+FROM auth_user
+WHERE login = 'admin'</code></pre>
+
+<p>Since Oracle does seemingly not support logical expressions in the part of the SELECT statement before WHERE, this query fails in Oracle. In a quick test, Oracle 10g returns the error code ORA-00923 - SQL Invalid. Suggested fix would be the following SQL statement:</p>
+
+<pre class="highlight"><code>SELECT CASE COALESCE(count( * ),0)
+WHEN 0 THEN 0
+WHEN 1 THEN 1
+ELSE 0
+END AS zend_auth_credential_match
+FROM auth_user
+WHERE login = 'admin'
+AND pwd = '[[password hash]]'</code></pre>
+
+<p>This is supported by Oracle, DB2 and MySQL; I was not able to test it in a Postges environment since I currently do not have access to one.</p>
+
+<p>Another option would be to do it the "old-fashioned" way using the following SQL:</p>
+
+<pre class="highlight"><code>SELECT auth_user.*
+FROM auth_user
+WHERE login = 'admin'
+AND pwd  = '[[password hash]]'</code></pre>
+
+<p>and then checking if the query returns a row to check if a user with the given name and password exists.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Tobias Gies (ruunstalker) on 2007-06-07T01:29:10.000+0000</p> 
+        <div class="body">
+            <p>added error code that oracle returns</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-07T11:26:36.000+0000</p> 
+        <div class="body">
+            <p>Assign to Darby.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-05T14:32:49.000+0000</p> 
+        <div class="body">
+            <p>In both of the solutions you have posted, you cannot know if the match failed due to incorrect password or due to no such account.  The only way to resolve that is by running two queries.</p>
+
+<p>Both {{CASE}} and {{COALESCE()}} are ANSI/ISO SQL, and are supported by all RDBMS brands supported by Zend_Db.  However, I would simplify it like this:</p>
+
+<pre class="highlight"><code>
+SELECT CASE WHEN pwd = '[[password hash]]' THEN 1 ELSE 0 END 
+    AS zend_auth_credential_match
+FROM auth_user
+WHERE login = 'admin'
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-05T14:37:57.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~ralph].</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Gies (ruunstalker) on 2007-07-06T06:04:54.000+0000</p> 
+        <div class="body">
+            <p>yep, that seems to be the right solution. I opened this issue for someone on the german forums, and asking for an update now, he stated that he now uses the same query you pointed out. a pity he did not say this earlier :(</p>
+
+<p>he also supplied the PHP code he uses to generate that statement. the relevant part of the authenticate() function now reads like this:
+```
+// --[snip]--
+        if (empty($this-&gt;_credentialTreatment) || (strpos($this-&gt;_credentialTreatment, "?") === false)) {
+            $this-&gt;_credentialTreatment = '?';
+        }</p>
+
+<pre><code>    $credentialExpression = new Zend_Db_Expr(
+        $this-&gt;_zendDb-&gt;quoteInto('CASE WHEN '
+            . $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn)
+            . '=' . $this-&gt;_credentialTreatment, $this-&gt;_credential)
+            . ' THEN 1 ELSE 0 END '
+            . ' AS ' . $this-&gt;_zendDb-&gt;quoteIdentifier('zend_auth_credential_match'));
+
+    // get select
+    $dbSelect = $this-&gt;_zendDb-&gt;select();
+    $dbSelect-&gt;from($this-&gt;_tableName, array('*', $credentialExpression))
+             -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn) . ' = ?', $this-&gt;_identity);
+</code></pre>
+
+<p>// --[snip]--{code]</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Gies (ruunstalker) on 2007-07-06T06:08:47.000+0000</p> 
+        <div class="body">
+            <p>sorry, please delete the comment above. something went wrong with that code snippet :(</p>
+
+<p>now again: this is the PHP code used to build the query suggested by you:</p>
+
+<pre class="highlight"><code>    if (empty($this-&gt;_credentialTreatment) || (strpos($this-&gt;_credentialTreatment, "?") === false)) {
+            $this-&gt;_credentialTreatment = '?';
+        }
+
+        $credentialExpression = new Zend_Db_Expr(
+            $this-&gt;_zendDb-&gt;quoteInto('CASE WHEN '
+                . $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn)
+                . '=' . $this-&gt;_credentialTreatment, $this-&gt;_credential)
+                . ' THEN 1 ELSE 0 END '
+                . ' AS ' . $this-&gt;_zendDb-&gt;quoteIdentifier('zend_auth_credential_match'));
+
+        // get select
+        $dbSelect = $this-&gt;_zendDb-&gt;select();
+        $dbSelect-&gt;from($this-&gt;_tableName, array('*', $credentialExpression))
+                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn) . ' = ?', $this-&gt;_identity);</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2007-12-27T15:10:42.000+0000</p> 
+        <div class="body">
+            <p>This patch functions with adapters mysqli and oracle :</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Auth/Adapter/DbTable.php
+===================================================================
+--- library/Zend/Auth/Adapter/DbTable.php   (revision 7261)
++++ library/Zend/Auth/Adapter/DbTable.php   (working copy)
+@@ -299,18 +299,17 @@
+             $this-&gt;_credentialTreatment = '?';
+         }
+ 
+-        $credentialExpression = new Zend_Db_Expr(
+-            $this-&gt;_zendDb-&gt;quoteInto(
+-                $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn)
+-                . ' = ' . $this-&gt;_credentialTreatment, $this-&gt;_credential
+-                )
+-            . ' AS zend_auth_credential_match'
+-            );
++         $credentialExpression = new Zend_Db_Expr(
++            $this-&gt;_zendDb-&gt;quoteInto('CASE WHEN '
++            . $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn, true)
++            . '=' . $this-&gt;_credentialTreatment, $this-&gt;_credential)
++            . ' THEN 1 ELSE 0 END '
++            . ' AS ' . $this-&gt;_zendDb-&gt;quoteIdentifier('zend_auth_credential_match', true));
+ 
+         // get select
+         $dbSelect = $this-&gt;_zendDb-&gt;select();
+         $dbSelect-&gt;from($this-&gt;_tableName, array('*', $credentialExpression))
+-                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn) . ' = ?', $this-&gt;_identity);
++                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn, true) . ' = ?', $this-&gt;_identity);
+ 
+         // query for the identity
+         try {
+@@ -337,13 +336,14 @@
+ 
+         $resultIdentity = $resultIdentities[0];
+ 
+-        if ($resultIdentity['zend_auth_credential_match'] != '1') {
++        if ($resultIdentity['zend_auth_credential_match'] != '1' &amp;&amp; $resultIdentity['ZEND_AUTH_CREDENTIAL_MATCH'] != '1') {
+             $authResult['code'] = Zend_Auth_Result::FAILURE_CREDENTIAL_INVALID;
+             $authResult['messages'][] = 'Supplied credential is invalid.';
+             return new Zend_Auth_Result($authResult['code'], $authResult['identity'], $authResult['messages']);
+         }
+ 
+         unset($resultIdentity['zend_auth_credential_match']);
++        unset($resultIdentity['ZEND_AUTH_CREDENTIAL_MATCH']);
+         $this-&gt;_resultRow = $resultIdentity;
+ 
+         $authResult['code'] = Zend_Auth_Result::SUCCESS;
+</code></pre>
+
+<ul><li>use autoQuoteIdentifiers</li>
+<li>function with folding  case (lower and upper)</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2007-12-31T05:03:28.000+0000</p> 
+        <div class="body">
+            <p>The modification in R7278 (incubator) functions for Oracle, if we change :</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Auth/Adapter/DbTable.php
+===================================================================
+--- library/Zend/Auth/Adapter/DbTable.php   (revision 7316)
++++ library/Zend/Auth/Adapter/DbTable.php   (working copy)
+@@ -313,9 +313,9 @@
+         }
+ 
+         $credentialExpression = new Zend_Db_Expr(
+-            '(CASE WHEN ' . 
++            '(CASE WHEN ' .
+             $this-&gt;_zendDb-&gt;quoteInto(
+-                $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn)
++                $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn, true)
+                 . ' = ' . $this-&gt;_credentialTreatment, $this-&gt;_credential
+                 )
+             . ' THEN 1 ELSE 0 END) AS zend_auth_credential_match'
+@@ -324,7 +324,7 @@
+         // get select
+         $dbSelect = $this-&gt;_zendDb-&gt;select();
+         $dbSelect-&gt;from($this-&gt;_tableName, array('*', $credentialExpression))
+-                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn) . ' = ?', $this-&gt;_identity);
++                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn, true) . ' = ?', $this-&gt;_identity);
+ 
+         return $dbSelect;
+     }
+@@ -378,13 +378,19 @@
+ 
+     protected function _authenticateValidateResult($resultIdentity)
+     {
+-        if ($resultIdentity['zend_auth_credential_match'] != '1') {
++        if (isset($resultIdentity['zend_auth_credential_match'])) {
++            $key='zend_auth_credential_match';
++        }
++        if (isset($resultIdentity['ZEND_AUTH_CREDENTIAL_MATCH'])) {
++            $key='ZEND_AUTH_CREDENTIAL_MATCH';
++        }
++        if ($resultIdentity[$key] != '1') {
+             $authResult['code'] = Zend_Auth_Result::FAILURE_CREDENTIAL_INVALID;
+             $authResult['messages'][] = 'Supplied credential is invalid.';
+             return new Zend_Auth_Result($authResult['code'], $authResult['identity'], $authResult['messages']);
+         }
+ 
+-        unset($resultIdentity['zend_auth_credential_match']);
++        unset($resultIdentity[$key]);
+         $this-&gt;_resultRow = $resultIdentity;
+ 
+         $authResult['code'] = Zend_Auth_Result::SUCCESS;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Gies (ruunstalker) on 2007-12-31T05:53:12.000+0000</p> 
+        <div class="body">
+            <p>Ralph, will you add Mickael's diff file to the incubator or should I write to the ML to ask the community to test the changes before we apply it?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-12-31T11:55:17.000+0000</p> 
+        <div class="body">
+            <p>Essentially, (and I know very little about oracle's intricacies), this looks like its handling an issue of column identifier case translations right?</p>
+
+<p>I am gonna reach out to [~bkarwin] (since he the db guru) and get his OK on this patch, and perhaps he might have other insights...</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-12-31T14:17:15.000+0000</p> 
+        <div class="body">
+            <p>Yes, I think the patch including Mickael's last modifications looks pretty good.  Using the SQL {{CASE}} expression should work, since that expression is standard SQL and I have tested that before in all the database brands supported by Zend_Db.</p>
+
+<p>You have unit tests for the Auth DbTable adapter, but they are hardcoded to use SQLite.  You should allow configuration so testers can change the adapter type in {{TestConfiguration.php}} and try it with MySQL, Oracle, DB2, etc.</p>
+
+<p>The second argument for {{quoteIdentifier()}} is needed for Oracle and DB2.  Oracle and DB2 do some weird things to simulate case-insensitivity of identifiers, so users of those databases requested a feature to globally disable automatic quoting of identifiers in queries run by ZF internal code.</p>
+
+<p>However, for the column alias {{zend_auth_credential_match}}, I think you should quote the alias without the conditional effect.  Use {{quoteIdentifier()}} without the second arg, thus forcing it to be the case of the string you give.  This will simplify the rest of the code.  Users should be able to cope with the {{zend_auth_credential_match}} column in the query result set being case-sensitive.</p>
+
+<p>Another suggestion:  don't feel compelled to do everything in as few PHP statements as possible.  Long, multi-line statements with deep nested parentheses are hard to read.  It's fine to create a few local variables that hold quoted identifiers and SQL expressions.  It makes the code easier to read and easier to update later if you need to.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-01-01T14:55:28.000+0000</p> 
+        <div class="body">
+            <p>With the corrections suggested by [~bkarwin]:</p>
+
+<pre class="highlight"><code>
+Index: DbTable.php
+===================================================================
+--- DbTable.php (revision 7327)
++++ DbTable.php (working copy)
+@@ -315,16 +315,17 @@
+         $credentialExpression = new Zend_Db_Expr(
+             '(CASE WHEN ' . 
+             $this-&gt;_zendDb-&gt;quoteInto(
+-                $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn)
++                $this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_credentialColumn, true)
+                 . ' = ' . $this-&gt;_credentialTreatment, $this-&gt;_credential
+                 )
+-            . ' THEN 1 ELSE 0 END) AS zend_auth_credential_match'
++            . ' THEN 1 ELSE 0 END) AS '
++            . $this-&gt;_zendDb-&gt;quoteIdentifier('zend_auth_credential_match')
+             );
+ 
+         // get select
+         $dbSelect = $this-&gt;_zendDb-&gt;select();
+         $dbSelect-&gt;from($this-&gt;_tableName, array('*', $credentialExpression))
+-                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn) . ' = ?', $this-&gt;_identity);
++                 -&gt;where($this-&gt;_zendDb-&gt;quoteIdentifier($this-&gt;_identityColumn, true) . ' = ?', $this-&gt;_identity);
+ 
+         return $dbSelect;
+     }
+</code></pre>
+
+<p>This functions for mysqli and oracle without need to check the case of zend_auth_credential_match.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-01-01T19:47:18.000+0000</p> 
+        <div class="body">
+            <p>Patch commited in r7328.  Please check :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-01-02T01:07:40.000+0000</p> 
+        <div class="body">
+            <p>I omit this correction :</p>
+
+<pre class="highlight"><code>
+Index: DbTable.php
+===================================================================
+--- DbTable.php (revision 7329)
++++ DbTable.php (working copy)
+@@ -388,6 +388,7 @@
+         unset($resultIdentity['zend_auth_credential_match']);
+         $this-&gt;_resultRow = $resultIdentity;
+ 
++        $authResult['identity'] = $this-&gt;_identity;
+         $authResult['code'] = Zend_Auth_Result::SUCCESS;
+         $authResult['messages'][] = 'Authentication successful.';
+         return new Zend_Auth_Result($authResult['code'], $authResult['identity'], $authResult['messages']);
+</code></pre>
+
+<p>due to the code division.
+I confirm it's OK for MySQL 5.0 and Oracle 9i.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-01-23T12:10:44.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r7598</p>
+
+        </div>
+    </div>
+    </div>
+

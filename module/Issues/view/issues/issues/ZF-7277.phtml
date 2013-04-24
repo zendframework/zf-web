@@ -1,0 +1,170 @@
+<h2>ZF-7277: Zend_Validate_Hostname fails when iconv internal encoding differs from input character set</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-14T19:08:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-26T05:45:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The same issue as ZF-3174. Zend_Validate_Hostname will generate errors when internal encoding is set to a different value from the input data due to use of iconv_strlen without providing the charset parameter. Since string comparisons against UTF-8 data are occurring here, the input string should be converted to UTF-8 first, and then all iconv operations should be performed with UTF-8 encoding.</p>
+
+<p>Patch:</p>
+
+<pre class="highlight"><code>
+--- Hostname.php        (revision 16719)                                                                                                                    
++++ Hostname.php        (working copy)                                                                                                                      
+@@ -157,6 +157,13 @@                                                                                                                                        
+      * @var string                                                                                                                                         
+      */                                                                                                                                                    
+     protected $_tld;                                                                                                                                       
++                                                                                                                                                           
++    /**                                                                                                                                                    
++     * Encoding to use                                                                                                                                     
++     *                                                                                                                                                     
++     * @var string|null                                                                                                                                    
++     */                                                                                                                                                    
++    protected $_encoding;                                                                                                                                  
+                                                                                                                                                            
+     /**                                                                                                                                                    
+      * Array for valid Idns                                                                                                                                
+@@ -330,11 +337,14 @@                                                                                                                                       
+      * @param boolean          $validateIdn OPTIONAL Set whether IDN domains are validated (default true)                                                  
+      * @param boolean          $validateTld OPTIONAL Set whether the TLD element of a hostname is validated (default true)                                 
+      * @param Zend_Validate_Ip $ipValidator OPTIONAL                                                                                                       
++     * @param string|null      $encoding    OPTIONAL                                                                                                       
+      * @return void                                                                                                                                        
+      * @see <a href="http://www.iana.org/cctld/specifications-policies-cctlds-01apr02.htm">http://iana.org/cctld/…</a>  Technical Specifications for ccTLDs                                      
+      */                                                                                                                                                    
+-    public function __construct($allow = self::ALLOW_DNS, $validateIdn = true, $validateTld = true, Zend_Validate_Ip $ipValidator = null)                  
++    public function __construct($allow = self::ALLOW_DNS, $validateIdn = true, $validateTld = true, Zend_Validate_Ip $ipValidator = null, $encoding = null)
+     {                                                                                                                                                      
++        $this-&gt;setEncoding($encoding);                                                                                                                     
++                                                                                                                                                           
+         // Set allow options                                                                                                                               
+         $this-&gt;setAllow($allow);                                                                                                                           
+                                                                                                                                                            
+@@ -344,8 +354,41 @@                                                                                                                                        
+                                                                                                                                                            
+         $this-&gt;setIpValidator($ipValidator);                                                                                                               
+     }                                                                                                                                                      
++                                                                                                                                                           
++    /**                                                                                                                                                    
++     * Returns the actual encoding                                                                                                                         
++     *                                                                                                                                                     
++     * @return string                                                                                                                                      
++     */                                                                                                                                                    
++    public function getEncoding()                                                                                                                          
++    {                                                                                                                                                      
++        return $this-&gt;_encoding;                                                                                                                           
++    }                                                                                                                                                      
+                                                                                                                                                            
+     /**                                                                                                                                                    
++     * Sets a new encoding to use                                                                                                                          
++     *                                                                                                                                                     
++     * @param string $encoding                                                                                                                             
++     * @return Zend_Validate_StringLength                                                                                                                  
++     */                                                                                                                                                    
++    public function setEncoding($encoding = null)                                                                                                          
++    {                                                                                                                                                      
++        if ($encoding !== null) {                                                                                                                          
++            $orig   = iconv_get_encoding('internal_encoding');                                                                                             
++            $result = iconv_set_encoding('internal_encoding', $encoding);                                                                                  
++            if (!$result) {                                                                                                                                
++                require_once 'Zend/Validate/Exception.php';                                                                                                
++                throw new Zend_Validate_Exception('Given encoding not supported on this OS!');                                                             
++            }                                                                                                                                              
++
++            iconv_set_encoding('internal_encoding', $orig);
++        }
++
++        $this-&gt;_encoding = $encoding;
++        return $this;
++    }
++
++    /**
+      * @param Zend_Validate_Ip $ipValidator OPTIONAL
+      * @return void;
+      */
+@@ -417,13 +460,17 @@
+         $valueString = (string) $value;
+
+         $this-&gt;_setValue($valueString);
++
++        if(null !== $this-&gt;_encoding) {
++            $valueString = iconv($this-&gt;_encoding, 'UTF-8', $valueString);
++        }
+
+         // Check input against IP address schema
+         if ($this-&gt;_ipValidator-&gt;setTranslator($this-&gt;getTranslator())-&gt;isValid($valueString)) {
+             if (!($this-&gt;_allow &amp; self::ALLOW_IP)) {
+                 $this-&gt;_error(self::IP_ADDRESS_NOT_ALLOWED);
+                 return false;
+-            } else{
++            } else {
+                 return true;
+             }
+         }
+@@ -505,7 +552,7 @@
+                                     $length = $this-&gt;_idnLength[strtoupper($this-&gt;_tld)];
+                                 }
+
+-                                if (iconv_strlen($domainPart) &gt; $length) {
++                                if (iconv_strlen($domainPart, 'UTF-8') &gt; $length) {
+                                     $this-&gt;_error(self::INVALID_HOSTNAME);
+                                 } else {
+                                     $check = true;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-26T05:45:52.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r17138</p>
+
+        </div>
+    </div>
+    </div>
+

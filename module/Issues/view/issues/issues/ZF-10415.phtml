@@ -1,0 +1,202 @@
+<h2>ZF-10415: bad performances with the method describeTable on several adapters (Db2, Pdo_Db2, Oracle)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-09-03T07:22:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-04-22T14:28:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>Zend_Db_Adapter_Db2</li>
+            <li>Zend_Db_Adapter_Oracle</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7427">ZF-7427</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I identified several problems on Zend_DB, in the method describeTable() of several adapters (Db2, Pdo_Db2, Oracle).</p>
+
+<p>Here is an example with the query specific for i5 DB2, but you'll find the same mistakes in the query specific for DB2 for Windows/Linux :</p>
+
+<pre class="highlight"><code>
+// DB2 On I5 specific query
+$sql = "SELECT DISTINCT C.TABLE_SCHEMA, C.TABLE_NAME, C.COLUMN_NAME, C.ORDINAL_POSITION,
+    C.DATA_TYPE, C.COLUMN_DEFAULT, C.NULLS ,C.LENGTH, C.SCALE, LEFT(C.IDENTITY,1),
+    LEFT(tc.TYPE, 1) AS tabconsttype, k.COLSEQ
+    FROM QSYS2.SYSCOLUMNS C
+    LEFT JOIN (QSYS2.syskeycst k JOIN QSYS2.SYSCST tc
+        ON (k.TABLE_SCHEMA = tc.TABLE_SCHEMA
+          AND k.TABLE_NAME = tc.TABLE_NAME
+          AND LEFT(tc.type,1) = 'P'))
+        ON (C.TABLE_SCHEMA = k.TABLE_SCHEMA
+           AND C.TABLE_NAME = k.TABLE_NAME
+           AND C.COLUMN_NAME = k.COLUMN_NAME)
+    WHERE "
+     . $this-&gt;quoteInto('UPPER(C.TABLE_NAME) = UPPER(?)', $tableName);
+
+if ($schemaName) {
+    $sql .= $this-&gt;quoteInto(' AND UPPER(C.TABLE_SCHEMA) = UPPER(?)', $schemaName);
+}
+
+$sql .= " ORDER BY C.ORDINAL_POSITION FOR FETCH ONLY";
+</code></pre>
+
+<p>The mistakes are :</p>
+
+<p>1 - it is a very bad practice to use the function UPPER on the columns C.TABLE_NAME and C.TABLE_SCHEMA : when you do that, the SQL engine of DB2 can't find an index optimized for the query, so he will parse all the table. It's very bad for performances, and completely useless, because all the characters in that system table are always uppercased. I have an i5 platform here with a table which contains 5 million of lines, can you imagine the result ? I'm not expert on Oracle database but I think that the problem is probably the same with the Oracle apdater.</p>
+
+<p>2 - the clause DISTINCT in the beginning of the table is very bad for performances, and very dangerous. Practically, the situation where $schemaName is unknown is unacceptable because, on a DB2 database, you can have 2 tables with the same name, in 2 different schemas, and with structures completely different. In that situation, merge the structure of the 2 tables with a DISTINCT clause would generate a datastructure completely wrong. With DB2, not define the schemaname should be simply forbidden. Another solution could be to use the DISTINCT function only if the schema name is unknown.</p>
+
+<p>3 - several versions of DB2 for i5 don't accept not to have a space after the comma, in functions like LEFT(C.IDENTITY,1) and LEFT(tc.type,1). For a better portability, it's better to have always a space after the comma, even if it seems ridiculous.</p>
+
+<p>A better implementation could be this one :</p>
+
+<pre class="highlight"><code>
+// DB2 On I5 specific query
+if ($schemaName != '') {
+   $distinct_function = '' ;
+} else {
+   $distinct_function = 'DISTINCT' ;
+}
+$sql = "SELECT {$distinct_function} C.TABLE_SCHEMA, C.TABLE_NAME, C.COLUMN_NAME, C.ORDINAL_POSITION,
+    C.DATA_TYPE, C.COLUMN_DEFAULT, C.NULLS ,C.LENGTH, C.SCALE, LEFT(C.IDENTITY, 1),
+    LEFT(tc.TYPE, 1) AS tabconsttype, k.COLSEQ
+    FROM QSYS2.SYSCOLUMNS C
+    LEFT JOIN (QSYS2.syskeycst k JOIN QSYS2.SYSCST tc
+        ON (k.TABLE_SCHEMA = tc.TABLE_SCHEMA
+          AND k.TABLE_NAME = tc.TABLE_NAME
+          AND LEFT(tc.type, 1) = 'P'))
+        ON (C.TABLE_SCHEMA = k.TABLE_SCHEMA
+           AND C.TABLE_NAME = k.TABLE_NAME
+           AND C.COLUMN_NAME = k.COLUMN_NAME)
+    WHERE "
+     . $this-&gt;quoteInto('C.TABLE_NAME = UPPER(?)', $tableName);
+
+if ($schemaName != '') {
+    $sql .= $this-&gt;quoteInto(' AND C.TABLE_SCHEMA = UPPER(?)', $schemaName);
+}
+
+$sql .= " ORDER BY C.ORDINAL_POSITION FOR FETCH ONLY";
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rod Flohr (rodflohr) on 2010-12-06T06:53:35.000+0000</p> 
+        <div class="body">
+            <p>It is not always true that characters in QSYS2.SYSCOLUMNS are all upper case on the i5.  Quoting table names and column names in the CREATE TABLE will cause them to be case sensitive in the SYSCOLUMNS table:</p>
+
+<p>From a 5250 command line, STRSQL, and then</p>
+
+<p>CREATE TABLE SCHEMA/"inventory"<br />
+    ("PartNo"         SMALLINT     NOT NULL,
+    "Descr"          VARCHAR(24),<br />
+    "QOnHand"        INT)</p>
+
+<p>then:</p>
+
+<p>select * from QSYS2/SYSCOLUMNS where TABLE_NAME='inventory'</p>
+
+<p>The result of this will be:</p>
+
+<p>{{COLUMN_NAME     TABLE_NAME}}</p>
+
+<p>{{PartNo          inventory}}
+{{Descr           inventory}}
+{{QOnHand         inventory}}</p>
+
+<p>If you then do this (not using any quotes):</p>
+
+<p>CREATE TABLE SCHEMA/inventory<br />
+    (PartNo         SMALLINT     NOT NULL,
+    Descr          VARCHAR(24),<br />
+    QOnHand        INT)</p>
+
+<p>You will now have two tables, one with the mixed case table and column names, and one where they are all upper case.  Then, if you do this, using the UPPER() functions:</p>
+
+<p>select * from QSYS2/SYSCOLUMNS where UPPER(TABLE_NAME)=UPPER('inventory')</p>
+
+<p>The result would be:</p>
+
+<p>{{COLUMN_NAME     TABLE_NAME}}</p>
+
+<p>{{PartNo          inventory}}
+{{Descr           inventory}}
+{{QOnHand         inventory}}
+{{PARTNO          INVENTORY}}
+{{DESCR           INVENTORY}}
+{{QONHAND         INVENTORY}}</p>
+
+<p>Leaving out the UPPER() functions, the result of the select will depend on the case of the table name.  Doing this:</p>
+
+<p>select * from QSYS2/SYSCOLUMNS where TABLE_NAME='inventory'</p>
+
+<p>gives this:</p>
+
+<p>{{COLUMN_NAME     TABLE_NAME}}</p>
+
+<p>{{PartNo          inventory}}
+{{Descr           inventory}}
+{{QOnHand         inventory}}</p>
+
+<p>Doing this:</p>
+
+<p>select * from QSYS2/SYSCOLUMNS where TABLE_NAME='INVENTORY'</p>
+
+<p>gives this:</p>
+
+<p>{{COLUMN_NAME     TABLE_NAME}}</p>
+
+<p>{{PARTNO          INVENTORY}}
+{{DESCR           INVENTORY}}
+{{QONHAND         INVENTORY}}</p>
+
+<p>So, case sensitivity does need to be taken into account, although it is not clear whether using UPPER() really will always give the desired result.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gregory Jarrige (gregory.jarrige) on 2011-01-05T04:29:51.000+0000</p> 
+        <div class="body">
+            <p>I did not know it was possible to use the case-sensitivity whith STRSQL mode. Thank's a lot, Rod, for that information. I agree with you on the fact that the UPPER function is inappropriate in that context.</p>
+
+        </div>
+    </div>
+    </div>
+

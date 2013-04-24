@@ -1,0 +1,321 @@
+<h2>ZF-11594: Some zend validators dont set options in __construct</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-23T05:07:27.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-10-27T20:03:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When creating form we can set validators via setValidators, e.g.:</p>
+
+<pre class="highlight"><code>
+$foo-&gt;setValidators(array(
+  new Zend_Validate_NotEmpty(array(
+    'messages' =&gt; array(
+    'isEmpty' =&gt; 'asdasdь',
+     Zend_Validate_NotEmpty::INVALID =&gt; 'msg'
+   )
+))
+</code></pre>
+
+<p>However, that doesnt work. Message is never set. In source file:</p>
+
+<pre class="highlight"><code>
+public function __construct($options = null)
+    {
+        if ($options instanceof Zend_Config) {
+            $options = $options-&gt;toArray();
+        } else if (!is_array($options)) {
+            $options = func_get_args();
+            $temp    = array();
+            if (!empty($options)) {
+                $temp['type'] = array_shift($options);
+            }
+
+            $options = $temp;
+        }
+
+        if (is_array($options) &amp;&amp; array_key_exists('type', $options)) {
+            $this-&gt;setType($options['type']);
+        }
+    }
+</code></pre>
+
+<p>For example, in Zend_Validate_EmailAddress:</p>
+
+<pre class="highlight"><code>
+public function __construct($options = array())
+    {
+        if ($options instanceof Zend_Config) {
+            $options = $options-&gt;toArray();
+        } else if (!is_array($options)) {
+            $options = func_get_args();
+            $temp['allow'] = array_shift($options);
+            if (!empty($options)) {
+                $temp['mx'] = array_shift($options);
+            }
+
+            if (!empty($options)) {
+                $temp['hostname'] = array_shift($options);
+            }
+
+            $options = $temp;
+        }
+
+        $options += $this-&gt;_options;
+        $this-&gt;setOptions($options); // VERY IMPORTANT
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-27T19:41:12.000+0000</p> 
+        <div class="body">
+            <p>All validators which use options set them within __construct.</p>
+
+<p>Only the EmailAddress validator has a own setOptions method allows to use setMessages within setOption.
+This is unique to this validator as it customizes the hostname validator.</p>
+
+<p>Note that this is no bug but actually intended behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bogdan Yurov (nick4fake) on 2011-07-28T06:36:43.000+0000</p> 
+        <div class="body">
+            <p>Why that is not a bug? It would be great, if instead of:
+$name = new Zend_Form_Element_Text('name');
+.... many lines
+$name-&gt;getValidator('NotEmpty')-&gt;setMessages(array(
+  Zend_Validate_NotEmpty::IS_EMPTY =&gt; 'Name:'
+));
+I could write only:
+$name-&gt;-&gt;setValidators(array(
+  new Zend_Validate_NotEmpty(
+    'messages' =&gt; array(
+      Zend_Validate_NotEmpty::IS_EMPTY =&gt; 'Name:'<br />
+    )
+  )
+))</p>
+
+<p>It IS a bug, when differend validators have very different __construct behaviour and most logical behaviour is supported only by one validator.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-28T07:08:40.000+0000</p> 
+        <div class="body">
+            <p><em>Please use code tags!</em></p>
+
+<p>This is not a bug: Zend_Form_Element handles this.</p>
+
+<pre class="highlight"><code>
+protected function _loadValidator(array $validator)
+{
+    // …
+
+    $messages = false;
+    if (isset($validator['options']) &amp;&amp; array_key_exists('messages', (array)$validator['options'])) {
+        $messages = $validator['options']['messages'];
+        unset($validator['options']['messages']);
+    }
+
+    // …
+
+    if ($messages) {
+        if (is_array($messages)) {
+            $instance-&gt;setMessages($messages);
+        } elseif (is_string($messages)) {
+            $instance-&gt;setMessage($messages);
+        }
+    }
+    
+    // …
+}
+</code></pre>
+
+<pre class="highlight"><code>
+$this-&gt;addElement(
+    'text',
+    'foo',
+    array(
+        'label'      =&gt; 'Foo',
+        'validators' =&gt; array(
+            array(
+                'NotEmpty',
+                true,
+                array(
+                    'messages' =&gt; array(
+                        Zend_Validate_NotEmpty::IS_EMPTY =&gt; 'My message.',
+                    ),
+                ),
+            ),            
+        ),
+    )
+);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bogdan Yurov (nick4fake) on 2011-07-28T07:32:09.000+0000</p> 
+        <div class="body">
+            <p>But i wrote it in another way:
+new Zend_Validate_NotEmpty(
+'messages' =&gt; array(
+Zend_Validate_NotEmpty::IS_EMPTY =&gt; 'Name:' 
+)
+)
+that doesn't work</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-28T07:46:47.000+0000</p> 
+        <div class="body">
+            <p><em>Please use code tags!</em> No one can read your code examples!</p>
+
+<p>Your initial question begins with: "When creating form…" and my example shows a working path.
+Why is it a bug and not a proposal for an improvement?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bogdan Yurov (nick4fake) on 2011-07-28T08:10:04.000+0000</p> 
+        <div class="body">
+            <p>I'm sorry, did not know how to use the code tag. BB or HTML?
+It is a bug, because in zend docs two ways of coding described: factory and objects (your code - factory, my code - with the help of objects). First of all one would think that both approaches are identical, while you write, that only with the first one described behaviour can be achieved.</p>
+
+<p>Sorry for my english and tone (I would not want you to think I was rude, the reason is bad knowlege :) )</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-28T08:35:46.000+0000</p> 
+        <div class="body">
+            <p>{quote}I'm sorry, did not know how to use the code tag. BB or HTML?{quote}
+<a href="http://framework.zend.com/issues/secure/WikiRendererHelpAction.jspa?section=all">Take a look at the question mark over the send button.</a></p>
+
+<p>My proposal for Zend_Form_Element:</p>
+
+<pre class="highlight"><code>
+public function addValidator($validator, $breakChainOnFailure = false, $options = array())
+{
+    if ($validator instanceof Zend_Validate_Interface) {
+        $name = get_class($validator);
+
+        if (!isset($validator-&gt;zfBreakChainOnFailure)) {
+            $validator-&gt;zfBreakChainOnFailure = $breakChainOnFailure;
+        }
+        
+        // Set messages
+        if (array_key_exists('messages', (array) $options)) {            
+            if (is_array($options['messages'])) {
+                $validator-&gt;setMessages($options['messages']);
+            } elseif (is_string($options['messages'])) {
+                $validator-&gt;setMessage($options['messages']);
+            }
+        } 
+    } elseif (is_string($validator)) {
+        // …
+    } else {
+        // …
+    }
+
+    // …
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bogdan Yurov (nick4fake) on 2011-07-28T08:47:34.000+0000</p> 
+        <div class="body">
+            <p>That is great! The only problem is that this code is not in the branch yet.
+Thanks. I suggest adding something like this to the branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-28T09:31:55.000+0000</p> 
+        <div class="body">
+            <p>I wrote a unit test and the implementation for Zend_Form_Element.
+Should we move this issue to Zend_Form?</p>
+
+<p>Thomas, what is your opinion?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-28T10:38:25.000+0000</p> 
+        <div class="body">
+            <p>@Yurov:
+{quote}Why that is not a bug?{quote}
+A feature which is wether described within the documentation nor implemented within the component is a new feature request and not a bug.</p>
+
+<p>@Kai:
+I suggest to add a new feature request linked to this one where you can add this feature to Zend_Form.
+Regardless of your improvement for Zend_Form I am actually doing on a similar change to Zend_Validator because it should also work this way when validators are used standalone.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-10-27T18:50:47.000+0000</p> 
+        <div class="body">
+            <p>Added to ZF2 with <a href="https://github.com/zendframework/zf2/pull/520">GH-520</a>.
+Backporting to ZF1 is not possible due to BC inconsistencies.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bogdan Yurov (nick4fake) on 2011-10-27T20:03:03.000+0000</p> 
+        <div class="body">
+            <p>Thanks a lot!</p>
+
+        </div>
+    </div>
+    </div>
+

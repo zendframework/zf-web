@@ -1,0 +1,218 @@
+<h2>ZF-11798: Zend_Currency constructor overwrites the display option if a locale defines a symbol</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-10-06T09:12:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-01T00:14:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Currency</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>For a locale which defines a currency symbol, it's completely useless to define the display option because the constructor overwrites it with the Zend_Currency::USE_SYMBOL constant.</p>
+
+<pre class="highlight"><code>
+// Get the format
+if (!empty($this-&gt;_options['symbol'])) {
+    $this-&gt;_options['display'] = self::USE_SYMBOL;
+}
+</code></pre>
+
+<p>So the following code doesn't work:</p>
+
+<pre class="highlight"><code>
+$currency = new Zend_Currency(array('value' =&gt; 100, 'display' =&gt; Zend_Currency::USE_SHORTNAME), 'de_DE');
+print $currency;
+</code></pre>
+
+<p>Because this code prints always the currency symbol €.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-28T19:05:00.000+0000</p> 
+        <div class="body">
+            <p>Reproducing unit test case (against locale en_US for convenience):</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/CurrencyTest.php
+===================================================================
+--- tests/Zend/CurrencyTest.php (revision 24537)
++++ tests/Zend/CurrencyTest.php (working copy)
+@@ -826,4 +826,28 @@
+         $currency-&gt;setService('Zend_Currency_Service');
+         $this-&gt;assertTrue($currency-&gt;getService() instanceof Zend_Currency_Service);
+     }
++
++    /**
++     * @group ZF-11798
++     * @dataProvider providerConstructorAllowsOverridingCurrencyDisplayFormat
++     */
++    public function testConstructorAllowsOverridingCurrencyDisplayFormat($display, $expected)
++    {
++        $currency = new Zend_Currency(array('value' =&gt; 100, 'display' =&gt; $display), 'en_US');
++        $this-&gt;assertEquals($expected, $currency-&gt;toString());
++    }
++
++    /**
++     * Data Provider for testConstructorAllowsOverridingCurrencyDisplayFormat
++     * @see ZF-11798
++     */
++    public function providerConstructorAllowsOverridingCurrencyDisplayFormat()
++    {
++        return array(
++            array(Zend_Currency::NO_SYMBOL, '100.00'),
++            array(Zend_Currency::USE_SYMBOL, '$100.00'),
++            array(Zend_Currency::USE_SHORTNAME, 'USD100.00'),
++            array(Zend_Currency::USE_NAME, 'US Dollar100.00')
++        );
++    }
+ }
+</code></pre>
+
+<p>Result:</p>
+
+<pre class="highlight"><code>
+++ phpunit --verbose --group ZF-11798 AllTests
+PHPUnit 3.5.14 by Sebastian Bergmann.
+
+F.FF
+
+Time: 8 seconds, Memory: 425.00Mb
+
+There were 3 failures:
+
+1) Zend_CurrencyTest::testConstructorAllowsOverridingCurrencyDisplayFormat with data set #0 (1, '100.00')
+Failed asserting that two strings are equal.
+--- Expected
++++ Actual
+@@ @@
+-100.00
++$100.00
+
+/usr/local/apache2/htdocs/lib/zfdev/trunk/tests/Zend/CurrencyTest.php:837
+
+2) Zend_CurrencyTest::testConstructorAllowsOverridingCurrencyDisplayFormat with data set #2 (3, 'USD100.00')
+Failed asserting that two strings are equal.
+--- Expected
++++ Actual
+@@ @@
+-USD100.00
++$100.00
+
+/usr/local/apache2/htdocs/lib/zfdev/trunk/tests/Zend/CurrencyTest.php:837
+
+3) Zend_CurrencyTest::testConstructorAllowsOverridingCurrencyDisplayFormat with data set #3 (4, 'US Dollar100.00')
+Failed asserting that two strings are equal.
+--- Expected
++++ Actual
+@@ @@
+-US Dollar100.00
++$100.00
+
+/usr/local/apache2/htdocs/lib/zfdev/trunk/tests/Zend/CurrencyTest.php:837
+
+FAILURES!
+Tests: 4, Assertions: 4, Failures: 3.
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-28T19:10:12.000+0000</p> 
+        <div class="body">
+            <p>YMMV, but this fixes the issue for me. I have to do more research before i'm comfortable suggesting it as a complete fix and free of BC implications:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Currency.php
+===================================================================
+--- library/Zend/Currency.php   (revision 24537)
++++ library/Zend/Currency.php   (working copy)
+@@ -91,6 +91,11 @@
+      */
+     public function __construct($options = null, $locale = null)
+     {
++        $calloptions = $options;
++        if (is_array($options) &amp;&amp; isset($options['display'])) {
++            $this-&gt;_options['display'] = $options['display'];
++        }
++
+         if (is_array($options)) {
+             $this-&gt;setLocale($locale);
+             $this-&gt;setFormat($options);
+@@ -118,12 +123,15 @@
+             require_once 'Zend/Currency/Exception.php';
+             throw new Zend_Currency_Exception("Currency '$options' not found");
+         }
+-
++
+         // Get the format
+-        if (!empty($this-&gt;_options['symbol'])) {
+-            $this-&gt;_options['display'] = self::USE_SYMBOL;
+-        } else if (!empty($this-&gt;_options['currency'])) {
+-            $this-&gt;_options['display'] = self::USE_SHORTNAME;
++        if ((is_array($calloptions) &amp;&amp; !isset($calloptions['display']))
++                || (!is_array($calloptions) &amp;&amp; $this-&gt;_options['display'] == self::NO_SYMBOL)) {
++            if (!empty($this-&gt;_options['symbol'])) {
++                $this-&gt;_options['display'] = self::USE_SYMBOL;
++            } else if (!empty($this-&gt;_options['currency'])) {
++                $this-&gt;_options['display'] = self::USE_SHORTNAME;
++            }
+         }
+     }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-06-01T00:14:27.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24855</p>
+
+        </div>
+    </div>
+    </div>
+

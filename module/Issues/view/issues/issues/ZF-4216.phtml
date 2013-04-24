@@ -1,0 +1,161 @@
+<h2>ZF-4216: Infinite call loop in Zend_Soap_Client</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-06T19:39:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-12T03:58:15.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.1 (15/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Soap_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4152">ZF-4152</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <h2>Two days ago i downloaded Release 1.6.0 to test the Zend_Soap_Client. The code</h2>
+
+<p>$Options = array(
+  'soap_version' =&gt; SOAP_1_2,
+  'encoding'     =&gt; 'ISO-8859-1'
+);
+$Client = new Zend_Soap_Client('../server/soap_test.wsdl', $Options);</p>
+
+<h2>$Response = $Client-&gt;get_echo('test');</h2>
+
+<p>crashed (under XP / Apache 2.2 / PHP5.2.6)</p>
+
+<h2>The code</h2>
+
+<p>$Client = new SoapClient('../server/soap_test.wsdl', $Options);</p>
+
+<h2>$Response = $Client-&gt;__call('get_echo', array('test'));</h2>
+
+<p>did work.</p>
+
+<p>I found that
+Zend_Soap_Client_Common::__doRequest(...)
+was called (on $this-&gt;_soapClient member of Zend_Soap_Client), this one called
+Zend_Soap_Client::_doRequest(...)
+which again called
+Zend_Soap_Client_Common::__doRequest(...)
+(I think, the base call SoapClient::__doRequest(...)  was indented?)
+and so on.</p>
+
+<p>I am not so familar with the architecture to locate the reason for this.</p>
+
+<p>Best regards,
+Bernd Schuler</p>
+
+<hr /><p>From code comments i guess something like this is intended:</p>
+
+<p>1) Add new function _doRequest to Zend_Soap_Client_Common class:</p>
+
+<pre class="highlight"><code>
+function _doRequest($request, $location, $action, $version, $one_way)
+{
+    if ($one_way == null) {
+        return parent::__doRequest($request, $location, $action, $version);
+    } else {
+        return parent::__doRequest($request, $location, $action, $version, $one_way);
+    }
+}
+</code></pre>
+
+<p>2) Change Zend_Soap_Client::_doRequest function to:</p>
+
+<pre class="highlight"><code>
+public function _doRequest(Zend_Soap_Client_Common $client, $request, $location, $action, $version, $one_way = null)
+{
+    // Perform request as is
+    return $client-&gt;_doRequest($request, $location, $action, $version, $one_way);
+}
+</code></pre>
+
+<p>In this way extensions of Zend_Soap_Client can do some work ( in overwriting Zend_Soap_Client:: _doRequest(...) ), before the actual soap call is done.
+Eliminating Zend_Soap_Client_Common:: __doRequest(...) will undo this, because then SoapClient:: __doRequest(...) will be called immediately.</p>
+
+<p>Best reagrds,
+Bernd Schuler</p>
+
+<hr /><pre class="highlight"><code>
+call_user_func(array($client, 'SoapClient::__doRequest'), $request, $location, $action, $version);
+</code></pre>
+
+<p>Cool, i didn't yet know this syntax in PHP to call base methods of extension classes.</p>
+
+<p>Thanks,
+Bernd Schuler</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Frank Ruske (fruske) on 2008-09-08T08:46:07.000+0000</p> 
+        <div class="body">
+            <p><a href="http://framework.zend.com/issues/browse/ZF-4152">http://framework.zend.com/issues/browse/ZF-4152</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-09-10T12:30:20.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the report and detailed problem research!</p>
+
+<p>A bit shoter way to fix:
+{panel}
+return $client-&gt;__doRequest($request, $location, $action, $version);
+{panel}
+---&gt;
+{panel}
+return call_user_func(array($client,'SoapClient::__doRequest'), $request, $location, $action, $version);
+{panel}</p>
+
+<p>It directly calls necessary method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-09-10T12:31:11.000+0000</p> 
+        <div class="body">
+            <p>Fixed</p>
+
+        </div>
+    </div>
+    </div>
+

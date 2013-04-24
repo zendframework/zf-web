@@ -1,0 +1,266 @@
+<h2>ZF-3190: Zend_Cache_Frontend_Output::start() to return data for success</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-05-02T13:18:31.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently, there is no way to replace place-holder text in an output-cached page's content. The start() method just outputs the data and returns true for cache-hit. We need a way to replace any place-holders in the content before outputting it:</p>
+
+<pre class="highlight"><code>
+
+Line: 55
+-   public function start($id, $doNotTestCacheValidity = false)
++   public function start($id, $doNotTestCacheValidity = false, $echoData = true)
+
+Line: 59
++   if ( $echoData )
+    {
+       echo ($data);
+       return true;         // Since data is already output, there is no use with the returned data
+    }
++   else
++      return ($data);      // Developer's responsibility to echo it later
+
+</code></pre>
+
+<p>The above changes are backwards-compatible with a 3rd argument that has a default value. Further, returning a valid data evaluates to true and so existing code will still work without any changes.</p>
+
+<p>However, I'm not quite sure off the top of my head if this $echoData argument and returning $data is to be implemented in the start() method or the end() method or both the methods.</p>
+
+<p>If the above is unclear, all I want to do is save data along with placeholders to cache but just before outputting data, I intend to replace the placeholders inside the data with custom content (such as: Hello Fabien!, Hello Guest!, etc)</p>
+
+<p>Thanks!</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2008-05-17T23:54:16.000+0000</p> 
+        <div class="body">
+            <p>Here is what I figured out as changes needed to the start() and end() methods for the placeholder logic to work:</p>
+
+<pre class="highlight"><code>
+    public function start($id, $doNotTestCacheValidity = false, $echo = true)
+    {
+        $data = $this-&gt;load($id, $doNotTestCacheValidity);
+        //
+        if ($data !== false)
+        {
+            if ($echo)
+            echo($data);
+            //
+            return $data;
+        }
+        //
+        ob_start();
+        ob_implicit_flush(false);
+        //
+        return false;
+    }
+
+    public function end($tags = array(), $specificLifetime = false, $data = '')
+    {
+        $echo = 0;
+        //
+        if ( ! $data )
+        {
+            $echo = 1;
+            $data = ob_get_contents();
+            ob_end_clean();
+        }
+        //
+        $this-&gt;save($data, null, $tags, $specificLifetime);
+        //
+        if ( $echo )
+            echo($data);
+    }
+</code></pre>
+
+<p>Hope this helps...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-05-18T14:35:30.000+0000</p> 
+        <div class="body">
+            <p>ok for next minor release</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-05-19T13:23:50.000+0000</p> 
+        <div class="body">
+            <p>on your last comment, what about sending $data to the browser (in the end() method) in any cases ($data = '', $data != '') ?</p>
+
+<p>Have you have a real example for this particular point ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-05-21T10:48:30.000+0000</p> 
+        <div class="body">
+            <p>I just commited it into SVN trunk. Can you try it ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2008-05-21T22:42:47.000+0000</p> 
+        <div class="body">
+            <p>Hi Fabien,</p>
+
+<p>In the end() method, the developer can pass an arbitrary/pre-captured $data argument which means he/she has already captured the data and needs to do some pre-processing/placeholder-replacements with it before echoing it to the browser. In this case where the $data is not null, its the developer's responsibility to echo the output to the browser. However, the save() logic is still delegated to the end() method - saving $data to cache "before" any placeholder-replacements are made (in raw form). I have two issues using the new code you proposed in the end() method:</p>
+
+<ol><li><p>Placeholders are not displaying when the page is generated - they are displaying only when the page is loaded from cache which means users will miss out on placeholder data when the page is generated. This is kind of a chicken-n-egg situation but fortunately, not impossible to work around.</p></li>
+<li><p>Output is displayed twice because I need to output it too before invoking end(). I can control this by sending the output to the browser only if it is not an output-cached page but point # 1 above is still an issue ;(</p></li>
+<li><p>In the start() method, we need the $data to be returned if $data !== false (this value is in raw form that was saved to cache earlier without any placeholder replacements) so that we can do post-processing/placeholder-replacements on it before sending it to the browser.</p></li>
+</ol><p>Well, how about this revised script with soft-coded arguments for a fine-grained control (while maintaining the default functionality) and more options for developers which means they can control start/end logic in whatever way they want:</p>
+
+<pre class="highlight"><code>
+
+    public function start($id, $doNotTestCacheValidity = false, $echo = true)
+    {
+        $data = $this-&gt;load($id, $doNotTestCacheValidity);
+        //
+        if ($data !== false)
+        {
+            if ($echo)
+            echo($data);
+            //
+            return $data;            // Return the $data for post-processing
+        }
+        //
+        ob_start();
+        ob_implicit_flush(false);
+        //
+        return false;
+    }
+
+    public function end($tags = array(), $specificLifetime = false, $data = null, $echo = true)
+    {
+        if ( is_null( $data ))
+        {
+            $data = ob_get_contents();
+            ob_end_clean();
+        }
+        //
+        $this-&gt;save($data, null, $tags, $specificLifetime);
+        //
+        if ( $echo )
+            echo($data);
+    }
+
+</code></pre>
+
+<p>Hope this is clear... The above code works like a treat for me!</p>
+
+<p>Thanks much for a quick turnaround of this task!!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2008-05-21T23:04:36.000+0000</p> 
+        <div class="body">
+            <p>An addition to point # 3 I mentioned above on start() method:</p>
+
+<p>3.1) The developer would pass $echo = false, get the $data returned, do placeholder-replacements on it and echo it himself.</p>
+
+<p>(PS: this is an exotic behavior taking the echo functionality out of start/end methods but the default behavior of cache-output-frontend is unchanged).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2008-05-21T23:10:20.000+0000</p> 
+        <div class="body">
+            <p>The same logic applies to end() method:</p>
+
+<p>The developer passes $echo = false along with raw $data but only after echoing the post-processed $data.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-05-25T11:27:54.000+0000</p> 
+        <div class="body">
+            <p>I just commited a new version (svn/trunk/9527). Can you try it ?</p>
+
+<p>Note: in the start() method, when $echo=true (default), I must return a boolean and not $data (to avoid an API break)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2008-05-27T22:58:56.000+0000</p> 
+        <div class="body">
+            <p>I have tested these fixes and they seem to be working as expected now. Thanks for the brilliant workaround.</p>
+
+<p>Thanks,</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2008-05-27T23:06:52.000+0000</p> 
+        <div class="body">
+            <p>Output.php
+Line 92</p>
+
+<pre class="highlight"><code>
+
+-            $data = $forcedDatas;
++           $data =&amp; $forcedDatas;         // Assign by reference and avoid duplicate copy in memory
+
+</code></pre>
+
+<p>Since output could be a long string of HTML, it could hog the server's memory if duplicated even for a short duration.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:42.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

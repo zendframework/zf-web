@@ -1,0 +1,102 @@
+<h2>ZF-7179: Zend_Db_Adapter_Abstract::quote() does not work for very large numbers</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-02T02:05:47.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>Zend_Db_Adapter_Oracle</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I am experiencing this issue with Zend_Db_Adapter_Oracle, but I think it will apply to all adapters because the error is in Zend_Db_Adapter_Abstract.</p>
+
+<p>I think that Zend_Db_Adapter_Abstract::quote() does not work for any value where the type is Zend_Db::FLOAT_TYPE and the value has more digits/characters than the maximum for a float on the platform.</p>
+
+<p>In my case, I am accessing an Oracle database that uses a NUMBER(38) column to store the primary key. This column typically contains a 36 digit number, e.g. 555761052034529007487149626225672131. When this value is passed to  Zend_Db_Adapter_Abstract::quote(), e.g. from Zend_Db_Table_Row_Abstract::findDependentRowset(), it evaluates as type Zend_Db::FLOAT_TYPE, and quote() makes sure it is safe using:</p>
+
+<pre class="highlight"><code>
+
+                case Zend_Db::FLOAT_TYPE: // float or decimal
+                    $quotedValue = sprintf('%F', $value);
+</code></pre>
+
+<p>Unfortunately, sprintf('%F', 555761052034529007487149626225672131) returns 555761052034529022312814055230799872.000000 rather than 555761052034529007487149626225672131.000000 and so this is the value returned by quote(), which is incorrect.</p>
+
+<p>The result is correct to 16 significant places, which would make sense if floats are a 64bit decimal.</p>
+
+<p>Given that we are not trying to do any arithmetic with the value, just to make it safe, it could be fixed by replacing the call to sprintf with a preg_match() in the same way that is done for Zend_Db::BIGINT_TYPE, e.g.</p>
+
+<pre class="highlight"><code>
+                case Zend_Db::BIGINT_TYPE: // 64-bit integer
+                    // ANSI SQL-style hex literals (e.g. x'[\dA-F]+')
+                    // are not supported here, because these are string
+                    // literals, not numeric literals.
+                    if (preg_match('/^(
+                          [+-]?                  # optional sign
+                          (?:
+                            0[Xx][\da-fA-F]+     # ODBC-style hexadecimal
+                            |\d+                 # decimal or octal, or MySQL ZEROFILL decimal
+                            (?:[eE][+-]?\d+)?    # optional exponent on decimals or octals
+                          )
+                        )/x',
+                        (string) $value, $matches)) {
+                        $quotedValue = $matches[1];
+                    }
+                    break;
+</code></pre>
+
+<p>In case it makes a difference, the server is:</p>
+
+<pre class="literal">
+Zend Core Version       2.5.0
+PHP Version     5.2.5
+Zend Engine Version     2.2.0
+Server Software     Apache/2.2.3 (CentOS)
+OS Version  CentOS release 5.2 (Final) Linux  2.6.18-92.1.10.el5 #1 SMP Tue Aug 5 07:41:53 EDT 2008 i686
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

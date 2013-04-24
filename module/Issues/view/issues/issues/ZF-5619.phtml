@@ -1,0 +1,222 @@
+<h2>ZF-5619: ::assertRedirectTo does not work as expected</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-23T00:56:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-05T15:12:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7496">ZF-7496</a></li>
+            <li><a href="/issues/browse/ZF-7455">ZF-7455</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The assertRedirectTo does not work as expected.</p>
+
+<p>Cases:</p>
+
+<pre class="highlight"><code>
+public function indexAction(){
+     $this-&gt;_helper-&gt;redirector('login');
+}
+</code></pre>
+
+<pre class="highlight"><code>
+public function indexAction(){
+     if( !$this-&gt;_request-&gt;isPost() ){
+          $this-&gt;_helper-&gt;redirector('login');
+     }
+     
+     // Do other stuff
+}
+</code></pre>
+
+<pre class="highlight"><code>
+public function indexAction(){
+     if( !$this-&gt;_request-&gt;isPost() ){
+          $this-&gt;_helper-&gt;redirector('identify');
+     }
+     
+     // Do other stuff
+
+     if( $this-&gt;_request-&gt;getPost('user_id') ){
+           $this-&gt;_helper-&gt;redirector('login');
+     } else{
+            $this-&gt;_helper-&gt;redirector('logout');
+     }
+
+}
+</code></pre>
+
+<p>In the last case the redirection in the browser goes well, but in the unittest it validates with the last redirection.
+When return null; is put below the redirector, the problem is resolved, but it doesn't look like a good solution.</p>
+
+<p>Also the redirectAndExit function causes the unittest to crash.</p>
+
+<p>EDIT</p>
+
+<p>Why can't I find a <em>@#</em> reply button!!</p>
+
+<p>@below: That does resolve the issue. But it's weird that the first redirect does work as expected and with testing it doesn't. I think this should be more clear in the documentation. I can imagine that more people will have problems with this. It's stated in the docs, but not explicitly. (Some examples uses the return).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-01-23T08:31:27.000+0000</p> 
+        <div class="body">
+            <p>The primary issue I'm seeing right now is actually in your code. When you call _forward() or one of the _redirect() or redirector methods, you should always return immediately; if you do not do so, the action continues to execute, which can lead to the problems you're describing.</p>
+
+<p>Can you do the following: in each place above where you call $this-&gt;_helper-&gt;redirector(), change the call to:</p>
+
+<pre class="highlight"><code>
+return $this-&gt;_helper-&gt;redirector(...);
+</code></pre>
+
+<p>and let me know if that corrects the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rafal Radulski (rrafal) on 2011-05-07T18:49:39.000+0000</p> 
+        <div class="body">
+            <p>I can confirm this bug. You can reproduce it by calling Zend_Controller_Action_Helper_Redirector::setUseAbsoluteUri(true). Then perform redirect and check for the redirect.</p>
+
+<p>By the way, HTTP standard requires use of absolute URL for redirect (in location header).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-07T19:11:54.000+0000</p> 
+        <div class="body">
+            <p>I can also confirm this unexpected behaviour in my unit tests. Consider the following controller and test ...</p>
+
+<pre class="highlight"><code>
+class AccountController extends Zend_Controller_Action
+{
+    /** @var Application_Model_Account */
+    protected $_account;
+
+    public function init()
+    {
+        // may redirect, thus placed at the beginning ...
+        $id = $this-&gt;_getId();
+
+        $account = new Application_Model_Account();
+        $this-&gt;_getAccountMapper()-&gt;find($id, $account);
+
+        ...
+
+        $this-&gt;_account = $account;
+    }
+
+    protected function _getId()
+    {
+        $request = $this-&gt;getRequest();
+        if (($id = $request-&gt;getParam('id', null)) === null) {
+            $this-&gt;_helper-&gt;redirector('index', 'index');
+        }
+        return (int) $id;
+    }
+}
+
+
+class AccountControllerTest extends Zend_Test_PHPUnit_ControllerTestCase
+{
+    ...
+
+    public function testIndexActionShouldRedirectIfAccountIdNotGiven()
+    {
+        $this-&gt;dispatch('/account');
+        $this-&gt;assertRedirectTo('/'); // FAILS
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-18T14:58:26.000+0000</p> 
+        <div class="body">
+            <p>I overlooked Metthew's comment ...</p>
+
+<p>bq. Can you do the following: in each place above where you call $this-&gt;_helper-&gt;redirector(), change the call to:</p>
+
+<pre class="highlight"><code> and let me know if that corrects the issue.
+
+This fix the problem. The new AccountController looks like this ...
+
+</code></pre>
+
+<p>public function init()
+{
+    $id = $this-&gt;_request-&gt;getParam('id', null);</p>
+
+<pre><code>$mapper = Application_Model_Mapper::factory('Account');
+$this-&gt;_account = $mapper-&gt;find($id);
+</code></pre>
+
+<p>}</p>
+
+<p>public function indexAction()
+{
+    if (!$this-&gt;_account instanceof Application_Model_Account || $this-&gt;_account-&gt;id === null) {
+        $this-&gt;_helper-&gt;flashMessenger(
+            new Application_Model_FlashError('Account does not exist'));
+        return $this-&gt;_helper-&gt;redirector('index', 'index');
+    }</p>
+
+<pre><code>// ...
+</code></pre>
+
+<p>}
+```</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-28T19:43:18.000+0000</p> 
+        <div class="body">
+            <p>I think this issue can be resolved as not an issue. The documentation has been updated in ZF-7455.</p>
+
+        </div>
+    </div>
+    </div>
+

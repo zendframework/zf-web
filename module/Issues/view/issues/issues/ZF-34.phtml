@@ -1,0 +1,295 @@
+<h2>ZF-34: Zend_Db_Table: Add join() method</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-06-19T23:00:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.0 (17/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1063">ZF-1063</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><a href="http://framework.zend.com/developer/ticket/17">http://framework.zend.com/developer/ticket/17</a></p>
+
+<p>Hi,</p>
+
+<p>first my compliments on Zend_Db_Table, I really like it.</p>
+
+<p>What do you think about adding a join() function to Zend_Db_Table. This would made it easier to use the join() functions of Zend_Db_Select.</p>
+
+<p>Ok an example:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE `news` (
+  `id` int(11) NOT NULL auto_increment,
+  `subject` varchar(100) NOT NULL default '',
+  `text` text NOT NULL,
+  `categoryid` int(50) default '0',
+  `author` text,
+  `date` datetime NOT NULL default '0000-00-00 00:00:00',
+  `image` varchar(50) NOT NULL default '',
+  PRIMARY KEY  (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 AUTO_INCREMENT=537 ;
+
+CREATE TABLE `categories` (
+  `id` smallint(6) NOT NULL auto_increment,
+  `name` varchar(50) NOT NULL default '',
+  PRIMARY KEY  (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 AUTO_INCREMENT=1 ;
+
+news.categoryid is related to categories.id.
+
+class News extends Zend_Db_Table {
+...
+}
+
+class Categories extends Zend_Db_Table {
+...
+}
+
+$news = new News(...);
+
+$news-&gt;join(new Categories(...), 'categoryid', 'news.categoryid = 
+categories.id, '*');
+//?? -&gt;innerjoin(),-&gt;leftjoin()...
+</code></pre>
+
+<p>It would be very nice if the join() function would handle all nameclashes of column names (news.id, categories.id).</p>
+
+<p>What do you think?</p>
+
+<p>Regards, Johannes</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Nils W (nils) on 2006-09-14T09:59:38.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I had the same idea. So I think about it and I find a solution, which maybe is a little bit dirty but it works. Perhaps you have ideas to make it better.</p>
+
+<p>I build a class which extends the Zend_Db_Table.</p>
+
+<p>First of all I add this</p>
+
+<pre class="highlight"><code>
+class Custom_Zend_Db_Table extends Zend_Db_Table {
+    protected $_select;
+</code></pre>
+
+<p>then I had to chanced the _setup() function:</p>
+
+<pre class="highlight"><code>
+protected function _setup() {
+            parent::_setup();
+    //This is code from the original _fetch() function.
+            $this-&gt;_select = $this-&gt;_db-&gt;select();
+
+            $this-&gt;_select-&gt;from($this-&gt;_name, array_keys($this-&gt;_cols));
+        }
+</code></pre>
+
+<p>I initialise 'select' already in the _setup() function. Like this I have the possibility to add a function, which adds joins:</p>
+
+<pre class="highlight"><code>
+public function join($join) {
+      $this-&gt;_select-&gt;join($join['name'], $join['name'].'.'.$join['primary'].' = '.$this-&gt;_name.'.'.$join['fid'], $join['cols']);
+}
+</code></pre>
+
+<p>You can see that you need an array, with all the things the join() function from Zend_Db_Select needs. Maybe you have better ideas on this part...</p>
+
+<p>And last but not least you have to change the _fetch() function. I overwrite it like this:</p>
+
+<pre class="highlight"><code>
+protected function _fetch($type, $where = null, $order = null, $count = null, $offset = null) {
+            // the WHERE clause
+            $where = (array) $where;
+            foreach ($where as $key =&gt; $val) {
+                // is $key an int?
+                if (is_int($key)) {
+                    // $val is the full condition
+                    $this-&gt;_select-&gt;where($val);
+                } else {
+                    // $key is the condition with placeholder,
+                    // and $val is quoted into the condition
+                    $this-&gt;_select-&gt;where($key, $val);
+                }
+            }
+
+            // the ORDER clause
+            $order = (array) $order;
+            foreach ($order as $val) {
+                $this-&gt;_select-&gt;order($val);
+            }
+
+            // the LIMIT clause
+            $this-&gt;_select-&gt;limit($count, $offset);
+
+            // return the results
+            $method = "fetch$type";
+            return $this-&gt;_db-&gt;$method($this-&gt;_select);
+        }
+    }
+</code></pre>
+
+<p>I only delete the first lines and change $select to $this-&gt;_select</p>
+
+<p>This is my first change at any Zend class so properly it isn't really good. But I hope you can use this idea and make it better ;o)</p>
+
+<p>Have fun!</p>
+
+<p>Nils</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nils W (nils) on 2006-09-15T02:37:37.000+0000</p> 
+        <div class="body">
+            <p>I forgot an example, so here it is</p>
+
+<p>I have a news table and a user table. Every news a written by a user. First I have the news and user class</p>
+
+<pre class="highlight"><code>
+&lt;?php
+    class news extends Custom_Zend_Db_Table {
+
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+&lt;?php
+    class user extends Custom_Zend_Db_Table {
+
+    }
+</code></pre>
+
+<p>And this how I use the join function in the controller:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+...
+ // ********** news from database ********************************
+                $news = new news();
+                  //join
+                  $users = new user();
+                  $join = $users-&gt;info();  // with this I get the name of the user table and the primary key
+                  $join['fid'] = 'user_id';     // add the id from the news table for the join condition
+                  $join['cols'] = 'firstname, surname';   // add the cols you want to have from the join-table
+    $news-&gt;join($join);  // here I use the join function
+                  //where clause
+                  $where = 'exp_date &gt;= '.time();   // and I add a where clause
+                  //fetchAll
+                  $vars['news'] = $news-&gt;fetchAll($where)-&gt;toArray();
+        // ********** news from database ********************************
+
+</code></pre>
+
+<p>that's it....</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:15:30.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-01-05T17:06:23.000+0000</p> 
+        <div class="body">
+            <p>Recategorize as Zend_Db_Table component.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Philipp Führer (flipkick) on 2007-01-31T20:59:06.000+0000</p> 
+        <div class="body">
+            <p>i did it this way:</p>
+
+<pre class="highlight"><code>
+protected $_join = array();
+
+public function join($table2, $onCol, $onCol2)
+{
+ $tmp = array_keys($this-&gt;_db-&gt;describeTable($table2));
+ foreach ($tmp as $native) {
+  $this-&gt;_cols[$native] = self::$_inflector-&gt;camelize($native);
+ }
+ $this-&gt;_join = array($table2, $onCol, $onCol2);        
+}   
+</code></pre>
+
+<pre class="highlight"><code>
+// the JOIN clause
+if (!empty($this-&gt;_join)) {
+  $select-&gt;join($this-&gt;_join[0], 
+  "{$this-&gt;_name}.{$this-&gt;_join[1]} = {$this-&gt;_join[0]}.{$this-&gt;_join[2]}");
+}
+</code></pre>
+
+<p>problems:
+* no multiple joins in one query possible
+* table1 and table2 must have different column names (to fetch all data properly)
+* no updates/inserts/deletes in linked table</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-03-16T00:59:47.000+0000</p> 
+        <div class="body">
+            <p>Resolved by solution for table relationships, see ZF-1063.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-03-16T01:00:09.000+0000</p> 
+        <div class="body">
+            <p>Linking as duplicate of ZF-1063.</p>
+
+        </div>
+    </div>
+    </div>
+

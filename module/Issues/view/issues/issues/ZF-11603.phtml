@@ -1,0 +1,130 @@
+<h2>ZF-11603: AM3-Deserialization: if references to Strings as well as to ByteArrays are in one message, the deserializer does not work properly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-25T07:45:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-22T10:27:15.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Wade Arnold (wadearnold)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>see as well: ZF-6641, this issue is not yet fixed with the newest version - I assume that my comment, which I made on the closed ticket, got lost. So I file the issue as a separate issue:</p>
+
+<p>If one AMF3-Message contains string references as well as Bytearrays, the string references are getting mixed up - depending on the transmission order, string references are then wrong deserialized.
+ This is because (at least I think so) string references are kept in a separate virtual table to complex objects virtual table.
+ Because in the deserializer, the reading of bytearrays are traited as reading strings (see l. 107: 
+ case Zend_Amf_Constants::AMF3_BYTEARRAY:
+ return $this-&gt;readString();
+ )
+ the string reference array gets mixed up when reading a bytearray.
+ I think, the reading of bytearrays should go into the table $_referenceObjects</p>
+
+<p>Here, the next question comes in: when reading complex objects, like dates, the method calls readString - if the date object has a reference inside (I am not sure whether this is possible at all), the readString method puts the complex object again in the $_stringReferences.</p>
+
+<p>The fix would be:
+  case Zend_Amf_Constants::AMF3_BYTEARRAY:
+                 return $this-&gt;readByteArray();</p>
+
+<p>and a separate function:
+    public function readByteArray()
+    {
+        $stringReference = $this-&gt;readInteger();</p>
+
+<pre><code>    //Check if this is a reference string
+    if (($stringReference &amp; 0x01) == 0) {
+        // reference string
+        $stringReference = $stringReference &gt;&gt; 1;
+        if ($stringReference &gt;= count($this-&gt;_referenceObjects)) {
+            require_once 'Zend/Amf/Exception.php';
+            throw new Zend_Amf_Exception('Undefined bytearray reference: ' . $stringReference);
+        }
+        // reference string found
+        return $this-&gt;_referenceObjects[$stringReference];
+    }
+
+    $length = $stringReference &gt;&gt; 1;
+    if ($length) {
+        $string = $this-&gt;_stream-&gt;readBytes($length);
+        $this-&gt;_referenceObjects[] = $string;
+    } else {
+        $string = "";
+    }
+    return $string;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-28T19:07:34.000+0000</p> 
+        <div class="body">
+            <p>Can you provide the following in addition to the proposed fix, please?
+* Code required to reproduce the issue
+* Expected result of that action
+* Actual result of that action
+Right now, we have no way to prove what exactly the proposed changes fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by M. Franzen (timtom) on 2011-07-30T21:18:28.000+0000</p> 
+        <div class="body">
+            <p>Hello, sorry for the late reply and thanks for looking at this issue. Well:
+a) Code to reproduce: this is very difficult and I think I would have about half a day to a day write it. I found the bug by chance, because Strings were not transmitted resp. decoded on the AMF-Server side. So I analysed and digged into the code and found this problem. Thing is, that flash re-codes Strings in a more compact format and then transmitts them. If one and the same string must be transmitted twice, i.e. the two variables within one AMF call are holding the same string, the second string is not transmitted, but only a reference to the first string. The reference is a counter pointing to the start of the first string within the AMF-Stream.
+The same applies for bytearrays, which are transmitted. If one bytearray is transmitted twice, it will also have only a reference.
+Important is, that according to AMF spec these are two independent pointers and references.
+The problem occurs only if one is transmitting bytearrays and strings (more than one with same content) in one AMF-call. The proposed fix fixes this issue.
+Results of the bug is that the decoding of Strings on the server side goes fail (the string holds some characters, but other characters than expected, because of the wrong pointer)
+I hope this helps and please tell me if I can be of further help, but sorry, a prove of concept is too much at the moment (to much work ... to spend half a day to a day to write a setup ...), but you can verify the problem by looking in the spec where it states that these are two independent pointers.
+Thanks for your work and best regards! Timtom</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michał Gańko (mganko) on 2011-08-22T10:27:15.000+0000</p> 
+        <div class="body">
+            <p>I confirm, when I'm transmitting two strings with the same values and bytearray, then in second string I have wrong value (from another transmitted property). Proposed changes fixed my problem.</p>
+
+        </div>
+    </div>
+    </div>
+

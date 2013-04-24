@@ -1,0 +1,201 @@
+<h2>ZF-7870: Zend_Feed_Reader::findFeedLinks() should support multiple feeds</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-17T08:26:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-01T15:45:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Feed_Reader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Feed_Reader::findFeedLinks() supports only one feed per type, but it's perfectly valid for a page to have multiple feeds of the same type.
+This limitation makes findFeedLinks() almost useless when dealing with arbitrary pages.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-09-17T08:38:57.000+0000</p> 
+        <div class="body">
+            <p>Good catch - it's something I already have listed as needed and I'll update this issue as soon as its added.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-09-19T13:32:21.000+0000</p> 
+        <div class="body">
+            <p>If there is any specific example of a multi-feed containing page, please let me know here. I'll be implementing this functionality as part of a Zend_Feed_Reader_FeedSet class improvement to encapsulate multiple feeds, and lazy-loading of feed objects.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by George Miroshnikov (laggyluke) on 2009-09-19T14:54:55.000+0000</p> 
+        <div class="body">
+            <p>The only example I can provide right away is in Ukrainian/Russian language: <a href="http://korrespondent.net">http://korrespondent.net</a>
+But I'm sure there's more international sites implementing this scenario, so I'll add one when I find.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-09-20T06:15:08.000+0000</p> 
+        <div class="body">
+            <p>Implemented, with other changes, in r18318</p>
+
+<p>George, this will reach ZF 1.10, not 1.9, but you can pull the change from trunk and please let me know how this works for you. The manual for Zend_Feed_Reader in trunk has also been updated.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by George Miroshnikov (laggyluke) on 2009-09-21T06:45:37.000+0000</p> 
+        <div class="body">
+            <p>Pádraic, first of all - thanks for your work!</p>
+
+<p>I'm not sure if this is the right place for the discussion, but I'm not sure why FeedSet has that structure - "rss", "rdf" and "atom" properties.
+Why don't we just return the array of objects implementing Zend_Feed_Reader_FeedInterface (with some kind of lazy-loading, ofcourse)?
+What's the idea behind trying to link different feed types in a single structure?</p>
+
+<p>BTW, when I try to call findFeedLinks() now, it returns Zend_Feed_Reader_FeedSet containing multiple Zend_Feed_Reader_FeedSet-s - I'm not sure this is intended/good idea.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-09-21T07:28:38.000+0000</p> 
+        <div class="body">
+            <p>The object keys are needed (unfortunately) for backwards compatibility - it will be removed in 2.0, which reminds me to mark them deprecated. The preferred interface now is iterating the object, picking whatever feed you wish, and lazy load it using the feed key. Is that what you're doing now?</p>
+
+<pre class="highlight"><code>
+$feeds = Zend_Feed_Reader::findFeedLinks('<a href="http://www.example.com">http://www.example.com</a>');
+$first = $feeds-&gt;current();
+$firstHref = $first['href']; // <a href="http://www.example.com/feed/rss">http://www.example.com/feed/rss</a>
+$firstRel = $first['rel']; // alternate
+$firstType = $first['type']; // application/rss+xml
+$firstFeed = $first['feed']; // object: Zend_Feed_Reader_FeedAbstract (lazy loaded)
+</code></pre>
+
+<p>The new FeedSet type is a simple ArrayObject - it's nested per feed link detected. Perhaps not the finest design around, but adding another object wasn't really needed. I can refactor it a bit before 1.10 is finalised so the sub-objects are a different type.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by George Miroshnikov (laggyluke) on 2009-09-21T08:04:51.000+0000</p> 
+        <div class="body">
+            <p>Oh, thanks, now it all makes perfect sense!
+The functionality works perfectly, but IMHO the interface is a bit clumsy.</p>
+
+<p>In your example, $feeds is an instance of FeedSet and $first is also an instance of FeedSet.
+But what we FeedSet actually contains are feed links, not feeds themselves.
+So, just for example, if we rename FeedSet to FeedLinkSet, then we can have FeedLink-s in it.
+FeedLinkSet may still extend ArrayObject, but FeedLink should be a standalone class.
+As a bonus, we get rid of array notation and have proper getters :)</p>
+
+<p>Then we could do things like this:</p>
+
+<pre class="highlight"><code>
+$feedLinks = Zend_Feed_Reader::findFeedLinks('<a href="http://www.example.com">http://www.example.com</a>');
+foreach ($feedLinks as $feedLink) {
+    $feedHref = $feedLink-&gt;getHref();
+    //...
+    $feed = $feedLink-&gt;getFeed(); // or import(), or importFeed()... to stress it's lazy-loadness
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2009-11-26T23:49:44.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I can confirm that Zend_Feed_Reader::findFeedLinks doesn't work for multiple feed links on the same page.</p>
+
+<p>For a sample check <a href="http://www.hotnews.ro">http://www.hotnews.ro</a>, has 10 feed links...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-11-27T02:51:12.000+0000</p> 
+        <div class="body">
+            <p>While technically resolved, it's being updated for 1.10. The fix is not available for 1.9.x since it may break backwards compatibility (hopefully not) and adds a new return type to handle multiple feeds. Can you confirm the issue exists in a 1.9.x version and not trunk?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2009-11-27T02:59:44.000+0000</p> 
+        <div class="body">
+            <p>Actually i just tested on trunk and doesn't work.</p>
+
+<p>I am getting only one feed, not multiple feeds.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2010-01-01T14:28:24.000+0000</p> 
+        <div class="body">
+            <p>This is not working yet, the status should be changed to UNRESOLVED !</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-01-01T14:33:14.000+0000</p> 
+        <div class="body">
+            <p>Are you on trunk?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2010-01-01T14:38:45.000+0000</p> 
+        <div class="body">
+            <p>Yes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-01-01T15:45:54.000+0000</p> 
+        <div class="body">
+            <p>Cristian, this is a three month old issue which was resolved by adding code to trunk for 1.10 a long time ago (1.10 was then in development). The component has since seen refactoring, new features, Zend_Feed_Writer (a whole new component) and some design changes. It's not surprising some less essential improvements are waiting for Beta. This one specifically needs to make use of the newer Zend_Feed_Reader_Collection style ArrayObjects in keeping with the current design changes.</p>
+
+<p>If you want to track its progress, by all means add a new issue ;). However, I won't reopen old issues or keep them open any longer than needed.</p>
+
+        </div>
+    </div>
+    </div>
+

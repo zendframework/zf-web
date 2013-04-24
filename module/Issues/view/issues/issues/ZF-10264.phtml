@@ -1,0 +1,253 @@
+<h2>ZF-10264: Zend_Service_Twitter Error</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-08-04T11:11:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-08-05T08:11:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Service_Twitter</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi, I'm having problems with Zend_Service_Twitter (My library is version 1.10.6) I have downloaded several times the library...</p>
+
+<p>Below is my code:</p>
+
+<p>$twitter = new Zend_Service_Twitter('myuser','mypassword');
+$response = $twitter-&gt;account-&gt;verifyCredentials();
+$response = $twitter-&gt;user-&gt;followers();</p>
+
+<p>But it's dont work, I get the following error:</p>
+
+<p>Catchable fatal error: Argument 1 passed to Zend_Service_Twitter::__construct() must be an array, string given, called in C:\xampp\htdocs\dev\rafapaulino\application\default\controllers\PerfilController.php on line 25 and defined in C:\xampp\htdocs\dev\rafapaulino\library\Zend\Service\Twitter.php on line 131</p>
+
+<p>So, I change by this code:</p>
+
+<p>$userInfo = array('username' =&gt; 'foo', 'password' =&gt; 'bar');
+$twitter = new Zend_Service_Twitter($userInfo);</p>
+
+<p>And then I get the following error:</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Service_Twitter_Exception' with message 'Twitter session is unauthorised. You need to initialize Zend_Service_Twitter with an OAuth Access Token or use its OAuth functionality to obtain an Access Token before attempting any API actions that require authorisation' in C:\xampp\htdocs\dev\rafapaulino\library\Zend\Service\Twitter.php:278 Stack trace: #0 C:\xampp\htdocs\dev\rafapaulino\library\Zend\Service\Twitter.php(749): Zend_Service_Twitter-&gt;_init() #1 [internal function]: Zend_Service_Twitter-&gt;accountVerifyCredentials() #2 C:\xampp\htdocs\dev\rafapaulino\library\Zend\Service\Twitter.php(266): call_user_func_array(Array, Array) #3 [internal function]: Zend_Service_Twitter-&gt;__call('verifyCredentia...', Array) #4 C:\xampp\htdocs\dev\rafapaulino\application\default\controllers\PerfilController.php(28): Zend_Service_Twitter-&gt;verifyCredentials() #5 C:\xampp\htdocs\dev\rafapaulino\library\Zend\Controller\Action.php(513): PerfilController-&gt;indexAction() #6 C:\xampp\htdocs\dev\rafapaulino\libr in C:\xampp\htdocs\dev\rafapaulino\library\Zend\Service\Twitter.php on line 278</p>
+
+<p>When I change to an old library, then everything works normally.</p>
+
+<p>Then I was looking at the code and saw:</p>
+
+<p>The first problem occurs because the class constructor looks for an array if you do not pass an array of options makes it an empty array.</p>
+
+<pre><code>New version:
+
+public function __construct($options = null, Zend_Oauth_Consumer $consumer = null)
+{
+    $this-&gt;setUri('&lt;a rel="nofollow" href="http://api.twitter.com"&gt;http://api.twitter.com&lt;/a&gt;');
+    if (!is_array($options)) $options = array();
+    $options['siteUrl'] = self::OAUTH_BASE_URI;
+    if ($options instanceof Zend_Config) {
+        $options = $options-&gt;toArray();
+    }
+    $this-&gt;_options = $options;
+    if (isset($options['username'])) {
+        $this-&gt;setUsername($options['username']);
+    }
+    if (isset($options['accessToken'])
+    &amp;&amp; $options['accessToken'] instanceof Zend_Oauth_Token_Access) {
+        $this-&gt;setLocalHttpClient($options['accessToken']-&gt;getHttpClient($options));
+    } else {
+        $this-&gt;setLocalHttpClient(clone self::getHttpClient());
+        if (is_null($consumer)) {
+            $this-&gt;_oauthConsumer = new Zend_Oauth_Consumer($options);
+        } else {
+            $this-&gt;_oauthConsumer = $consumer;
+        }
+    }
+}
+
+Old Version:
+
+public function __construct($username = null, $password = null)
+{
+    $this-&gt;setLocalHttpClient(clone self::getHttpClient());
+    if (is_array($username) &amp;&amp; is_null($password)) {
+        if (isset($username['username']) &amp;&amp; isset($username['password'])) {
+            $this-&gt;setUsername($username['username']);
+            $this-&gt;setPassword($username['password']);
+        } elseif (isset($username[0]) &amp;&amp; isset($username[1])) {
+            $this-&gt;setUsername($username[0]);
+            $this-&gt;setPassword($username[1]);
+        }
+    } else if (!is_null($username)) {
+        $this-&gt;setUsername($username);
+        $this-&gt;setPassword($password);
+    }
+    $this-&gt;setUri('&lt;a rel="nofollow" href="http://twitter.com"&gt;http://twitter.com&lt;/a&gt;');
+    $this-&gt;_localHttpClient-&gt;setHeaders('Accept-Charset', 'ISO-8859-1,utf-8');
+}
+
+The second error is because the access is not authorized to Twitter:
+
+protected function _init()
+{
+    if (!$this-&gt;isAuthorised() &amp;&amp; $this-&gt;getUsername() !== null) {
+        require_once 'Zend/Service/Twitter/Exception.php';
+        throw new Zend_Service_Twitter_Exception(
+            'Twitter session is unauthorised. You need to initialize '
+            . 'Zend_Service_Twitter with an OAuth Access Token or use '
+            . 'its OAuth functionality to obtain an Access Token before '
+            . 'attempting any API actions that require authorisation'
+        );
+    }
+    $client = $this-&gt;_localHttpClient;
+    $client-&gt;resetParameters();
+    if (null == $this-&gt;_cookieJar) {
+        $client-&gt;setCookieJar();
+        $this-&gt;_cookieJar = $client-&gt;getCookieJar();
+    } else {
+        $client-&gt;setCookieJar($this-&gt;_cookieJar);
+    }
+}
+
+But he will not be allowed because it needs accessToken:
+</code></pre>
+
+<p>/**
+     * Set local HTTP client as distinct from the static HTTP client
+     * as inherited from Zend_Rest_Client.
+     *
+     * @param Zend_Http_Client $client
+     * @return self
+     */
+    public function setLocalHttpClient(Zend_Http_Client $client)
+    {
+        $this-&gt;_localHttpClient = $client;
+        $this-&gt;_localHttpClient-&gt;setHeaders('Accept-Charset', 'ISO-8859-1,utf-8');
+        return $this;
+    }</p>
+
+<pre><code>/**
+ * Get the local HTTP client as distinct from the static HTTP client
+ * inherited from Zend_Rest_Client
+ *
+ * @return Zend_Http_Client
+ */
+public function getLocalHttpClient()
+{
+    return $this-&gt;_localHttpClient;
+}
+
+/**
+ * Checks for an authorised state
+ *
+ * @return bool
+ */
+public function isAuthorised()
+{
+    if ($this-&gt;getLocalHttpClient() instanceof Zend_Oauth_Client) {
+        return true;
+    }
+    return false;
+}
+
+The token is created in the constructor as a parameter for options.
+
+public function __construct($options = null, Zend_Oauth_Consumer $consumer = null)
+{
+    $this-&gt;setUri('&lt;a rel="nofollow" href="http://api.twitter.com"&gt;http://api.twitter.com&lt;/a&gt;');
+    if (!is_array($options)) $options = array();
+    $options['siteUrl'] = self::OAUTH_BASE_URI;
+    if ($options instanceof Zend_Config) {
+        $options = $options-&gt;toArray();
+    }
+    $this-&gt;_options = $options;
+    if (isset($options['username'])) {
+        $this-&gt;setUsername($options['username']);
+    }
+    if (isset($options['accessToken'])
+    &amp;&amp; $options['accessToken'] instanceof Zend_Oauth_Token_Access) {
+        $this-&gt;setLocalHttpClient($options['accessToken']-&gt;getHttpClient($options));
+    } else {
+        $this-&gt;setLocalHttpClient(clone self::getHttpClient());
+        if (is_null($consumer)) {
+            $this-&gt;_oauthConsumer = new Zend_Oauth_Consumer($options);
+        } else {
+            $this-&gt;_oauthConsumer = $consumer;
+        }
+    }
+}
+
+Will changed the way of access because of oAuth? In the documentation is wrong?
+
+
+I posted here too: &lt;a rel="nofollow" href="http://forums.zend.com/viewtopic.php?f=69&amp;t=7101"&gt;http://forums.zend.com/viewtopic.php?f=69&amp;t=7101&lt;/a&gt;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-08-04T11:42:41.000+0000</p> 
+        <div class="body">
+            <p>Unfortunately the documentation for Zend_Service_Twitter is outdated (not sure why since it's updated in SVN). Note that the component now requires using OAuth 1.0 authentication as is required by Twitter from later this month. You should refer to the Zend_Oauth documentation for details about OAuth. Zend_Service_Twitter also bundles an API to Zend_Oauth (i.e. Zend_Oauth's methods and options can be set/accessed directly on an instance of Zend_Service_Twitter). So you can a) use OAuth directly and pass the access token to Zend_Service_Twitter (you should store the token on a per user basis for future use - don't re-auth on every request ;)) or b) do the same as (a) except through the Zend_Service_Twitter object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-08-04T11:45:04.000+0000</p> 
+        <div class="body">
+            <p>Paddy -- did you ever merge the doc changes to the release-1.10 branch? If not, that would be why the docs are not on the site.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-08-04T13:11:41.000+0000</p> 
+        <div class="body">
+            <p>Yep, merged into the release branch. I just assume it went in after you tagged the release or something similar.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rafael Paulino (rafa_corre) on 2010-08-05T08:11:31.000+0000</p> 
+        <div class="body">
+            <p>Thanks, I downloaded the zend documentation and now I saw the correct documentation.</p>
+
+        </div>
+    </div>
+    </div>
+

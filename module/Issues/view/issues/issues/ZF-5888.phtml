@@ -1,0 +1,136 @@
+<h2>ZF-5888: Zend_Config_Writer_* not properly handling unsectioned data</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-26T01:50:22.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-02-26T14:21:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.6 (02/Mar/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config_Writer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When trying to write a Zend_Config that contains unsectioned elements, Zend_Config_Writer_Xml will omit these elements in the resulting XML file.
+This issue related to <a href="http://framework.zend.com/issues/browse/ZF-5544">http://framework.zend.com/issues/browse/ZF-5544</a>. Unlike Zend_Config_Writer_Ini Zend_Config_Writer_Xml will not throw an Exception though.</p>
+
+<p>Since a Zend_Config can contain unsectioned elements, the behavior of both writers is unexpected. Both writers should be able to write Zend_Configs without a global section defined for them. 
+Zend_Config_Writer_Xml already wraps all data inside a {{}} root element, so any unsectioned elements can reside below this element without breaking validity of the XML file.
+If global sections are required by ZF, the writers should at least both throw an Exception.</p>
+
+<p>Example</p>
+
+<pre class="highlight"><code>
+        // Code from Example 7.2. Using Zend_Config with a PHP Configuration File
+        $myValues = array(
+            'webhost'  =&gt; '<a href="www.example.com">www.example.com</a>',
+            'database' =&gt; array(
+                'adapter' =&gt; 'pdo_mysql',
+                'params'  =&gt; array(
+                    'host'     =&gt; 'db.example.com',
+                    'username' =&gt; 'dbuser',
+                    'password' =&gt; 'secret',
+                    'dbname'   =&gt; 'mydatabase'
+                )
+            )
+        );
+        $config = new Zend_Config($myValues);
+        // will output the array as defined above
+        Zend_Debug::dump($config-&gt;toArray());
+
+
+        // write config to an XML file
+        $writer = new Zend_Config_Writer_Xml(array('config'   =&gt; $config,
+                                                   'filename' =&gt; 'test.xml'));
+        // yields no error, but loses data
+        $writer-&gt;write();
+        // Read in XML file        
+        $xml = new Zend_Config_Xml('test.xml');
+        // Webhost is missing
+        Zend_Debug::dump($xml-&gt;toArray());
+
+
+        // Try to write an Ini file from the example config
+        $writer = new Zend_Config_Writer_Ini(array('config'   =&gt; $config,
+                                                   'filename' =&gt; 'test.ini'));
+        // will throw an Exception as stated in ZF-5544
+        $writer-&gt;write();
+</code></pre>
+
+<p>The resulting XML file</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0"?&gt;
+pdo_mysqldb.example.comdbusersecretmydatabase</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-02-26T02:53:59.000+0000</p> 
+        <div class="body">
+            <p>In fact, Zend_Config_Writers (except _Array) always expects the highest elements in Zend_Config to be the sections. What you are doing in your example is converting from an array config (which can never contain sections, thus Zend_Config_Writer_Array works fine with no sections) to a configuration format which requires sections when loaded with Zend_Config_Xml / Zend_Config_Ini. Thus this simply cannot work properly.</p>
+
+<p>Zend_Config_Writer_Xml is natually omitting the webhost-key, as it is seen as an invalid section. That Zend_Config_Writer_Ini is throwing a catchable fatal error is surely wrong, it should have the same behaviour as Zend_Config_Writer_Xml at this point.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gordon Oheim (gordonoh) on 2009-02-26T07:43:12.000+0000</p> 
+        <div class="body">
+            <p>I'd rather have Zend_Config_Writer_Xml throw an Exception than simply ignoring my Config data then. Since any Zend_Config allows me to add unsectioned data at runtime when the Config was loaded with allowModification set to true, I'd expect a corresponding writer to be able to handle this data or give notice when it cannot. Especially when one Writer is able to handle that data and the other is not. Being able to set unsectioned elements at all is misleading in that case. If I cannot persist a Zend_Config without sections, then the interface should reflect that. Besides, neither Ini files, nor Xml files naturally require their data to be in sections and the Zend_Config readers work fine with unsectioned data. The data is accessible through the regular object notation. So either way, something is wrong.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-02-26T09:25:54.000+0000</p> 
+        <div class="body">
+            <p>Well, the difference is, that a runtime Zend_Config object itself does not have sections. Sections are just a construct of the _Xml and _Ini implementation. Thus Zend_Config_Writer has to guess that the highest level is the section definition. What actually could be done, would be an extra option for both the _Xml and _Ini writer to not treat the highest level as sections but as usual nodes. Tho still, this should not be the default.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-02-26T14:21:33.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r14175 and merged into 1.7 release branch with r14176.</p>
+
+        </div>
+    </div>
+    </div>
+

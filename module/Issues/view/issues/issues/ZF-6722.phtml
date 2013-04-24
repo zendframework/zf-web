@@ -1,0 +1,229 @@
+<h2>ZF-6722: Zend_CodeGenerator_Php_Parameter does not allow null as defaultValue</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-19T03:01:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-09T00:40:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.3 (22/Sep/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_CodeGenerator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7804">ZF-7804</a></li>
+            <li><a href="/issues/browse/ZF-7784">ZF-7784</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you set defaultValue as null, then this is not included in the generated output, because the following line resolves as false:</p>
+
+<p>if ($this-&gt;_defaultValue) {</p>
+
+<p>To resolve my issue I added a private property to check if null was passed in to the defaultValue and included that in the setDefaultValue method. I then added additional code to the generate method to output null.</p>
+
+<pre><code>/**
+ * Indicates that defaultValue has been set to null
+ * @var bool
+ */
+private $_defaultIsNull = false; 
+</code></pre>
+
+<p>//...</p>
+
+<pre><code>/**
+ * setDefaultValue()
+ *
+ * @param string $defaultValue
+ * @return Zend_CodeGenerator_Php_Parameter
+ */
+public function setDefaultValue($defaultValue)
+{
+    $this-&gt;_defaultIsNull = (null === $defaultValue);
+    $this-&gt;_defaultValue = $defaultValue;
+    return $this;
+}
+</code></pre>
+
+<p>// ...</p>
+
+<pre><code>/**
+ * generate()
+ *
+ * @return string
+ */
+public function generate()
+{
+    $output = '';
+
+    if ($this-&gt;_type) {
+        $output .= $this-&gt;_type . ' '; 
+    }
+
+    $output .= '$' . $this-&gt;_name;
+
+    if ($this-&gt;_defaultValue) {
+        $output .= ' = ';
+        if (is_string($this-&gt;_defaultValue)) {
+            $output .= '\'' . $this-&gt;_defaultValue . '\'';
+        } else {
+            $output .= var_export($this-&gt;_defaultValue, true);
+        }
+    } elseif ($this-&gt;_defaultIsNull) {
+        $output .= ' = null';
+    }        
+
+
+    return $output;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Robert Bruce (mightymephisto) on 2009-05-20T02:51:40.000+0000</p> 
+        <div class="body">
+            <p>Actually, just found the issue exists if the defaultValue is set to null, false or 0, so it's better to set a flag to indicate that a defaultValue has been specified and then generate the defaultValue if the flag is true rather than based on the defaultValue itself.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2009-06-08T10:12:04.000+0000</p> 
+        <div class="body">
+            <p>I wouldn't say this is a minor issue. Anything that prevents Zend_CodeGenerator from producing at least the functional equivalent of what you asked it to, is a mayor issue IMO.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2009-06-09T05:18:25.000+0000</p> 
+        <div class="body">
+            <p>I created a patch that mimics Reflection_Parameter's behaviour: it adds a isOptional() method (it doesn't throw an error when you try to get a default value on a required parameter though: it just returns NULL).</p>
+
+<p>Path in ZF-6962</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Roy (roychri) on 2009-06-11T11:38:02.000+0000</p> 
+        <div class="body">
+            <p>Here is a <em>workaround</em> until a patch is committed into ZF core.</p>
+
+<hr /><p>h3. Generator Workaround</p>
+
+<pre class="highlight"><code>
+class Zend_CodeGenerator_Php_Parameter_Value
+{
+    protected $_value = NULL;
+
+    public function __construct($value)
+    {
+        $this-&gt;_value = $value;
+    }
+
+    public function __toString()
+    {
+        return $this-&gt;_value;
+    }
+}
+
+$method = array(
+    'name' =&gt; '__construct',
+    'parameters' =&gt; array(
+        array(
+            'name' =&gt; 'options',
+            'defaultValue' =&gt; new Zend_CodeGenerator_Php_Parameter_Value('NULL'),
+            'type' =&gt; 'array'),
+    ),
+    'body' =&gt; '$this-&gt;setOptions($options);',
+);
+$class-&gt;setMethod($method);
+
+</code></pre>
+
+<hr /><p>h3. Generated Code</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class Default_Model_Quotes
+{
+
+    public function __construct(array $options = NULL)
+    {
+        $this-&gt;setOptions($options);
+    }
+
+
+}
+</code></pre>
+
+<hr /><p>I hope someone finds this useful.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-06-28T13:15:52.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r16344</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Timo Karvinen (timo.karvinen) on 2009-08-12T00:24:14.000+0000</p> 
+        <div class="body">
+            <p>Original issue here talks about Zend_CodeGenerator_Php_Parameter, the fixes are for Zend_CodeGenerator_Php_Property.</p>
+
+<p>I think this issue still exists in Zend_CodeGenerator_Php_Parameter and one cannot give null/false/empty string as default value for function parameters.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-12T10:29:26.000+0000</p> 
+        <div class="body">
+            <p>Reopening due to comments.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-09-06T10:42:00.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r18000 and r18001, not yet committed into 1.9 release branch</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,191 @@
+<h2>ZF-1722: Zend_Acl assertions broken when inheritance is required (ie DepthFirstSearch)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-07-14T21:45:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-29T07:22:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.1 (11/Aug/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Acl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5425">ZF-5425</a></li>
+            <li><a href="/issues/browse/ZF-1721">ZF-1721</a></li>
+            <li><a href="/issues/browse/ZF-3390">ZF-3390</a></li>
+            <li><a href="/issues/browse/ZF-4460">ZF-4460</a></li>
+            <li><a href="/issues/browse/ZF-1765">ZF-1765</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Reproduction code</p>
+
+<pre class="highlight"><code>
+webdeveloper@webdevelopment ~/testing $ cat test_aclwhoswho.php 
+&lt;?php
+
+require_once 'Zend/Acl.php';
+require_once 'Zend/Acl/Role.php';
+require_once 'Zend/Acl/Resource.php';
+
+class HasIQFor implements Zend_Acl_Assert_Interface
+{
+    public function assert(Zend_Acl $acl, Zend_Acl_Role_Interface $role = null,
+                           Zend_Acl_Resource_Interface $resource = null, $privilege = null)
+    {
+        echo "digging deeper";
+        echo var_dump($role);
+    }
+}
+
+class Acl_Child implements Zend_Acl_Role_Interface { public function getRoleId() { return 'Child'; } }
+class Acl_Parent implements Zend_Acl_Role_Interface { public function getRoleId() { return 'Parent'; } }
+
+$acl = new Zend_Acl();
+$acl-&gt;addRole(new Zend_Acl_Role('Child'))
+    -&gt;addRole(new Zend_Acl_Role('Parent'), 'Child')
+    -&gt;add(new Zend_Acl_Resource('Toy'))
+    -&gt;add(new Zend_Acl_Resource('PokerGame'))
+    -&gt;allow('Child', 'Toy', 'Play', new HasIQFor())
+    -&gt;allow('Parent', 'PokerGame', 'Play', new HasIQFor());
+
+$child = new Acl_Child();
+$mommy = new Acl_Parent();
+
+echo "Children and toys?\n"; echo $acl-&gt;isAllowed($child, 'Toy', 'Play');
+echo "\n\nChildren and poker?\n"; echo $acl-&gt;isAllowed($child, 'PokerGame', 'Play');
+echo "\n\nParents and toys?\n"; echo $acl-&gt;isAllowed($mommy, 'Toy', 'Play');
+echo "\n\nParents and poker?\n"; echo $acl-&gt;isAllowed($mommy, 'PokerGame', 'Play');
+
+webdeveloper@webdevelopment ~/testing $ php test_aclwhoswho.php 
+Children and toys?
+digging deeperobject(Zend_Acl_Role)#2 (1) {
+  ["_roleId:protected"]=&gt;
+  string(5) "Child"
+}
+
+
+Children and poker?
+
+
+Parents and toys?
+digging deeperobject(Zend_Acl_Role)#2 (1) {
+  ["_roleId:protected"]=&gt;
+  string(5) "Child"
+}
+
+
+Parents and poker?
+digging deeperobject(Zend_Acl_Role)#4 (1) {
+  ["_roleId:protected"]=&gt;
+  string(6) "Parent"
+}
+</code></pre>
+
+<p>you can notice the problem in the 3rd case where when trying to determine if the parent has the IQ to play with the toy, the parent object is not passed to the assertion.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-26T11:55:20.000+0000</p> 
+        <div class="body">
+            <p>Postponing to after 1.0.1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-08-01T15:02:36.000+0000</p> 
+        <div class="body">
+            <p>We should resolve this for 1.1.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-09-27T17:44:42.000+0000</p> 
+        <div class="body">
+            <p>But why is this a problem? The rule is satisfied by the Child role and since there is no ACL specifically for Parents on the Toy then Zend_Acl returns true.</p>
+
+<p>Wouldn't performance suffer if Zend_Acl iterates through the whole inheritance only to come to the same conclusion that it did in the first place? Or do you see a use case where a custom Assertion will need to query this hierarchy to supply a more qualitative answer?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-09-28T11:49:12.000+0000</p> 
+        <div class="body">
+            <p>Hey Simon,
+  The problem i specifically notice (from above) is in test case number 3.  If I am writing custom assertions, then my assertion (if applied) should always get the exact object that i proposed when i asked if it "isAllowed".</p>
+
+<pre class="highlight"><code>
+// IF I DO:
+$acl-&gt;isAllowed($mommy, 'Toy', 'Play'); // where mommy is of type (class Acl_Parent)
+</code></pre>
+
+<p>I should expect any assertions that were triggered as a result of that exact query should indeed get teh exact object i passed into the query.  The reason for that expectation is in case I want to call some Acl_Parent specific methods in order to assert that what is queried should be allowed or not.</p>
+
+<p>I see no direct performance impact, its simply a matter of whats being passed to the assertion.</p>
+
+<p>as far as this statement: &gt; Or do you see a use case where a custom Assertion will need to query this hierarchy to supply a more qualitative answer?</p>
+
+<p>Assertions don't query the inheritance chain, its actually the other way around, currently the inheritance chain is iterated in order to trigger the appropriate assertion.</p>
+
+<p>make sense?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Pärtel (lagitus) on 2008-07-01T10:14:48.000+0000</p> 
+        <div class="body">
+            <p>This is still not fixed in 1.5.2, and is still quite irritating when trying to write any non-trivial assertions.</p>
+
+<p>One workaround:
+Inherit Zend_Acl, override isAllowed(), store the parameters in a private member and make them available through a new method, say, "getLastRequest()". Then, in an assertion, get them using something like:
+list($role, $resource, $privilege) = $acl-&gt;getLastRequest();</p>
+
+<p>(It's a good idea to make sure getLastRequest() always returns objects, even if a string was passed to isAllowed().)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-07-30T18:41:14.000+0000</p> 
+        <div class="body">
+            <p>Fix in trunk as of r17317, please test.</p>
+
+        </div>
+    </div>
+    </div>
+

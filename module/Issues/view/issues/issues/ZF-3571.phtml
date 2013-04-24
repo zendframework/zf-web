@@ -1,0 +1,237 @@
+<h2>ZF-3571: when calling &quot;update&quot; - don't default to updating all rows if no WHERE specified</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-07-03T10:54:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-24T10:04:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Hodgins (mjh_ca)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9298">ZF-9298</a></li>
+            <li><a href="/issues/browse/ZF-10740">ZF-10740</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Maybe it's just me but it seems like a poor idea to automatically update every row in a table if no (or something that equates to '') WHERE conditional is specified.  In my opinion it would be a better design to explicitly require the user to state that all rows would be updated.  This would help to reduce accidentally updating all of the rows in a table in the event that the code generating the WHERE clause is buggy and doesn't properly set it.</p>
+
+<p>For example, if I execute the following code:</p>
+
+<pre class="highlight"><code>
+class Models_User extends Zend_Db_Table_Abstract {}
+
+$db = Zend_Db::factory(...);
+$mUser = new Models_User(array('db' =&gt; $db));
+
+$values = array('password' =&gt; 'omgwtfbbq');
+$where = array();
+
+// $users should contain an array of user ids, 
+// but assume that there is a bug where this array is not being filled correctly
+$users = array();
+foreach ($users as $user) {
+    $where[] = "user_id = $user";
+}
+
+$mUser-&gt;update($values, $where);
+</code></pre>
+
+<p>all the rows in the table would have been updated to have the same password due to my error of not setting the $where array correctly.</p>
+
+<p>In my opinion the user should have to explicitly specify that they want all rows in the table to be updated.  I believe this should be done through either a class constant (e.g. Zend_Db_Adapter::UPDATE_ALL), having to pass a WHERE clause of "1=1",  or the addition of a new updateAll function (in both the Zend_Db_Adapter and Zend_Db_Table_Abstract classes).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2009-09-17T06:07:26.000+0000</p> 
+        <div class="body">
+            <p>I don't think this should be done at all.</p>
+
+<p>In SQL you are not required to add a WHERE clause at all, and should you not add a WHERE clause, all rows will be updated.</p>
+
+<p>Requiring the user to add '1=1' or to call a different method to do this is pretty ridiculous, as it is requiring the addition of something not required by SQL.</p>
+
+<p>All of the Zend_Db components pretty well reflect the way that you expect a DBMS to work, and this should be kept. I would not expect to explicitly tell the DB that I want all rows updated, instead I would expect to have to explicitly provide the where clause.</p>
+
+<p>Also this would be a fairly large BC break, and as such, if it is implemented, I would hope it is not until 2.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by jw (ronny stalker) on 2010-04-22T00:04:04.000+0000</p> 
+        <div class="body">
+            <p>I agree that this is an issue. I have not used the Zend Adaptor because of this. Even with careful testing, it is too easy to do a typo that could wipe out a whole table.</p>
+
+<p>@Ryan Mauger - In SQL it would throw an error if you submitted a query like :</p>
+
+<pre class="highlight"><code> 
+"UPDATE tblEvents SET colIsSoldOut='1' WHERE"
+</code></pre>
+
+<p>I believe BC could be solved by adding a, sister, '*Where()' methods like so:</p>
+
+<pre class="highlight"><code> 
+//as normal - no change to BC of interface
+$n = $db-&gt;update('bugs', $data, 'bug_id = 2'); 
+
+//this however, throws Exception if WHERE clause is null or resolves to 'all rows'
+$n = $db-&gt;updateWhere('bugs', $data, 'bug_id = 2'); 
+</code></pre>
+
+<p>and</p>
+
+<pre class="highlight"><code> 
+//as normal - no change to BC of interface
+$n = $db-&gt;delete('bugs', 'bug_id = 3'); 
+
+//this however, throws Exception if WHERE clause is null or resolves to 'all rows'
+$n = $db-&gt;deleteWhere('bugs', 'bug_id = 3'); 
+</code></pre>
+
+<hr /><p>Basically solving the issue by adding a stricter method that we can explicitly use</p>
+
+<p>a few name ideas for the sister methods:</p>
+
+<pre class="highlight"><code> 
+$db-&gt;deleteWhere(..)
+$db-&gt;deleteForceWhere(..)
+$db-&gt;deleteWhereStrict(..)
+$db-&gt;deleteWhereRows(..)
+etc.
+</code></pre>
+
+<hr /><p>Dangerous Examples where (i fear) current interface can cause data loss - note i have not actually tried it out</p>
+
+<pre class="highlight"><code> 
+
+class SuperClass {
+ private $_where= null;
+
+ function getWhere()
+  {
+  return $this-&gt;_where;
+  }
+
+ function update($whereStr)
+  {
+  $this-&gt;setWhere($whereStr);
+  $this-&gt;doQuery();
+  }
+ }
+
+
+class SubClass extends SuperClass {
+ protected $_where= null;
+
+
+ function setWhere($str)
+  {
+  $this-&gt;_where = $str;
+  }
+
+ function doQuery()
+  {
+  ...
+  //deletes all rows cos getWhere() always returns null
+  $n = $db-&gt;update('bugs', $this-&gt;getWhere());
+
+  //would warn if deleting all rows
+  $n = $db-&gt;updateWhere('bugs', $this-&gt;getWhere());
+  }
+ }
+</code></pre>
+
+<hr /><p>Example two</p>
+
+<pre class="highlight"><code> 
+$where = 'bug_id = 3';
+
+//deletes all rows cos $where is a typo
+$n = $db-&gt;delete('bugs', $_where);
+
+//would warn if deleting all rows
+$n = $db-&gt;deleteWhere('bugs', $_where);
+</code></pre>
+
+<hr /><p>Example 3</p>
+
+<p><a href="http://framework.zend.com/issues/browse/ZF-174">http://framework.zend.com/issues/browse/ZF-174</a></p>
+
+<hr /><p>Example 4</p>
+
+<p><a href="http://framework.zend.com/issues/browse/ZF-9298">http://framework.zend.com/issues/browse/ZF-9298</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-04-22T02:47:03.000+0000</p> 
+        <div class="body">
+            <p>@cole: why not check!</p>
+
+<pre class="highlight"><code>
+// $users should contain an array of user ids, 
+// but assume that there is a bug where this array is not being filled correctly
+$users = array();
+foreach ($users as $user) {
+    $where[] = "user_id = $user";
+}
+
+if( !empty($where) )
+{
+    $mUser-&gt;update($values, $where);
+}
+</code></pre>
+
+<p>@jw: i see no use in example 1, either the class is cranking with user data in setWhere or it is not generating usable where via logic.
+Example 2 would be eliminated by testing. Also as long as you don't have initalized a $_where variable a good configured development php would print out a notice for you.</p>
+
+<p>I'm not in a high horse attitude to say that all errors must be eliminated by testing or proving code to be optimal, but i'd say we should not take it too far. These classes are meant to be efficient, they should not double check if a given $where is an empty array or null.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-11-05T00:12:09.000+0000</p> 
+        <div class="body">
+            <p>Cleaning up old tickets.  ZF-9298 was closed as "not an issue" and this the identical issue.  The current behavior is the intended behavior - perhaps you could open a "documentation improvement" ticket if you feel this needs to be more clear.  But, it is not inconsistent with SQL - running an UPDATE without a WHERE clause will update all rows.</p>
+
+        </div>
+    </div>
+    </div>
+

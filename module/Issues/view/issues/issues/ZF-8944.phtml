@@ -1,0 +1,218 @@
+<h2>ZF-8944: fetchRow() ignores limit offset</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-26T12:28:29.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-04-27T20:21:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.2 (24/Feb/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10598">ZF-10598</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12765/zf8944.r21084.patch">zf8944.r21084.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In the fetchRow() method in Zend_Db_Table_Abstract I find this:</p>
+
+<pre class="highlight"><code>
+  if (!($where instanceof Zend_Db_Table_Select)) {
+    /* snip */
+  } else {
+    $select = $where-&gt;limit(1);
+  }
+</code></pre>
+
+<p>So whenever you pass a Zend_Db_Table_Select object including a limit with an offset, say LIMIT 1 OFFSET 10, it overrules it with just LIMIT 1, even though in both cases the resulting rowset contains a maximum of 1 rows. This is unexpected and silently breaks the meaning of the select, resulting in a wrong row being returned.</p>
+
+<p>Steps to reproduce:</p>
+
+<pre class="highlight"><code>
+
+$select = $teams-&gt;select()
+  -&gt;where('colour = ?', 'orange')
+  -&gt;order('result')
+  -&gt;limit(1,10);
+          
+echo (string) $teams;
+// SELECT `teams`.* FROM `teams` WHERE (colour = 'orange') ORDER BY `result` ASC LIMIT 1 OFFSET 10
+        
+$teams-&gt;fetchRow($teams);
+// SELECT `teams`.* FROM `teams` WHERE (colour = 'orange') ORDER BY `result` ASC LIMIT 1
+
+</code></pre>
+
+<p>Suggested fix:</p>
+
+<pre class="highlight"><code>
+$select = $where-&gt;limit(1, $where-&gt;getPart(Zend_Db_Select::LIMIT_OFFSET));
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Lauri Elevant (clon) on 2010-01-26T12:35:08.000+0000</p> 
+        <div class="body">
+            <p>Sorry for the repeated edits :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Rehbein (tech13) on 2010-02-18T14:07:10.000+0000</p> 
+        <div class="body">
+            <p>Created a unit test based on the comments.
+Wasn't able to reproduce the error.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2010-02-19T13:17:59.000+0000</p> 
+        <div class="body">
+            <p>Unit test added with r21101 and correction for Pdo_Oci</p>
+
+<p>Tests OK against all databases without changes to code (trunk and 1.10 branch):</p>
+
+<pre class="highlight"><code>
+phpunit --verbose --group ZF-8944 Zend_Db_AllTests
+PHPUnit 3.4.10 by Sebastian Bergmann.
+
+Zend Framework - Zend_Db
+ Zend_Db_Table_Select_MysqliTest
+ .
+
+ Zend_Db_Table_Select_OracleTest
+ .
+
+ Zend_Db_Table_Select_Pdo_MysqlTest
+ .
+
+ Zend_Db_Table_Select_Pdo_OciTest
+ .
+
+ Zend_Db_Table_Select_Pdo_PgsqlTest
+ .
+
+ Zend_Db_Table_Select_Pdo_SqliteTest
+ .
+
+Time: 4 seconds, Memory: 23.25Mb
+
+OK (6 tests, 12 assertions)
+</code></pre>
+
+<p>Please reopen if the problem always occurs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2011-02-06T12:13:52.000+0000</p> 
+        <div class="body">
+            <p>While you patched the unit test, I don't see that you fixed the root issue?</p>
+
+<p>I opened the ticket that duplicates this one at version 1.10.8 (this one was reported fixed at 1.10.2, but I don't see the patch in the code here on 1.11.3). Would you please double check this issue?</p>
+
+<p>This was a patch against 1.10.8, but you should be able to fix in the current version.</p>
+
+<pre class="highlight"><code>
+Index: Zend/Db/Table/Abstract.php
+===================================================================
+--- Zend/Db/Table/Abstract.php  (revision 1791)
++++ Zend/Db/Table/Abstract.php  (working copy)
+@@ -1358,10 +1358,10 @@
+                 $this-&gt;_order($select, $order);
+             }
+ 
+-            $select-&gt;limit(1);
++            $select-&gt;limit(1, $select-&gt;getPart(Zend_Db_Select::LIMIT_OFFSET));
+ 
+         } else {
+-            $select = $where-&gt;limit(1);
++            $select = $where-&gt;limit(1, $select-&gt;getPart(Zend_Db_Select::LIMIT_OFFSET));
+         }
+ 
+         $rows = $this-&gt;_fetch($select);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-04-22T21:29:48.000+0000</p> 
+        <div class="body">
+            <p>I cannot find the provided unit tests ...</p>
+
+<pre class="highlight"><code>
+$ phpunit --group ZF-8944 Zend/Db/AllTests.php
+
+PHPUnit 3.5.13 by Sebastian Bergmann.
+
+
+
+Time: 1 second, Memory: 18.00Mb
+
+OK (0 tests, 0 assertions)
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2011-04-26T07:39:03.000+0000</p> 
+        <div class="body">
+            <p>Trunk, r21101: <a href="http://framework.zend.com/code/comp.php?repname=Zend+Framework&amp;compare%5B%5D=%2F@21100&amp;compare%5B%5D=%2F@21101">http://framework.zend.com/code/comp.php/…</a></p>
+
+<p>1.10 branch, r21103: <a href="http://framework.zend.com/code/comp.php?repname=Zend+Framework&amp;compare%5B%5D=%2F@21102&amp;compare%5B%5D=%2F@21103">http://framework.zend.com/code/comp.php/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-04-26T15:15:00.000+0000</p> 
+        <div class="body">
+            <p>Sorry but there has to be something that I don't understand now... why I cannot see the test method here [<a href="http://framework.zend.com/svn/framework/standard/trunk/tests/Zend/Db/Select/TestCommon.php">http://framework.zend.com/svn/framework/…</a>]?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2011-04-27T20:21:52.000+0000</p> 
+        <div class="body">
+            <p>Because it's in <a href="http://framework.zend.com/svn/framework/standard/trunk/tests/Zend/Db/Table/Select/TestCommon.php">http://framework.zend.com/svn/framework/…</a> (with Table/Select instead of Select) ;)</p>
+
+        </div>
+    </div>
+    </div>
+

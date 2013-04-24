@@ -1,0 +1,158 @@
+<h2>ZF-1415: Module route always prepends 'default' in assemble() method</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-05-22T02:23:36.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Michal Minicki (martel)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've got my front controller set up with a reasonably standard bootstrap:-</p>
+
+<pre class="highlight"><code>
+// Get front controller
+$front = Zend_Controller_Front::getInstance();
+
+// Set up router
+$router = $front-&gt;getRouter();
+$router-&gt;addRoute('business', new Zend_Controller_Router_Route(...etc...));
+
+// Create front controller, configure and dispatch
+$front-&gt;setParam('config', $config)
+      -&gt;setParam('useGlobalDefault', true)
+      -&gt;setRouter($router)
+      -&gt;setControllerDirectory(array('default' =&gt; realpath('../application/default/controllers'),
+                                     'business' =&gt; realpath('../application/business/controllers')))
+      -&gt;dispatch();
+</code></pre>
+
+<p>If I use the default View helper url() to output a 'default' route like so within my view templartes:-</p>
+
+<pre class="highlight"><code>
+&lt;?php echo $this-&gt;url(array('controller' =&gt; 'foo', 'action' =&gt; bar), 'default', true) ?&gt;
+
+or 
+
+&lt;?php echo $this-&gt;url(array('controller' =&gt; 'foo', 'action' =&gt; bar), null, true) ?&gt;
+
+yields:-
+
+/default/foo/bar/
+</code></pre>
+
+<p>It appears that the code within Zend_Controller_Router_Route_Module attempts to suppress the module segment from a path if it matches the default module, however the logic in this case will always mean that default is still prepended:-</p>
+
+<pre class="highlight"><code>
+        if (isset($module) &amp;&amp; (!empty($url) || $module !== $this-&gt;_defaults[$this-&gt;_moduleKey])) {
+            $url = '/' . $module . $url;
+        }
+</code></pre>
+
+<p>Because $module is already set and in the above use case the $url is not empty, it automatically executes the conditional.</p>
+
+<p>The solution would be to switch the order to the following, so that it first tests that the module is not the default and also checks that the URL is non-empty.</p>
+
+<pre class="highlight"><code>
+        if (isset($module) &amp;&amp; ($module !== $this-&gt;_defaults[$this-&gt;_moduleKey] || !empty($url))) {
+            $url = '/' . $module . $url;
+        }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-05-25T12:14:03.000+0000</p> 
+        <div class="body">
+            <p>Simon, look at it more closely - you have just reversed (bool1 || bool2) into (bool2 || bool1). It changes nothing, actually.</p>
+
+<p>I see your point though and tried to fix t so the following test passes:</p>
+
+<pre class="highlight"><code>
+        $values = $this-&gt;route-&gt;match('mod/con/act/sort/name');
+
+        $url = $this-&gt;route-&gt;assemble(array('action' =&gt; 'new'), true);
+
+        $this-&gt;assertSame('defctrl/new', $url);
+</code></pre>
+
+<p>Previously it matched:</p>
+
+<pre class="highlight"><code>
+        $this-&gt;assertSame('default/defctrl/new', $url);
+</code></pre>
+
+<p>Hope it's what you wished to accomplish. If not, please reopen and give some more code to reproduce. Yours passes - see tests testAssembleDefaultModuleResetZF1415 and testAssembleDefaultModuleZF1415.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-05-27T08:56:47.000+0000</p> 
+        <div class="body">
+            <p>Hi Martel</p>
+
+<p>This fix has created another issue with 'defaults' - consider the following two modules routes:-</p>
+
+<p>default/index/index
+mymodule/index/index</p>
+
+<p>If my current module is 'default' and I call (from a Zend_View) $this-&gt;url(array('module' =&gt; 'mymodule', 'controller' =&gt; 'index', 'action' =&gt; 'index')) the following happens:-</p>
+
+<ul><li>The $action variable is not added to $url because it matches the default ( = index). $url is empty.</li>
+<li>The $controller variable is not added to $url because it too matches the default ( = index)</li>
+<li>Because $url is empty, the check for $module is skipped because of the &amp;&amp; clause. So my $url stays empty.</li>
+</ul><p>So both of the above assembled routes still give me '/' as a URL :(</p>
+
+<p>Since you've improved the check for the $module variable, simply changing the code from (isset($module) &amp;&amp; empty($url)) could be shortened to (isset($module)).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-05-27T10:03:44.000+0000</p> 
+        <div class="body">
+            <p>My bad (I forgot to change &amp;&amp; to ||). But it seems module check is in fact sufficient. Thanks for the catch, Simon.</p>
+
+        </div>
+    </div>
+    </div>
+

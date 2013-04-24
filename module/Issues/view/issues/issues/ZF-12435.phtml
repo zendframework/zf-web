@@ -1,0 +1,297 @@
+<h2>ZF-12435: Passing an exception as the message to Zend_Log_Writer_Db raises an exception</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-10-04T16:35:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-04-05T16:07:14.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Log</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The other log writers allow you to pass an instance of an exception as the message for logging. In particular, Zend_Log_Writer_Firebug even has a formatter that renders in a way that is easy to read when debugging XmlHttpRequests. However, I get an exception in Zend_Log_Writer_Db because the message is an object:</p>
+
+<p>{panel:title=Exception}
+exception 'Zend_Db_Statement_Sqlsrv_Exception' with message 'An invalid PHP type for parameter 4 was specified.' in ..\library\Zend\Db\Statement\Sqlsrv.php:206 
+Stack trace:</p>
+
+<h1>0 ..\library\Zend\Db\Statement.php(320): Zend_Db_Statement_Sqlsrv-&gt;_execute(Array)</h1>
+
+<h1>1 ..\library\Zend\Db\Adapter\Abstract.php(479): Zend_Db_Statement-&gt;execute(Array)</h1>
+
+<h1>2 ..\library\Zend\Db\Adapter\Sqlsrv.php(380): Zend_Db_Adapter_Abstract-&gt;query('INSERT INTO "Ap...', Array)</h1>
+
+<h1>3 ..\library\Zend\Log\Writer\Db.php(143): Zend_Db_Adapter_Sqlsrv-&gt;insert('ApplicationLog', Array)</h1>
+
+<h1>4 ..\library\Zend\Log\Writer\Abstract.php(85): Zend_Log_Writer_Db-&gt;_write(Array)</h1>
+
+<h1>5 ..\library\Zend\Log.php(428): Zend_Log_Writer_Abstract-&gt;write(Array)</h1>
+
+<h1>6 [internal function]: Zend_Log-&gt;log(Object(Exception), 3)</h1>
+
+<h1>7 ..\library\My\Controller\Plugin\Log.php(212): call_user_func_array(Array, Array)</h1>
+
+<h1>8 [internal function]: My_Controller_Plugin_Log-&gt;__call('log', Array)</h1>
+
+<h1>9 [internal function]: My_Controller_Plugin_Log-&gt;log(Object(Exception), 3)</h1>
+
+<h1>10 ..\library\My\Controller\Action\Helper\Log.php(27): call_user_func_array(Array, Array)</h1>
+
+<h1>11 ..\application\controllers\ErrorController.php(52): My_Controller_Action_Helper_Log-&gt;__call('log', Array)</h1>
+
+<h1>12 ..\application\controllers\ErrorController.php(52): My_Controller_Action_Helper_Log-&gt;log(Object(Exception), 3)</h1>
+
+<h1>13 ..\library\Zend\Controller\Action.php(516): ErrorController-&gt;errorAction()</h1>
+
+<h1>14 ..\library\Zend\Controller\Dispatcher\Standard.php(295): Zend_Controller_Action-&gt;dispatch('errorAction')</h1>
+
+<h1>15 ..\library\Zend\Controller\Front.php(954): Zend_Controller_Dispatcher_Standard-&gt;dispatch(Object(Zend_Controller_Request_Http), Object(Zend_Controller_Response_Http))</h1>
+
+<h1>16 ..\library\Zend\Application\Bootstrap\Bootstrap.php(97): Zend_Controller_Front-&gt;dispatch()</h1>
+
+<h1>17 ..\library\Zend\Application.php(366): Zend_Application_Bootstrap_Bootstrap-&gt;run()</h1>
+
+<h1>18 ..\public\index.php(126): Zend_Application-&gt;run()</h1>
+
+<h1>19 {main}</h1>
+
+<p>{panel}</p>
+
+<p>I can pass the exception in as a string, but then it is more difficult to read in Firebug. I'm also not sure if this problem is specific to the database adapter I am using (Zend_Db_Adapter_Sqlsrv) since I don't have another database/adapter I can test right now.</p>
+
+<p>I think a change in Zend_Log_Writer_Db::_write() should fix it but I don't know if it might raise other issues:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Write a message to the log.
+     *
+     * @param  array  $event  event data
+     * @return void
+     * @throws Zend_Log_Exception
+     */
+    protected function _write($event)
+    {
+        if ($this-&gt;_db === null) {
+            // require_once 'Zend/Log/Exception.php';
+            throw new Zend_Log_Exception('Database adapter is null');
+        }
+
+        if ($this-&gt;_columnMap === null) {
+            $dataToInsert = $event;
+        } else {
+            $dataToInsert = array();
+            foreach ($this-&gt;_columnMap as $columnName =&gt; $fieldKey) {
+-                $dataToInsert[$columnName] = $event[$fieldKey];
+
++               if ('info' == $fieldKey &amp;&amp; (is_object($event[$fieldKey]) || is_array($event[$fieldKey]))) {
++                   $dataToInsert[$columnName] = Zend_Debug::dump($event[$fieldKey], gettype($event[$fieldKey]), true);
++               } else {
++                   $dataToInsert[$columnName] = $event[$fieldKey];
++               }
+            }
+        }
+
+        $this-&gt;_db-&gt;insert($this-&gt;_table, $dataToInsert);
+    }
+</code></pre>
+
+<p>I tried to resolve this by extending Zend_Log_Writer_Db to override the _write method, but all of the properties are marked private instead of protected for some reason. As a result, getting it to work would have required duplicating the entire class. (If they truly need to be private, perhaps the class should be final?)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Andrew Ballard (aballard) on 2012-10-04T16:54:23.000+0000</p> 
+        <div class="body">
+            <p>Fixed code block.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-02-15T07:01:44.000+0000</p> 
+        <div class="body">
+            <p>Hi Andrew,
+I will look into your problem with exceptions. I must write a unit test.</p>
+
+<p>{quote} tried to resolve this by extending Zend_Log_Writer_Db to override the _write method, but all of the properties are marked private instead of protected for some reason.{quote}
+This problem was fixed with ZF-12514. (<a href="http://framework.zend.com/code/diff.php?repname=Zend+Framework&amp;path=%2Fbranches%2Frelease-1.12%2Flibrary%2FZend%2FLog%2FWriter%2FDb.php&amp;rev=25247&amp;peg=25247">Look at the diff</a>)</p>
+
+<p>Thanks for your help! :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrew Ballard (aballard) on 2013-02-15T17:40:24.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+bq. tried to resolve this by extending Zend_Log_Writer_Db to override the _write method, but all of the properties are marked private instead of protected for some reason.</p>
+
+<p>This problem was fixed with ZF-12514.{quote}</p>
+
+<p>Thank you!</p>
+
+<p>I was ultimately able to extend {{Zend_Log_Writer_Db}} in a way that works with the current version. I'm still not sure if this is the best way of handling things, but this is the class I came up with:</p>
+
+<pre class="highlight"><code>
+/**
+ * @category   My
+ * @package    My_Log
+ * @subpackage Writer
+ */
+class My_Log_Writer_Db extends Zend_Log_Writer_Db
+{
+
+    /**
+     * Relates database columns names to log data field keys.
+     * 
+     * THIS HAD TO BE COPIED TO THE SUBCLASS BECAUSE IT WAS DECLARED PRIVATE IN
+     * THE PARENT CLASS AND I NEED IT IN THE OVERRIDDEN _write METHOD BELOW. 
+     * 
+     * @var null|array
+     */
+    private $_columnMap;
+    
+    /**
+     * Class constructor
+     * 
+     * THIS HAD TO BE INCLUDED BECAUSE $db, $table AND $columnMap ALL  MAP TO 
+     * PRIVATE PROPERTIES IN THE PARENT CLASS AND COULD NOT BE SET HERE.
+     *
+     * @param Zend_Db_Adapter $db   Database adapter instance
+     * @param string $table         Log table in database
+     * @param array $columnMap
+     * @return void
+     */
+    public function __construct($db, $table, $columnMap = null)
+    {
+        
+        // I NEED $columnMap IN THE OVERRIDDEN VERSION OF _write BELOW.
+        $this-&gt;_columnMap = $columnMap;
+        
+        // PASS ALL THE PARAMETERS TO THE PARENT CLASS SO THEY CAN BE SET 
+        // CORRECTLY WHERE _write IN THE PARENT CLASS CAN ACCESS THEM.
+        parent::__construct($db, $table, $columnMap);
+    }
+    
+
+    /**
+     * Write a message to the log.
+     * OVERWRITTEN: Safely converts any values in the $event to strings 
+     *
+     * @param  array  $event  event data
+     * @return void
+     * @throws Zend_Log_Exception
+     */
+    protected function _write($event)
+    {
+
+        foreach ($this-&gt;_columnMap as $columnName =&gt; $fieldKey) {
+            
+            $var = $event[$fieldKey];
+                
+            switch (true) {
+                
+                case ('message' == $fieldKey &amp;&amp; ($var instanceof Exception)):
+                    // Special handling if an exception was passed to the
+                    // message.
+                    
+                    // Store only the exception message in 'message'.
+                    
+                    // If no 'info' key exists in the event, move the exception
+                    // object (cast as a string) to that key.
+                    
+                    if (!array_key_exists('info', $event)) {
+                        $event['info'] = (string) $var; 
+                    }
+                    $var = $var-&gt;getMessage();
+                    break; 
+                
+                case (is_object($var) &amp;&amp; method_exists($var, '__toString()')):
+                    // The object can be typecast to a string.
+                    // Fall through.
+                case is_bool($var):
+                case is_numeric($var):
+                    $var = (string) $var;
+                    break;
+                    
+                    
+                case ($var instanceof DateTime):
+                    // DateTime instances cannot be cast to a string.
+                    // Format the date as an ISO 8601 string.
+                    $var = $var-&gt;format('c');
+                    break;
+
+                case is_resource($var):
+                case is_array($var):
+                case is_object($var):
+                    // The variable cannot be typecast to a string.
+                    $var = Zend_Debug::dump($var, null, true);
+                    break;
+
+                case is_string($var):
+                    // No action needed; included for completeness.
+                    break;
+                    
+                default:
+                    // Not sure what other types might need to be handled.
+
+            }
+                    
+            $event[$fieldKey] = $var;
+        }
+
+        parent::_write($event);
+    }
+}
+</code></pre>
+
+<p>Hopefully this is useful to someone else.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2013-04-05T16:07:14.000+0000</p> 
+        <div class="body">
+            <p>This issue has been closed on Jira and moved to GitHub for issue tracking.  To continue following the resolution of this issues, please visit: <a href="https://github.com/zendframework/zf1/issues/23">https://github.com/zendframework/zf1/issues/23</a></p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,150 @@
+<h2>ZF-9144: Zend_Locale_Data not handling alias/inheritance rules correctly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-11T04:52:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:38:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently Zend_Locale_Data is incorrectly handling the  element and the inheritance that it provides.  The current code does respect the  element, but does not reset the locale code to the top of the chain when resolving the alias.  The means that an alias defined in the 'root' locale (root.xml) is only resolved agains data in the same locale, not the top-level locale like en_US or de_DE.  This bug is subtle in that you mostly never see it unless you depend on data that is using the  elements.</p>
+
+<p>A concrete example of this is:</p>
+
+<pre class="highlight"><code>
+Zend_Locale::getTranslationList('month', 'de_DE', array('gregorian', 'stand-alone', 'abbreviated'));
+</code></pre>
+
+<p>This returns a mixed list of abbreviated months and numbers.  The reason for this is</p>
+
+<pre class="highlight"><code>
+MärJulAugSepOktNovDez</code></pre>
+
+<pre class="highlight"><code>
+</code></pre>
+
+<p>The XML shown above SHOULD tell Zend_Locale_Data to pull any missing months using de_DE:monthContext[@type='format']/monthWidth[@type='abbreviated'], but instead it pulls the missing months from root:monthContext[@type='format']/monthWidth[@type='abbreviated']</p>
+
+<p>This is a patch to my current 'fix' for the problem.  It's not the most elegant, but it seems to function properly.  I'm not 100% it is bug free, so YMMV.</p>
+
+<pre class="highlight"><code>
+diff --git a/lib/Zend/Locale/Data.php b/lib/Zend/Locale/Data.php
+index f508b8f..d170c76 100644
+--- a/lib/Zend/Locale/Data.php
++++ b/lib/Zend/Locale/Data.php
+@@ -132,7 +132,7 @@ class Zend_Locale_Data
+      * @throws Zend_Locale_Exception
+      * @access private
+      */
+-    private static function _findRoute($locale, $path, $attribute, $value, &amp;$temp)
++    private static function _findRoute($locale, $path, $attribute, $value, &amp;$temp, $topLocale)
+     {
+         // load locale file if not already in cache
+         // needed for alias tag when referring to other locale
+@@ -192,7 +192,7 @@ class Zend_Locale_Data
+                         $locale = $source;
+                     }
+ 
+-                    $temp = self::_getFile($locale, $path, $attribute, $value, $temp);
++                    $temp = self::_getFile($topLocale, $path, $attribute, $value, $temp, $topLocale);
+                     return false;
+                 }
+ 
+@@ -212,9 +212,14 @@ class Zend_Locale_Data
+      * @param  string $value
+      * @access private
+      */
+-    private static function _getFile($locale, $path, $attribute = false, $value = false, $temp = array())
++    private static function _getFile($locale, $path, $attribute = false, $value = false, $temp = array(), $topLocale = null)
+     {
+-        $result = self::_findRoute($locale, $path, $attribute, $value, $temp);
++       if(empty($topLocale))
++       {
++          $topLocale = $locale;
++       }
++
++        $result = self::_findRoute($locale, $path, $attribute, $value, $temp, $topLocale);
+         if ($result) {
+             $temp = self::_readFile($locale, $path, $attribute, $value, $temp);
+         }
+@@ -228,9 +233,9 @@ class Zend_Locale_Data
+         if (($locale != 'root') &amp;&amp; ($result)) {
+             $locale = substr($locale, 0, -strlen(strrchr($locale, '_')));
+             if (!empty($locale)) {
+-                $temp = self::_getFile($locale, $path, $attribute, $value, $temp);
++                $temp = self::_getFile($locale, $path, $attribute, $value, $temp, $topLocale);
+             } else {
+-                $temp = self::_getFile('root', $path, $attribute, $value, $temp);
++                $temp = self::_getFile('root', $path, $attribute, $value, $temp, $topLocale);
+             }
+         }
+         return $temp;
+</code></pre>
+
+<p>Reference: [<a href="http://www.unicode.org/reports/tr35/#Locale_Inheritance">http://unicode.org/reports/tr35/…</a>]</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Lee Saferite (lsaferite) on 2010-02-11T05:02:08.000+0000</p> 
+        <div class="body">
+            <p>As an example, perhaps ticket ZF-6632 would be resolved with this fix since the rest of the data would be pulled in properly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lee Saferite (lsaferite) on 2010-02-16T04:04:05.000+0000</p> 
+        <div class="body">
+            <p>As a note, my patch has an opening for some form of recursion bug.  But, the base problem still remains and needs a proper solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-02-16T04:25:38.000+0000</p> 
+        <div class="body">
+            <p>I know this and that's also the reason why I did not apply this patch after I added your patch internally.</p>
+
+        </div>
+    </div>
+    </div>
+

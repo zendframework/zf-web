@@ -1,0 +1,321 @@
+<h2>ZF-11120: Zend_Translate crashes, when used with Zend_Cache and same page is called from different sessions within a timespan of only milliseconds</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-28T02:59:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-03-26T19:28:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Like the summary says. The affected version marked is the one I currently use. I did not test it with other versions so far.</p>
+
+<p>I use the following Plugin for my Locale-Setup, which calls $generalHelper-&gt;setZendTranslate(); at its end (you find $generalHelper-&gt;setZendTranslate(); also below).</p>
+
+<p>Inside $generalHelper-&gt;setZendTranslate(); is the initializing of Zend_Translate, which crashes, if called within a gap of only milliseconds from different sessions.</p>
+
+<p>I discovered this case because I use a fork-mechanism to transport files (uploaded to a webserver) via soap to another server. If you upload i. e. 10 files and then press "finish", the webserver is told to do the upload via soap. For this it opens an own fork for every file to upload. The opening of the forks is done in a loop, therefore there are 10 uploads opened within a millisecond or so. This fork is a normal http-call to my zend_framework-site done by fsockopen (and with some security stuff wrapped around it).</p>
+
+<p>Now in 1-3 of these forks Zend_Translate crashes the call, if I use the cache to cache the translations. If not everything is fine. I guess, it must be something like 2 processes trying to get the same cache-file at the same time and one of them is not able to, because the other has still the hands on it.</p>
+
+<p>The traceback is:</p>
+
+<pre class="literal">
+[28-Feb-2011 11:54:58] PHP Fatal error:  Uncaught exception 'Zend_Exception' with message 'No entry is registered for key 'Zend_Translate'' in C:\server\php\zf\library\Zend\Registry.php:147
+Stack trace:
+#0 C:\Marc\testserver\www\portal\library\Portal\Controllers\Helper\GeneralHelper.php(356): Zend_Registry::get('Zend_Translate')
+#1 C:\Marc\testserver\www\portal\application\controllers\ErrorController.php(67): Portal_Controllers_Helper_GeneralHelper-&gt;mail('admin@all.de', 'Portal Admin', 'Fehler im Porta...', Array, false, false, Array)
+#2 C:\server\php\zf\library\Zend\Controller\Action.php(513): ErrorController-&gt;errorAction()
+#3 C:\server\php\zf\library\Zend\Controller\Dispatcher\Standard.php(295): Zend_Controller_Action-&gt;dispatch('errorAction')
+#4 C:\server\php\zf\library\Zend\Controller\Front.php(954): Zend_Controller_Dispatcher_Standard-&gt;dispatch(Object(Zend_Controller_Request_Http), Object(Zend_Controller_Response_Http))
+#5 C:\server\php\zf\library\Zend\Application\Bootstrap\Bootstrap.php(97): Zend_Controller_Front-&gt;dispatch()
+#6 C:\server\php\zf in C:\server\php\zf\library\Zend\Registry.php on line 147
+</pre>
+
+<p>The Plugin class looks like</p>
+
+<pre class="highlight"><code>
+class Portal_Controllers_Plugins_LocaleSetup extends Zend_Controller_Plugin_Abstract
+{
+    public function routeShutdown(Zend_Controller_Request_Abstract $request)
+    {
+        // Initialisiere Sprachschlüssel
+        $session = new Zend_Session_Namespace();
+        // Prüfe auf Sprachschlüssel in URL
+        if ($request-&gt;getParam('locale')) {
+            // Hole locale
+            $session-&gt;locale = $request-&gt;getParam('locale');
+            //fange Falscheingaben ab
+            if (!Zend_Locale::isLocale($session-&gt;locale)) {
+                throw new Zend_Exception('$request-&gt;getParam(\'locale\') war keine gültige locale', 0 );
+            }
+            //Speicher locale in Db, falls user eingeloggt
+            if(Zend_Auth::getInstance()-&gt;hasIdentity()){
+                $Models_Employee = new Models_Employee();
+                $Models_Employee-&gt;setLocale($session-&gt;locale);
+            }
+        }
+        elseif (!isset($session-&gt;locale)) {
+            $localeObj = new Zend_Locale();
+            $userPrefLangs = array_keys($localeObj-&gt;getBrowser());
+            if(count($userPrefLangs)&gt;0){
+                //Prüfe, ob für jede locale, ob eine xliff-Datei vorhanden ist - wenn nicht fallback
+                foreach($userPrefLangs as $testLocale){
+                    $testLocaleObj = new Zend_Locale($testLocale);
+                    $testLang = $testLocaleObj-&gt;getLanguage();
+                    if(file_exists($session-&gt;runtimeOptions-&gt;dir-&gt;locales.'/portal-'.$testLang.'.xliff')){
+                        $session-&gt;locale = $testLocale;
+                        break;
+                    }
+                }
+            }
+            if(!$session-&gt;locale){
+                $session-&gt;locale = $session-&gt;runtimeOptions-&gt;translation-&gt;targetDefaultLocale;
+            }
+        }
+        // Speicher locale und translation-object in Registry - so gilt sie für alle locale und
+        $localeRegObj = new Zend_Locale($session-&gt;locale);
+        
+        //Prüfe, ob für die locale eine xliff-Datei vorhanden ist - wenn nicht fallback
+        Zend_Registry::set('Zend_Locale', $localeRegObj);
+        $generalHelper = Zend_Controller_Action_HelperBroker::getStaticHelper(
+            'GeneralHelper'
+        );
+        $generalHelper-&gt;setZendTranslate();
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Portal_Controllers_Plugins_LocaleSetup extends Zend_Controller_Plugin_Abstract
+{
+    /**
+     * Wird nach dem Routing aufgerufen
+     * 
+     * </code></pre><code>liest locale aus den get oder post parametern aus
+     * falls in locale in get oder post vorhanden
+     *   </code><code>
+     *   wird Zend_Locale anhand der locale initialisiert und in
+     *       $session-&gt;Zend_Locale gespeichert
+     *   wird locale in der Db beim employee hinterlegt, falls user eingeloggt
+     *   wird Zend_Translation im Cache für die locale initialisiert
+     *   
+     * 
+     * ansonsten: Falls Zend_Locale bereits in Session, passiert nichts weiter
+     * falls alles nicht der Fall:
+     *   </code><code>
+     *   Hole locale aus den Browserpräferenzen
+     *   falls Präferenz nicht als xliff-Datei im Portal verfügbar, gehe zur nächsten Präferenz, etc.
+     *   falls immer noch nicht beziehbar nehme die default-locale aus der application.ini
+     *   
+     * 
+     * Darüber hinaus: Hinterlege Zend_Locale-Objekt in der Registry als
+     *     Default für alle Zend_Locale und Zend_Translation-Operationen
+     * 
+     *
+     * @param  Zend_Controller_Request_Abstract $request
+     * @return void
+     */
+    public function routeShutdown(Zend_Controller_Request_Abstract $request)
+    {
+        // Initialisiere Sprachschlüssel
+        $session = new Zend_Session_Namespace();
+        // Prüfe auf Sprachschlüssel in URL
+        if ($request-&gt;getParam('locale')) {
+            // Hole locale
+            $session-&gt;locale = $request-&gt;getParam('locale');
+            //fange Falscheingaben ab
+            if (!Zend_Locale::isLocale($session-&gt;locale)) {
+                throw new Zend_Exception('$request-&gt;getParam(\'locale\') war keine gültige locale', 0 );
+            }
+            //Speicher locale in Db, falls user eingeloggt
+            if(Zend_Auth::getInstance()-&gt;hasIdentity()){
+                $Models_Employee = new Models_Employee();
+                $Models_Employee-&gt;setLocale($session-&gt;locale);
+            }
+        }
+        elseif (!isset($session-&gt;locale)) {
+            $localeObj = new Zend_Locale();
+            $userPrefLangs = array_keys($localeObj-&gt;getBrowser());
+            if(count($userPrefLangs)&gt;0){
+                //Prüfe, ob für jede locale, ob eine xliff-Datei vorhanden ist - wenn nicht fallback
+                foreach($userPrefLangs as $testLocale){
+                    $testLocaleObj = new Zend_Locale($testLocale);
+                    $testLang = $testLocaleObj-&gt;getLanguage();
+                    if(file_exists($session-&gt;runtimeOptions-&gt;dir-&gt;locales.'/portal-'.$testLang.'.xliff')){
+                        $session-&gt;locale = $testLocale;
+                        break;
+                    }
+                }
+            }
+            if(!$session-&gt;locale){
+                $session-&gt;locale = $session-&gt;runtimeOptions-&gt;translation-&gt;targetDefaultLocale;
+            }
+        }
+        // Speicher locale und translation-object in Registry - so gilt sie für alle locale und
+        $localeRegObj = new Zend_Locale($session-&gt;locale);
+        
+        //Prüfe, ob für die locale eine xliff-Datei vorhanden ist - wenn nicht fallback
+        Zend_Registry::set('Zend_Locale', $localeRegObj);
+        $generalHelper = Zend_Controller_Action_HelperBroker::getStaticHelper(
+            'GeneralHelper'
+        );
+        $generalHelper-&gt;setZendTranslate();
+    }
+}
+</code>
+
+<p>The Method of the helper $generalHelper-&gt;setZendTranslate(); looks like:</p>
+
+<pre class="highlight"><code>
+ public function setZendTranslate() {
+        $session = new Zend_Session_Namespace();
+        //setzte die sourceLang in der Session
+        $sourceLocale = $session-&gt;runtimeOptions-&gt;translation-&gt;sourceLocale;
+        if (!Zend_Locale::isLocale($sourceLocale)) {
+            throw new Zend_Exception('$sourceLocale war keine gültige locale - fehlerhafte Konfiguration in application.ini (runtimeOptions.translation.locale)', 0 );
+        }
+        $sourceLocaleObj = new Zend_Locale($sourceLocale);
+        $session-&gt;sourceLang = $sourceLocaleObj-&gt;getLanguage();
+        $targetLocaleObj = Zend_Registry::get('Zend_Locale');
+        $targetLang = $targetLocaleObj-&gt;getLanguage();
+        //definiere logfile für nicht gefundene Übersetzungen
+        $logfile = $session-&gt;runtimeOptions-&gt;dir-&gt;logs.'/notFoundPortalTranslation-'.
+            $session-&gt;sourceLang.'-'.$targetLang.'.log';
+        try {
+            $log = Zend_Registry::get('translationLog');
+        }
+        catch (Exception $exc) {
+            $writer = new Zend_Log_Writer_Stream($logfile);
+            $log    = new Zend_Log($writer);
+            Zend_Registry::set('translationLog', $log);
+        }
+
+        // Lade Übersetzungen und speichere Translate Objekt in der Session
+         $cache = Zend_Registry::get('cache'); 
+         Zend_Translate::setCache($cache);
+        $Zend_Translate = new Zend_Translate(
+            array(
+                'adapter' =&gt; 'xliff',
+                'content' =&gt; $session-&gt;runtimeOptions-&gt;dir-&gt;locales.'/portal-'.$session-&gt;sourceLang.'.xliff',
+                'locale'  =&gt; $session-&gt;sourceLang,
+                'disableNotices' =&gt; true,
+                'log'             =&gt; $log,
+                'logUntranslated' =&gt; true,
+                'logMessage' =&gt; ''.
+                    '%message%'.
+                    '%message%'.
+                    '',
+                'useId' =&gt; false
+            )
+        );
+        $Zend_Translate-&gt;addTranslation(array(
+            'content' =&gt; $session-&gt;runtimeOptions-&gt;dir-&gt;locales.'/portal-'.$targetLang.'.xliff',
+            'locale' =&gt; $targetLang)
+        );
+        Zend_Registry::set('Zend_Translate', $Zend_Translate);
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-03-03T09:10:03.000+0000</p> 
+        <div class="body">
+            <p>Detaching Zend_Translate from affected components.</p>
+
+<p>When all works without caching I see no way how Zend_Translate should break the application by using the cache.
+For me it looks like that cache-key is processed when it is not available.</p>
+
+<p>This could be affected by the used cache.
+As you did not gave informations about the used cache-params there is actually no further response possible.</p>
+
+<p>Maybe it would be good to know which cache type and parameters you are using.
+I think also Alex needs this information for reproduction.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Mittag (marcmittag) on 2011-03-04T08:15:38.000+0000</p> 
+        <div class="body">
+            <p>Yes, I think to that it is not an issue of Zend_Translate. As I wrote I think, that two of the forks do try to access the cache-file at the same time and therefore for one of them it is locked and this leads to the error.</p>
+
+<p>My Cache-Config in my application.ini looks like this:</p>
+
+<p>resources.cachemanager.portal.frontend.name = core
+resources.cachemanager.portal.frontend.options.lifetime = 86400
+resources.cachemanager.portal.frontend.options.automatic_serialization = 1
+resources.cachemanager.portal.frontend.options.caching = 1
+resources.cachemanager.portal.frontend.options.cache_id_prefix = "Portal_"
+resources.cachemanager.portal.backend.name = file
+resources.cachemanager.portal.backend.options.cache_dir = APPLICATION_PATH "/../data/cache"</p>
+
+<p>Don't be disturbed by the long lifetime, it is just for testing. Before the forktest I wrote about above, I emptied the complete cache-Dir.</p>
+
+<p>Thanks!</p>
+
+<p>love and light</p>
+
+<p>marc</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-03-21T19:11:59.000+0000</p> 
+        <div class="body">
+            <p>formated description</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-03-26T19:28:32.000+0000</p> 
+        <div class="body">
+            <p>Hi Marc,</p>
+
+<p>If there is no registry entry of 'Zend_Translate' than 'Zend_Registry::set('Zend_Translate', $Zend_Translate);' was never called or you removed the entry on another place.
+This means that either setZendTranslate was never called, too or there was an error within that method.
+If there was an error we need the message/code/exception thrown within setZendTranslate to find out whats going on ;)</p>
+
+        </div>
+    </div>
+    </div>
+

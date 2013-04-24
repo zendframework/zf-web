@@ -1,0 +1,181 @@
+<h2>ZF-404: Controller/Dispatcher onLoad function implementation</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-09-28T16:02:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.2.0 (29/Oct/06)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Function onLoad of a Zend_Controller can be used for example for making authorization, like checking if a user_id is in $_SESSION.  It is too much code to check for user_id in every action call.</p>
+
+<p>Function onLoad is called before any Action call, so it behaves like a constructor of Zend_Controller should behave.</p>
+
+<p>We need two things to implement this function.</p>
+
+<p>New Dispatcher class:</p>
+
+<pre class="highlight"><code>
+&lt;?
+
+require_once("Zend/Controller/Dispatcher.php");
+require_once("Zend/Controller/Dispatcher/Token.php");
+
+class onloadDispatcher extends Zend_Controller_Dispatcher {
+    
+    public function dispatch(Zend_Controller_Dispatcher_Token $action) {
+
+        $performDispatch = true;
+        
+        if ($this-&gt;_directory === null) {
+                    throw new Zend_Controller_Dispatcher_Exception('Controller directory never set.  Use setControllerDirectory() first.');
+                }
+
+        $className  = $this-&gt;formatControllerName($action-&gt;getControllerName());
+        
+        /**
+         * Extend Admin controller action to Admin controllers
+         * 
+         * Runs controllers/admin/LoginController instead of controllers/AdminController-&gt;loginAction()
+         */
+        
+        if (strpos($action-&gt;getControllerName(), "admin_") !== false) {
+            
+            $className = substr($className, 5);
+            $this-&gt;setControllerDirectory($this-&gt;_directory."/admin");
+            
+        }
+
+        /**
+         * If $performDispatch is FALSE, only determine if the controller file
+         * can be accessed.
+         */
+        if (!$performDispatch) {
+            return Zend::isReadable($this-&gt;_directory . DIRECTORY_SEPARATOR . $className . '.php');
+        }
+
+        Zend::loadClass($className, $this-&gt;_directory);
+
+        $controller = new $className();
+        if (!$controller instanceof Zend_Controller_Action) {
+           throw new Zend_Controller_Dispatcher_Exception("Controller \"$className\" is not an instance of Zend_Controller_Action.");
+        }
+        
+        /**
+         * if is defined onLoad function in a $controller
+         */
+        
+        if (in_array("onLoad", get_class_methods($controller))) {
+            
+            /**
+             * run it. If it returns $next action, return $next
+             */
+
+            $next = $controller-&gt;onLoad($action);
+            
+            if ($next instanceof Zend_Controller_Dispatcher_Token) {
+                
+                return $next;
+                
+            }
+            
+        }
+        
+        /**
+         * Dispatch
+         *
+         * Call the action of the Zend_Controller_Action.  It will return either null or a
+         * new Zend_Controller_Dispatcher_Token object.  If a Zend_Controller_Dispatcher_Token object is returned, this will be returned
+         * back to ZFrontController, which will call $this again to forward to
+         * another action.
+         */
+        $nextAction = $controller-&gt;run($this, $action);
+        
+        // Destroy the page controller instance
+        $controller = null;
+        
+        // Return either null (finished) or a Zend_Controller_Dispatcher_Token object (forward to another action).
+        return $nextAction; 
+        
+    }
+    
+}
+
+
+?&gt;
+</code></pre>
+
+<p>And Controller onLoad function</p>
+
+<pre class="highlight"><code>
+class AdminController extends Zend_Controller_Action {
+    
+    public function onLoad(Zend_Controller_Dispatcher_Token $action) {
+                // code here
+        }
+
+}
+</code></pre>
+
+<p>This wil work as follows:</p>
+
+<p>Request: /admin</p>
+
+<p>AdminController is called. onLoad function checks for authorization, no authorization is found, redirected to</p>
+
+<p>/admin/login</p>
+
+<p>AdminController is called again. onLoad function sees a request to login and return new action for LoginController, than LoginController is called.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-11-07T15:42:20.000+0000</p> 
+        <div class="body">
+            <p>The MVC rewrite for 0.2 (incubator) addressed this issue. Action controllers now have a preDispatch() method, and the plugin broker already had one. It is now possible, however, for either one to alter the request object in order to abort the current action (and possibly move on to the next). For full information, read the MVC documentation in the incubator.</p>
+
+        </div>
+    </div>
+    </div>
+

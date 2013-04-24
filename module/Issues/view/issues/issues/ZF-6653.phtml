@@ -1,0 +1,173 @@
+<h2>ZF-6653: Calling from() and join() &quot;out of order&quot; causes incorrect SELECT generation</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-14T08:12:02.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-10-12T07:36:56.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.4 (13/Oct/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12043/Select.php.diff">Select.php.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I was trying to adjust the Zend_Auth DB adapter result to include the user role for a simple ACL I'm doing (I've tables "users" and "roles", with the former containing a FK to the latter).</p>
+
+<pre class="highlight"><code>
+// $select instanceof Zend_Db_Select:
+
+        $select
+            -&gt;from(array('u' =&gt; 'users'), array('username'))
+            -&gt;joinLeft(array('r' =&gt; 'roles'), 'u.role_id = r.role_id', array('role' =&gt; 'name'));
+
+// gives SELECT `u`.`username`, `r`.`name` AS `role` FROM `users` AS `u` LEFT JOIN `roles` AS `r` ON u.role_id = r.role_id
+
+
+        $select
+            -&gt;joinLeft(array('r' =&gt; 'roles'), 'u.role_id = r.role_id', array('role' =&gt; 'name'))
+            -&gt;from(array('u' =&gt; 'users'), array('username'));
+
+// gives SELECT `r`.`name` AS `role`, `u`.`username` FROM `roles` AS `r` INNER JOIN `users` AS `u`
+</code></pre>
+
+<p>The DB auth adapter returns an empty $select so anything I do to it get's done first. This may be viewed as the adapter's fault but IMHO, you shouldn't force a specific order of calling the methods: I've said from('table') and expect to really be FROM table. :)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dalibor Karlovic (dkarlovi) on 2009-05-14T08:12:50.000+0000</p> 
+        <div class="body">
+            <p>Yeah, the code tag didn't take, hope this doesn't mean my issue get's disqualified. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaddy Zeineddine (shaddyz) on 2009-06-19T10:39:50.000+0000</p> 
+        <div class="body">
+            <p>I can confirm this. I was trying to customize Zend_Auth because i store the password and identity in different tables</p>
+
+<pre class="highlight"><code>
+$adapter = new Zend_Auth_Adapter_DbTable($db, array('p'  =&gt; 'people'), 'p.person_tag', 'pd.person_password');
+$select = $adapter-&gt;getDbSelect();
+$select-&gt;join(array('pd' =&gt; 'people_detail'), 'p.person_id = pd.person_id', array('pd.person_password'));
+$adapter-&gt;setIdentity($person_tag)
+              -&gt;setCredential($person_password);
+$result = $auth-&gt;authenticate($adapter);
+</code></pre>
+
+<p>what happens in the select is this:</p>
+
+<pre class="highlight"><code>
+            [from] =&gt; Array
+                (
+                    [pd] =&gt; Array
+                        (
+                            [joinType] =&gt; inner join
+                            [schema] =&gt; 
+                            [tableName] =&gt; people_detail
+                            [joinCondition] =&gt; p.person_id = pd.person_id
+                        )
+
+                    [p] =&gt; Array
+                        (
+                            [joinType] =&gt; inner join
+                            [schema] =&gt; 
+                            [tableName] =&gt; people
+                            [joinCondition] =&gt; 
+                        )
+
+                )
+</code></pre>
+
+<p>and that creates a query like this:</p>
+
+<pre class="highlight"><code>
+SELECT `pd`.`person_password`, `p`.*, (CASE WHEN `pd`.`person_password` = 'password' THEN 1 ELSE 0 END) AS `zend_auth_credential_match` FROM `people_detail` AS `pd` INNER JOIN `people` AS `p` WHERE (`p`.`person_tag` = 'test')
+</code></pre>
+
+<p>but it should be like this:</p>
+
+<pre class="highlight"><code>
+SELECT `pd`.`person_password`, `p`.*, (CASE WHEN `pd`.`person_password` = 'password' THEN 1 ELSE 0 END) AS `zend_auth_credential_match` FROM `people` AS `p` INNER JOIN `people_detail` AS `pd` ON p.person_id = pd.person_id WHERE (`p`.`person_tag` = 'test')
+</code></pre>
+
+<p>I'm guessing it should check the join condition to know if it should be shown as a join</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaddy Zeineddine (shaddyz) on 2009-06-22T19:05:44.000+0000</p> 
+        <div class="body">
+            <p>A solution to the problem which differentiates tables added with the from method</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaddy Zeineddine (shaddyz) on 2009-06-22T19:06:21.000+0000</p> 
+        <div class="body">
+            <p>my previous comment was in reference to the file i attached</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikolay Goldschmidt (ccppprogrammer) on 2009-09-03T02:44:03.000+0000</p> 
+        <div class="body">
+            <p>I have same problem.
+When use join/joinLeft/joinRight Zend_Auth_Adapter_DbTable generate sql statement without second argument in join function (joinCondition).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-10-03T15:13:33.000+0000</p> 
+        <div class="body">
+            <p>Fix in trunk at r18475, might go into 1.9, needs to be decided.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-10-12T07:36:48.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r18511 in release 1.9 branch</p>
+
+        </div>
+    </div>
+    </div>
+

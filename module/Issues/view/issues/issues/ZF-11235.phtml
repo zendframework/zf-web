@@ -1,0 +1,134 @@
+<h2>ZF-11235: Zend_Test_PHPUnit_Db_Operation_Truncate fails in Mysql 5.5 on InnoDB tables with foreign keys</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-28T11:17:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-03-28T15:24:05.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Test_PHPUnit</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When trying to set db ready to test, i got this exception
+{quote}
+PHPUnit_Extensions_Database_Operation_Exception: COMPOSITE[TRUNCATE] operation failed on query: TRUNCATE User using args: Array
+(
+)
+ [SQLSTATE[42000]: Syntax error or access violation: 1701 Cannot truncate a table referenced in a foreign key constraint (<code>database</code>.<code>tableA</code>, CONSTRAINT <code>keyname</code> FOREIGN KEY (<code>field</code>) REFERENCES <code>czytnikrss</code>.<code>tableB</code> (<code>idTableB</code>))]
+{quote}</p>
+
+<p>There is constrain between table A and B. Schemas :
+{quote}
+CREATE  TABLE IF NOT EXISTS <code>tableB</code> (
+  <code>idTableB</code> INT NOT NULL AUTO_INCREMENT ,
+  PRIMARY KEY (<code>idTableB</code>) )
+ENGINE = InnoDB;</p>
+
+<p>CREATE  TABLE IF NOT EXISTS <code>tableA</code> (
+  <code>field</code> INT NOT NULL ,
+  CONSTRAINT <code>keyname</code>
+    FOREIGN KEY (<code>field</code> )
+    REFERENCES <code>tableB</code> (<code>idTableB</code> )
+    ON DELETE CASCADE ON UPDATE CASCADE)
+ENGINE = InnoDB;
+{quote}</p>
+
+<p>Also, in Mysql 5.5 reference manual I've found 
+{quote}
+TRUNCATE TABLE fails for an InnoDB table if there are any FOREIGN KEY constraints from other tables that reference the table. Foreign key constraints between columns of the same table are allowed.
+{quote}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rafa? Trójniak (ert256) on 2011-03-28T11:19:38.000+0000</p> 
+        <div class="body">
+            <p>more specific name of issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rafa? Trójniak (ert256) on 2011-03-28T15:24:05.000+0000</p> 
+        <div class="body">
+            <p>I've found quick, and a bit tricki fix to that problem.
+After reading bug on Mysql <a href="http://bugs.mysql.com/bug.php?id=56785">http://bugs.mysql.com/bug.php?id=56785</a> i found, about foreign_key_checks flag in mysql.</p>
+
+<p>So, I've created action for setting that flag :</p>
+
+<pre class="highlight"><code>
+class DB_Ooperation_setEnv 
+    implements PHPUnit_Extensions_Database_Operation_IDatabaseOperation
+{
+    private $env;
+    private $val;
+
+    public function __construct($env,$val)
+    {
+        $this-&gt;env=$env;
+        $this-&gt;val=$val;
+    }
+
+    public function execute(PHPUnit_Extensions_Database_DB_IDatabaseConnection $connection,
+        PHPUnit_Extensions_Database_DataSet_IDataSet $dataSet)
+    {
+        $connection-&gt;getConnection()-&gt;query('SET '.$this-&gt;env.'='.$this-&gt;val);
+    }
+}
+</code></pre>
+
+<p>Than, I've overloaded getSetUpOperation in class Zend_Test_PHPUnit_DatabaseTestCase that uses database</p>
+
+<pre class="highlight"><code>
+protected function getSetUpOperation()
+{
+    return new PHPUnit_Extensions_Database_Operation_Composite(array(
+        new DB_Ooperation_setEnv ('foreign_key_checks',0),
+        new Zend_Test_PHPUnit_Db_Operation_Truncate(),
+        new DB_Ooperation_setEnv ('foreign_key_checks',1),
+        new Zend_Test_PHPUnit_Db_Operation_Insert(),
+    ));
+    }
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

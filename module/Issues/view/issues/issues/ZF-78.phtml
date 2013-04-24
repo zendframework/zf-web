@@ -1,0 +1,183 @@
+<h2>ZF-78: PostgreSQL: Zend_Db_Table insert problems with last_insert_id</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-06-20T23:17:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.3 (05/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1140">ZF-1140</a></li>
+            <li><a href="/issues/browse/ZF-56">ZF-56</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><a href="http://framework.zend.com/developer/ticket/88">http://framework.zend.com/developer/ticket/88</a></p>
+
+<p>Zend_Db_Table insert method returns bad lastInsertId because sequence is not passed, fix:</p>
+
+<pre class="highlight"><code>
+public function insert( &amp;$data ) {
+    $this-&gt;_db-&gt;insert(
+        $this-&gt;_name, 
+        $data 
+    );
+    return $this-&gt;_db-&gt;lastInsertId(
+        $this-&gt;_name . '_' . $this-&gt;_primary . '_seq'
+    );
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-07-04T17:00:11.000+0000</p> 
+        <div class="body">
+            <p><a href="http://www.postgresql.org/docs/8.1/interactive/functions-sequence.html">http://postgresql.org/docs/8.1/…</a></p>
+
+<p>There are two functions available, lastval(), and currval().</p>
+
+<p>All the other existing adapters, except mssql, rely on the behavior described by lastval() -obviously not the same code/implementation, but neverytheless, the same behavior.  In examining PHP5's PDO implementation for PDO::lastInsertId, in pgsql_driver.c:pdo_pgsql_last_insert_id(), we see the use of CURRVAL(), <em>not</em> LASTVAL().  Thus, unlike some of the other PDO drivers, a correct sequence name must be supplied (not optional) to PDO::lastInsertId().</p>
+
+<p>Since the proposed change in this issue's description alters a generic class (Zend_Db_Table) with code specific only to PgSQL, we can not apply the change as described to Zend_Db_Table.  Instead, every adapter must be supplied enough information to construct a sequence name (if needed) according to the format required for that adapter's DB.</p>
+
+<p>Please see the FishEye link above for changeset information.</p>
+
+<p>Help solicited for unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jayson Minard (jayson) on 2006-07-11T11:54:37.000+0000</p> 
+        <div class="body">
+            <p>0.1.5 released</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ludovic Levesque (luddic) on 2006-07-27T06:10:25.000+0000</p> 
+        <div class="body">
+            <p>Current code is incompatible with sequence name not automatically generated.</p>
+
+<h1>Index: library/Zend/Db/Adapter/Pdo/Pgsql.php</h1>
+
+<p>--- library/Zend/Db/Adapter/Pdo/Pgsql.php       (revision 923)
++++ library/Zend/Db/Adapter/Pdo/Pgsql.php       (working copy)
+@@ -146,13 +146,17 @@
+     /**
+      * Gets the last inserted ID.
+      *
+-     * @param  string $tableName   table or sequence name needed for some PDO drivers
++     * @param  string $tableName   table or sequence name (if primaryKey is null) needed for some PDO drivers
+      * @param  string $primaryKey  primary key in $tableName need for some PDO drivers
+      * @return integer
+      */
+     public function lastInsertId($tableName = null, $primaryKey = null)
+     {
+         $this-&gt;_connect();
+-        return $this-&gt;_connection-&gt;lastInsertId($tableName .'_'. $primaryKey .'_seq');
++        if (is_null($primaryKey)) {
++            return $this-&gt;_connection-&gt;lastInsertId($tableName);
++        } else {
++            return $this-&gt;_connection-&gt;lastInsertId($tableName .'_'. $primaryKey .'_seq');
++        }
+     }
+ }</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-07-27T14:43:05.000+0000</p> 
+        <div class="body">
+            <p>Ludovic Levesque supplied an example use case where the issue still occurs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by restman (restman) on 2006-08-04T06:43:08.000+0000</p> 
+        <div class="body">
+            <p>example use case where the issue still occurs:</p>
+
+<p>i have 
+table: product
+view: vproduct</p>
+
+<p>so 
+$_name='vproduct'</p>
+
+<h2>and error on insert</h2>
+
+<h2>relation: vproduct.product_id_seq does not exist</h2>
+
+<p>any ideas?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T16:49:27.000+0000</p> 
+        <div class="body">
+            <p>Change fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-01-05T17:06:23.000+0000</p> 
+        <div class="body">
+            <p>Recategorize as Zend_Db_Table component.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-12T12:37:48.000+0000</p> 
+        <div class="body">
+            <p>Should be fixed in 0.9.3 beta.  See ZF-1140.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-12T12:38:04.000+0000</p> 
+        <div class="body">
+            <p>Linking to ZF-1140.</p>
+
+        </div>
+    </div>
+    </div>
+

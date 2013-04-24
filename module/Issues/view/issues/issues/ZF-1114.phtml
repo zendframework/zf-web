@@ -1,0 +1,354 @@
+<h2>ZF-1114: Support for digest authentication in Zend_Http_Client</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-22T11:55:22.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-05T03:20:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Add support for digest authentication in Zend_Http_Client. Quote from a previous email of mine:</p>
+
+<p>{quote}From what I can tell, the way the client currently works is that the end user specifies that they want to use basic or digest authentication, and then the client automatically sends an Authorization header, regardless of whether or not the server needs it. This isn't really the way it should work. The user should just specify their username and password, and upon the initial request, the server will respond with an authentication challenge (basic or digest) to authorize the user. This challenge dictates which authentication method is required by the server, and in the case of digest authentication, provides the variables needed to calculate the response.</p>
+
+<p>Because there are server provided variables required to calculate the digest response, we can't just write out the Authorization header before any communication with the server has taken place, so the way the client currently works is unsuitable. Within the client, I think authentication should be handled in a similar way to redirects, where each server response is checked for an authentication challenge, and if provided, the client can automatically take care of it (so long as the user has provided a username and password).{quote}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-03-23T14:02:16.000+0000</p> 
+        <div class="body">
+            <p>note: look at the implementation of Zend_Auth_Http_Digest - I don't remember ever looking at it - might be useful ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-03-23T14:03:20.000+0000</p> 
+        <div class="body">
+            <p>Sorry - Zend_Auth_Adapter_Http that is</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jack Sleight (jacksleight) on 2007-03-24T14:55:42.000+0000</p> 
+        <div class="body">
+            <p>This is the sample script that contains all the functions needed for digest authentication, it currently runs externally from Zend_Http_Client, and is not intended to be Zend Framework ready code (comments are missing and the structure will change when integrated with Zend_Http_Client):</p>
+
+<pre class="highlight"><code>
+&lt;?php
+// configure error reporting
+error_reporting(E_ALL | E_STRICT);
+
+// set include paths for zend framework
+set_include_path(PATH_SEPARATOR . get_include_path()
+    . PATH_SEPARATOR . './library/');
+
+// load loader and set autoload function
+require_once 'Zend/Loader.php';
+spl_autoload_register(array('Zend_Loader', 'autoload'));
+    
+/*-----------------------------------------------------------*/
+
+$client = new Zend_Http_Client('<a href="http://services.msn.com/svcs/hotmail/httpmail.asp">http://services.msn.com/svcs/hotmail/httpmail.asp</a>', array(
+    'useragent' =&gt; 'Outlook-Express/6.0',
+    'maxredirects' =&gt; 0));
+$client-&gt;setMethod('PROPFIND');
+
+$digest = new Digest($client, 'PROPFIND', 'zftest@hotmail.co.uk', 'password123');
+$digest-&gt;request();
+
+/*-----------------------------------------------------------*/
+
+class Digest
+{
+    private $client;
+    private $method; // we shouldnt have to specify this, it should be possible to get it from the client
+    private $username;
+    private $password;
+    
+    private $nonce;
+    private $nc = 1;
+    private $a1;
+    
+    public function __construct(Zend_Http_Client $client, $method, $username, $password)
+    {
+        $this-&gt;client = $client;
+        $this-&gt;method = $method;
+        $this-&gt;username = $username;
+        $this-&gt;password = $password;
+    }
+    
+    public function request()
+    {
+        // make initial request     
+        $response = $this-&gt;client-&gt;request();       
+        Zend_Debug::dump($response-&gt;getHeaders(), 'Initial Request Response');
+        
+        // check the status
+        if ($response-&gt;getStatus() != 401) {
+            return $response;
+        }
+        
+        // get the authenticate header (we might also want to try for proxy-authenticate)
+        $resHeader = $response-&gt;getHeader('www-authenticate');
+        
+        // check that authentication digest has been requested
+        if (!preg_match('/^Digest/i', $resHeader)) {
+            throw new Zend_Exception('server does not require digest authentication');
+        }
+        
+        // take the response header params and create a request header
+        $resParams = $this-&gt;splitHeader($resHeader);
+        $reqParams = $this-&gt;calculateParams($resParams, $response);
+        $reqHeader = $this-&gt;joinHeader($reqParams);
+        
+        Zend_Debug::dump($reqHeader, 'Authorization Request Header');
+        
+        // set header and re-request
+        $this-&gt;client-&gt;setHeaders('Authorization', $reqHeader);
+        $response = $this-&gt;client-&gt;request();       
+        Zend_Debug::dump($response-&gt;getHeaders(), 'Authorization Request Response');
+            
+        return $response;
+    }
+    
+    private function calculateParams($params, $response)
+    {   
+        // generate a random client nonce value
+        $cnonce = md5(microtime(true));
+        
+        // check we have the minumum requirements
+        if (!isset($params['realm'])) {
+            throw new Zend_Exception('authentication realm parameter missing');
+        }
+        if (!isset($params['nonce'])) {
+            throw new Zend_Exception('authentication nonce parameter missing');
+        }
+        
+        // check if we are retrying the nonce value
+        if (isset($this-&gt;nonce)) {
+            if ($this-&gt;nonce == $params['nonce']) {
+                $this-&gt;nc++;
+            } else {
+                $this-&gt;nonce = $params['nonce'];
+                $this-&gt;nc = 1;
+            }
+        } else {
+            $this-&gt;nonce = $params['nonce'];
+        }
+
+        // convert decimal nc to hex
+        $nc = dechex($this-&gt;nc);
+        
+        // set required values
+        $result = array(
+            'username'  =&gt; '"' . $this-&gt;username . '"',
+            'realm'     =&gt; '"' . $params['realm'] . '"',
+            'nonce'     =&gt; '"' . $params['nonce'] . '"',
+            'uri'       =&gt; '"' . $this-&gt;client-&gt;getUri()-&gt;getPath() . '"',
+        );
+    
+        // check for a qop value
+        if (isset($params['qop'])) {
+            $qops = preg_split('/;\s+/', $params['qop']);
+            if (in_array('auth', $qops)) {
+                $qop = 'auth';
+            } 
+            /* // todo
+            elseif (in_array('auth-int', $qops)) {
+                $qop = 'auth-int';
+            }
+            */
+        }
+        
+        // check for an algorithm value
+        if (isset($params['algorithm'])) {
+            if ($params['algorithm'] == 'MD5' || $params['algorithm'] == 'MD5-sess') {
+                $algorithm = $params['algorithm'];
+            }
+        }
+        
+        // if qop is specified add parameters to result
+        if(isset($qop)) {
+            $result['qop']    = $qop;
+            $result['nc']     = $nc;
+            $result['cnonce'] = '"' . $cnonce . '"';
+        }
+        
+        // if an algorithm is specified add parameter to result
+        if(isset($algorithm)) {
+            $result['algorithm'] = $algorithm;
+        }
+        
+        // generate the A1 string based on the algorithm value
+        if (!isset($algorithm) || $algorithm == 'MD5') {
+            $a1 = $this-&gt;username . ':' . $params['realm'] . ':' . $this-&gt;password;
+            $this-&gt;a1 = null;
+        } elseif ($algorithm == 'MD5-sess') {
+            if (isset($this-&gt;a1)) {
+                $a1 = $this-&gt;a1;
+            } else {
+                $a1 = $this-&gt;h($this-&gt;username . ':' . $params['realm'] . ':' . $this-&gt;password) . ':' . $params['nonce'] . ':' . $cnonce;
+                $this-&gt;a1 = $a1;
+            }
+        }
+        
+        // generate secret value
+        $secret = $this-&gt;h($a1);
+        
+        // generate the A2 string based on the qop value
+        if (!isset($qop) || $qop == 'auth') {
+            $a2 = $this-&gt;method . ':' . $this-&gt;client-&gt;getUri()-&gt;getPath();
+        } 
+        /* //todo
+        elseif($qop == 'auth-int') { 
+            $a2 = $this-&gt;method . ':' . $uri . ':' . *entity-body*;
+        }
+        */
+        
+        // generate the response hash based on the qop value
+        if(!isset($qop)) {
+            $response = $this-&gt;kd($secret, $params['nonce'] . ':' . $a2);
+        } elseif($qop == 'auth' || $qop == 'auth-int') {
+            $response = $this-&gt;kd($secret, $params['nonce'] . ':' . $nc . ':' . $cnonce . ':' . $qop . ':' . $a2);
+        }
+        
+        // add response value to result
+        $result['response'] = '"' . $response . '"';
+            
+        // check if an opaque value was sent
+        if (isset($params['opaque'])) {
+            $result['opaque'] = '"' . $params['opaque'] . '"';
+        }
+        
+        return $result;
+    }
+    
+    private function h($data)
+    {
+        return md5($data);
+    }
+    
+    private function kd($secret, $data)
+    {
+        return $this-&gt;h($secret . ':' . $data);
+    }
+    
+    private function splitHeader($header)
+    {   
+        $params = array();
+    
+        // remove the leading Digest string
+        $header = preg_replace('/^Digest\s+(.*)$/i', '$1', $header);
+        
+        // match all individual parts of the header
+        preg_match_all('/([^=]+)=("[^"]+"|[^,]+)(?:,\s*|$)/', $header, $matches);
+        
+        // loop through matches remove quotes and add to array
+        foreach ($matches[1] as $key =&gt; $name) {
+            $params[$name] = trim($matches[2][$key], '"');
+        }
+        
+        return $params;
+    }
+    
+    private function joinHeader($params)
+    {   
+        $header  = 'Digest ';
+        
+        // loop through params and add to header
+        foreach ($params as $name =&gt; $value) {
+            $header .= $name . '=' . $value . ', ';
+        }
+        
+        // trim trailing comma-space
+        $header = rtrim($header, ', ');
+        
+        return $header; 
+    }
+
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jack Sleight (jacksleight) on 2007-03-24T14:58:05.000+0000</p> 
+        <div class="body">
+            <p>As is probably obvious, the __construct() and request() functions in the class above are only there for the purposes of the test script, and don't play any part in the actual calculation of the digest response.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-19T16:21:59.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~shahar] to clear unassigned issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jack Sleight (jacksleight) on 2007-07-19T18:49:43.000+0000</p> 
+        <div class="body">
+            <p>Modified description to include a proposal for changing the authentication behaviour of Zend_Http_Client. Also, in the code above, the only functions actually relevant to receiving and responding to a digest authentication challenge are the <em>calculateParams()</em>, <em>h()</em> and <em>kd()</em> functions. The rest are merely there to allow the script to function, and some (<em>splitHeader()</em>) already exist in one form or another in the Zend_Http_Client (from what I remember).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-03-20T03:49:15.000+0000</p> 
+        <div class="body">
+            <p>Can this issue be closed in relation with ZF-3616? cURL supports Diggest authentication</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-12-02T01:56:17.000+0000</p> 
+        <div class="body">
+            <p>As Benjamin asked nearly three years aog, is having HTTP Digest Authentication via {{Zend_Http_Client_Adapter_Curl}} sufficient?  Or should we also implement it in the other adapters as applicable for the benefit of those amongst us not blessed with cURL?</p>
+
+        </div>
+    </div>
+    </div>
+

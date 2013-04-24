@@ -1,0 +1,139 @@
+<h2>ZF-1899: Zend_Db_Table::createRow()-&gt;save() inserts row, but throws an exception</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-31T14:48:24.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-01-23T18:28:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.2 (25/Sep/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10774/ZF-1899-patch.diff">ZF-1899-patch.diff</a></li>
+            <li><a href="/issues/secure/attachment/10770/zferror.tar.bz2">zferror.tar.bz2</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If I have a MySQL table with a multi-column PK, and I get an exception when I try something like:
+$table-&gt;createRow($newData)-&gt;save()</p>
+
+<p>I'm attaching a .sql file to create a sample table, two classes (a table class, and a table_row class), and a test.php file to show the problem.  The row gets inserted into the database, but then save() seems to be calling _refresh(), which SELECTs the data back from the database (I'm assuming to account for any triggers, etc that are handled by the database...might be nice to be able to disable this).  The SELECT statement that it creates doesn't have the right ID.  In the example, it says "WHERE (<code>companyId</code> = 3) AND (<code>id</code> = 0)" when it SHOULD be "WHERE (<code>companyId</code> = 1) AND (<code>id</code> = 3)"</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Aaron D. Campbell (aaroncampbell) on 2007-09-01T13:10:08.000+0000</p> 
+        <div class="body">
+            <p>Bill, I see that you assigned yourself to this one.  Were you able to duplicate it?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-09-01T14:22:41.000+0000</p> 
+        <div class="body">
+            <p>I have not worked on this yet.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron D. Campbell (aaroncampbell) on 2007-09-01T15:26:53.000+0000</p> 
+        <div class="body">
+            <p>That's fine, I've been digging still, but being so new to ZF, there's a lot I don't know yet.  However, I think I've located the problem, AND the solution, but I'm not sure how you guys would prefer that it be coded.  Basically, Zend_Db_Table_Row_Abstract needs access to Zend_Db_Table_Abstract::_identity.  So I think there needs to be some kind of getIdentity method in Zend_Db_Table_Abstract that returns it.</p>
+
+<p>The error starts on line 326 of Zend/Db/Table/Row/Abstract.php (I'm using SVN revision 6231).  It does:
+{{$newPrimaryKey = array({color:red}current((array)$this-&gt;<em>primary){color} =&gt; $primaryKey);}}
+Which gives {{[companyId]=&gt;X}} Where X is the insert id, that <em>actually</em> belongs to _id</em>.  This SHOULD end up being {{[id]=&gt;X}}.  When I debug with Zend Platform, and use Zend Studio to manually change the value of $newPrimaryKey to array('id'=&gt;'X'), it works fine.</p>
+
+<p>At that point, what you need access to is $this-&gt;_table-&gt;_identity (which you obviously don't have, but that value is correct, 2 in this test case), so that you could do
+{{$newPrimaryKey = array({color:red}$this-&gt;_primary[$this-&gt;_table-&gt;_identity]{color} =&gt; $primaryKey);}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron D. Campbell (aaroncampbell) on 2007-09-02T13:13:49.000+0000</p> 
+        <div class="body">
+            <p>This fixes it for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-09-11T19:30:20.000+0000</p> 
+        <div class="body">
+            <p>Hi Aaron,</p>
+
+<p>Can you please test with revision 6320 and see if this resolves the issue for you?  It should not require your customizations to make {{Table::_identity}} public.</p>
+
+<p>Basically I found that {{Table::insert()}} mistakenly assumed the primary key is non-compound if it has an identity column, and it was always returning the scalar value of the last identity generated, instead of the array of column/value pairs for the full PK.</p>
+
+<p>So, no modification is needed to the Row class if the Table's {{insert()}} method returns the correct compound PK data.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron D. Campbell (aaroncampbell) on 2007-09-11T19:56:57.000+0000</p> 
+        <div class="body">
+            <p>That worked.  Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-09-11T20:27:44.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk.  Waiting for review to be merged to ZF 1.0.2 branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-09-13T14:59:20.000+0000</p> 
+        <div class="body">
+            <p>Changes reviewed by Darby Felton.
+Merged to branch for ZF 1.0.2 release.
+Updated fix version.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-01-23T18:28:49.000+0000</p> 
+        <div class="body">
+            <p>Updating Fix Version to follow issue tracker conventions.</p>
+
+        </div>
+    </div>
+    </div>
+

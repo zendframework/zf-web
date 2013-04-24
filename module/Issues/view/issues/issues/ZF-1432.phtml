@@ -1,0 +1,271 @@
+<h2>ZF-1432: Indexing for 2 documents produces invalid search results.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-05-25T04:28:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC2 (08/Jun/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10500/knowledgebase.zip">knowledgebase.zip</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello. 
+Here is the problem I've got using Lucene Search Engine. 
+It produces different results on the same query after each document indexing.</p>
+
+<p>Additional info: 
+OS: Debian Linux
+Framework version: Trunk, April, 10  2007 update.
+PHP: 5.1.6 version</p>
+
+<p>Workflow process in one script with comments:</p>
+
+<p>//engine initialization
+$engine = new Zend_Search_Lucene($GLOBALS["LUCENE_DATA_DIR"]."/knowledgebase");
+$engine-&gt;setMaxBufferedDocs(1);
+$engine-&gt;setMaxMergeDocs(PHP_INT_MAX);
+$engine-&gt;setMergeFactor(100);</p>
+
+<p>//init analyzer
+$analyzer = new Zend_Search_Lucene_Analysis_Analyzer_Common_TextNum_CaseInsensitive();
+$short_words_filter = new Zend_Search_Lucene_Analysis_TokenFilter_ShortWords(2);
+$analyzer-&gt;addFilter($short_words_filter);
+Zend_Search_Lucene_Analysis_Analyzer::setDefault($analyzer);</p>
+
+<p>//Here is the document reindexing index already contains</p>
+
+<p>//delete old data
+$query = new Zend_Search_Lucene_Search_Query_MultiTerm();
+$query-&gt;addTerm(new Zend_Search_Lucene_Index_Term(458, 'object_id'), true);
+$query-&gt;addTerm(new Zend_Search_Lucene_Index_Term(8, 'object_type'), true);
+$query-&gt;addTerm(new Zend_Search_Lucene_Index_Term(0, 'sub_id'), true);
+$result = $engine-&gt;find($query);
+foreach ($result as $hit) {
+    $engine-&gt;delete($hit-&gt;id);
+}
+$engine-&gt;Commit();</p>
+
+<p>//add document again
+$document = new Zend_Search_Lucene_Document();</p>
+
+<p>$document-&gt;addField(Zend_Search_Lucene_Field::Text('metadata', "496 testing phrase in class 1 0_0_0"));
+$document-&gt;addField(Zend_Search_Lucene_Field::Keyword('object_id', 458));
+$document-&gt;addField(Zend_Search_Lucene_Field::Keyword('object_type', 8));
+$document-&gt;addField(Zend_Search_Lucene_Field::Keyword('sub_id', 0));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('title', "firstclass"));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('refcode', "Refcode firstclass"));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('date_created', 20070514151854));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('date_modified', 20070514151854));
+$document-&gt;addField(Zend_Search_Lucene_Field::UnStored('contents', ""));</p>
+
+<p>$engine-&gt;addDocument($document);
+$engine-&gt;commit();
+$engine-&gt;optimize();</p>
+
+<p>//search for word 'firstclass' here by all text fields, it returns correct, just added document</p>
+
+<p>$query = new Zend_Search_Lucene_Search_Query_Boolean();
+$object_type_subquery = new Zend_Search_Lucene_Search_Query_Boolean();
+$current_subquery = new Zend_Search_Lucene_Search_Query_Term(new Zend_Search_Lucene_Index_Term(8, 'object_type'));
+$object_type_subquery-&gt;addSubquery( $current_subquery );
+$area_subquery = new Zend_Search_Lucene_Search_Query_Boolean();
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("title:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("refcode:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("metadata:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("contents:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );</p>
+
+<p>$query-&gt;addSubquery($object_type_subquery, true);
+$query-&gt;addSubquery($area_subquery, true);
+$result = $engine-&gt;find($query);</p>
+
+<p>//displaying result ok, it produces the string contains correct object id
+foreach ($result as $hit) {
+    $doc = $hit-&gt;getDocument();
+    $object_id = $doc-&gt;getFieldValue("object_id");
+    $object_type = $doc-&gt;getFieldValue("object_type");
+    $relevancy = $hit-&gt;score;
+    echo "($object_id, $object_type, $relevancy)\n";
+}
+//output is "(458, 8, 6.78011962683)"
+//then adding another document the same way</p>
+
+<p>//delete old data
+$query = new Zend_Search_Lucene_Search_Query_MultiTerm();
+$query-&gt;addTerm(new Zend_Search_Lucene_Index_Term(472, 'object_id'), true);
+$query-&gt;addTerm(new Zend_Search_Lucene_Index_Term(8, 'object_type'), true);
+$query-&gt;addTerm(new Zend_Search_Lucene_Index_Term(0, 'sub_id'), true);
+$result = $engine-&gt;find($query);
+foreach ($result as $hit) {
+    $engine-&gt;delete($hit-&gt;id);
+}
+$engine-&gt;Commit();</p>
+
+<p>$document = new Zend_Search_Lucene_Document();</p>
+
+<p>$document-&gt;addField(Zend_Search_Lucene_Field::Text('metadata', "511 444 0_0_0"));
+$document-&gt;addField(Zend_Search_Lucene_Field::Keyword('object_id', 472));
+$document-&gt;addField(Zend_Search_Lucene_Field::Keyword('object_type', 8));
+$document-&gt;addField(Zend_Search_Lucene_Field::Keyword('sub_id', 0));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('title', "444"));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('refcode', "1"));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('date_created', 20070521152550));
+$document-&gt;addField(Zend_Search_Lucene_Field::Text('date_modified', 20070521152550));
+$document-&gt;addField(Zend_Search_Lucene_Field::UnStored('contents', ""));</p>
+
+<p>$engine-&gt;addDocument($document);
+$engine-&gt;commit();
+$engine-&gt;optimize();</p>
+
+<p>//trying to search by the same query but get different result somewhy - it returns the last added document and skips the first one document
+//the forthcoming result is opposite - the result should contain first document and shouldn't contain the second.</p>
+
+<p>$query = new Zend_Search_Lucene_Search_Query_Boolean();
+$object_type_subquery = new Zend_Search_Lucene_Search_Query_Boolean();
+$current_subquery = new Zend_Search_Lucene_Search_Query_Term(new Zend_Search_Lucene_Index_Term(8, 'object_type'));
+$object_type_subquery-&gt;addSubquery( $current_subquery );</p>
+
+<p>$area_subquery = new Zend_Search_Lucene_Search_Query_Boolean();
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("title:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("refcode:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("metadata:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );
+$current_subquery = Zend_Search_Lucene_Search_QueryParser::parse("contents:(firstclass)");
+$area_subquery-&gt;addSubquery( $current_subquery );</p>
+
+<p>$query-&gt;addSubquery($object_type_subquery, true);
+$query-&gt;addSubquery($area_subquery, true);
+$result = $engine-&gt;find($query);</p>
+
+<p>foreach ($result as $hit) {
+    $doc = $hit-&gt;getDocument();
+    $object_id = $doc-&gt;getFieldValue("object_id");
+    $object_type = $doc-&gt;getFieldValue("object_type");
+    $relevancy = $hit-&gt;score;
+    echo "($object_id, $object_type, $relevancy)\n";
+}</p>
+
+<p>//output is (472, 8, 6.78011962683)</p>
+
+<p>//end of script</p>
+
+<p>Please take a look the problem and comment this behavior</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Andrew Kharchenko (kharchenkoav) on 2007-05-25T04:29:11.000+0000</p> 
+        <div class="body">
+            <p>Here is the indexing storage directory archive</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2007-05-25T06:45:32.000+0000</p> 
+        <div class="body">
+            <p>Hi Andrew!</p>
+
+<p>Great thanks for detailed description of the problem. I'll look into this soon (but may be not early than Monday).</p>
+
+<p>PS One suggestion, do not use ' new Zend_Search_Lucene(...)', but 'Zend_Search_Lucene::open(...)' or 'Zend_Search_Lucene::create(...)'. It doesn't affect your problem, but is preferable.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2007-05-28T08:00:04.000+0000</p> 
+        <div class="body">
+            <p>I can not reproduce the problem in my environment (Linux, PHP V5.1.4/V5.2.1, ZF current SVN version.</p>
+
+<p>It looks like already fixed. Try to use current SVN version or latest snapshot.</p>
+
+<h2>If it doesn't help, please give me a result of:</h2>
+
+<h2>echo $query-&gt;__toString() . "\n";</h2>
+
+<p>after each "$result = $engine-&gt;find($query);" call.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrew Kharchenko (kharchenkoav) on 2007-05-30T03:13:52.000+0000</p> 
+        <div class="body">
+            <p>Here are some results from my tests...
+After switching to the current version and reindexing all data the problem appeared again with the same data and test script 
+(I mean the different results on the same query). But after switching to Zend_Search_Lucene::open(...) open storage method 
+and reindexing again all data, problem dissapears for some time. Then I've left simple "open storage/optimize storage/close 
+storage" script and todays morning the same problem appears again with the same test script.</p>
+
+<p>The result of (echo $query-&gt;__toString() . "\n";) is the same all time. It is the following:</p>
+
+<p>+((object_type:8)) +((((title:firstclass))) (((refcode:firstclass))) (((metadata:firstclass))) (((contents:firstclass))))</p>
+
+<p>Please comment this behavior or try to give me some keys for more detailed data report.
+Feel free to contact me directly (andrew@netive.ru) if you need any details.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2007-05-31T11:25:12.000+0000</p> 
+        <div class="body">
+            <p>Fixed.</p>
+
+<p>The problem arises if index containing deleted documents is optimized. 
+Deleted documents stored fields were not skipped, but assigned to the followed document.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrew Kharchenko (kharchenkoav) on 2007-06-05T02:41:11.000+0000</p> 
+        <div class="body">
+            <p>Many many thanks, Alexander.
+All works fine with my tests.</p>
+
+        </div>
+    </div>
+    </div>
+

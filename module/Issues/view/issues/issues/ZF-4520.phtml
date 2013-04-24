@@ -1,0 +1,405 @@
+<h2>ZF-4520: Convenience class for creating Set-Cookie HTTP headers</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-08T05:16:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-09T15:27:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+            <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/15070/bf2a50.png">bf2a50.png</a></li>
+            <li><a href="/issues/secure/attachment/11695/CookiesToMVCResponse.patch">CookiesToMVCResponse.patch</a></li>
+            <li><a href="/issues/secure/attachment/11702/Zend_Controller_Response_Http.patch">Zend_Controller_Response_Http.patch</a></li>
+            <li><a href="/issues/secure/attachment/14721/ZF-4520_v1.patch">ZF-4520_v1.patch</a></li>
+            <li><a href="/issues/secure/attachment/14966/ZF-4520_v2.patch">ZF-4520_v2.patch</a></li>
+            <li><a href="/issues/secure/attachment/15069/ZF-4520_v3.patch">ZF-4520_v3.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently in ZF MVC applications, cookie management is still handled via the superglobal $_COOKIE; we provide no means to simplify or abstract this -- which is leading to issues when attempting to test applications that make use of cookies.</p>
+
+<p>The Response object needs the following methods:
+* addCookie()
+* addCookies()
+* setCookies()
+* getCookie()
+* getCookies()
+* removeCookie()
+* clearCookies()</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-01-03T04:23:19.000+0000</p> 
+        <div class="body">
+            <p>A patch has been uploaded.</p>
+
+<p>It is just a begining throwing ideas : CookieJar needs to be refactored
+Inspired from Zend_Http_Response.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-01-14T10:33:19.000+0000</p> 
+        <div class="body">
+            <p>This patch looks really good. If you can supply unit tests as well, please go ahead and commit directly to trunk; if not, let me know so I can get it on my backlog.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-01-14T15:04:35.000+0000</p> 
+        <div class="body">
+            <p>Zend_Http_CookieJar patch provided at r13641.
+For Zend_Controller_Response_Http cookie handling, I suggest one thing :</p>
+
+<p>Zend_Controller_* in HTTP environment (response and request object) should have a bridge to use Zend_Http_* stuff.
+That makes more dependencies, and that' not very good, anyway, that could improve code reuse.</p>
+
+<p>Think about that :</p>
+
+<pre class="highlight"><code>
+// Zend_Controller_Front
+public function cookieFactory($name, $value, $expires = null, $path = null)
+    {
+        $request = $this-&gt;getRequest();
+        if (!$request instanceof Zend_Controller_request_Http) { 
+            throw new Zend_Controller_Exception('Cookie can only be generated in HTTP environment');
+        }
+        return new Zend_Http_Cookie($name, $value, $request-&gt;getHttpHost() , $expires, $path, $request-&gt;isSecure());
+    }
+
+// somewhere else
+$response-&gt;setCookie(Zend_Controller_Front::getInstance()-&gt;cookieFactory('foo','bar');
+// or, from an action, providing a method in HTTP environement :
+$this-&gt;setResponseCookie('foo', 'bar');
+// or again, (see the second patch)
+$response-&gt;setCookie('foo','bar'); // uses ZC_Front idea to generate a cookie
+</code></pre>
+
+<p>And then refactor Zend_Controller_Response_Http from the first patch idea to the one attached as the second patch to that comment</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-01-14T15:05:00.000+0000</p> 
+        <div class="body">
+            <p>Second idea of patch attached</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Steshenko (lcf) on 2010-01-28T10:02:20.000+0000</p> 
+        <div class="body">
+            <p>It's been a while since the last comment, but I'd like to continue the discussion on this issue.</p>
+
+<p>The idea of making front controller aware of the cookies is kinda wrong of course because it's protocol specific and has nothing to do with it, but, we still need an easy way to set cookies.</p>
+
+<p>Now, people usually do setcookies(), and I don't like it at all, because it is out of the Response object context. It breaks the OOP design.</p>
+
+<p>What I do know (it might look ugly, but I still prefer this way) is:</p>
+
+<pre class="highlight"><code>
+        // Setting page cookie header
+        $expires = new Zend_Date();
+        $expires-&gt;addSecond($pageCookieLifetime);
+
+        // And here we go:
+        $this-&gt;getResponse()-&gt;setHeader('Set-Cookie',
+            'page=' . $page-&gt;getCode() . '; '
+            . 'expires=' . $expires-&gt;get(Zend_Date::COOKIE) . '; '
+            . 'path=/'
+        );
+</code></pre>
+
+<p>and besides that there shouldn't be many cookies set, it is still uncomfortable.</p>
+
+<p>I <em>could</em> use an instance of Zend_Http_Cookie and it would be much more comfortable (and, probably enough for me) but I <em>can't</em> do so, because of current state of Zend_Http_Cookie::__toString method:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Get the cookie as a string, suitable for sending as a "Cookie" header in an
+     * HTTP request
+     *
+     * @return string
+     */
+    public function __toString()
+    {
+        return $this-&gt;name . '=' . urlencode($this-&gt;value) . ';';
+    }
+</code></pre>
+
+<p>which <em>does not</em> include path, domain, expires parts. Why? I'd suggest to add them as the easiest and the fastest what we can do.</p>
+
+<p>Though would be nice to have this part of the framework (Cookie, CookieJar) fully refactored.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by SP (kaioptera) on 2010-02-18T11:32:51.000+0000</p> 
+        <div class="body">
+            <p>This is a very simple feature that would be great to have but seems to be languishing in the home stretch for some reason. Can it be resolved or reassigned to someone who will close it out?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eric Jeker (keilnoth) on 2010-02-24T02:35:56.000+0000</p> 
+        <div class="body">
+            <p>I implemented the solution to a local *_Controller_Response_Http class but changed the _sendCookies() method to avoid the Zend_Http_Cookie::__toString() :</p>
+
+<pre class="literal">
+     /**
+      * Appends the cookies in the cookiejar
+      * to raw headers
+      *
+      */
+     protected function _sendCookies()
+     {
+         if (!$this-&gt;_cookieJar-&gt;isEmpty()) {
+             $cookies = $this-&gt;_cookieJar-&gt;getAllCookies();
+             
+             foreach ($cookies as $cookie)  {
+                 setcookie( $cookie-&gt;getName(),
+                            $cookie-&gt;getValue(),
+                            $cookie-&gt;getExpiryTime(),
+                            $cookie-&gt;getPath(),
+                            $cookie-&gt;getDomain(),
+                            $cookie-&gt;isSecure());
+             }
+         }
+     }
+</pre>
+
+<p>Shall I create a new issue for the Zend_Http_Cookie::__toString() which is described as suitable for HTTP but is not ? The Zend_Http_Cookie class does not include a isHttpOnly() method that could be useful to completely define the cookie.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurian Sluiman (mithras) on 2010-04-15T12:07:44.000+0000</p> 
+        <div class="body">
+            <p>This issue op open for a while and many people would like to have this feature implemented. As far as I have read the comments and patches, two things cross my mind:</p>
+
+<p>1) Two patches are provided, both patching the same class and both having the same changes to the api. Their difference is the inner working. Which one is the best and can the other be removed? As far as I can see the Zend_Controller_Response_Http.patch is the most preferred to use.</p>
+
+<p>2) Whilst the patch uses Zend_Http_Cookie and Zend_Http_CookieJar, in the comments it's argued it's not possible to use them because of a problem with Zend_Http_Cookie::__toString().
+The patch shows it uses Zend_Http_CookieJar::getAllCookies() together with Zend_Http_CookieJar::COOKIE_STRING_CONCAT which makes it possible to use the return string in a http header. So I can conclude it's now possible to set cookies OOP style with the Reponse object, using a Zend_Http_Cookie?</p>
+
+<p>If all I said is true, the only step required to implement this, is providing unit tests?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duncan Anker (danker) on 2010-06-08T17:26:58.000+0000</p> 
+        <div class="body">
+            <p>I have just stumbled across this issue, having spent a joyous few hours discovering that it's not possible to unit test cookie setting.</p>
+
+<p>I don't believe that patching the response object is the correct thing to do here.</p>
+
+<p>1) It relies on changing what is supposed to be standard functionality so moving code across platforms would cause it to mysteriously break (never a good thing when you've just moved from development to staging and want to impress your client). Even if the patch is committed to the trunk, it may cause problems if anyone has sub-classed it. That includes the ripple-down effect into the HttpTestCase.</p>
+
+<p>2) It's marginally better to inherit than patch, although this has the same caveats with respect to sub-classes.</p>
+
+<p>3) It's too much responsibility. The response object shouldn't be managing cookies.</p>
+
+<p>4) SetCookie is really just a convenience function to generate the Set-Cookie header. The response object already knows how to send headers, and you wouldn't patch it to provide support for opensocial, firephp, or anything else that may send custom headers.</p>
+
+<p>It seems to be a better approach would be to pass the response to the cookie jar and have it set the headers. Or, given that there is already a cookie jar, some kind of mediating object which handles it.</p>
+
+<p>On the subject of the Zend_Http_Cookie implementation, I'm guessing that the short-comings of the __toString() magic method are because it is intended to be used client-side, and clients send only name-value pairs to the server. I can see the logic in that decision, though there probably does need to be some kind of convenience accessor for the entire cookie as required server-side. The other problem I note with it, though only a minor one, is that there is no support for the http_only flag.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hector Virgen (djvirgen) on 2010-07-06T13:31:26.000+0000</p> 
+        <div class="body">
+            <p>Duncan, I'd have to disagree in that Set-Cookie is not a "custom" header since it's part of the HTTP spec.</p>
+
+<p><a href="http://www.w3.org/Protocols/rfc2109/rfc2109">http://www.w3.org/Protocols/rfc2109/rfc2109</a></p>
+
+<p>It's more similar to sending redirect headers than it is to sending FirePHP headers. If it's part of the spec and used often, I don't see why it shouldn't be supported by Zend_Controller_Response.</p>
+
+<p>I wouldn't go so far as to say that the Response would be managing cookies, but rather managing headers (including writing cookies but not reading them). Reading cookies should be managed by Zend_Controller_Request.</p>
+
+<p>Perhaps an action helper would be the easiest way to manage cookies, which reads cookies from the request and writes cookies to the response. This should make it unit-testable while keeping things organized.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-03T18:45:50.000+0000</p> 
+        <div class="body">
+            <p>The main issue with {{Zend_Http_Cookie}} and {{Zend_Http_CookieJar}} is that the are designed almost exclusively for {{Zend_Http_Client}}, and so they only provide methods (mainly __toString) to construct "Cookie" header values.  Those classes don't provide methods for creating "Set-Cookie" header values.  Perhaps we could backport ZF2's {{Zend\Http\Header\SetCookie}} for this purpose?</p>
+
+<p>Once Set-Cookie header value generation is in place, you should easily be able to do something like this from the action controller:</p>
+
+<pre class="highlight"><code>
+$this-&gt;getResponse()-&gt;setHeader('Set-Cookie', new Zend_Http_Header_SetCookie('foo', 'bar', 'example.com'));
+</code></pre>
+
+<p>As for using cookie values in an action controller, {{Zend_Controller_Request_Http}} does provide a {{getCookie}} method:</p>
+
+<pre class="highlight"><code>
+$fooCookieValue = $this-&gt;getRequest()-&gt;getCookie('foo');
+</code></pre>
+
+<p>Is this what you are looking for?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-04T18:52:12.000+0000</p> 
+        <div class="body">
+            <p>I've attached a patch for a prototype implementation of my previous suggestion (Zend_Http_Header_SetCookie):  !ZF-4520_v1.patch!</p>
+
+<p>Usage Test Case:</p>
+
+<pre class="highlight"><code>
+public function testCanSendSetCookieHeaderUsingProvidedHeaderClass()
+{
+    $resp = new Zend_Controller_Response_HttpTestCase();
+    
+    $cookie = new Zend_Http_Header_SetCookie();
+    $cookie-&gt;setName('foo')
+            -&gt;setValue('bar')
+            -&gt;setDomain('example.com')
+            -&gt;setHttponly(true);
+    $resp-&gt;setHeader('Set-Cookie', $cookie-&gt;getFieldValue());
+    
+    $headers = $resp-&gt;sendHeaders();
+    $this-&gt;assertEquals('Set-Cookie: foo=bar; Domain=example.com; HttpOnly', $headers['set-cookie']);
+}
+</code></pre>
+
+<p>Real-World Usage:  (also showing short-hand notation)</p>
+
+<pre class="highlight"><code>
+// From within action controller (Short-hand)
+$this-&gt;getResponse()-&gt;setHeader('Set-Cookie', new Zend_Http_Header_SetCookie('foo','bar','example.com',NULL,NULL,NULL,true));
+</code></pre>
+
+<p>The {{Zend_Http_Header_SetCookie}} is based on {{Zend\Http\Header\SetCookie}} from ZF2 master, though I suspect that one isn't the most up-to-date implementation as it has some issues (not all set*() methods are fluent, httpOnly is not handled, etc).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-12T12:21:24.000+0000</p> 
+        <div class="body">
+            <p>It's been more than four months since I made the above suggestion.  If this is something which can be included in ZF 1.12, I can backport the latest {{Zend\Http\Header\SetCookie}} from ZF2 to complete my initial patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-03-12T13:45:50.000+0000</p> 
+        <div class="body">
+            <p>Adam -- go for it. Deadline for new features is 23 March 2012; as long as you have it ready by then, it can go in.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-14T22:16:19.000+0000</p> 
+        <div class="body">
+            <p>Added update version of patch (ZF-4520_v2.patch)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-14T22:24:05.000+0000</p> 
+        <div class="body">
+            <p>My new patch backports the latest Zend\Http\Header\SetCookie and it's tests from ZF2, plus some additional tests.  I have some more questions before I proceed:</p>
+
+<ol><li><p>Should I add the convenience methods to the response object, as outlined in the issue description?  There was some concern in comments above that this would give too much responsibility to the response object.</p></li>
+<li><p>I believe that the SetCookie implementation in ZF2 still falls victim to ZF2-169.  The fromString method assumes that any key not matching one of the pre-defined key names is the name/value pair, but the cookie RFCs state that only the first K=V pair can be the cookie name/value.  I'll whip up a reproduce test case and if my research and hunch are both correct i'll send a ZF2 PR.</p></li>
+</ol><p>Once my patch has been reviewed and OKed i'll add the necessary manual page entry/entries.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-06T13:04:59.000+0000</p> 
+        <div class="body">
+            <h1>2 above has been resolved.  Once I get a chance to whip up a manual page entry for the new code I will commit it all to SVN.</h1>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-08T03:19:34.000+0000</p> 
+        <div class="body">
+            <p>Updated patch</p>
+
+<ul><li>Rearranged the order of constructor arguments to match PHP's setcookie()</li>
+<li>Added a unit test to ensure {{__toString}} method output is compatible with {{Zend_Controller_Response_Http::setRawHeader}}</li>
+<li>Added a manual page section showing how to use the new class (in {{Zend_Controller-Response.xml}})</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-08T03:20:57.000+0000</p> 
+        <div class="body">
+            <p>Screengrab of manual page section
+!bf2a50.png!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-08T22:49:05.000+0000</p> 
+        <div class="body">
+            <p>Are there any comments on or concerns with this approach?  Are there any additional use cases that could be covered that I've missed?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-05-09T13:15:26.000+0000</p> 
+        <div class="body">
+            <p>Adam -- looks good. Go ahead and push to trunk.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-09T15:27:41.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24783</p>
+
+        </div>
+    </div>
+    </div>
+

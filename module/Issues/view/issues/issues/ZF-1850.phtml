@@ -1,0 +1,348 @@
+<h2>ZF-1850: urlencode()d cookies break IIS application</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-14T15:49:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-24T03:53:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5407">ZF-5407</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13451/Http.diff">Http.diff</a></li>
+            <li><a href="/issues/secure/attachment/12612/zf1850.r20255.doc.patch">zf1850.r20255.doc.patch</a></li>
+            <li><a href="/issues/secure/attachment/12611/zf1850.r20255.patch">zf1850.r20255.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I am using Zend_Http_Client against a web application that runs on IIS 4.0.  I noticed that I wasn't able to log into this application using Zend_Http_Client, but it worked fine from Firefox.  I was able to narrow the cause of this problem down to the cookie getting urlencode()d where the web server/application didn't like this.</p>
+
+<p>After logging in, this is the response from the server (sensitive parts are X'ed out):</p>
+
+<pre class="literal">
+HTTP/1.1 302 Object moved
+Server: Microsoft-IIS/4.0
+Date: Tue, 14 Aug 2007 20:27:13 GMT
+MicrosoftOfficeWebServer: 5.0_Pub
+Location: XXXXXX.asp
+Content-Length: 131
+Content-Type: text/html
+Set-Cookie: XXXXXX=HID=XXXXXX&amp;UN=XXXXXXX&amp;UID=XXXXX; path=/
+Cache-control: private
+</pre>
+
+<p>In the subsequent request Zend_Http_Client sends the following:</p>
+
+<pre class="literal">
+GET /XXXXXXX/XXXXXX.asp HTTP/1.1
+Host: <a href="www.XXXXXXX">www.XXXXXXX</a>
+Accept-encoding: gzip, deflate
+User-agent: Zend_Http_Client
+Cookie: ASPSESSIONIDXXXXXXXX=XXXXXXXXXXXXXXXXXXXXX;XXXXXX=HID%3DXXXXXX%26UN%3DXXXXXXX%26UID%3DXXXXX;
+</pre>
+
+<p>Note how the cookie that was sent to us has been urlencode()d in our request.  This web application apparently does not recognize this cookie and thus prevents us from logging in.</p>
+
+<p>If I remove the urlencode()ing from Zend_Http_Cookie::__toString(), logging into this application works fine:</p>
+
+<pre class="literal">
+--- Zend/Http/Cookie.php        (revision 1597)
++++ Zend/Http/Cookie.php        (working copy)
+@@ -240,7 +240,7 @@
+      */
+     public function __toString()
+     {
+-        return $this-&gt;name . '=' . urlencode($this-&gt;value) . ';';
++        return $this-&gt;name . '=' . $this-&gt;value . ';';
+     }
+
+     /**
+</pre>
+
+<p>The new request will look like this:</p>
+
+<pre class="literal">
+GET /XXXXXXX/XXXXXX.asp HTTP/1.1
+Host: <a href="www.XXXXXXX">www.XXXXXXX</a>
+Accept-encoding: gzip, deflate
+User-agent: Zend_Http_Client
+Cookie: ASPSESSIONIDXXXXXXXX=XXXXXXXXXXXXXXXXXXXXX;XXXXXX=HID=XXXXXX&amp;UN=XXXXXXX&amp;UID=XXXXX;
+</pre>
+
+<p>By the way, this (un-urlencode()d) version is also how Firefox sends the cookie to the server.</p>
+
+<p>I'm not sure if urlencode()ing is required by any RFCs dealing with cookies or whether this is simply a case where IIS or the web application in question is broken.  If we need to keep urlencode() in Zend_Http_Cookie::__toString() then it'd be nice if we could specify an option to turn off urlencode()d cookies for broken web applications.</p>
+
+<p>Thanks.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-08-16T13:32:06.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Shahar</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Cheshchevik (than) on 2008-05-03T00:38:10.000+0000</p> 
+        <div class="body">
+            <p>The same problem.</p>
+
+<p>For example:
+Receive:
+Set-Cookie: JSESSIONID=0000j8CydACPu_-J9bE8uTX91YU:12a83ks4k; Path=/</p>
+
+<p>And we have urlencoded session incorrect value:
+Cookie: JSESSIONID=0000j8CydACPu_-J9bE8uTX91YU%3A12a83ks4k;</p>
+
+<p>Cookie value can contain ":" and other escaped symbols.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-13T15:08:47.000+0000</p> 
+        <div class="body">
+            <p>I also got bitten by this really nasty bug. Very hard to figure out what's going on. The following bug in PEAR along with the fix might also be worth a look (if clean IP does not scare you off from looking at it):
+<a href="http://pear.php.net/bugs/bug.php?id=1080">http://pear.php.net/bugs/bug.php?id=1080</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-16T07:33:20.000+0000</p> 
+        <div class="body">
+            <p>The relevant RFC's fail to discuss encoding of specialchars like semicolon, equal or newline all together: 
+<a href="http://www.faqs.org/rfcs/rfc2109.html">http://www.faqs.org/rfcs/rfc2109.html</a> 
+<a href="http://www.faqs.org/rfcs/rfc2965">http://www.faqs.org/rfcs/rfc2965</a></p>
+
+<p>General consensus on the web seems to be that v0 cookies do not define any encoding.</p>
+
+<p>Using urlencoding seems to be a popular approach though, supposedly for v1 cookies. That being said in this case the encoding needs to be applied to both the name and the value.</p>
+
+<p>There are however obviously servers that do not support v1 cookies and which will run into issues with urlencoding. For these there should be an option to skip urlencoding entirely.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-16T23:48:41.000+0000</p> 
+        <div class="body">
+            <p>Ok after some discussion with Dave Kristol (<a href="http://kristol.org/cookie/errata.html">http://kristol.org/cookie/errata.html</a>) it seems obvious that there needs to be another way to set the cookie. Indeed the standard is quite lax about encoding. The idea was that the browser should send back whatever was set and it is the job of the server to be able to interpret whatever it gets back again.</p>
+
+<p>So when sending a cookie, it should only do whatever encoding that was decoded previously. In many cases urlencoding might be a reasonable default, but in many cases it isnt. So I suggest to do the following:</p>
+
+<p>1) also url encode/decode the name by default
+2) provide a setRawCookie() method where its up to the user to ensure proper encoding
+3) maybe also provide a method to "pass along" a raw cookie in the current request, this method would parse the $_SERVER raw cookie value in a simple a way as possible. Maybe even just pass along the entire cookie in the raw form to prevent any chance of misinterpretation</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-18T09:02:54.000+0000</p> 
+        <div class="body">
+            <p>Zend_Http_Client is also affected by this issue, as there is also code in there that forced urlencode() on cookie values.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-18T09:21:27.000+0000</p> 
+        <div class="body">
+            <p>Here is a solution for just passing through the cookie that was send to PHP. This way when PHP is sitting between the user browser and the original server that set the cookie as a proxy, the cookie is passed through without change to the server that set the cookie.</p>
+
+<p>class My_Zend_Http_Client extends Zend_Http_Client
+{
+    /**
+     * Add a cookie to the request. If the client has no Cookie Jar, the cookies
+     * will be added directly to the headers array as "Cookie" headers.
+     *
+     * @param Zend_Http_Cookie|string|bool $cookie
+     * @param string|null $value If "cookie" is a string, this is the cookie value.
+     * @return Zend_Http_Client
+     */
+    public function setCookie($cookie, $value = null)
+    {
+        if ($cookie !== true) {
+            return parent::setCookie($cookie, $value);
+        }</p>
+
+<pre><code>    $this-&gt;headers['cookie'] = array('Cookie', $_SERVER['HTTP_COOKIE']);
+    return $this;
+}
+</code></pre>
+
+<p>}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2008-06-18T23:24:26.000+0000</p> 
+        <div class="body">
+            <p>Because this issue touches both Zend_Http_Cookie, Zend_Http_Client and in a way Zend_Http_Cookiejar - I think an ideal solution would be:</p>
+
+<ol><li><p>Whatever is received from the server (through Zend_Http_Cookiejar, Zend_Http_Cookie::fromString() etc. is stored and sent back just the way it is</p></li>
+<li><p>Any cookies added manually by the user can be either encoded or not - depending on an additional parameter to Zend_Http_Client-&gt;setCookie(). By default it will be true (do encoding) in order to maintain BC.</p></li>
+</ol><p>As a general rule, how does this sound?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-19T00:13:31.000+0000</p> 
+        <div class="body">
+            <p>So to be able to pass through the cookies of the current request without any parsing I could do the following?</p>
+
+<p>$client = new Zend_Http_Client($url, $opts);
+$cookie = Zend_Http_Cookie::fromString($_SERVER['HTTP_COOKIE']);
+$client-&gt;setCookie($cookie);
+$response = $client-&gt;request();</p>
+
+<p>That seems like a workable approach to me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2008-06-19T01:34:18.000+0000</p> 
+        <div class="body">
+            <p>Yeah - that would work.</p>
+
+<p>It might also make good sense to add an API to quickly do that - but honestly I think this is quite advanced usage so just to save a line of code I think it's not required.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Smith (lsmith) on 2008-06-19T01:46:28.000+0000</p> 
+        <div class="body">
+            <p>Also, while I am focusing on the encode part. The same situation also needs to be addressed for the decoding stage. The raw cookie needs to be available in the response.</p>
+
+<p>I do not agree that its so advanced. This situation will come up whenever PHP sits as a proxy between a browser and a server, where the server originally set the cookie. In my case its relevant because of a mashup we are doing. The reason why few users get bitten by this issue is that indeed most servers support url encoding. So the scenario is not so obscure, only that it creates problems is. Now if we make this something the user has to do on his own, then you will have all sorts of users fall into this trap over and over again (even if you document this). But if there is a method "passBrowserCookieToServer()", then it will be clear for people that do write a proxy what method they should use to send the cookie to the server.</p>
+
+<p>Thanks for looking into this!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Rehbein (tech13) on 2010-01-13T07:13:33.000+0000</p> 
+        <div class="body">
+            <p>Attempts to fix both:
+<a href="http://framework.zend.com/issues/browse/ZF-1850">http://framework.zend.com/issues/browse/ZF-1850</a>
+<a href="http://framework.zend.com/issues/browse/ZF-5407">http://framework.zend.com/issues/browse/ZF-5407</a></p>
+
+<p>Adds an option to Zend_Http_Client to override the old behavior</p>
+
+<p>Adds an optional parameter to Zend_Http_Cookie to override the old behavior and effects how __toString behaves.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Rehbein (tech13) on 2010-01-13T07:45:25.000+0000</p> 
+        <div class="body">
+            <p>Matching English documentation changes for previous patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2010-02-11T06:27:25.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the patch Michael - I've applied it in r. 21018, and it will be merged to the 1.10 release branch soon.</p>
+
+<p>To not encode cookies, please set the 'encodecookies' config option to false.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Danila V. (dvershinin) on 2010-02-17T18:47:57.000+0000</p> 
+        <div class="body">
+            <p>Hi, not really fixed. I tested the patch: using http client, still getting encoded cookies even though the "encodecookies" option is set.
+When going through several requests and a cookie is added via CookieJar-&gt;addCookie:</p>
+
+<p>public function addCookie($cookie, $ref_uri = null)
+    {
+        if (is_string($cookie)) {
+            $cookie = Zend_Http_Cookie::fromString($cookie, $ref_uri);
+....
+    }</p>
+
+<p>The fromString does not pass the preferred option onto config, thus fromString still gets $encodeValue = true</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matt Pinkston (mpinkston) on 2010-11-15T12:46:26.000+0000</p> 
+        <div class="body">
+            <p>The encodecookies preference is still not being passed along to cookies that are added to the cookiejar from the response (as pointed out by Danila V.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matt Pinkston (mpinkston) on 2010-11-15T12:49:24.000+0000</p> 
+        <div class="body">
+            <p>Here's a patch that passes along the encodecookies value to cookies added to the cookiejar through addCookiesFromResponse.
+My first patch, so I apologize if I missed a step.</p>
+
+<p><a href="http://framework.zend.com/issues/secure/attachment/13451/Http.diff">http://framework.zend.com/issues/secure/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2010-11-16T12:18:12.000+0000</p> 
+        <div class="body">
+            <p>The patch looks good, I have two questions:</p>
+
+<ol><li><p>Have you signed a CLA?</p></li>
+<li><p>Do you have any unit tests that reproduce the issue you think should be committed along with this patch?</p></li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matt Pinkston (mpinkston) on 2010-11-17T11:46:07.000+0000</p> 
+        <div class="body">
+            <p>I did sign a CLA (Feb of 2009).</p>
+
+<p>I haven't created any unit tests for this issue. (though I will vouch that it works in my real-world scenario)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2010-11-24T03:53:26.000+0000</p> 
+        <div class="body">
+            <p>Patch applied, unit test added to verify resolution. 
+Committed to trunk in r23442, merged into 1.11 branch in 23443.</p>
+
+        </div>
+    </div>
+    </div>
+

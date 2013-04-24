@@ -1,0 +1,328 @@
+<h2>ZF-1498: Zend_Db and LONGBLOBs</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-05T16:42:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-17T13:46:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.4 (03/Mar/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>Zend_Db_Adapter_Mysqli</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12561/db-issue-1498.php">db-issue-1498.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>As far as I can tell, this issue is related mainly to Zend_Db, and not Mysqli - however, since I am using Mysqli as my connection, I am including it as a point of reference.</p>
+
+<p>The bug that I am encountering is as follows:</p>
+
+<p>I have a MySQL table for BLOB storage. One of the fields is defined as a LONGBLOB. I can use Zend_Db to write data to this field, but when I go to read it, the data that is returned isn't the same as the data that is stored. I can use both Mysql and Mysqli to read the data, and it appears fine (I can also use the connection object via Zend_Db to access Mysqli directly, and that works OK as well). Reading this data using one of the external methods, and then performing a character-by-character comparison of the data seems to indicate that some form of translation is occurring. Whether this is a bug or by design (ie, there is a flag or parameter I need to set?) is unknown. What I do know is that if I choose to set the field data type to a smaller BLOB data type (ie, MEDIUMBLOB), the issue does not occur.</p>
+
+<p>So, the "quickfix" is only use MEDIUMBLOB (or smaller) data type fields in a table, or use one of the "direct methods" of access if there is no issue with tying your application to a particular DB.</p>
+
+<p>I should also note that I do not know if this issue affects LONGTEXT fields or not. I suspect it may, but it has not been tested for...</p>
+
+<p>Sample testing code:</p>
+
+<pre class="highlight"><code>$id = 11;
+// Note - I set the DB up elsewhere, but this code is pretty simple for the test
+$table = new blobs();
+$blob_data1 = $table-&gt;getAdapter()-&gt;fetchone("SELECT blob_data FROM blobs WHERE blob_id = $id");
+
+print "ZENDDB BLOB_DATA LEN=".strlen($blob_data1);
+print "<br />";
+  
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  
+$link = mysql_connect(DB_HOST, DB_USERNAME, DB_PASSWORD);
+
+mysql_select_db(DB_DBNAME);
+                
+$result = mysql_query("SELECT blob_data FROM blobs WHERE blob_id = $id");
+        
+$blob_data2 = mysql_result($result, 0);
+        
+mysql_close($link);
+  
+print "MYSQL BLOB_DATA LEN=".strlen($blob_data2);
+print "<br />";
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  
+$link = mysqli_connect(DB_HOST, DB_USERNAME, DB_PASSWORD, DB_DBNAME);
+  
+$result = mysqli_query($link, "SELECT blob_data FROM blobs WHERE blob_id = $id");
+
+$data = mysqli_fetch_assoc($result);
+  
+$blob_data3 = $data["blob_data"];
+  
+mysqli_close($link);
+    
+print "MYSQLI BLOB_DATA LEN=".strlen($blob_data3);
+print "<br />";
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  
+$result = $table-&gt;getAdapter()-&gt;getConnection()-&gt;query("SELECT blob_data FROM blobs WHERE blob_id = $id");
+$data = mysqli_fetch_assoc($result);
+$blob_data4 = $data["blob_data"];
+
+print "ZENDDB BLOB_DATA4 LEN=".strlen($blob_data4);
+print "<br />";
+  
+for ($i=0; $i &lt; 5; $i++) {
+  print "";
+  print "POS=".$i;
+  print "<br />";
+  print "SUBSTR_ZF=".substr($blob_data1, $i, 1).", ".ord(substr($blob_data1, $i, 1));
+  print "<br />";
+  print "SUBSTR_MYSQL=".substr($blob_data2, $i, 1).", ".ord(substr($blob_data2, $i, 1));
+  print "<br />";
+  print "SUBSTR_MYSQLI=".substr($blob_data3, $i, 1).", ".ord(substr($blob_data3, $i, 1));
+  print "<br />";
+  print "SUBSTR_MYSQLI2=".substr($blob_data4, $i, 1).", ".ord(substr($blob_data4, $i, 1));
+}</code></pre>
+
+<p>Sample output (LONGBLOB):</p>
+
+<pre class="highlight"><code>ZENDDB BLOB_DATA LEN=177669
+MYSQL BLOB_DATA LEN=177669
+MYSQLI BLOB_DATA LEN=177669
+ZENDDB BLOB_DATA4 LEN=177669
+--------------------------------------------------------------------------------
+POS=0
+SUBSTR_ZF=), 41
+SUBSTR_MYSQL=ÿ, 255
+SUBSTR_MYSQLI=ÿ, 255
+SUBSTR_MYSQLI2=ÿ, 255
+--------------------------------------------------------------------------------
+POS=1
+SUBSTR_ZF=, 0
+SUBSTR_MYSQL=Ø, 216
+SUBSTR_MYSQLI=Ø, 216
+SUBSTR_MYSQLI2=Ø, 216
+--------------------------------------------------------------------------------
+POS=2
+SUBSTR_ZF=, 0
+SUBSTR_MYSQL=ÿ, 255
+SUBSTR_MYSQLI=ÿ, 255
+SUBSTR_MYSQLI2=ÿ, 255
+--------------------------------------------------------------------------------
+POS=3
+SUBSTR_ZF=, 0
+SUBSTR_MYSQL=à, 224
+SUBSTR_MYSQLI=à, 224
+SUBSTR_MYSQLI2=à, 224
+--------------------------------------------------------------------------------
+POS=4
+SUBSTR_ZF=¸, 184
+SUBSTR_MYSQL=, 0
+SUBSTR_MYSQLI=, 0
+SUBSTR_MYSQLI2=, 0</code></pre>
+
+<p>Sample output (MEDIUMBLOB):</p>
+
+<pre class="highlight"><code>ZENDDB BLOB_DATA LEN=177669
+MYSQL BLOB_DATA LEN=177669
+MYSQLI BLOB_DATA LEN=177669
+ZENDDB BLOB_DATA4 LEN=177669
+--------------------------------------------------------------------------------
+POS=0
+SUBSTR_ZF=ÿ, 255
+SUBSTR_MYSQL=ÿ, 255
+SUBSTR_MYSQLI=ÿ, 255
+SUBSTR_MYSQLI2=ÿ, 255
+--------------------------------------------------------------------------------
+POS=1
+SUBSTR_ZF=Ø, 216
+SUBSTR_MYSQL=Ø, 216
+SUBSTR_MYSQLI=Ø, 216
+SUBSTR_MYSQLI2=Ø, 216
+--------------------------------------------------------------------------------
+POS=2
+SUBSTR_ZF=ÿ, 255
+SUBSTR_MYSQL=ÿ, 255
+SUBSTR_MYSQLI=ÿ, 255
+SUBSTR_MYSQLI2=ÿ, 255
+--------------------------------------------------------------------------------
+POS=3
+SUBSTR_ZF=à, 224
+SUBSTR_MYSQL=à, 224
+SUBSTR_MYSQLI=à, 224
+SUBSTR_MYSQLI2=à, 224
+--------------------------------------------------------------------------------
+POS=4
+SUBSTR_ZF=, 0
+SUBSTR_MYSQL=, 0
+SUBSTR_MYSQLI=, 0
+SUBSTR_MYSQLI2=, 0</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-20T14:56:41.000+0000</p> 
+        <div class="body">
+            <p>I just talked to a user who confirms that this issue does affect LONGTEXT as well as LONGBLOB.</p>
+
+<p>The workaround for now is to use MEDIUMTEXT or MEDIUMBLOB, but regardless I'll try to fix this as soon as I can.</p>
+
+<p>Keep in mind that in MySQL, the MEDIUMTEXT/MEDIUMBLOB types hold up to 16MB of data.  LONGTEXT/LONGBLOB hold up to 4GB of data.  In most apps, the capacity of the MEDIUM types should be adequate!  :-)</p>
+
+<p>Reference on MySQL text/blob datatypes:
+<a href="http://dev.mysql.com/doc/refman/5.0/en/string-type-overview.html">http://dev.mysql.com/doc/refman/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:05:32.000+0000</p> 
+        <div class="body">
+            <p>This issue should have been fixed for the 1.5 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:55.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Toni Wenzel (twenzel) on 2008-04-13T07:48:45.000+0000</p> 
+        <div class="body">
+            <pre>";
+var_dump($result);
+echo "</pre>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:52.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sander Datema (tynian) on 2008-05-08T20:48:04.000+0000</p> 
+        <div class="body">
+            <p>And 1.5.1 also seems to have this issue. Although I don't get to see an error, I get a blank page. But when reducing the amount of data in the long fields, the query is run fine.</p>
+
+<p>A quick fix is to not select the big fields when doing a quick lookup. But that's not a fix when you need that specific field or when you use e.g. the findDependentRowSet method, as that one takes all fields.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-06T14:26:37.000+0000</p> 
+        <div class="body">
+            <p>This issue has gone unaddressed for too long. I'm re-assigning to Ralph for re-evaluation and categorization.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-09T13:51:26.000+0000</p> 
+        <div class="body">
+            <p>I will evaluate this within 2 weeks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zachary Schneider (sigil@ironkeep.net) on 2009-05-14T20:14:20.000+0000</p> 
+        <div class="body">
+            <p>This is pretty old, I know the problem exists in the 1.5 series has it been fixed in 1.8?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vladislav Rastrusny (fractalizer) on 2009-09-23T01:10:48.000+0000</p> 
+        <div class="body">
+            <p>Guys, this issue is almost two years old. Is it fixed or not?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-02T11:20:08.000+0000</p> 
+        <div class="body">
+            <p>Hi all,</p>
+
+<p>I cannot reproduce this issue.  Please see the attachment above, in there are the steps I took to try and reproduce this.  Running this script in both PHP 5.3 and PHP 5.2 does not help.  If anyone can help me reproduce it in script form, let me know.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-05T10:19:37.000+0000</p> 
+        <div class="body">
+            <p>Marking unassigned.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Remi Woler (remi_woler) on 2010-01-05T10:21:16.000+0000</p> 
+        <div class="body">
+            <p>I couldn't reproduce either. You can have the issue back.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-01-05T10:25:30.000+0000</p> 
+        <div class="body">
+            <p>If nobody is able to reproduce it, it makes sense to mark it as cannot-reproduce, right?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darcy Hastings (dhastings) on 2010-02-19T23:27:21.000+0000</p> 
+        <div class="body">
+            <p>I was also unable to recreate this issue. My guess is that this was a bug at some point but over the past two years some change somewhere down the line inadvertently fixed the problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-21T10:32:32.000+0000</p> 
+        <div class="body">
+            <p>Reassigned to component maintainer</p>
+
+        </div>
+    </div>
+    </div>
+

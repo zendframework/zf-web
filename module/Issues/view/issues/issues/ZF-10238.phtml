@@ -1,0 +1,216 @@
+<h2>ZF-10238: Zend Cache Class.php and Function.php needs throttling for scalability</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-27T22:06:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-24T15:47:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When the cache expires all web servers instances try to re-do the cache at the same time to re-cache. This causes a large spike which is not necessary. If you just wait a little, one of the servers will recache. This is important for Memcache.</p>
+
+<pre class="highlight"><code>
+
+Class.php:
+
+    public function __call($name, $parameters) 
+    {
+        $cacheBool1 = $this-&gt;_specificOptions['cache_by_default'];
+        $cacheBool2 = in_array($name, $this-&gt;_specificOptions['cached_methods']);
+        $cacheBool3 = in_array($name, $this-&gt;_specificOptions['non_cached_methods']);
+        $cache = (($cacheBool1 || $cacheBool2) &amp;&amp; (!$cacheBool3));
+        if (!$cache) {
+            // We do not have not cache
+            return call_user_func_array(array($this-&gt;_cachedEntity, $name), $parameters);
+        }
+
+        $id = $this-&gt;_makeId($name, $parameters);
+        if ( ($rs = $this-&gt;load($id)) &amp;&amp; isset($rs[0], $rs[1]) ) {
+            // A cache is available
+        } else {
+            if (get_class($this-&gt;getBackend()) == "Zend_Cache_Backend_Memcached") {
+                usleep(mt_rand(10000, 800000));
+                $rs = $this-&gt;load($id);
+            }
+        }
+
+        if ( ($rs) &amp;&amp; isset($rs[0], $rs[1]) ) {
+            $output = $rs[0];
+            $return = $rs[1];
+        } else {
+            // A cache is not available (or not valid for this frontend)
+            ob_start();
+            ob_implicit_flush(false);
+            $return = call_user_func_array(array($this-&gt;_cachedEntity, $name), $parameters);
+            $output = ob_get_contents();
+            ob_end_clean();
+            $data = array($output, $return);
+            $this-&gt;save($data, $id, $this-&gt;_tags, $this-&gt;_specificLifetime, $this-&gt;_priority);
+        }
+
+        echo $output;
+        return $return;
+    }
+
+
+Function.php:
+
+    public function call($name, $parameters = array(), $tags = array(), $specificLifetime = false, $priority = 8)
+    {
+        $cacheBool1 = $this-&gt;_specificOptions['cache_by_default'];
+        $cacheBool2 = in_array($name, $this-&gt;_specificOptions['cached_functions']);
+        $cacheBool3 = in_array($name, $this-&gt;_specificOptions['non_cached_functions']);
+        $cache = (($cacheBool1 || $cacheBool2) &amp;&amp; (!$cacheBool3));
+        if (!$cache) {
+            // We do not have not cache
+            return call_user_func_array($name, $parameters);
+        }
+
+
+        $id = $this-&gt;_makeId($name, $parameters);
+        if ( ($rs = $this-&gt;load($id)) &amp;&amp; isset($rs[0], $rs[1]) ) {
+            // A cache is available
+        } else {
+             if (get_class($this-&gt;getBackend()) == "Zend_Cache_Backend_Memcached") {
+                usleep(mt_rand(10000, 800000));
+                $rs = $this-&gt;load($id);
+            }
+        }
+
+        if ( ($rs) &amp;&amp; isset($rs[0], $rs[1]) ) {
+            $output = $rs[0];
+            $return = $rs[1];
+        } else {
+            // A cache is not available (or not valid for this frontend)
+            ob_start();
+            ob_implicit_flush(false);
+            $return = call_user_func_array($name, $parameters);
+            $output = ob_get_contents();
+            ob_end_clean();
+            $data = array($output, $return);
+            $this-&gt;save($data, $id, $tags, $specificLifetime, $priority);
+        }
+
+        echo $output;
+        return $return;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Bell (billnbell) on 2010-07-27T22:09:37.000+0000</p> 
+        <div class="body">
+            <p>[bbell@artemis Zend]$ cat cache.diff</p>
+
+<h1>Index: Cache/Frontend/Class.php</h1>
+
+<p>--- Cache/Frontend/Class.php    (revision 18626)
++++ Cache/Frontend/Class.php    (working copy)
+@@ -198,7 +198,7 @@
+      * @param  array  $parameters Method parameters
+      * @return mixed Result
+      */
+-    public function __call($name, $parameters)
++    public function __call($name, $parameters) 
+     {
+         $cacheBool1 = $this-&gt;_specificOptions['cache_by_default'];
+         $cacheBool2 = in_array($name, $this-&gt;_specificOptions['cached_methods']);
+@@ -212,6 +212,14 @@
+         $id = $this-&gt;_makeId($name, $parameters);
+         if ( ($rs = $this-&gt;load($id)) &amp;&amp; isset($rs[0], $rs[1]) ) {
+             // A cache is available
++        } else {
++            if (get_class($this-&gt;getBackend()) == "Zend_Cache_Backend_Memcached") {
++                usleep(mt_rand(10000, 800000));
++                $rs = $this-&gt;load($id);
++            }
++        }
++
++        if ( ($rs) &amp;&amp; isset($rs[0], $rs[1]) ) {
+             $output = $rs[0];
+             $return = $rs[1];
+         } else {</p>
+
+<h1>Index: Cache/Frontend/Function.php</h1>
+
+<p>--- Cache/Frontend/Function.php (revision 18626)
++++ Cache/Frontend/Function.php (working copy)
+@@ -90,9 +90,18 @@
+             return call_user_func_array($name, $parameters);
+         }</p>
+
+<p>+
+         $id = $this-&gt;_makeId($name, $parameters);
+-        if ( ($rs = $this-&gt;load($id)) &amp;&amp; isset($rs[0], $rs[1])) {
++        if ( ($rs = $this-&gt;load($id)) &amp;&amp; isset($rs[0], $rs[1]) ) {
+             // A cache is available
++        } else {
++             if (get_class($this-&gt;getBackend()) == "Zend_Cache_Backend_Memcached") {
++                usleep(mt_rand(10000, 800000));
++                $rs = $this-&gt;load($id);
++            }
++        }
++
++        if ( ($rs) &amp;&amp; isset($rs[0], $rs[1]) ) {
+             $output = $rs[0];
+             $return = $rs[1];
+         } else {</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergio Vaccaro (hujuice) on 2011-08-24T15:47:02.000+0000</p> 
+        <div class="body">
+            <p>It seems that the same problem has been encountered here whit a sqlite backend.
+A regularly working site (in development) has gone in an unresponsive jam when in production: a lot of sockets/threads did hang and many temporary files was created in the same directory of the sqlite files.</p>
+
+<p>Once the class frontend has been disabled, the site went back to a regular behaviour, fast and satisfactory.</p>
+
+<p>Regards,
+Sergio</p>
+
+        </div>
+    </div>
+    </div>
+

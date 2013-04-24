@@ -1,0 +1,212 @@
+<h2>ZF-1863: Zend_Feed API is counter-intuitive and does not support many feed types by default</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-20T10:08:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-19T10:18:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Feed</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>h1. The Problem</p>
+
+<p>I've been trying to write a generalized feed reader using Zend_Feed and I just stumbled upon a usability issue.</p>
+
+<p>IMHO, it should be a design goal for Zend_Feed to be able to easily consume any common feed out there. However, I have seen quite a few feeds out there that currently can't be handled in a generalized way - that is, without writing tons of if/else statements to filter out special cases.</p>
+
+<p>h2. Example 1</p>
+
+<p>Here's an example feed that doesn't work too well with Zend_Feed:
+<a href="http://toyflish.de/service/feed.php">http://toyflish.de/service/feed.php</a></p>
+
+<p>When you iterate through the feed items and try to access $item-&gt;title() or $item-&gt;description(), what you'll get instead of the expected string is an array with two DOMElement objects. The reason being, that there are two of these tags in each item: One with the namespace prefix "media" and one without.</p>
+
+<p>The problem is: If you don't target a specific feed, you don't know in which of these items the relevant information is. You would have to check each item and see whether or not it's empty. If both have content, you would have to check which one is the media node and which is the standard one.</p>
+
+<p>h2. Example 2</p>
+
+<p>The above feed is not the only one causing problems. Try <a href="http://feeds.feedburner.com/Techcrunch">http://feeds.feedburner.com/Techcrunch</a>, for example, and try to get the
+feed link:</p>
+
+<pre class="literal"> 
+$techCrunchFeed = '<a href="http://feeds.feedburner.com/Techcrunch">http://feeds.feedburner.com/Techcrunch</a>';
+$feed = new Zend_Feed_Rss($techCrunchFeed);
+print_r($feed-&gt;link());
+</pre>
+
+<p>Again, what you will get is an array containing two DOMElement objects.</p>
+
+<p>h2. Example 3</p>
+
+<p>Another one that causes problems: <a href="http://www.planet-php.net/atom">http://www.planet-php.net/atom</a></p>
+
+<p>Problem here is that when you try to get the link for an entry, an empty string is returned:</p>
+
+<pre class="literal"> 
+$feed = new Zend_Feed_Atom('<a href="http://www.planet-php.net/atom">http://www.planet-php.net/atom</a>');
+foreach($feed as $item) {
+    echo $item-&gt;link()."\n";
+}
+</pre>
+
+<p>The items do have links, though, but the link tag itself does not contain any text:</p>
+
+<pre class="literal"> 
+</pre>
+
+<p>Instead, the link is within the href attribute - the feed reader doesn't seem to check for that, which is yet another thing that I would expect a feed reader class to do.</p>
+
+<p>h1. Solution Proposal</p>
+
+<p>Personally, I would expect Zend_Feed to handle these cases: If there's more than one node, always return the first non-empty standard node (read: not namespaced), if that's empty, return the first non-empty namespaced node (like "media:description"). If the node is an empty link node, the href attribute should be checked.</p>
+
+<p>If you're targeting a specific feed, you could work around the auto-detection by giving the desired namespace as a parameter, and
+probably another parameter to toggle the empty-node auto-skipping:</p>
+
+<pre class="literal"> 
+// gets only the description nodes within the media namespace,
+// while auto-skipping empty nodes and just returning the first
+// non-empty node's content as a string:
+echo $item-&gt;description(true, 'media');
+
+// gets only the description nodes within the media namespace,
+// but returns the array of DOMElement nodes if there is more than
+// one node:
+foreach($item-&gt;description(false, 'media') as $node) {
+    print_r($node);
+}
+
+// gets the first non-namespaced, non-empty description node and
+// returns its content as a string. If all non-namespaced description
+// nodes are empty, it will look for the first non-empty description
+// node in any other namespace and return the first non-empty node's
+// content as a string:
+echo $item-&gt;description(true);
+
+// and this would resemble the behaviour as it is now: just return
+// an array with all description nodes as DOMElement objects...
+print_r($item-&gt;description(false);
+</pre>
+
+<p>When following the above API proposal, I would opt for making the first parameter 'true' by default, so you'll have an easy, intuitive API that should work in at least 90% of all cases.</p>
+
+<p>h2. Current workaround</p>
+
+<p>Using this function for outputting Zend_Feed results, I can work around the most common issues:</p>
+
+<pre class="literal">
+function getFirstFeedNode($nodeResult, $default='') {
+        if (is_array($nodeResult) &amp;&amp; $nodeResult[0] instanceof DOMElement) {
+        // first run: check for non-empty default namespaced node
+        foreach($nodeResult as $node) {
+            if (!$node-&gt;prefix &amp;&amp; !empty($node-&gt;nodeValue)) {
+                return (string)$node-&gt;nodeValue;
+            }
+        }
+        // second run: search for any non-empfy node in all namespaces
+        foreach($nodeResult as $node) {
+            if (!empty($node-&gt;nodeValue)) {
+                return (string)$node-&gt;nodeValue;
+            }
+        }
+    } elseif($nodeResult instanceof DOMElement &amp;&amp; !empty($nodeResult-&gt;nodeValue)) {
+        return (string) $nodeResult-&gt;nodeValue;
+    } elseif (is_string($nodeResult) &amp;&amp; !empty($nodeResult)) {
+        return $nodeResult;
+    }
+    return $default; // if all else fails
+}
+</pre>
+
+<p>Usage:</p>
+
+<pre class="literal">
+$feed = new Zend_Feed_Rss($feedURL);
+foreach($feed as $item) {
+    echo getFirstFeedNode($item-&gt;title());
+    echo "<br />\n";
+    echo getFirstFeedNode($item-&gt;description());
+}
+</pre>
+
+<p>This successfully works around the problems in example 1 and 2, but is, of  course, far from elegant. The problem described in example 3, however, cannot be worked around without extending or altering Zend_Feed itself.</p>
+
+<p>h1. Other resources</p>
+
+<p>For user discussion, look at the thread "Beginner demo - feed reader" in the ZF-General mailinglist.</p>
+
+<p>For an example of how simple the API <em>should</em> be usable, you may want to look at:
+<a href="http://pear.php.net/manual/en/package.xml.xml-feed-parser.intro.php">http://pear.php.net/manual/en/…</a></p>
+
+<p>h1. Further suggestions</p>
+
+<p>As seen in the feed reader class from PEAR, it may also be a good idea to be able to turn off strict XML validation and/or offer the option to repair the feed using tidy before parsing. I have also come across feeds that are perfectly usable with most feed readers, but contain some oddities that libxml2 considers invalid XML. Currently, feeds like these are not consumable by Zend_Feed. Example feed:
+<a href="http://validator.w3.org/feed/check.cgi?url=http%3A%2F%2Fhi.baidu.com%2Fxfxnet2007%2Frss">http://validator.w3.org/feed/check.cgi/…</a></p>
+
+<p>Even perfectly valid feeds seem to cause problems sometimes - a feed that does not throw an exception, but also seemingly doesn't contain any items when parsed with Zend_Feed is:
+<a href="http://www.bundestag.de/aktuell/RSS/Bundestag_Presse.rss">http://bundestag.de/aktuell/RSS/…</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-08-27T14:42:17.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Alex</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Whitcraft (sidhighwind) on 2008-10-14T13:32:10.000+0000</p> 
+        <div class="body">
+            <p>What is the status of this?  I find Zend_Feed to be very lacking in support for creating custom feeds due to this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-09-19T10:18:40.000+0000</p> 
+        <div class="body">
+            <p>Additional parsing support for Zend_Feed will not be added. The component is a wrapper around PHP5's DOM and does not assume to understand any particular format. This is indirectly resolved by the introduction of Zend_Feed_Reader which does understand the standards and nuances of all RSS and Atom feed types.</p>
+
+        </div>
+    </div>
+    </div>
+

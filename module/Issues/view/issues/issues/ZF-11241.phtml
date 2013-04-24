@@ -1,0 +1,189 @@
+<h2>ZF-11241: View plugin loader - Registered paths at plugin controller predispatch point</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-29T13:34:27.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-07T13:57:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello ;</p>
+
+<p>I want use my module view filters/helpers in a plug-in controller at the <em>predispatch</em> point. Unfortunately, the plug-in loader linked to the view object has not my view helpers/filters paths registered at this point. I've tried to do the same in my action controller and then, the paths are available.</p>
+
+<p>Question, why the modules paths (eg. view helpers and view filter) are not available at the <em>predispatch</em> point ? It's a bug or not ? Of course, I can register the paths by hand but I think that these paths should be discovered automatically, and not just at the action point.</p>
+
+<p><em>To resume:</em></p>
+
+<p>In my plug-in controller, at "predispatch" point:</p>
+
+<pre class="highlight"><code>
+$view = Zend_Controller_Front::getInstance()-&gt;getParam('bootstrap')-&gt;getResource('view');
+echo '</code></pre><pre><code>';
+    print_r($view-&gt;getPluginLoader('filter'));
+echo '</code></pre><code>';
+</code>
+
+<p><em>Result:</em></p>
+
+<pre class="highlight"><code>
+Zend_Loader_PluginLoader Object
+(
+    [_loadedPluginPaths:protected] =&gt; Array
+        (
+        )
+
+    [_loadedPlugins:protected] =&gt; Array
+        (
+        )
+
+    [_prefixToPaths:protected] =&gt; Array
+        (
+            [Zend_View_Filter_] =&gt; Array
+                (
+                    [0] =&gt; Zend/View/Filter/
+                    [1] =&gt; /var/www/imscp/site/themes/default/templates/views/filters/
+                )
+
+            [iPMS_View_Filter_] =&gt; Array
+                (
+                    [0] =&gt; iPMS/View/Filter/
+                )
+
+        )
+
+    [_useStaticRegistry:protected] =&gt; 
+)
+</code></pre>
+
+<p><em>In my controller action:</em></p>
+
+<pre class="highlight"><code>
+echo '</code></pre><pre><code>';
+    print_r($this-&gt;view-&gt;getPluginLoader('filter'));
+echo '</code></pre><code>';
+exit;
+</code>
+
+<p><em>Result:</em></p>
+
+<pre class="highlight"><code>
+Zend_Loader_PluginLoader Object
+(
+    [_loadedPluginPaths:protected] =&gt; Array
+        (
+        )
+
+    [_loadedPlugins:protected] =&gt; Array
+        (
+        )
+
+    [_prefixToPaths:protected] =&gt; Array
+        (
+            [Zend_View_Filter_] =&gt; Array
+                (
+                    [0] =&gt; Zend/View/Filter/
+                    [1] =&gt; /var/www/imscp/site/themes/default/templates/views/filters/
+                )
+
+            [iPMS_View_Filter_] =&gt; Array
+                (
+                    [0] =&gt; iPMS/View/Filter/
+                )
+
+            [Dashboard_View_Filter_] =&gt; Array
+                (
+                    [0] =&gt; /var/www/imscp/site/application/modules/Dashboard/views/filters/
+                )
+
+        )
+
+    [_useStaticRegistry:protected] =&gt; 
+)
+</code></pre>
+
+<p>Like you can see here, the view filters path from my dashboard module is only available in my controller action. It's same for the view helpers path.</p>
+
+<p>The expected result is like the last but at the plug-in controller <em>predispatch</em> point.</p>
+
+<p>Sorry for my english, I'm french.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Laurent declercq (nuxwin) on 2011-03-29T17:43:34.000+0000</p> 
+        <div class="body">
+            <p>Re ;</p>
+
+<p>After a little research, it's seem that the paths to module filters/helpers are added by the <em>ViewRenderer</em> action helper that is initialized when the action controller is instantiated and not before...</p>
+
+<p>{quote}
+Zend_Controller_Action::__construct()
+    -- $this-&gt;_helper = new Zend_Controller_Action_HelperBroker($this);
+        --  Zend_Controller_Action_Helper_ViewRenderer::setActionController($actionController);
+        --  Zend_Controller_Action_Helper_ViewRenderer::init(); 
+        -------Zend_Controller_Action_Helper_ViewRenderer::initView() 
+...
+{quote}</p>
+
+<p>So, the Zend_Controller_Action_Helper_ViewRenderer uses the module name as class prefix for helpers and views such that if the module name is 'Dashboard', it will set the helper lass prefix to 'Dashboard_View_Helper' and 'the filter class prefix to 'Dashboard_View_Filter...</p>
+
+<p>This behavior explain why the specific view paths (filters/helpers) for modules are not registered in the plugin Loader linked to the view at the <em>preDispatch</em> point since the action controller is instantiated later. Unfortunately, that mean too that we cannot use any of them at this point (eg. in plugin).</p>
+
+<p>Of course, like already said, we can register them by hand but is a bit annoying in my opinion. We can not more use them at the <em>postDispatch</em> point since the rendering process is already done. In fact, we can but in some case, that can pose some problems such as when we use the jQuery view Helper.</p>
+
+<p>So, it seem that in your current vision, it's the expected behavior. Now, my question is simple: What's the better solution to have the modules view filters/helpers paths registered in the view plugin Loader at the <em>preDispatch</em> point.</p>
+
+<p>Thanks in advance for any answer.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent declercq (nuxwin) on 2011-04-04T10:14:24.000+0000</p> 
+        <div class="body">
+            <p>No new because it's tagged as 'improvement' or ?</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,182 @@
+<h2>ZF-9878: quoteInto handles multiple inputs incorrectly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-05-22T18:23:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-27T21:24:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Kim Blomqvist (kblomqvist)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Db2</li>
+            <li>Zend_Db_Adapter_Mysqli</li>
+            <li>Zend_Db_Adapter_Oracle</li>
+            <li>Zend_Db_Adapter_Xml</li>
+            <li>Zend_Db_Select</li>
+            <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've provided a full explanation of why this is needed after the patch. The patch is just a minor rewrite of Zend_Db_Adapter_Abstract::quoteInto():</p>
+
+<pre class="highlight"><code>
+    public function quoteInto($text, $value, $type = null, $count = null)
+    {
+        if ($count === null &amp;&amp; !is_array($value)) { // continue to support old (but undocumented and abnormal) method of passing a single value to multiple binding points 
+            return str_replace('?', $this-&gt;quote($value, $type), $text);
+        }
+        if (!is_array($value)) { // if the input wasn't an array, make it so
+            $value = array($value);
+        }
+        if ($count === null) { // if we don't have a count, figure it out from the size of the input array
+            $count = count($value);
+        }
+        while ($count &gt; 0) {
+            // get the type and value to use for the next binding point
+            $thisvalue = array_shift($value);
+            if (is_array($type)) {
+                $thistype = array_shift($type);
+            } else {
+                $thistype = $type;
+            }
+            
+            // bind one more
+            if (strpos($text, '?') !== false) {
+                $text = substr_replace($text, $this-&gt;quote($thisvalue, $thistype), strpos($text, '?'), 1);
+            }
+            else
+            {
+                require_once 'Zend/Db/Adapter/Exception.php';
+                throw new Zend_Db_Adapter_Exception("Mismatch: Input text contained fewer '?' characters than number of available values");
+            }
+            --$count;
+        }
+
+        // see if we had anything left over
+        if (strpos($text, '?') !== false) {
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("Mismatch: Input text contained more '?' characters than number of available values");
+        }
+
+        return $text;
+    }
+</code></pre>
+
+<hr /><p>Why this change is important and what it does:</p>
+
+<hr /><p>Here is the use case for normal parameter binding in other database layers and/or adapters:
+1. Function signature is query(string $sql, array $values)
+2. $sql contains 0 or more '?' characters
+3. Array contains exactly as many values as there are '?' characters in $sql.
+   3b. If the count doesn't match, and exception is thrown.
+4. Each nth '?' is replaced by the nth entry in the input array.</p>
+
+<p>The current quoteInto() function violates 3 and 4 above. As a result, the quoteInto() function behaves completely differently than similar features in other systems, and every place that uses quoteInto() gives unexpected results. One such place is the "where" feature, which cannot bind multiple parameters. I believe this issue is known, because someone deliberately avoided it when writing the documentation. See the following sample query (which contains UNSANITIZED INPUTS directly in the string) taken directly from the documentation:</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select()
+             -&gt;from('products',
+                    array('product_id', 'product_name', 'price'))
+             -&gt;where("price &lt; $minimumPrice OR price &gt; $maximumPrice")
+             -&gt;where('product_name = ?', $prod);
+
+The above should have been able to be written like this (which is safer, and better style):
+$select = $db-&gt;select()
+             -&gt;from('products',
+                    array('product_id', 'product_name', 'price'))
+             -&gt;where("price &lt; ? OR price &gt; ?", array($minimumPrice, $maximumPrice))
+             -&gt;where('product_name = ?', $prod);
+</code></pre>
+
+<p>Since the system is currently in wide use, backwards compatibility is important to retain while fixing the problem. The behavior of quoteInto is completely undocumented beyond the case of a single input, so that does give some flexibility, however, the code was obviously intended to permit the following addition use case, which may be used in the wild:
+5. $values may be a single non-array value, while $sql contains multiple '?'. In this case, the value is bound to all '?' locations.</p>
+
+<p>I've written the patch so that it will honor this use case as well, even though it is undocumented and not like other systems.</p>
+
+<p>There is one undocumented behavior of the old method that is NOT retained, because it conflicts with the desired behavior, and doesn't seem to be intended:
+- With the old code, if $values was an array, the values would be escaped, and it would be comma separated. If the text contained "some_field IN (?)" (notice the () around '?') this could be used to bind an array.</p>
+
+<p>This last behavior is not directly supported by the new code. Users that rely on this undocumented behavior can continue to do so by using array(array($v1, $v2, $v3)).</p>
+
+<p>The fix should promote better code (by encouraging binding in complex queries, rather than placing parameters directly in the string) and make the system behave as expected by new users migrating to the Zend platform.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-27T20:11:17.000+0000</p> 
+        <div class="body">
+            <p>Adding code tags</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-27T20:33:53.000+0000</p> 
+        <div class="body">
+            <p>I strongly agree with the use case as I have tried that many times before just to realise it's not working that way.</p>
+
+<p>This is the way I do it atm.</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select()
+             -&gt;from('products',
+                    array('product_id', 'product_name', 'price'))
+             -&gt;where('price &lt; :min OR price &gt; :max'))
+             -&gt;bind(array(
+                 ':min' =&gt; $minimumPrice,
+                 ':max' =&gt; $maximumPrice
+             ));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-27T21:12:24.000+0000</p> 
+        <div class="body">
+            <p>Discussed with Ralph about the issue and we decided to resolve this as won't fix. The problem with this in zf1 is that quoteInto method is intended to quote a single value not multiple. In addition, we saw that it is not worth of hacking on this while zf2 is coming with different solutions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Crenshaw (bugslayer) on 2011-05-27T21:24:34.000+0000</p> 
+        <div class="body">
+            <p>Can you please at least make sure that multiple quoting is supported by whatever solution you use in zf2? This is a really big deal, especially when migrating legacy code.</p>
+
+        </div>
+    </div>
+    </div>
+

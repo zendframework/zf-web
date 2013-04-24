@@ -1,0 +1,127 @@
+<h2>ZF-11279: Zend_Currency creates invalid cache ids for values with fractions</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-04-11T23:11:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-02-21T22:54:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Currency</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm not skilled enough to provide a php_unit testcase reproducer, but here is the behavior I'm seeing.  The application has a Zend_Locale object set with the en_US locale stored in the Zend_Locale registry key.  I run the following code:</p>
+
+<pre class="literal">
+    $cur = new Zend_Currency(array('value' =&gt; 1234), 'aa_DJ');
+    echo "$cur\n";
+</pre>
+
+<p>I get reasonable output (I can't swear it's correct since I don't know  the currency):</p>
+
+<pre class="literal">
+    Fdj1,234.00
+</pre>
+
+<p>But if give the value a fractional part, say:</p>
+
+<pre class="literal">
+    $cur = new Zend_Currency(array('value' =&gt; 1234.56), 'aa_DJ');
+    echo "$cur\n";
+</pre>
+
+<p>I get (using ZF 1.11.1 sources, but the 1.11.5 sources are identical in this regard):</p>
+
+<pre class="literal">
+Zend_Cache_Exception: Invalid id or tag 'Zend_LocaleC_aa_DJ_nametocurrency_1234.56' : must use only [a-zA-Z0-9_] in C:\xampp\htdocs\OSH0\library\Zend\Cache.php on line 209
+</pre>
+
+<p>A more complete traceback is:</p>
+
+<pre class="literal">
+Locale/Data.php.Zend_Locale_Data::getContent : lineno 948() Locale/Data.php at line 948 
+Currency.php.Zend_Currency-&gt;getName : lineno 405() Currency.php at line 405 
+Currency.php.Zend_Currency-&gt;__construct : lineno 95() Currency.php at line 95   
+</pre>
+
+<p>In XDebug, I can see that this happens because __construct() calls getName() directly at line 110 with a first parameter $options that is array('value' =&gt; 1234.56), and within getName() the first parameter is called $currency, which gets passed to self::_checkParams($currency, $locale), which returns $params as follows:</p>
+
+<pre class="literal">
+  array(
+    'locale' =&gt; 'aa_DJ',
+    'currency' =&gt; array(
+      1234.56
+    )
+    'name' =&gt; array(
+      1234.56
+    )
+    'country' =&gt; 'DJ'
+  )
+</pre>
+
+<p>So when getName() at line 405 makes the call</p>
+
+<pre class="literal">
+$name = Zend_Locale_Data::getContent($params['locale'], 'nametocurrency', $params['currency'])
+</pre>
+
+<p>The value of $params['currency'] is array(1234.56).</p>
+
+<p>getContent() constructs a cache id by imploding an array value passed in with '_', urlencoding that into a variable named $val, and finally producing the cache id as:</p>
+
+<pre class="literal">
+$id = strtr('Zend_LocaleC_' . $locale . '_' . $path . '_' . $val, array('-' =&gt; '_', '%' =&gt; '_', '+' =&gt; '_'));
+</pre>
+
+<p>The implode() and urlencode() on the passed-in value don't change anything, so $val is just "1234.56", and the strtr() doesn't do anything to the '.', which results in the invalid cache id.</p>
+
+<p>But I don't know whether the strtr should be replacing more characters, or whether the problem is that the "1234.56" should not have gotten into $params['currency'].  It seems suspicious that $params['names'] got that same value, array(1234.56), but it is the $params['currency'] value that directly causes the problem.  If that value is correct, and it's the strtr call that should be changed to replace '.' characters, then would it also need to replace ',' characters to handle default locales where ',' is the radix point?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mike Soule (mikestitch) on 2012-02-21T22:54:13.000+0000</p> 
+        <div class="body">
+            <p>Please fix this :(</p>
+
+        </div>
+    </div>
+    </div>
+

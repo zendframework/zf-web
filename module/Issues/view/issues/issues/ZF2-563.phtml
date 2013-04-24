@@ -1,0 +1,223 @@
+<h2>ZF2-563: Zend\Log\Write\Db::mapEventIntoColumn creates non-existing database table column due to PHP type juggling</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-09-15T19:05:59.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-10-08T20:12:25.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Log</li>
+            <li>zend\log</li>
+            <li>zend\log\writer\db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend\Log\Writer\Db::mapEventIntoColumn creates new non-existing database table column due to PHP type juggling:</p>
+
+<pre class="highlight"><code>
+protected function mapEventIntoColumn(array $event, array $columnMap = null)
+{
+    if (empty($event)) {
+        return array();
+    }
+
+    $data = array();
+    foreach ($event as $name =&gt; $value) {
+        if (is_array($value)) {
+            foreach ($value as $key =&gt; $subvalue) {
+                if (isset($columnMap[$name][$key])) { // bad check!
+                    $data[$columnMap[$name][$key]] = $subvalue;
+                }
+            }
+        } elseif (isset($columnMap[$name])) {
+            $data[$columnMap[$name]] = $value;
+        }
+    }
+    return $data;
+}</code></pre>
+
+<p>The isset($columnMap[$name][$key]) is not good, because a non-existing string value for $key enables PHP type juggling and thus making it 0. This occurs when $value is an array and $columnMap['extra'] contains a string.</p>
+
+<p>A small example to make it more clear what is happening here:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$columnMap = array( 'extra' =&gt; 'extra' );
+
+var_dump( isset( $columnMap['extra']['something'] ) ); // Output: boolean true
+
+var_dump( $columnMap['extra']['something'] ); // Output: string 'e' (length=1)</code></pre>
+
+<p>Also it is impossible to store an array in a database table column without converting it to a string, so that <em>must</em> be done before the data can be used in a database query.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Martin_P (martin_p) on 2012-09-15T19:11:18.000+0000</p> 
+        <div class="body">
+            <p>Typo</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benoît Durand (intiilapa) on 2012-09-15T20:05:25.000+0000</p> 
+        <div class="body">
+            <p>Can you add your use case of extra as a string? The Logger can only send an array as extra.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin_P (martin_p) on 2012-09-15T20:23:10.000+0000</p> 
+        <div class="body">
+            <p>$extra is an array, that is right, but I am referring to $colomnMap['extra']. That is a string.</p>
+
+<p>When $extra is an array, let's say:
+```
+The script now checks if $columnMap['extra']['line'] exists with isset() and this always returns true. Because of type juggling the string 'line' is converted to 0 (see my example). This way you get the first letter of 'extra', the 'e' and thus a non-existing database table column.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin_P (martin_p) on 2012-09-15T21:04:45.000+0000</p> 
+        <div class="body">
+            <p>When Zend\Logger\Logger is used as an exception handler, in Zend\Logger\Logger::registerExceptionHandler() the following happens:</p>
+
+<pre class="highlight"><code>
+set_exception_handler(function ($exception) use ($logger) {
+    $extra = array(
+        'file'  =&gt; $exception-&gt;getFile(),
+        'line'  =&gt; $exception-&gt;getLine(),
+        'trace' =&gt; $exception-&gt;getTrace()
+    );
+    if (isset($exception-&gt;xdebug_message)) {
+        $extra['xdebug'] = $exception-&gt;xdebug_message;
+    }
+    $logger-&gt;log(Logger::ERR, $exception-&gt;getMessage(), $extra);
+});</code></pre>
+
+<p>So $extra is now an array with data from the exception. When I throw an exception the type juggling happens in the above mentioned methods.</p>
+
+<p>Use case:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+namespace Bug;
+
+use Zend\Mvc\MvcEvent as MvcEvent;
+
+class Module
+{
+    /**
+     * On bootstrap event
+     *
+     * @access public
+     * @param MvcEvent $event
+     * @return void
+     */
+    public function onBootstrap( MvcEvent $event )
+    {
+        $application = $event-&gt;getApplication();
+        $sm = $application-&gt;getServiceManager();
+
+        $dbAdapter = $sm-&gt;get( 'dbAdapter' );
+        $columnMapping = array(
+            'extra' =&gt; 'extra'
+        );
+        $writer = new \Zend\Log\Writer\Db( $dbAdapter, 'bug', $columnMapping );
+
+        $logger = new \Zend\Log\Logger();
+        $logger-&gt;addWriter( $writer );
+        $logger-&gt;registerExceptionHandler( $logger );
+
+        throw new \Exception( 'My message' );
+        return;
+    }
+}</code></pre>
+
+<p><em>EDIT:</em>
+Changed database table name, namespace and added create table definition for easier reproducing:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE `bug` (
+  `extra` text
+) ENGINE=InnoDB DEFAULT CHARSET=utf8</code></pre>
+
+<p><em>EDIT 2:</em>
+Sorry, offcourse the error might be useful too:
+{quote}Fatal error: Uncaught exception 'PDOException' with message 'SQLSTATE[42S22]: Column not found: 1054 Unknown column 'e' in 'field list'' in some\folder\vendor\Zend\library\Zend\Db\Adapter\Driver\Pdo\Statement.php on line 220{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin_P (martin_p) on 2012-09-15T22:44:01.000+0000</p> 
+        <div class="body">
+            <p>Looking at Zend\Log\Writer\Db::eventIntoColumn it seems the intended usage is this:</p>
+
+<pre class="highlight"><code>
+-                        $data<a href="http://framework.zend.com/issues/browse/ZF2-562">$columnMap[$name][$key]] = $subvalue;
++                        $data[$columnMap[$name] . $this-&gt;separator . $key] = $subvalue;</a></code></pre>
+
+<p>This still does not make any sense, because this creates random database table columns depending on the array keys of the extra array (see issue [#ZF2-562).</p>
+
+<p>When you add the needed columns for logging the exception:</p>
+
+<pre class="highlight"><code>
+Create Table: CREATE TABLE `bug` (
+  `extra` text,
+  `extra_file` text,
+  `extra_line` text,
+  `extra_trace` text,
+  `extra_xdebug` text
+) ENGINE=InnoDB DEFAULT CHARSET=utf8</code></pre>
+
+<p>you also still get a notice and an unintended array to string conversion and thus data loss:
+{quote}Notice: Array to string conversion in some\folder\vendor\Zend\library\Zend\Db\Adapter\Driver\Pdo\Statement.php on line 258{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2012-10-08T20:12:25.000+0000</p> 
+        <div class="body">
+            <p>This issue has been closed on Jira and moved to GitHub for issue tracking.  To continue following the resolution of this issues, please visit: <a href="https://github.com/zendframework/zf2/issues/2589">https://github.com/zendframework/zf2/issues/2589</a></p>
+
+        </div>
+    </div>
+    </div>
+

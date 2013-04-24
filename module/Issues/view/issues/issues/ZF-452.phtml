@@ -1,0 +1,228 @@
+<h2>ZF-452: Remove Zend_View_Abstract and replace with Zend_View_interface</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-10-18T12:02:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.6.0 (16/Dec/06)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10108/zf452a.patch">zf452a.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_View_Abstract is mostly useless as a point to inherit from for other template libraries as it includes a lot of unncessary code and also assumes a php based templating solution.</p>
+
+<p>I suggest that we merge Zend_View_Abstract into Zend_View and provide Zend_View_Interface to cover the common parts of using the View within the MVC components of Zend Framework.</p>
+
+<p>I propose Zend_View_Interface to be:</p>
+
+<pre class="highlight"><code>
+interface Zend_View_Interface
+{
+    /**
+     * Directly assigns a variable to the view script.
+     *
+     * @param string $key The variable name.
+     * @param mixed $val The variable value.
+     * @return void
+     */
+    public function __set($key, $val);
+    
+    /**
+     * Assigns variables to the view script via differing strategies.
+     *
+     * Zend_View_Inferface::assign('name', $value) assigns a variable called 'name'
+     * with the corresponding $value.
+     *
+     * Zend_View_Inferface::assign($array) assigns the array keys as variable
+     * names (with the corresponding array values).
+     *
+     * @param string|array $spec The assignment strategy to use.
+     * @param mixed (Optional) If assigning a named variable, use this as the value.
+     * @return void
+     * @see __set()
+     */
+    public function assign($spec);
+    
+    /**
+     * Processes a view script and returns the output.
+     *
+     * @param string $name The script script name to process.
+     * @return string The script output.
+     */
+    public function render($name);
+    
+    /**
+     * Set the path to find the view script used by render().
+     * 
+     * @param string|array The directory (-ies) to set as the path. Note that
+     * the concrete view implentation may not necessarily support multiple directories.
+     * @return void
+     */
+    public function setScriptPath($path);    
+}
+</code></pre>
+
+<p>Then, if someone wanted to implement a Smarty-based View, they could do something like:</p>
+
+<pre class="highlight"><code>
+class AkCom_View_Smarty implements Zend_View_Interface 
+{
+    protected $_smarty;
+    
+    function __construct($params=null)
+    {
+        $this-&gt;_smarty = new Smarty;
+        
+        if (is_array($params)) {
+            foreach ($params as $key=&gt;$value) {
+                $this-&gt;_smarty-&gt;$key = $value;
+            }
+        }
+    }
+    
+    public function setScriptPath($path)
+    {
+        if (is_array($path)) {
+            thow new Zend_View_Exception('setScriptPath() doesn't support multiple paths');
+        } else {
+            $this-&gt;_smarty-&gt;template_dir = $path;
+        }
+    }
+    
+    public function render($name) 
+    {
+        return $this-&gt;_smarty-&gt;fetch($name);
+    }
+    
+    public function __set($key, $val)
+    {
+        $this-&gt;_smarty-&gt;assign($key, $val);
+    }
+    
+    public function assign($spec)
+    {
+        if (is_string($spec)) {
+            if( func_num_args() == 2) {
+                // assign by name and value
+                $this-&gt;_smarty-&gt;assign($key, func_get_arg(1));
+            } else {
+                throw new Zend_View_Exception('assign() expects a string to have a value');
+            }
+        } elseif (is_array($spec)) {
+            // assign from associative array
+            foreach ($spec as $key =&gt; $val) {
+                $this-&gt;_smarty-&gt;assign($key, $val);
+            }
+        } else {
+            throw new Zend_View_Exception('assign() expects a string or array, got ' 
+                . gettype($spec));
+        }
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2006-10-18T12:04:06.000+0000</p> 
+        <div class="body">
+            <p>Zend_View with all of Zend_View_Abstract merged in and implemening Zend_View_Interface.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-11-09T15:10:30.000+0000</p> 
+        <div class="body">
+            <p>I think this is good. I have a few comments:</p>
+
+<ul><li>assign(), in the interface, should accept two parameters, the second optional. Otherwise, adding a second parameter in an implementing class will cause an E_FATAL.</li>
+<li>__get() should also be defined; makes it easier to modify template variables prior to final rendering, and some engines will need this ability</li>
+<li>__isset() for completeness</li>
+<li>clearVars(), for clearing assigned variables (recently implemented in Zend_View, and already possible in Smarty, for instance)</li>
+<li>getEngine() method -- to retrieve the engine object instance. Particularly useful for allowing the developer to set custom options in the engine (register filters or modifiers with smarty, register helpers with zend_view or savant, etc.)</li>
+</ul><p>I'd almost suggest __call() to proxy method calls to the engine, but that would break tooling for many, and it can be done with getEngine().</p>
+
+<p>If this sounds good, I will implement in the repository.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2006-11-09T15:17:42.000+0000</p> 
+        <div class="body">
+            <p>Though it may not be used in most common use cases, it may be useful to include __unset($name) in the interface for completeness.</p>
+
+<p>Otherwise, this looks very good to me - certainly an improvement over the existing architecture!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-11-09T15:24:16.000+0000</p> 
+        <div class="body">
+            <p>By the way, I'm considering Zend_View_Interface as an <em>addition</em> to Zend_View as it stands today.</p>
+
+<p>The idea is that if a developer wishes to incorporate a different template engine into their app, they implement the interface and continue (hopefully, we can get a number of such contributions into the laboratory). Zend_View and Zend_View_Abstract will be used by those who wish to use PHP as their templating solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2006-11-09T15:48:51.000+0000</p> 
+        <div class="body">
+            <p>Matthew,</p>
+
+<p>I like your suggestions. Didn't realise you get an E_FATAL and getEngine() would be useful in most cases.</p>
+
+<p>I don't mind keeping Zend_View_Abstract around, though I think it is very specific to Zend_View personally. I suppose the acid test would be to work out the best way to integrate Savant! Presumably, Zend_View_Abstract would implement Zend_View_Interface?</p>
+
+<p>All looks good to me regardless  :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-11-10T12:38:00.000+0000</p> 
+        <div class="body">
+            <p>Added Zend_View_Interface in revision 1545, and updated Zend_View_Abstract to implement the interface.</p>
+
+        </div>
+    </div>
+    </div>
+

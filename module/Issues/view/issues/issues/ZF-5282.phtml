@@ -1,0 +1,154 @@
+<h2>ZF-5282: Calling _forward() from init() make the dispatcher dispatch the wrong controller</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Docs:  Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-16T09:19:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-10-15T13:33:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.5 (27/Oct/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When calling _forward(), the method just injects the arguments into the request, aka module, controller, action, and set the dispatch token to false.</p>
+
+<p>The problem is when we call _forward() from an init() method of an action controller.
+In that case, the dispatcher tries to load the action, but keeps the actual controller as to be dispatched instead of taking the one which could have been specified in _forward().</p>
+
+<p>That special use case should be patched in the dispatch() method of the ZC_Action class.</p>
+
+<pre class="highlight"><code>
+
+class MyController extends Zend_Controller_Action
+{
+    public function init()
+    {
+        $this-&gt;_forward('someaction', 'somecontroller');
+    }
+    // ...
+}
+</code></pre>
+
+<p>That code will ask for the dispatching of MyController / someaction ; instead of someController / someaction</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sean (parsifal) on 2009-03-04T14:32:43.000+0000</p> 
+        <div class="body">
+            <p>This <em>needs</em> to be addressed. We just ran into it and spent a lot of time trying to figure out why our _forward() wasn't being respected correctly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Phillip Hagger (phagger) on 2009-04-15T19:11:33.000+0000</p> 
+        <div class="body">
+            <p>I have come across this same issue and believe I have found the problem.</p>
+
+<p>Calling _forward() sets the dispatched flag on the request to false. This is done at the time of controller instantiation in the dispatch method of he dispatcher. But before after that and before the controller action is dispatched the dispatcher sets the dispatched flag back to true. This is why foward works in init() in the same controller but not across controllers or modules. Here is the offending section of Zend/Controller/Dispatcher/Standard.php with my comments added.</p>
+
+<pre class="highlight"><code>
+    //controller instantiated here..._forward() will be called in init now.
+    $controller = new $className($request, $this-&gt;getResponse(), $this-&gt;getParams());
+
+        if (!$controller instanceof Zend_Controller_Action) {
+            require_once 'Zend/Controller/Dispatcher/Exception.php';
+            throw new Zend_Controller_Dispatcher_Exception("Controller '$className' is not an instance of Zend_Controller_Action");
+        }
+
+        /**
+         * Retrieve the action name
+         */
+        $action = $this-&gt;getActionMethod($request);
+
+        /**
+         * Dispatch the method call
+         */
+        //dispatch flag reset to true here after having been set to false by _forward() call
+        $request-&gt;setDispatched(true);
+
+        // by default, buffer output
+        $disableOb = $this-&gt;getParam('disableOutputBuffering');
+        $obLevel   = ob_get_level();
+        if (empty($disableOb)) {
+            ob_start();
+        }
+
+        try {
+            $controller-&gt;dispatch($action);
+        } catch (Exception $e) { ...
+</code></pre>
+
+<p>I commented out the setDispatched() call for a quick trial and it solved the problem but of course this is not the solution. Could the call to setDispatched() be moved so that it happens before controller instantiation? I don't see any problems that it could cause but I'm not expert on the dispatch loop. I'm going to move it for the time being in my projects and report back if anything fails.</p>
+
+<p>In addition it seems to me that a call to _forward in init() should stop the processing of the current action and move to the new action. Again this works in the same controller because the action is determined after the request has been modified by _forward(). But a forward to a different controller fails because we are already in the controller called in the original request. The rest of the current dispatcher dispatch() call should be ignored so that the front controller dispatch loop can run again and pick up the new controller and module. Were forwards not meant to happen from init()?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-10-15T13:19:29.000+0000</p> 
+        <div class="body">
+            <p>init() was originally intended for extending the constructor, since the constructor has a verbose signature. This would include instantiating appropriate models, setting object state from front controller/bootstrap parameters and/or a registry, etc. The idea is that you would initialize resources that the controller would consume here -- but not do any actual decisioning or application logic.</p>
+
+<p>preDispatch() and postDispatch() are to be used for altering or enhancing behavior of the dispatched action. The idea was that if you determined the action could not be executed in preDispatch(), then you could _forward() to another action.</p>
+
+<p>I see no real benefit to adding a dispatched check between init() and preDispatch() as this basically duplicates logic, and violates the original intentions of the two methods.</p>
+
+<p>I think this is primarily an educational issue, and I'll add a note to the manual detailing correct usage of _forward() in these circumstances.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-10-15T13:33:15.000+0000</p> 
+        <div class="body">
+            <p>Changed issue type to "docs improvement"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-10-15T13:33:59.000+0000</p> 
+        <div class="body">
+            <p>Section added to action controller chapter of manual detailing usage of init() vs. preDispatch(), specifically mentioning difference in how _forward() will act.</p>
+
+        </div>
+    </div>
+    </div>
+

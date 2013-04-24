@@ -1,0 +1,209 @@
+<h2>ZF-3496: Zend_Form::addDisplayGroup does something nothing else can do: it removes elements from the form display list without removing them from the form</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-23T05:35:41.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-13T20:53:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+            <li>View_Helper</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When calling Zend_Form::addDisplayGroup(), the elements named in the first parameter are unset from $_order, but they are not unset from $_elements. There is *no way* to do this normally as far as I can tell without modifying $_order directly.</p>
+
+<p>If Zend_Form_DisplayGroup::addElement() is used to add an Element to a DisplayGroup, then neither Zend_Form::getElement() nor Zend_Form::__get() find the new Element, and Zend_Form::setDefaults() fails to set the new Element's value. If an element is added to the Form using Zend_Form::addElement(), and then also to the DisplayGroup using Zend_Form_DisplayGroup::addElement(), it ends up being displayed twice.</p>
+
+<p>But, if Zend_Form::addDisplayGroup() is used to take elements that are in the Form and put them into a DisplayGroup, everything functions as expected.</p>
+
+<p>Testcase:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Form.php';
+require_once 'Zend/Form/DisplayGroup.php';
+require_once 'Zend/Form/Element/Text.php';
+require_once 'Zend/View.php';
+
+$form = new Zend_Form();
+$form-&gt;setView(new Zend_View());
+$form-&gt;addElement(new Zend_Form_Element_Text('test'));
+$form-&gt;addDisplayGroup(array('test'), 'inputs'); // test goes in the display group this way...
+$form-&gt;setDefaults(array('test' =&gt; '1234'));     // and this works fine
+var_dump($form-&gt;getElement('test')-&gt;getValue()); // '1234'
+
+$form-&gt;getDisplayGroup('inputs')-&gt;addElement(new Zend_Form_Element_Text('test2')); // but test2 goes in this way...
+
+$form-&gt;setDefaults(array('test' =&gt; '1234', 'test2' =&gt; '5678'));              // test2 does not get set
+
+var_dump($form-&gt;getDisplayGroup('inputs')-&gt;getElement('test2')-&gt;getValue()); // null, should be '5678'
+
+var_dump($form-&gt;getElement('test2'));                                        // null, should be returning
+                                                                             // a Zend_Form_Element_Text
+                                                                             // object
+
+// $form-&gt;getDisplayGroup('inputs')-&gt;setDefaults();                          // this function does not exist,
+                                                                             // even though the one on the
+                                                                             // parent form doesn't work!!
+                                                                             // Arrrgh!
+
+$form-&gt;addElement($form-&gt;getDisplayGroup('inputs')-&gt;getElement('test2'));
+$form-&gt;setDefaults(array('test' =&gt; '1234', 'test2' =&gt; '5678')); // test2 is set now, but...
+
+var_dump($form-&gt;getElement('test2')-&gt;getValue());               // '5678'
+
+echo $form;                                                     // ...now test2 is written out twice because
+                                                                // it's both in the form AND the form's
+                                                                // display group (but notice the how the
+                                                                // correct default value appears in both
+                                                                // places now :))
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-06-23T05:59:20.000+0000</p> 
+        <div class="body">
+            <p>The bug in here is that you should not be able to add concrete element instances to a display group, and the solution is to make addElement(s) protected instead of public. Any other solution would require a huge overhaul of Zend_Form.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-06-23T05:59:46.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next minor release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-04T10:05:06.000+0000</p> 
+        <div class="body">
+            <p>Actually, I was wrong in my previous assessment. We need to limit to only concrete element instances so that the form can add the elements to the display group. However, it was <em>never</em> intended that developers should add elements to the display group manually; only the elements passed to addDisplayGroup() should ever be attached to the display group.</p>
+
+<p>While theoretically we could support this, it would require substantial changes to Zend_Form_DisplayGroup and/or Zend_Form, and for this reason, I'm postponing this issue's resolution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lee Eason (leason) on 2008-10-15T11:31:08.000+0000</p> 
+        <div class="body">
+            <p>Matthew, I just ran into this problem as well.  Here is the situation I'm in so that maybe you can see a practical use case:
+An object Foo has a settings form.  Foo has an abstract class and can be extended to implement several different types of Foo that use basically the same settings form but the extended versions need to add a couple of fields each.  The developer could opt to place the extended fields that customize Foo into their own display groups, but lets say that is not practical and the developer needs the custom fields to be in the same display group as Foo's original fields.  So the abstract Foo class sets up a Zend_Form and a display group called "General."  Our issue at hand here prevents extended version of Foo from adding fields to "General" very easily.</p>
+
+<p>The work around I think I'm going to use is that rather than having Foo setup the display group directly it will create a hash to organize the fields and loop through them once all the extended fields have been added.  That way extended Foo's can add custom fields and simply add them to the same stacks that Foo started.  However, I think it would be far less work and less complex if we could simply call $displayGroup-&gt;addElement("elementName"); and have it handle all the necessary leg work.</p>
+
+<p>Hope this helps!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (noopable) on 2009-01-23T07:42:48.000+0000</p> 
+        <div class="body">
+            <p>I tried to make a patch to Zend_Form like this.
+Maybe,This relations to ZF-3205..</p>
+
+<pre class="highlight"><code>
+    public function addElementsToGroup($groupIndex, $elements)
+    {
+        if (! is_string($groupIndex)) {
+            throw new Zend_Form_Exception(__CLASS__ . '::' . __METHOD__ . ' expects a valid DisplayGroup\'s index');
+        }
+        $group = $this-&gt;getDisplayGroup($groupIndex);
+        if (! $group) {
+            throw new Zend_Form_Exception(' DisplayGroup not found : ' . $groupIndex);
+        }
+        if (is_string($elements)) {
+            $elements = array($elements);
+        } elseif (!is_array($elements)) {
+            throw new Zend_Form_Exception(__CLASS__ . '::' . __METHOD__ . ' 2nd arg expects string or array');
+        }
+        foreach ($elements as $element) {
+            if (isset($this-&gt;_elements[$element])) {
+                $add = $this-&gt;getElement($element);
+                if (null !== $add) {
+                    if (array_key_exists($element, $this-&gt;_order)) {
+                        unset($this-&gt;_order[$element]);
+                    }
+                    $group-&gt;addElement($add);
+                }
+            }
+        }
+        $this-&gt;_orderUpdated = true;
+        return $this;
+    }
+</code></pre>
+
+<p>and test it</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Form.php';
+require_once 'Zend/Form/DisplayGroup.php';
+require_once 'Zend/Form/Element/Text.php';
+require_once 'Zend/View.php';
+
+$form = new Zend_Form();
+$form-&gt;setView(new Zend_View());
+$form-&gt;addElement(new Zend_Form_Element_Text('test'));
+$form-&gt;addDisplayGroup(array('test'), 'inputs'); // test goes in the display group this way...
+$form-&gt;setDefaults(array('test' =&gt; '1234'));     // and this works fine
+var_dump($form-&gt;getElement('test')-&gt;getValue()); // '1234'
+
+/**
+ * How to use this method
+ * 1. addElement to form
+ * 2. element to group
+ */
+$form-&gt;addElement(new Zend_Form_Element_Text('test2'));
+$form-&gt;addElementsToGroup('inputs', array('test2'));
+$form-&gt;setDefaults(array('test' =&gt; '1234', 'test2' =&gt; '5678')); // test2 is set now, but...
+
+var_dump($form-&gt;getElement('test2')-&gt;getValue());               // '5678'
+
+echo $form;    // good form.
+</code></pre>
+
+<p>This code enables to attach elements to displaygroup anytime.</p>
+
+        </div>
+    </div>
+    </div>
+

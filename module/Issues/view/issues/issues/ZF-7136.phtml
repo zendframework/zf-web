@@ -1,0 +1,171 @@
+<h2>ZF-7136: Zend_Cache_Backend change in 1.8.4 broke Zend_Locale_Data (and by extension, Zend_Date)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-26T13:16:12.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-25T08:00:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+            <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6608">ZF-6608</a></li>
+            <li><a href="/issues/browse/ZF-6668">ZF-6668</a></li>
+            <li><a href="/issues/browse/ZF-7286">ZF-7286</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>We just upgraded from 1.8.2 to 1.8.4, and noticed that our Zend_Date call to toString was no longer working.  We were getting an exception of "Could not determine temp directory, please specify a cache_dir manually" where it was working just great on 1.8.2 (and a downgrade to 1.8.2 made the exception go away again).</p>
+
+<pre class="highlight"><code>
+#0 /var/www/html/common/php/Zend-1.8.4/Cache/Backend.php(196): Zend_Cache::throwException('Could not deter...')
+#1 /var/www/html/common/php/Zend-1.8.4/Cache/Backend/File.php(122): Zend_Cache_Backend-&gt;getTmpDir()
+#2 /var/www/html/common/php/Zend-1.8.4/Cache.php(152): Zend_Cache_Backend_File-&gt;__construct(Array)
+#3 /var/www/html/common/php/Zend-1.8.4/Cache.php(93): Zend_Cache::_makeBackend('File', Array, false, false)
+#4 /var/www/html/common/php/Zend-1.8.4/Locale/Data.php(843): Zend_Cache::factory('Core', 'File', Array, Array)
+#5 /var/www/html/common/php/Zend-1.8.4/Date.php(612): Zend_Locale_Data::getContent('en_US', 'month', Array)
+#6 /var/www/html/common/php/Zend-1.8.4/Date.php(515): Zend_Date-&gt;_parseIsoToDate('MMM', 'en_US')
+#7 /var/www/html/common/php/Zend-1.8.4/Date.php(488): Zend_Date-&gt;_toToken('MMM dSS, yyyy', 'en_US')
+#8 /var/www/html/common/php/Zend-1.8.4/Date.php(412): Zend_Date-&gt;get('MMM dSS, yyyy', 'en_US')
+#9 /var/www/path/to/our/view/script.phtml(116): Zend_Date-&gt;toString('M jS, Y', 'php')
+</code></pre>
+
+<p>I did some digging and found that the only change that could have caused this was the following:</p>
+
+<pre class="highlight"><code>
+--- Zend/Cache/Backend.php  (.../release-1.8.2/library) (revision 16310)
++++ Zend/Cache/Backend.php  (.../release-1.8.4/library) (revision 16310)
+@@ -183,7 +183,9 @@
+         if ($tempFile) {
+            $dir = realpath(dirname($tempFile));
+             unlink($tempFile);
+-            return $dir;
++            if ($this-&gt;_isGoodTmpDir($dir)) {
++                return $dir;
++            }
+         }
+         if ($this-&gt;_isGoodTmpDir('/tmp')) {
+            return '/tmp';
+</code></pre>
+
+<pre class="highlight"><code>
+// ...
+            if ($this-&gt;_isGoodTmpDir($dir)) {
+                return $dir;
+            }
+        }
+        if ($this-&gt;_isGoodTmpDir('/tmp')) {
+            return '/tmp';
+        }
+        if ($this-&gt;_isGoodTmpDir('\\temp')) {
+            return '\\temp';
+        }
+        Zend_Cache::throwException('Could not determine temp directory, plea
+se specify a cache_dir manually');
+    }
+// ...
+</code></pre>
+
+<p>I don't know if the problem is that our temp directory really isn't a "GoodTmpDir", or whether "_isGoodTmpDir" is just failing.  (I would guess the latter, though, since it was working fantastic before this change.)</p>
+
+<p>To be honest, I wasn't even aware that Zend_Locale_Data (and by extension Zend_Date) was using a cache until this exception came up.  Shouldn't all caching be disabled by default?  I know that one can disable it by hand, but that shouldn't be necessary, unless it really offers some amazing difference to the use of the class that we didn't have before (like a 10x speed gain or something).  My main concern, however, is that the code was working, but now it isn't.</p>
+
+<p>Hopefully I've given enough information, but if not feel free to ask.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-26T13:37:50.000+0000</p> 
+        <div class="body">
+            <p>It does provide a performance boost of factor x15-20... returning one single cache entry instead of reading up to 3 xml files. But it will be reverted latest in 1.9 (within Locale_Data) as more people have a problem with non working cache that with performance on localization.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tianon Gravi (admwiggin) on 2009-06-26T13:41:50.000+0000</p> 
+        <div class="body">
+            <p>Thanks for your comments, Thomas.  I've added a couple of these other issues you've mentioned to the "is related to" links.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2009-06-27T12:41:13.000+0000</p> 
+        <div class="body">
+            <p>IMHO, it's not a Zend_Cache issue (so I remove it as affected component). In your particular configuration, it's impossible to find automatically a tmp dir (working for Zend_Cache).</p>
+
+<p>In 1.8.2, cache should fail silently (which was "bad").</p>
+
+<p>In 1.8.4, if there is no automatically found tmp dir, an exception is thrown</p>
+
+<p>IMHO, Zend_Locale_Data should intercept this exception and deactivate the cache (in this particular case).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-28T01:35:41.000+0000</p> 
+        <div class="body">
+            <p>@Fabien:
+Even if it was bad behaviour... by changing your code to throw a new exception you integrated a BC.
+Such changes are ONLY allowed within Minor Releases (1.9) and not within Bugfix Releases.</p>
+
+<p>@Tianon:
+Use Zend_Locale::disableCache(true) to disable the caching within Zend_Locale</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tianon Gravi (admwiggin) on 2009-06-29T12:14:55.000+0000</p> 
+        <div class="body">
+            <p>Update: I decided to dig a little bit more, and found that /tmp did NOT have read permission for others, which does explain why everything worked just fine before, but once we started checking for read permission it stopped working.  Not that this really matters too much, but might be something to think about.  (I also noticed that our /tmp directory is full of zend_cache---Zend_LocaleC_* type files, so it was definitely caching things properly, despite not being able to "read" the directory.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-25T08:00:38.000+0000</p> 
+        <div class="body">
+            <p>As per internal discussion we decided NOT to erase the default caching.
+As with ZF 1.9 a migration note has been added to Zend_Locale.</p>
+
+<p>Disabling the default cache is still possible with disableCache(true);</p>
+
+        </div>
+    </div>
+    </div>
+

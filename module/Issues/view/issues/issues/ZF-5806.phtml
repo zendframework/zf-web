@@ -1,0 +1,143 @@
+<h2>ZF-5806: Garbage piling up in $_SESSION when using Zend_Captcha</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-16T18:05:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-12-21T14:39:25.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stanislav Malyshev (stas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12435/zsession.diff">zsession.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I believe the session cleanup code in Zend_Session::_processStartupMetadataGlobal () should probably unset ($_SESSION['__ZF'][$namespace]) when ENT timeout hits.</p>
+
+<p>Here is my problem:</p>
+
+<p>I am using Zend_Captcha_Image to generate captchas for my site, and I noticed that if the captchas are not claimed, garbage accumulates in $_SESSION.</p>
+
+<p>Zend_Captcha_Word sets two parameters for the session namespace:</p>
+
+<p>$this-&gt;_session-&gt;setExpirationHops(1, null, true);
+$this-&gt;_session-&gt;setExpirationSeconds($this-&gt;getTimeout());</p>
+
+<p>The resulting session looks like this:</p>
+
+<p>Array
+(
+    [__ZF] =&gt; Array
+        (</p>
+
+<pre><code>        [Zend_Form_Captcha_38b0306a2c96d5e34a0abb17cecfb1a8] =&gt; Array
+            (
+                [ENNH] =&gt; 1
+                [ENT] =&gt; 1234830941
+            )
+    )
+
+[Zend_Form_Captcha_38b0306a2c96d5e34a0abb17cecfb1a8] =&gt; Array
+    (
+        [word] =&gt; 4ibi7o
+    )
+</code></pre>
+
+<p>)</p>
+
+<p>i.e. it sets the session metadata $_SESSION[__ZF][$namespace][ENNH] (number of hops = 1) and $_SESSION[__ZF][$namespace][ENT] (timeout). Now if the captcha is claimed and validated, a new Zend_Session_Namespace object is created and in the constructor, the hop count is decreased and the ENNH parameter is removed, as well as the content $_SESSION[$namespace]. After the timeout, the ENT parameter is removed and $_SESSION[__ZF][$namespace] is cleaned up.</p>
+
+<p>If the captcha is never claimed, the ENT timeout hits, and $_SESSION[__ZF][$namespace][ENT] and $_SESSION[__ZF][$namespace] are removed, but $_SESSION[__ZF][$namespace][ENNH] remains. The cleanup code:</p>
+
+<pre><code>        if (isset($namespace) &amp;&amp; empty($_SESSION['__ZF'][$namespace])) {
+            unset($_SESSION['__ZF'][$namespace]);
+</code></pre>
+
+<p>does not remove $_SESSION['__ZF'][$namespace] because the ENNH parameter is still there. Since the original namespace is never reinstantiated if the user never tries to validate the captcha, garbage accumulates in the session:</p>
+
+<p>Array
+(
+    [__ZF] =&gt; Array
+        (
+            [Zend_Form_Captcha_695b09f1d32dfc7ea02187e02faa2f91] =&gt; Array
+                (
+                    [ENNH] =&gt; 1
+                )</p>
+
+<pre><code>        [Zend_Form_Captcha_d1c1c089bec1e02fc3fb2e75c11a2860] =&gt; Array
+            (
+                [ENNH] =&gt; 1
+            )
+</code></pre>
+
+<p>...
+}</p>
+
+<p>In long running sessions, this may become substantial.</p>
+
+<p>Now unless there is a compelling reason why the metadata needs to be kept after the content $_SESSION[$namespace] is gone, I believe the session cleanup code in _processStartupMetadataGlobal() should simply unset($_SESSION['__ZF'][$namespace]) after the ENT timeout, so no garbage accumulates in $_SESSION. I even suspect it might be best to simply delete the metadata in all places where $_SESSION[$namespace] is unset (e.g. also when ENNH hits 0).</p>
+
+<p>Sorry if I am missing something.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jonathan Haskins (thalaric) on 2009-08-27T04:44:25.000+0000</p> 
+        <div class="body">
+            <p>This was one of the first things I noticed today when trying to implement captchas. I then tried to use my own session instead of letting it create one, but unfortunately there was a bug with setSession/generate as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stanislav Malyshev (stas) on 2009-11-27T17:00:36.000+0000</p> 
+        <div class="body">
+            <p>Proposed patch for the issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stanislav Malyshev (stas) on 2009-12-21T14:39:24.000+0000</p> 
+        <div class="body">
+            <p>fixed in trunk</p>
+
+        </div>
+    </div>
+    </div>
+

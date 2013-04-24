@@ -1,0 +1,296 @@
+<h2>ZF-3380: Zend_Search_Lucene indexer hangs (time out). Possibly due to recursion.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-04T02:12:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-31T08:41:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+            <li>After1.12.0</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>We have written a crawler based on code we found on the net. The code has run smoothly, however on numerous occassions it now hangs on certain pages - which have been changed and I guess it's the content of the pages that influences the behaviour. The script dies when the php max exec time is reached. An example page with which the statement "$index-&gt;addDocument($doc);" hangs is: <a href="http://www.febe.be/nl_BE/page/show/id/41">http://www.febe.be/nl_BE/page/show/id/41</a></p>
+
+<p>Please note that it seems most likely that the issue is not caused by the content of the page, because all other pages from that point onwards fail.</p>
+
+<pre class="highlight"><code>
+/**
+ * SE siteCrawler v0.1
+ * 
+ * Generates a Lucene index per supported language
+ * 
+ * Uses:
+ * - Zend_HTTP
+ * - Zend_Search_Lucene
+ * 
+ * Todo:
+ * - Currently deletes and rebuilds, should be dynamic
+ * - Index pdf files &amp; other
+ * - Check for redirects
+ * 
+ * @author patrick @ studioemma.com
+ */
+
+header('Content-Type: text/html; charset=utf-8');
+include("prepend.php");
+set_time_limit(3600);
+
+// Update these constants for correct usage.
+define("_crawler_pathToLucenIndex",$application-&gt;getPath("Lucene"));
+define("_crawler_indexName","FEBE");
+
+require_once 'Zend/Search/Lucene.php';
+require_once 'Zend/Http/Client.php';
+require_once 'Zend/Log.php';
+require_once 'Zend/Log/Writer/Stream.php';
+
+foreach ($application-&gt;getLanguages() as $supportedLanguage) {
+
+    
+    $start_uri = $application-&gt;getUrl("Absolute").$supportedLanguage."/index/index2";
+    $match_uri = $application-&gt;getUrl("Absolute").$supportedLanguage."/";
+    
+    $logFile = _crawler_pathToLucenIndex._crawler_indexName.".".$supportedLanguage.'.log';
+    $indexFile = _crawler_pathToLucenIndex._crawler_indexName.".".$supportedLanguage.'.index';
+    
+    // Should be rebuilt, but currently we remove the index
+    system("rm -rf $indexFile");
+    system("rm -rf $logFile");
+//die($start_uri);
+    
+    // Set up log
+    //$log = new Zend_Log(new Zend_Log_Writer_Stream($logFile));
+    ob_implicit_flush(true);
+    $log = new Zend_Log(new Zend_Log_Writer_Stream('<a>php://output</a>'));
+    $log-&gt;info('Crawler starting up');
+
+    // Set up Zend_Http_Client
+    $client = new Zend_Http_Client();
+    $client-&gt;setConfig(array('timeout' =&gt; 30));
+
+
+    // Open a Lucene index, or create it if it does not exist
+    // Make it possible to create more than one index:
+    $indexpath = $indexFile;
+
+    try {
+        $index = Zend_Search_Lucene::open($indexpath);
+        $log-&gt;info("Opened existing index in $indexpath");
+    // If can't open, try creating
+    } catch (Zend_Search_Lucene_Exception $e) {
+        try {
+            $index = Zend_Search_Lucene::create($indexpath);
+            $log-&gt;info("Created new index in $indexpath");
+        // If both fail, give up and show error message
+        } catch(Zend_Search_Lucene_Exception $e) {
+            $log-&gt;err("Failed opening or creating index in $indexpath");
+            $log-&gt;err($e-&gt;getMessage());
+            echo "Unable to open or create index: {$e-&gt;getMessage()}";
+            exit(1);
+        }
+    }
+
+    // Set up the targets array
+    $targets = array($start_uri);
+    // Start iterating
+    for($i = 0; $i &lt; count($targets); $i++) {
+        // Fetch content with HTTP Client
+        $client-&gt;setUri($targets[$i]);
+        $response = $client-&gt;request();
+        if ($response-&gt;isSuccessful()) {
+
+            // Possibly check for redirects, don't know if this is currently done automaticaly
+
+            $body = $response-&gt;getBody();
+            $log-&gt;info("Fetched " . strlen($body) . " bytes from {$targets[$i]}");
+
+            // Create document
+            $body_checksum = md5($body);
+            try {
+                $doc = Zend_Search_Lucene_Document_Html::loadHTML($body);
+            }
+            catch (Exception $e) {
+                // It's possibly another document
+                echo "</code></pre><pre><code>Another document</code></pre><code>";
+            }
+
+            $docMeta = array("description"=&gt;"");
+            $docMeta = @get_meta_tags($targets[$i]);
+
+            // Add Fields to the IndexDocument
+            $doc-&gt;addField(Zend_Search_Lucene_Field::UnIndexed('url', $targets[$i]));
+            $doc-&gt;addField(Zend_Search_Lucene_Field::UnIndexed('md5', $body_checksum));
+            //$doc-&gt;addField(Zend_Search_Lucene_Field::UnIndexed('description', $docMeta["description"]));
+                $log-&gt;info("Start indexing {$targets[$i]}");
+                // Index the IndexDocument
+                $index-&gt;addDocument($doc);
+        
+            $log-&gt;info("Indexed {$targets[$i]}");
+
+            // Fetch new links
+            $links = $doc-&gt;getLinks();
+            foreach ($links as $link) {
+                // Resolve relative links:
+                if (strpos($link, "http://") === false) {
+                    $link = $application-&gt;getUrl("Absolute") . substr($link,1);
+                }
+                // Add the link if applicable
+                if ((strpos($link, $match_uri) !== false) &amp;&amp; (! in_array($link, $targets))) {
+                    $targets[] = $link;
+                }
+            }
+        } else {
+            $log-&gt;warn("Requesting {$targets[$i]} returned HTTP " . $response-&gt;getStatus());
+        }
+    }
+    $log-&gt;info("Iterated over " . count($targets) . " documents");
+    $log-&gt;info("Optimizing index...");
+    $index-&gt;optimize();
+    $index-&gt;commit();
+    $log-&gt;info("Done. Index now contains " . $index-&gt;numDocs() . " documents");
+    $log-&gt;info("Crawler shutting down");
+}
+</code>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Patrick Vandenbrande (havik3008) on 2008-06-04T03:12:15.000+0000</p> 
+        <div class="body">
+            <p>PHP is 5.2.3, memory limit set to 100M</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrick Vandenbrande (havik3008) on 2008-06-04T13:55:16.000+0000</p> 
+        <div class="body">
+            <p>Apparently this issue is caused when overloading string functions. Most likely due to using str_len to count the bytes.</p>
+
+<p>So the issue can be logged to review in later revisions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eric (e) on 2009-06-19T05:33:18.000+0000</p> 
+        <div class="body">
+            <p>We resolved a similar problem with commenting out
+;mbstring.internal_encoding = UTF-8
+;mbstring.func_overload = 7
+in php.ini.</p>
+
+<p>We traced the problem to the following code in Zend_Search_Lucene_Index_SegmentWriter -&gt; _generateCFS()<br />
+while ($byteCount &gt; 0) {
+ $data = $dataFile-&gt;readBytes(min($byteCount, 131072 /*128Kb*/));
+ $byteCount -= strlen($data);
+ $cfsFile-&gt;writeBytes($data);
+}</p>
+
+<p>We would really like this problem to be resolved soon as we are planning to support UTF-8 in our application.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frédéric Choquet (fchoquet) on 2009-06-26T08:42:25.000+0000</p> 
+        <div class="body">
+            <p>I met exactly the same problem as Eric.</p>
+
+<p>We have several servers running zend lucene and only one failed de create index. I found out that mbstring.func_overload was accidentaly activated on this server.</p>
+
+<p>The symptom was an infinite loop in Zend_Search_Lucene_Index_SegmentWriter::_generateCFS</p>
+
+<p>readBytes did not return the right value. I had 5 bytes missing.</p>
+
+<p>Maybe it's not actually a bug (mbstring.func_overload is a really weird option that prevents binary file handling)  but you should prevent the execution to get into an infinite loop and raise a  "mbstring.func_overload not supported" exception.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by michal kralik (ceecko) on 2010-01-31T06:57:31.000+0000</p> 
+        <div class="body">
+            <p>I still experience the same issue in ZF 1.10
+I managed to solve it by disabling mbstring.func_overload. That however prevented my app working with utf-8, which is not an option :(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomek Pęszor (admirau) on 2010-10-27T07:08:37.000+0000</p> 
+        <div class="body">
+            <p>How to reproduce the bug:</p>
+
+<p>Add this at the end of php.ini:</p>
+
+<p>mbstring.func_overload = 7</p>
+
+<p>Then during building the search index, script hangs in an infinite loop at:</p>
+
+<p>Zend_Search_Lucene_Index_SegmentWriter::_generateCFS()</p>
+
+<p>while ($byteCount &gt; 0) {
+    $data = $dataFile-&gt;readBytes(min($byteCount, 131072 /128Kb/));
+    $byteCount -= strlen($data); // here the length is always 1
+    $cfsFile-&gt;writeBytes($data);
+}</p>
+
+<p>The indexed data contains UTF-8 characters, such as: ąę×ć...</p>
+
+<p>(the bug still exists in ZF 1.11)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-24T12:22:50.000+0000</p> 
+        <div class="body">
+            <p>@Tomek: Would using <a href="">www.php.net/manual/en/function.mb-strlen.php</a>" rel="nofollow"&gt;mb_strlen fix this issue there?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-30T13:10:15.000+0000</p> 
+        <div class="body">
+            <p>Is there any possible fix here?  It seems that the indexer needs mbstring in order to properly index UTF-8 characters, but turning it on (via func_overload) causes an infinite loop.</p>
+
+        </div>
+    </div>
+    </div>
+

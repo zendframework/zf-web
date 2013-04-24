@@ -1,0 +1,310 @@
+<h2>ZF-2463: Zend_Loader suppressing parse errors when loading class files</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-01-21T21:19:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-02-05T06:29:26.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.5.0 (17/Mar/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Darby Felton (darby)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2724">ZF-2724</a></li>
+            <li><a href="/issues/browse/ZF-5697">ZF-5697</a></li>
+            <li><a href="/issues/browse/ZF-2923">ZF-2923</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When loading a broken class file, I'd expect it to fail with a parse error. However, it now it fails (r7558) silently with no clue as to why.</p>
+
+<p>This was working in the last snapshot I downloaded (7453). It seems to have broken in the trunk since. The working method "<em>includeFile()" below still exists in the file but seems to have been forgotten while I see various "@include</em>*" elsewhere which appear to be causing the problem.</p>
+
+<pre class="highlight"><code>
+    /**
+     * Attempt to include() the file.
+     *
+     * include() is not prefixed with the @ operator because if
+     * the file is loaded and contains a parse error, execution
+     * will halt silently and this is difficult to debug.
+     *
+     * Always set display_errors = Off on production servers!
+     *
+     * @param  string  $filespec
+     * @param  boolean $once
+     * @return boolean
+     */
+    protected static function _includeFile($filespec, $once = false)
+    {
+        if ($once) {
+            return include_once $filespec;
+        } else {
+            return include $filespec ;
+        }
+    }
+</code></pre>
+
+<p>How I reproduced the fault:</p>
+
+<p>BustedClass.php:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class BustedClass
+{
+somebarewordshouldcauseaparseerror;
+}
+</code></pre>
+
+<p>Then ran this script:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Loader.php';
+Zend_Loader::registerAutoload();
+
+$a = new BustedClass();
+
+echo "finished\n";
+</code></pre>
+
+<p>This should produce:</p>
+
+<pre class="highlight"><code>
+Parse error: syntax error, unexpected T_STRING, expecting T_FUNCTION in /home/zf/www/sandbox/BustedClass.php on line 5
+</code></pre>
+
+<p>but in the current svn trunk it just fails silently now making debugging quite disconcerting. Could we have the old behaviour back please?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T08:07:35.000+0000</p> 
+        <div class="body">
+            <p>I can reproduce the problem on PHP 5.1.4 (WinXP)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T08:12:03.000+0000</p> 
+        <div class="body">
+            <p>It appears that line 83 (within {{loadClass()}}) is to blame:</p>
+
+<pre class="highlight"><code>
+            @include_once $file;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T08:13:03.000+0000</p> 
+        <div class="body">
+            <p>Yes, removing the error-suppression operator "{{@}}" from line 83 revealed the parse error on my system.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-01-22T12:32:06.000+0000</p> 
+        <div class="body">
+            <p>Also this lines I think:</p>
+
+<pre class="highlight"><code>
+        /**
+         * Try finding for the plain filename in the include_path.
+         */
+        switch ($once) {
+            case true:
+                $result = @include_once $filename;
+                break;
+            case false:
+            default:
+                $result = @include $filename;
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T12:36:57.000+0000</p> 
+        <div class="body">
+            <p>Yes, I've changed those lines... marking as in progress...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-01-22T16:20:52.000+0000</p> 
+        <div class="body">
+            <p>Thanks. That seems to have fixed it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T16:34:44.000+0000</p> 
+        <div class="body">
+            <p>I believe I have resolved this issue with <a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=7577">SVN r7577</a>. Sorry if the link doesn't work for some time as Fisheye reads the SVN repository for its revision cache.</p>
+
+<p>Please update from SVN and provide feedback; if the changes are acceptable, the issue could be resolved with a small addition to documentation that illustrates how to fetch/suppress errors from a file included with Zend_Loader.</p>
+
+<p>The behavioral change brief:</p>
+
+<p><em>Before:</em> All php errors from included files were suppressed and unavailable to developers, making it harder to debug.
+<em>After:</em> All non-fatal php errors are available to the user through the {{includeErrors}} property of a Zend_Exception instance, which is thrown when an included file produces such errors. Easier to debug, but forces developers to either be {{E_STRICT}} compliant, or catch the thrown exception.</p>
+
+<p>Perhaps there should be a way to switch between these behaviors. For example, we could modify this such that an exception is not thrown, but errors are simply available to the user if (s)he should want to examine them:</p>
+
+<pre class="highlight"><code>
+// this would be much like the behavior before, only we have ability to look at errors
+Zend_Loader::throwExceptions(false);
+Zend_Loader::loadFile($someFile);
+if (Zend_Loader::hasErrors()) {
+    // do something with Zend_Loader::getErrors()
+}
+
+// here i don't care about E_STRICT compliance
+Zend_Loader::registerAutoload();
+$obj = My_Autoloaded_Class();
+
+// now i care about E_STRICT compliance
+Zend_Loader::throwExceptions(true);
+try {
+    Zend_Loader::loadClass('My_Other_Class');
+} catch (Zend_Exception $e) {
+    foreach ($e-&gt;includeErrors as $error) {
+        // do something with $error
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T16:39:08.000+0000</p> 
+        <div class="body">
+            <p>alternatively, for the last example:</p>
+
+<pre class="highlight"><code>
+// now i care about E_STRICT compliance
+Zend_Loader::loadClass('My_Other_Class');
+foreach (Zend_Loader::getErrors() as $error) {
+    // do something with $error
+}
+</code></pre>
+
+<p>This way the class does not have to throw an exception and simplifies the API.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-01-22T18:23:51.000+0000</p> 
+        <div class="body">
+            <p>I'm not sure I'm qualified enough on this but what is the purpose? To convert errors to exceptions?</p>
+
+<p>If so, then storing non-fatal errors for inspection seems fine. Whether or not they are thrown as an exception should by default be based on the active error reporting levels maybe?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-22T18:56:47.000+0000</p> 
+        <div class="body">
+            <p>My concerns at this point are two-fold:</p>
+
+<h1><em>Backward compatibility:</em> Throwing an exception when an included file produces, for example, an {{E_NOTICE}} seems excessive behavior compared with the previous behavior of complete error suppression. What the developer needs is the ability to access these errors, but (s)he does not need to be forced to catch an exception that contains them.</h1>
+
+<h1><em>Performance:</em> - This error capturing behavior will most certainly degrade performance for users of {{Zend_Loader}}. Probably there should be the ability to turn it off where it is not needed.</h1>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-01-22T20:09:11.000+0000</p> 
+        <div class="body">
+            <p>Backward compatibility:</p>
+
+<p>The current stable release (ZF 1.0.3) appears to only throw an exception if the file is not found/readble. There is no error suppression. Basically, it's just a wrapper to require_once with psuedo namespacing support from what I can make out. Any error reporting is left to PHP's error reporting state.</p>
+
+<p>Personally that's the way I like it. If I want to see E_NOTICEs or whatever I will with v1.0.3 based on my error reporting level.</p>
+
+<p>I also tried a grep in the trunk out of interest:
+mim@<a>zev:/home/zf/lib/unstable/trunk</a>$ grep -R Zend_Loader_Exception incubator/library/|grep -v ".svn"
+incubator/library/Zend/Form/Element.php:     * @throws Zend_Loader_Exception on invalid type.
+mim@<a>zev:/home/zf/lib/unstable/trunk</a>$ grep -R Zend_Loader_Exception library/|grep -v ".svn"
+library/Zend/Loader/Exception.php:class Zend_Loader_Exception extends Zend_Exception
+library/Zend/Loader/PluginLoader/Exception.php: * @see Zend_Loader_Exception
+library/Zend/Loader/PluginLoader/Exception.php:class Zend_Loader_PluginLoader_Exception extends Zend_Loader_Exception</p>
+
+<p>Performance:
+Can't we have this new functionality off by default then? that would be fastest. loadClass($class, $dirs = null) is how it is now. Perhaps, it could become: loadClass($class, $dirs = null, $throwOnErrorLevel = null) using <a href="http://uk2.php.net/manual/en/function.error-reporting.php">http://uk2.php.net/manual/en/…</a> values as desired?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-31T08:03:09.000+0000</p> 
+        <div class="body">
+            <p><a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=7726">SVN r7726</a> removes the custom error handling functionality for performance and (hopefully) backward compatibility. Please comment here with any problems. Thanks! :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-31T08:12:42.000+0000</p> 
+        <div class="body">
+            <p>Resolving as fixed for next minor release. Please feel free to reopen if the issue is not resolved to your satisfaction.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:24:57.000+0000</p> 
+        <div class="body">
+            <p>Was this first fixed in 1.0.4 or 1.5?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-22T07:52:36.000+0000</p> 
+        <div class="body">
+            <p>Actually, I see it's marked as fixed for the next minor release, so I'm assuming it was first fixing in 1.5.0. Updating the issue now. Please update JIRA if this is not the case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-22T08:46:53.000+0000</p> 
+        <div class="body">
+            <p>This has been reverted with ZF-2923, as warnings and other errors emitted with autoloading will prevent subsequent autoloaders in the spl_autoload chain to trigger. This change is effective in trunk as of r12769, and will be released with 1.8.0.</p>
+
+        </div>
+    </div>
+    </div>
+

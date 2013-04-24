@@ -1,0 +1,359 @@
+<h2>ZF-4319: solution for Transfer-Adapter's file-hashmap structure defect, supporting subforms</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-17T09:41:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-11-13T14:10:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.0 (17/Nov/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The problem which causes file upload to fail is about the internal key naming of upload files. For subforms files are mapped to a key-array-pair rather than a key-string-pair. So no string hashmap is built internal.</p>
+
+<p>For me following fix works fine. I've tested with nested subform depths 0 to 3.</p>
+
+<p>Testcode:</p>
+
+<pre class="literal"> 
+        // Creating form
+        $form = new Zend_Form();
+        $form-&gt;setEnctype('multipart/form-data');
+        
+        // File Upload Element
+        $element = new Zend_Form_Element_File('file1', array('label' =&gt; 'Datei'));
+        $element-&gt;setRequired(TRUE);
+
+        // Test1: no subform
+        $form-&gt;addElement($element);
+        
+        // Test2: simple subform
+        //$subformFile = new Zend_Form_SubForm();
+        //$subformFile-&gt;addElement($element);
+        //$form-&gt;addSubform($subformFile, 'subformFile');
+        
+        // Test3: one nested subform
+        //$subformFile = new Zend_Form_SubForm();
+        //$subformFile-&gt;addElement($element);
+        //$subform1 = new Zend_Form_SubForm();
+        //$subform1-&gt;addSubform($subformFile, 'subformFile');
+        //$form-&gt;addSubform($subform1, 'subform1');
+        
+        // Test4: doublenested subform
+        //$subformFile = new Zend_Form_SubForm();
+        //$subformFile-&gt;addElement($element);
+        //$subform1 = new Zend_Form_SubForm();
+        //$subform1-&gt;addSubform($subformFile, 'subformFile');
+        //$subform2 = new Zend_Form_SubForm();
+        //$subform2-&gt;addSubform($subform1, 'subform1');
+        //$form-&gt;addSubform($subform2, 'subform2');
+        
+        // Test5: triplenested subform
+        //$subformFile = new Zend_Form_SubForm();
+        //$subformFile-&gt;addElement($element);
+        //$subform1 = new Zend_Form_SubForm();
+        //$subform1-&gt;addSubform($subformFile, 'subformFile');
+        //$subform2 = new Zend_Form_SubForm();
+        //$subform2-&gt;addSubform($subform1, 'subform1');
+        //$subform3 = new Zend_Form_SubForm();
+        //$subform3-&gt;addSubform($subform2, 'subform2');
+        //$form-&gt;addSubform($subform3, 'subform3');
+</pre>
+
+<p>Fix in Zend_File_Transfer_Adapter_Http:</p>
+
+<pre class="literal"> 
+    /**
+     * Building file key an returns value, includes nested subform support.
+     * 
+     * Example:
+     *      The given key looks like this:
+     *      'subform3__subform2'
+     *      
+     *      The given array looks like this:
+     *      array(1) {
+     *              ["subform1"]=&gt;
+     *              array(1) {
+     *                  ["subformFile"]=&gt;
+     *                  array(1) {
+     *                      ["file1"]=&gt;
+     *                      string(0) "/uploaded/file.ext"
+     *                  }
+     *              }
+     *      }
+     *      
+     *      The returned key would be:
+     *      'subform3__subform2__subform1__subformFile__file1'
+     *      
+     *      The returned value would be: '/uploaded/file.ext'
+     * 
+     * @param array $fileKeyValue
+     * @param string $key Return key
+     * @return string Value
+     */
+    protected function _getFileKeyValue(array $fileKeyValue, &amp;$key) {
+        list($keyAppend, $innerFileKeyValue) = each($fileKeyValue);
+        $key .= '__'.$keyAppend;
+        
+        if (is_array($innerFileKeyValue)) {
+            $innerFileKeyValue = $this-&gt;_getFileKeyValue($innerFileKeyValue, $key);
+        }
+        
+        return $innerFileKeyValue;
+    }
+
+    /**
+     * Prepare the $_FILES array to match the internal syntax of one file per entry
+     *
+     * @param  array $files
+     * @return array
+     */
+    protected function _prepareFiles(array $files = array())
+    {
+        $result = array();
+        foreach ($files as $form =&gt; $content) {
+            if (is_array($content['name'])) {
+                foreach ($content as $param =&gt; $file) {
+                    $key = $form;
+                    $value = $this-&gt;_getFileKeyValue($content[$param], $key);
+                    $result[$key][$param] = $value;
+                }
+            } else {
+                $result[$form] = $content;
+            }
+        }
+        return $result;
+    }
+</pre>
+
+<p>=====================================================================================================</p>
+
+<p>Damned, i didn't look to multiple files. Sorry.</p>
+
+<p>I don't know why, but i don't have rights to comment any issues here, so let me append my answer. Hope it helps.</p>
+
+<p>Testcode (not patched, just ZF 1.6.0):</p>
+
+<pre class="literal"> 
+        // Creating form
+        $form = new Zend_Form();
+        $form-&gt;setEnctype('multipart/form-data');
+        
+        // 2 File Upload Elements
+        $element = new Zend_Form_Element_File('file1', array('label' =&gt; 'Datei'));
+        $element-&gt;setRequired(TRUE);
+        $element2 = new Zend_Form_Element_File('file2', array('label' =&gt; 'Datei2'));
+        $element2-&gt;setRequired(TRUE);
+
+        // triplenested subform - 2 elements        
+        $subformFile = new Zend_Form_SubForm();
+        $subformFile-&gt;addElement($element);
+        $subformFile-&gt;addElement($element2);
+        $subform1 = new Zend_Form_SubForm();
+        $subform1-&gt;addSubform($subformFile, 'subformFile');
+        $subform2 = new Zend_Form_SubForm();
+        $subform2-&gt;addSubform($subform1, 'subform1');
+        $subform3 = new Zend_Form_SubForm();
+        $subform3-&gt;addSubform($subform2, 'subform2');
+        $form-&gt;addSubform($subform3, 'subform3');
+        
+        var_dump($_FILES);
+        var_dump($element-&gt;getFullyQualifiedName());
+        var_dump($element-&gt;getId());
+        
+        var_dump($element2-&gt;getFullyQualifiedName());
+        var_dump($element2-&gt;getId());
+        
+        var_dump($subformFile-&gt;getFullyQualifiedName());
+        var_dump($subformFile-&gt;getId());
+        
+        var_dump($subform1-&gt;getFullyQualifiedName());
+        var_dump($subform1-&gt;getId());
+        
+        var_dump($subform2-&gt;getFullyQualifiedName());
+        var_dump($subform2-&gt;getId());
+        
+        var_dump($subform3-&gt;getFullyQualifiedName());
+        var_dump($subform3-&gt;getId());
+        
+        var_dump($form-&gt;getFullyQualifiedName());
+        var_dump($form-&gt;getId());
+</pre>
+
+<p>dump:</p>
+
+<pre class="literal"> 
+array(1) {
+  ["subform3"]=&gt;
+  array(5) {
+    ["name"]=&gt;
+    array(1) {
+      ["subform2"]=&gt;
+      array(1) {
+        ["subform1"]=&gt;
+        array(1) {
+          ["subformFile"]=&gt;
+          array(2) {
+            ["file1"]=&gt;
+            string(0) ""
+            ["file2"]=&gt;
+            string(0) ""
+          }
+        }
+      }
+    }
+    ["type"]=&gt;
+    array(1) {
+      ["subform2"]=&gt;
+      array(1) {
+        ["subform1"]=&gt;
+        array(1) {
+          ["subformFile"]=&gt;
+          array(2) {
+            ["file1"]=&gt;
+            string(0) ""
+            ["file2"]=&gt;
+            string(0) ""
+          }
+        }
+      }
+    }
+    ["tmp_name"]=&gt;
+    array(1) {
+      ["subform2"]=&gt;
+      array(1) {
+        ["subform1"]=&gt;
+        array(1) {
+          ["subformFile"]=&gt;
+          array(2) {
+            ["file1"]=&gt;
+            string(0) ""
+            ["file2"]=&gt;
+            string(0) ""
+          }
+        }
+      }
+    }
+    ["error"]=&gt;
+    array(1) {
+      ["subform2"]=&gt;
+      array(1) {
+        ["subform1"]=&gt;
+        array(1) {
+          ["subformFile"]=&gt;
+          array(2) {
+            ["file1"]=&gt;
+            int(4)
+            ["file2"]=&gt;
+            int(4)
+          }
+        }
+      }
+    }
+    ["size"]=&gt;
+    array(1) {
+      ["subform2"]=&gt;
+      array(1) {
+        ["subform1"]=&gt;
+        array(1) {
+          ["subformFile"]=&gt;
+          array(2) {
+            ["file1"]=&gt;
+            int(0)
+            ["file2"]=&gt;
+            int(0)
+          }
+        }
+      }
+    }
+  }
+}
+string(5) "file1"
+string(5) "file1"
+string(5) "file2"
+string(5) "file2"
+string(11) "subformFile"
+string(11) "subformFile"
+string(8) "subform1"
+string(8) "subform1"
+string(8) "subform2"
+string(8) "subform2"
+string(8) "subform3"
+string(8) "subform3"
+NULL
+NULL
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-09-17T22:33:29.000+0000</p> 
+        <div class="body">
+            <p>I'm sorry, but this is not a proper solution.
+Set 2 file elements in every form/subform and you will see why your solution does not work.</p>
+
+<p>But you can help me out:
+Can you give me your $_FILES array using this 3-nested form (with 2 file elements) ?
+Also the value of getFullyQualifiedName() and getId() would be interesting.
+And when you set a different name and a different id in the form.</p>
+
+<p>The solution I have worked out will be available in a few days because we always need unittests and documentation before doing a commit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-09-25T10:33:51.000+0000</p> 
+        <div class="body">
+            <p>This solution does not work.
+A working solution has been added with r11518</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:10:28.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

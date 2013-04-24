@@ -1,0 +1,223 @@
+<h2>ZF-11680: Zend_Test_PHPUnit_ControllerTestCase :: dispatch() doesn't accept absolute URL's</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-08-17T19:33:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-01T01:15:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>Zend_Controller_Router</li>
+            <li>Zend_Test_PHPUnit</li>
+            <li>After1.12.0</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Please check the example, I think it self-explainable.</p>
+
+<pre class="highlight"><code>
+$hostnameRoute = new Zend_Controller_Router_Route_Hostname(
+    ':username.domain.com',
+    array(
+        'controller' =&gt; 'user',
+        'action'     =&gt; 'info'
+    )
+);
+ 
+$plainPathRoute = new Zend_Controller_Router_Route_Static('');
+ 
+$router-&gt;addRoute('user', $hostnameRoute-&gt;chain($plainPathRoute));
+</code></pre>
+
+<pre class="highlight"><code>
+// IndexControllerTest.php 
+&lt;?php
+
+class IndexControllerTest extends Zend_Test_PHPUnit_ControllerTestCase
+{
+
+    public function setUp()
+    {
+        $this-&gt;bootstrap = new Zend_Application(APPLICATION_ENV, APPLICATION_PATH . '/configs/application.ini');
+        parent::setUp();
+    }
+
+    public function testIndexAction()
+    {
+        $this-&gt;dispatch('<a href="http://myname.domain.com">http://myname.domain.com</a>');
+        $this-&gt;assertController('user'); // Fail
+    }
+}
+</code></pre>
+
+<p>$this-&gt;dispatch($url) is actually call Zend_Controller_Request_HttpTestCase-&gt;setRequestUri($url)
+which is based on Zend_Controller_Request_Http which use parse_str function to parse $url argument.
+parse_str usually used to parse query string, but not full URL.<br />
+I think it's better to use some sort of regexp's and/or parse_url() method.</p>
+
+<p>Thanks, and sorry for my bad english :)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dmitry Chirkin (josser) on 2011-08-17T19:37:22.000+0000</p> 
+        <div class="body">
+            <p>I found a workaround, which, I think is not good idea but it works:</p>
+
+<p>define $_SERVER['HTTP_HOST'] before -&gt;dispatch() call.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maksym Sliesarenko (sm) on 2011-08-17T20:38:25.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+
+Index: Controller/Request/HttpTestCase.php
+===================================================================
+--- Controller/Request/HttpTestCase.php (revision 24388)
++++ Controller/Request/HttpTestCase.php (working copy)
+@@ -65,8 +65,60 @@
+         'POST',
+         'PUT',
+     );
++    
++    /**
++     * Constructor
++     *
++     * If a $uri is passed, the object will attempt to populate itself using
++     * that information.
++     *
++     * @param string|Zend_Uri $uri
++     * @return void
++     * @throws Zend_Controller_Request_Exception when invalid URI passed
++     */
++    public function __construct($uri = null)
++    {
++        if (null !== $uri) {
++            if (!$uri instanceof Zend_Uri) {
++                $uri = Zend_Uri::factory($uri);
++            }
++            if ($uri-&gt;valid()) {
++                $path  = $uri-&gt;getPath();
++                $query = $uri-&gt;getQuery();
++                if (!empty($query)) {
++                    $path .= '?' . $query;
++                }
+ 
++                $this-&gt;setServer('HTTP_HOST', $uri-&gt;getHost());
++                $this-&gt;setRequestUri($path);
++            } else {
++                require_once 'Zend/Controller/Request/Exception.php';
++                throw new Zend_Controller_Request_Exception('Invalid URI provided to constructor');
++            }
++        } else {
++            $this-&gt;setRequestUri();
++        }
++    }
++
+     /**
++     * Set stub for a the $_SERVER superglobal
++     *
++     * @param string|array $key
++     * @param mixed $value
++     * @return Zend_Controller_Request_HttpTestCase
++     */
++    public function setServer($key, $value = null)
++    {
++        if (is_array($key)) {
++            $_SERVER = array_merge($_SERVER, $key);
++        } else {
++            $_SERVER[$key] = $value;
++        }
++
++        return $this;
++    }
++
++    /**
+      * Clear GET values
+      *
+      * @return Zend_Controller_Request_HttpTestCase
+Index: Test/PHPUnit/ControllerTestCase.php
+===================================================================
+--- Test/PHPUnit/ControllerTestCase.php (revision 24388)
++++ Test/PHPUnit/ControllerTestCase.php (working copy)
+@@ -191,7 +191,11 @@
+ 
+         $request    = $this-&gt;getRequest();
+         if (null !== $url) {
+-            $request-&gt;setRequestUri($url);
++            if (0 === strpos($uri, 'http')) {
++                $request = new Zend_Controller_Request_HttpTestCase($uri);
++            }  else {
++                $request-&gt;setRequestUri($url);
++            }
+         }
+         $request-&gt;setPathInfo(null);
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-14T18:47:16.000+0000</p> 
+        <div class="body">
+            <p>Maks -- before your code contribution can be used in Zend Framework, you need to sign a CLA:</p>
+
+<pre><code>&lt;a rel="nofollow" href="http://framework.zend.com/cla"&gt;http://framework.zend.com/cla&lt;/a&gt;
+</code></pre>
+
+<p>Once you've signed and returned it (email: cla@zend.com), comment on this issue and we'll have a look at your suggestion.</p>
+
+<p>Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maksym Sliesarenko (sm) on 2011-11-01T15:57:37.000+0000</p> 
+        <div class="body">
+            <p>I've signed it and sent it by fax couple weeks ago.</p>
+
+        </div>
+    </div>
+    </div>
+

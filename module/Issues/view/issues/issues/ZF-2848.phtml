@@ -1,0 +1,260 @@
+<h2>ZF-2848: Zend_Db_Select::where()'s $type parameter handled improperly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-10T15:13:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-03-12T11:45:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11173/Zend_Db_AllTests.out.pdo_mysql">Zend_Db_AllTests.out.pdo_mysql</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Consider this really simple use case (assuming $db is a valid ZD_Adapter object) :</p>
+
+<pre class="highlight"><code>
+class Livres extends Zend_Db_Table { }
+
+$s = new Zend_Db_Table_Select(new Livres($db));
+
+$s-&gt;where('isbn = ?','978-2212116762','varchar');
+
+echo $s;
+</code></pre>
+
+<p>expected :
+SELECT <code>Livres</code>.* FROM <code>Livres</code> WHERE (isbn = '978-2212116762')</p>
+
+<p>actual :
+SELECT <code>Livres</code>.* FROM <code>Livres</code> WHERE (isbn = '978-2212116762', 'varchar')</p>
+
+<p>where() doesn't treat the $type parameter in the right way, whatever it is, it just appends it as some kind of SQL column, which naturally result in an SQL error.</p>
+
+<p>Note that this use case comes from a findParentRowset() method that works well but not the Select object it uses.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-03-10T15:20:03.000+0000</p> 
+        <div class="body">
+            <p>Additional note :</p>
+
+<p>It seems that this bug can be caught in unit tests, especially Zend_Db_Table_Relationships_* ones.
+It produces the following error while testing with Pdo_Mysql adapter :</p>
+
+<p>Zend_Db_Statement_Exception: SQLSTATE[21000]: Cardinality violation: 1241 Operand should contain 1 column(s)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-10T16:04:15.000+0000</p> 
+        <div class="body">
+            <p>Sorry, but this is not a Zend_Db_Select problem...</p>
+
+<p>First you are referring to Zend_Db_Table_Select in your example code.
+Second the type varchar does not exist for Zend_Db_Select nor for Zend_Db_Table_Select...</p>
+
+<p>I expect the second is why you are not getting the expected results because Zend_Db_Table_Select extends Zend_Db_Select.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T16:14:54.000+0000</p> 
+        <div class="body">
+            <p>Attaching output from testing Zend_Db_AllTests from latest trunk with pdo_mysql enabled on WinXP, PHP 5.1.4</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-03-10T16:29:59.000+0000</p> 
+        <div class="body">
+            <p>Ok, so the problem comes from the different find*****() methods in Zend_Db_Table_Row_Abstract.
+They actually pass the string 'varchar' for Zend_Db_Table_Select-&gt;where() param $type ( when a 'Varchar' column is in use )</p>
+
+<p>This result in an error while trying to find a parent or a dependant rowset.</p>
+
+<p>The exact use case is a "findParentLivres()" call, it generates the following exception :</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Db_Statement_Exception' with message 'SQLSTATE[21000]: Cardinality violation: 1241 Operand should contain 1 column(s)' in D:\www\ZF\trunk\library\Zend\Db\Statement\Pdo.php:238 Stack trace: #0 D:\www\ZF\trunk\library\Zend\Db\Statement.php(283): Zend_Db_Statement_Pdo-&gt;_execute(Array) #1 D:\www\ZF\trunk\library\Zend\Db\Adapter\Abstract.php(406): Zend_Db_Statement-&gt;execute(Array) #2 D:\www\ZF\trunk\library\Zend\Db\Adapter\Pdo\Abstract.php(206): Zend_Db_Adapter_Abstract-&gt;query(Object(Zend_Db_Table_Select), Array) #3 D:\www\ZF\trunk\library\Zend\Db\Table\Abstract.php(1185): Zend_Db_Adapter_Pdo_Abstract-&gt;query(Object(Zend_Db_Table_Select)) #4 D:\www\ZF\trunk\library\Zend\Db\Table\Abstract.php(1082): Zend_Db_Table_Abstract-&gt;_fetch(Object(Zend_Db_Table_Select)) #5 D:\www\ZF\trunk\library\Zend\Db\Table\Row\Abstract.php(892): Zend_Db_Table_Abstract-&gt;fetchRow(Object(Zend_Db_Table_Select)) #6 D:\www\ZF\trunk\library\Zend\Db\Table\Row\Abstract.php(1032): Zend_Db_Table_Row_Abstract-&gt;findParentRow('L in D:\www\ZF\trunk\library\Zend\Db\Statement\Pdo.php on line 238</p>
+
+<p>If you run the Zend_Db_Table_Relationships tests you will notice exactly the same exception, in the same use case.
+Darby can tell, I discussed with him about that.</p>
+
+<p>please note as well that this bug cannot be reproducted on the 1.5 RC1 tag version.
+I can reproduct it with the HEAD revision.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T16:42:47.000+0000</p> 
+        <div class="body">
+            <p>I get similar results on Linux with PHP 5.2.5.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-10T16:54:38.000+0000</p> 
+        <div class="body">
+            <p>Changing component from Zend_Db_Select to Zend_Db_Table_Select...
+Also from the debug output it seems that the problem is related to Zend_Db_Table.</p>
+
+<p>Please wait for Simon or Bill for this issue... I can only help on Zend_Db_Select related issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T17:04:33.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~peptolab] for possible review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T17:29:35.000+0000</p> 
+        <div class="body">
+            <p>I do not reproduce this problem for the release-1.5 branch using either Linux + PHP 5.2.5 or WinXP + 5.1.4. That is, the problem seems to be isolated to the trunk. More investigation to come...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T19:19:33.000+0000</p> 
+        <div class="body">
+            <p>Redo summary</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T19:31:59.000+0000</p> 
+        <div class="body">
+            <p>Change the summary again</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T19:34:16.000+0000</p> 
+        <div class="body">
+            <p>Refine the summary again</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-10T19:37:49.000+0000</p> 
+        <div class="body">
+            <p>Reassigning to [~thomas], as this appears to be a Zend_Db_Select problem.</p>
+
+<p>It seems that the {{$type}} parameter being relegated to the {{Zend_Db_Select::where()}} method is not being properly treated. What is the <em>expected</em> usage of this parameter, if not what already exists in the form of unit tests and this use case? Please advise. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-11T03:31:00.000+0000</p> 
+        <div class="body">
+            <p>Class will be reworked by Simon... sorry if I confused you julien. He has a better overview over the complete Db design, not only Zend_Db_Select and will help you better than me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-03-11T04:41:22.000+0000</p> 
+        <div class="body">
+            <p>No prob ^^</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-03-11T07:20:26.000+0000</p> 
+        <div class="body">
+            <p>Assigning back to [~peptolab] for possible review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2008-03-11T15:24:20.000+0000</p> 
+        <div class="body">
+            <p>I was just looking through the related classes to see how this might be fixed, and I noticed something that might be useful in the process.  All these observations are based on the trunk at r8757, except where noted.</p>
+
+<p>Thomas mentioned to me on fw-db that Zend_Db_Select::where()'s $type argument is supposed to be an integer constant (Zend_Db::INT_TYPE, etc.).  However, if you follow that argument down through the stack to where it finally gets used, you end up at Zend_Db_Adapter_Abstract::quote(), line 760 (756 in the incubator version).  The API docs for that method say that $type should be "the SQL datatype name, or constant, or null;" a quick look at line 760 confirms that this is true, thanks to the $_numericDataTypes array.</p>
+
+<p>So, a string value for $type is acceptable further down the pipeline; clearly, however, it's not acceptable as early as Zend_Db_Select.  This is due to the condition at line 362 of Zend_Db_Select, which absolutely mandates that $type be one of the three Zend_Db TYPE constants.</p>
+
+<p>There seem to be two possible solutions to this problem:</p>
+
+<h1>Refactor Zend_Db_Select::where() and any similarly affected methods so that their $type parameter can be anything in the associated adapter's $_numericDataTypes array.  This would be much, much easier if $_numericDataTypes were a public property (or if it had a public accessor).  The alternative is...</h1>
+
+<h1>Refactor Zend_Db_Table_Row_Abstract's relational row finders such that they only pass in Zend_Db TYPE constants for the $type parameter of where() and any similarly affected methods.</h1>
+
+<p>Either of these would, I believe, solve the problem.  Both would be easier if $_numericDataTypes were publicly accessible.</p>
+
+<p>In either case, I'm eager to see this problem solved...the members-only section of my new web app just flat crashes without a reliable findDependentRowset() method. :(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-03-12T08:38:23.000+0000</p> 
+        <div class="body">
+            <p>The where and orWhere methods now respect the original intent of the $type argument - Zend_Db_Select does not perform any checks on the $type value, it simply passes it to the adapter in order to process quoting. This resolves the issue of lookups, as in some adapters (like Postgre) the data type is a mandatory when performing lookups.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-03-12T08:43:53.000+0000</p> 
+        <div class="body">
+            <p>Resolved in trunk r8783</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-03-12T09:31:27.000+0000</p> 
+        <div class="body">
+            <p>Confirmed : all my sites work back.</p>
+
+<p>Nice Simon ;-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2008-03-12T11:45:36.000+0000</p> 
+        <div class="body">
+            <p>Many thanks, Simon!</p>
+
+        </div>
+    </div>
+    </div>
+

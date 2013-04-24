@@ -1,0 +1,123 @@
+<h2>ZF-6543: Zend_Application config cannot handle resources specified by full class name</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-05T09:59:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-08T16:22:14.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.1 (12/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+            <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>From the mailing list - Matthew should have already seen this:</p>
+
+<p>In the docs (<a href="http://framework.zend.com/manual/en/zend.application.examples.html">http://framework.zend.com/manual/en/…</a>) it states that I could config a resource using the following:</p>
+
+<p>$application = new Zend_Application(
+    APPLICATION_ENV,
+    array(
+        'resources' =&gt; array(
+            'My_Bootstrap_Resource_View' =&gt; array(), // full class name; OR
+            'view' =&gt; array(),                       // short name</p>
+
+<pre><code>        'FrontController' =&gt; array(
+            'controllerDirectory' =&gt; APPLICATION_PATH . '/controllers',
+        ),
+    ),
+
+    // For short names, define resource paths:
+    'resourcePaths = array(
+        'My_Bootstrap_Resource' =&gt; 'My/Bootstrap/Resource',
+    )
+)
+</code></pre>
+
+<p>);</p>
+
+<p>The major issue I notice is with referencing a resource by full class name.  This simply does not work, and Zend_Loader_PluginLoader will throw an exception at line 392, as the matching plugin will not be found - the reason of course being that the plugin loader appends the path prefix to the class name on line 362.  So, the only solution is to use the shorthand notation (e.g. 'view'), but this can lead to problems.  Take the following example:</p>
+
+<p>Let's say my application contains two libraries in addition to the core Zend library - let's call them Lib1 and Lib2.  Now, let's say both libraries define resources named Db and View.  I add both Lib1 and Lib2 to my plugin path (i.e. Lib1_Application_Resource =&gt; /library/Lib1/Application/Resource and Lib2_Application_Resource =&gt; /library/Lib1/Application/Resource), with Lib2 being added last and therefore checked first when the plugin loader runs.  Now, in my config I can't use full class name notation, so when I set up these resources I have to write something like:</p>
+
+<p>resources.db =
+resources.view =</p>
+
+<p>Here is the problem ... let's say I want to use the Lib1 Db resource and the Lib2 View resource ... how can I do this?  Since I'm locked into the shorthand notation, it seems that because Lib2 will be the first path checked by the plugin loader, I'm stuck having to use both the Lib2 Db and Lib2 View resources.  I guess I could create wrappers in the form of Lib3, but that seems like a pain and isn't really flexible if I want to be able to mix and match based on app environment or other cases. In addition I could create _init* methods in the bootstrap that explicitly instantiate resource instances, but I would lose the ease of use of the Application config and would have to make sure to properly set up the resource as is done in pluginResource section of the _executeResource method in Zend/Application/Bootstrap/BootstrapAbstract.php.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-08T12:53:52.000+0000</p> 
+        <div class="body">
+            <p>I'm looking into this today. There's one fairly critical issue to consider: if you register using a full class name and/or object, how do you reference it when you attempt to bootstrap() it or retrieve it via getResource()?</p>
+
+<p>When coding Zend_Form, I opted for finding the last segment of the class name that didn't match a registered namespace prefix. However, that has led to some pretty complicated lookups - -and, in this case, won't work as there may be a need to have multiple resources operating with the same base class name (in your example, 'View').</p>
+
+<p>My inclination here is to use the full class name for the lookup. This is more verbose, but in the cases where you are needing to resolve naming collisions, it's likely the best solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Weinstock (adamweinstock) on 2009-05-08T13:05:20.000+0000</p> 
+        <div class="body">
+            <p>Interesting.  Perhaps we could create an additional property on Resource objects - something like "lookupName" - that can be used for lookup purposes.  We could set things up to default to the verbose name, but add this for quick lookups.  This is also good assuming cases where the Resource object will change depending on the app environment.  So, if under one environment I use Lib1_Application_Resource_View, but under another I use Lib2_Application_Resource_View, I need a universal lookup to grab that object.  Using the verbose name could lead to problems, while having the "lookupName" would help solve some issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-08T16:03:40.000+0000</p> 
+        <div class="body">
+            <p>Corrected the functionality to allow registration by class name. If the class name matches a plugin path, it will register using the "short name"; if not, it will register using the class name. Additionally, you can specify a public $_explicitType property with the name to use within the bootstrap.</p>
+
+<p>Tests, code, and docs committed to trunk and 1.8 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Weinstock (adamweinstock) on 2009-05-08T16:22:12.000+0000</p> 
+        <div class="body">
+            <p>Rock n' Roll.  I'll take it for a spin.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,457 @@
+<h2>ZF-10634: Assertion will not work correctly with deny rule</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-03T01:45:31.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-12-06T21:27:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Acl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>First, define ACL (with assertion):</p>
+
+<p>class MyAcls extends Zend_Acl
+{
+   public function initAcl()
+   {
+      $this-&gt;add(new Zend_Acl_Resource('R1'))
+           -&gt;add(new Zend_Acl_Resource('R11'), 'R1')
+           -&gt;add(new Zend_Acl_Resource('R12'), 'R1')
+           -&gt;add(new Zend_Acl_Resource('R2'))
+           -&gt;add(new Zend_Acl_Resource('R21'), 'R2')
+           -&gt;add(new Zend_Acl_Resource('R22'), 'R2')
+           -&gt;add(new Zend_Acl_Resource('R3'))
+           -&gt;add(new Zend_Acl_Resource('R31'), 'R3')
+           -&gt;add(new Zend_Acl_Resource('R32'), 'R3')
+           -&gt;add(new Zend_Acl_Resource('R4'))
+           -&gt;add(new Zend_Acl_Resource('R41'), 'R4')
+           -&gt;add(new Zend_Acl_Resource('R42'), 'R4')
+           -&gt;add(new Zend_Acl_Resource('R5'))
+           -&gt;add(new Zend_Acl_Resource('R51'), 'R5')
+           -&gt;add(new Zend_Acl_Resource('R52'), 'R5')
+           -&gt;add(new Zend_Acl_Resource('R6'))
+           -&gt;add(new Zend_Acl_Resource('R61'), 'R6')
+           -&gt;add(new Zend_Acl_Resource('R62'), 'R6');</p>
+
+<pre><code>  $this-&gt;addRole(new Zend_Acl_Role('admin'));
+
+  $assert = new MyAclAssert();
+
+  $this-&gt;allow(null, 'R1', null, $assert)
+       -&gt;deny('admin', 'R11', null, $assert)
+       -&gt;deny('admin', 'R12', null, $assert);
+
+  $this-&gt;allow(null, 'R2', null, $assert)
+       -&gt;deny('admin', 'R21', null, $assert)
+       -&gt;deny('admin', 'R22', null, $assert);
+
+  $this-&gt;deny(null, 'R3', null, $assert)
+       -&gt;allow('admin', 'R31', null, $assert)
+       -&gt;allow('admin', 'R32', null, $assert);
+
+  $this-&gt;deny(null, 'R4', null, $assert)
+       -&gt;allow('admin', 'R41', null, $assert)
+       -&gt;allow('admin', 'R42', null, $assert);
+
+  $this-&gt;deny(null, 'R5', null, $assert)
+       -&gt;deny('admin', 'R51', null, $assert)
+       -&gt;deny('admin', 'R52', null, $assert);
+
+  $this-&gt;allow(null, 'R6', null, $assert)
+       -&gt;allow('admin', 'R61', null, $assert)
+       -&gt;allow('admin', 'R62', null, $assert);
+</code></pre>
+
+<p>}</p>
+
+<pre><code>public function getRoles()
+{
+    if (method_exists($this-&gt;_getRoleRegistry(), 'getRoles')) {
+        return parent::getRoles();
+    } else {
+        return array('admin');
+    }
+}
+
+public function getResources()
+{
+    return array_keys($this-&gt;_resources);
+}
+
+
+public function test()
+{
+  foreach ($this-&gt;getRoles() as $role) {
+    echo "with role : '$role'\n";
+    foreach ($this-&gt;getResources() as $resource) {
+      echo "acces on $resource is : " . ($this-&gt;isAllowed($role, $resource) ? '1':'0')."\n";
+    }
+  }
+}
+</code></pre>
+
+<p>}</p>
+
+<p>class MyAclAssert implements Zend_Acl_Assert_Interface
+  {
+      public function assert(Zend_Acl $acl, 
+                             Zend_Acl_Role_Interface $role = null,
+                             Zend_Acl_Resource_Interface $resource = null, 
+                             $privilege = null)
+      {
+          switch ($resource-&gt;getResourceId()) {
+              case 'R5':
+              case 'R3':
+              case 'R1':
+                  return true;</p>
+
+<pre><code>          case 'R6':
+          case 'R4':    
+          case 'R2':
+              return false;
+
+          case 'R11':
+          case 'R21':
+          case 'R31':
+          case 'R41':
+          case 'R51':
+          case 'R61':
+              return true;
+
+          case 'R12':
+          case 'R22':
+          case 'R32':
+          case 'R42':
+          case 'R52':
+          case 'R62':
+              return false;
+
+
+          default:
+              if (null === $resource) {
+                  return true;
+              }
+
+              if ($acl-&gt;hasParent($resource)) {
+                  return $this-&gt;assert($acl, $role, $acl-&gt;getParentOf($resource), $privilege);
+              }
+
+              return true;
+      }
+  }
+</code></pre>
+
+<p>}</p>
+
+<p>Now test this rule :
+$acl = new MyAcls();
+$acl-&gt;initAcl();
+$acl-&gt;test();</p>
+
+<p>before and for 1.9.0, the result is:</p>
+
+<blockquote>
+  <p>with role : 'admin'
+  acces on R1 is : 1
+  acces on R11 is : 0
+  acces on R12 is : 1
+  acces on R2 is : 0
+  acces on R21 is : 0
+  acces on R22 is : 0
+  acces on R3 is : 0
+  acces on R31 is : 1
+  acces on R32 is : 0
+  acces on R4 is : 0
+  acces on R41 is : 1
+  acces on R42 is : 0
+  acces on R5 is : 0
+  acces on R51 is : 0
+  acces on R52 is : 0
+  acces on R6 is : 0
+  acces on R61 is : 1
+  acces on R62 is : 0</p>
+</blockquote>
+
+<p>after 1.9.0, the result is:</p>
+
+<blockquote>
+  <p>with role : 'admin'
+  acces on R1 is : 1
+  acces on R11 is : 0
+  acces on R12 is : 0
+  acces on R2 is : 0
+  acces on R21 is : 0
+  acces on R22 is : 0
+  acces on R3 is : 0
+  acces on R31 is : 1
+  acces on R32 is : 0
+  acces on R4 is : 0
+  acces on R41 is : 1
+  acces on R42 is : 0
+  acces on R5 is : 0
+  acces on R51 is : 0
+  acces on R52 is : 0
+  acces on R6 is : 0
+  acces on R61 is : 1
+  acces on R62 is : 0</p>
+</blockquote>
+
+<p>The problem is for resource R12: It's seems the rule is not understood.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-10T20:36:09.000+0000</p> 
+        <div class="body">
+            <p>Can you please supply a more simplified script to demonstrate the issue? This is hard to follow with so many R**'s in it.</p>
+
+<p>Thanks, Ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-18T08:01:13.000+0000</p> 
+        <div class="body">
+            <p>Please add a more concise demonstration of the issue and reopen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by richard zeddicus (richardzedd) on 2010-11-20T01:42:30.000+0000</p> 
+        <div class="body">
+            <p>Hello,</p>
+
+<p>Sorry for my bad explain of issue :( and also about I didn't answer before.</p>
+
+<p>I saw this issue when I would upgrade my zend framework from 1.9.0 to an newer version</p>
+
+<p>I hope followed demonstration is better:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+require_once 'Zend/Acl.php';
+require_once 'Zend/Acl/Role.php';
+require_once 'Zend/Acl/Resource.php';
+
+class MyAcls extends Zend_Acl
+{
+    public function initAcl()
+    {
+        $this-&gt;add(new Zend_Acl_Resource('group'))
+             -&gt;add(new Zend_Acl_Resource('Public'), 'group');
+      
+        $this-&gt;addRole(new Zend_Acl_Role('admin'));
+
+        $assert = new MyAclAssert();
+        
+        $this-&gt;allow(null, 'group', null, $assert)
+             -&gt;deny('isAdmin', 'Public', null, $assert);
+
+    }
+
+    public function getResources()
+    {
+        return array_keys($this-&gt;_resources);
+    }
+
+    public function test()
+    {
+        foreach ($this-&gt;getResources() as $resource) {
+            echo "access to $resource is : " . ($this-&gt;isAllowed('admin', $resource) ? 'on':'off')."\n";
+        }
+    }
+}
+
+class MyAclAssert implements Zend_Acl_Assert_Interface
+{
+    public function assert(Zend_Acl $acl, 
+                           Zend_Acl_Role_Interface $role = null,
+                           Zend_Acl_Resource_Interface $resource = null, 
+                           $privilege = null)
+    {
+         switch ($resource-&gt;getResourceId()) {
+             case 'group':
+                 return true;
+                  
+             case 'Public':
+                 return false;
+   
+             default:
+                 return true;
+              
+         }
+    }
+}
+
+$acl = new MyAcls();
+$acl-&gt;initAcl();
+$acl-&gt;test();
+
+</code></pre>
+
+<p>Results are:</p>
+
+<p>with ZendFramework 1.9.0
+acces to group is : on
+acces to Public is : on</p>
+
+<p>with ZendFramework 1.10.8
+acces to group is : on
+acces to Public is : off</p>
+
+<p>As a lot of resources, roles and rules in my acl i'm not enjoy to modify it :(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-27T11:01:35.000+0000</p> 
+        <div class="body">
+            <p>Can you explain this line:</p>
+
+<pre class="highlight"><code>
+-&gt;deny('isAdmin', 'Public', null, $assert);
+</code></pre>
+
+<p>I am not sure what the reference to 'isAdmin' is.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by richard zeddicus (richardzedd) on 2010-11-29T07:59:40.000+0000</p> 
+        <div class="body">
+            <p>Effectivly, this line is wrong:</p>
+
+<pre class="highlight"><code>
+-&gt;deny('isAdmin', 'Public', null, $assert);
+</code></pre>
+
+<p>The correct line is:</p>
+
+<pre class="highlight"><code>
+-&gt;deny('admin', 'Public', null, $assert);
+</code></pre>
+
+<p>I changed one of two name of role after copy/paste and I forgot the second: a stupid mistake...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by richard zeddicus (richardzedd) on 2010-12-06T21:26:54.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>my last comment is confusing (it's sample that is wrong not the problem) so to recap, this sample code does not work as expected:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+require_once 'Zend/Acl.php';
+require_once 'Zend/Acl/Role.php';
+require_once 'Zend/Acl/Resource.php';
+
+class MyAcls extends Zend_Acl
+{
+    public function initAcl()
+    {
+        $this-&gt;add(new Zend_Acl_Resource('group'))
+             -&gt;add(new Zend_Acl_Resource('Public'), 'group');
+      
+        $this-&gt;addRole(new Zend_Acl_Role('admin'));
+
+        $assert = new MyAclAssert();
+        
+        $this-&gt;allow(null, 'group', null, $assert)
+             -&gt;deny('admin', 'Public', null, $assert);
+
+    }
+
+    public function getResources()
+    {
+        return array_keys($this-&gt;_resources);
+    }
+
+    public function test()
+    {
+        foreach ($this-&gt;getResources() as $resource) {
+            echo "access to $resource is : " . ($this-&gt;isAllowed('admin', $resource) ? 'on':'off')."\n";
+        }
+    }
+}
+
+class MyAclAssert implements Zend_Acl_Assert_Interface
+{
+    public function assert(Zend_Acl $acl, 
+                           Zend_Acl_Role_Interface $role = null,
+                           Zend_Acl_Resource_Interface $resource = null, 
+                           $privilege = null)
+    {
+         switch ($resource-&gt;getResourceId()) {
+             case 'group':
+                 return true;
+                  
+             case 'Public':
+                 return false;
+   
+             default:
+                 return true;
+              
+         }
+    }
+}
+
+$acl = new MyAcls();
+$acl-&gt;initAcl();
+$acl-&gt;test();
+</code></pre>
+
+<p>Results are:
+with ZendFramework 1.9.0 (expected)
+acces to group is : on
+acces to Public is : on</p>
+
+<p>with ZendFramework 1.10.8 (unexpected)
+acces to group is : on
+acces to Public is : off</p>
+
+        </div>
+    </div>
+    </div>
+

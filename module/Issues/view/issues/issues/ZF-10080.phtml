@@ -1,0 +1,203 @@
+<h2>ZF-10080: Zend_Session_Namespace function apply() throws PHP NOTICE because namespace is not completly and correctly initialized</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-30T02:09:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-18T07:06:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello!</p>
+
+<p>The functions apply() and applySet() of the Zend_Session_Namespace class throws a PHP Notice if the currently used namespace was not used / filled by the __set magic method, applySet(...) throws Zend_Session_Exception('Result must be an array. Got: ' . gettype($result)).</p>
+
+<p>example:</p>
+
+<pre class="highlight"><code>
+class RegistrationController extends Zend_Controller_Action
+{
+
+...
+
+    protected $_namespace = 'RegistrationController';
+
+...
+
+    public function getSessionNamespace()
+    {
+        if(null === $this-&gt;_session)
+        {
+            $this-&gt;_session =
+                new Zend_Session_Namespace($this-&gt;_namespace);
+        }
+        return $this-&gt;_session;
+    }
+
+...
+
+    public function subFormIsValid(Zend_Form_SubForm $subForm, array $data)
+    {
+        $name = $subForm-&gt;getName();
+        if ($subForm-&gt;isValid($data))
+        {
+            $this-&gt;getSessionNamespace()-&gt;applySet('array_merge', $subForm-&gt;getValues());   // example corrected here (see comments)
+            // originally here is in Zend Documentation:
+            // $this-&gt;getSessionNamespace()-&gt;$name = $subForm-&gt;getValues();
+            return true;
+        }
+        return false;
+    }
+
+...
+
+}
+</code></pre>
+
+<p>this example comes from the "Multi-Page Forms" paragraph of the Zend Documentation:
+<a href="http://framework.zend.com/manual/en/zend.form.advanced.html">http://framework.zend.com/manual/en/…</a>
+But I have to customize it because the whole form validation (validation of all subforms
+is incorrect!!! oooops... that's another issue...) was broken.</p>
+
+<p>On the first call of subFormIsValid(...) no data were added to the Session_Namespace, or
+better lets say to $_SESSION[$namespace][$key] ( = $value);
+so $_SESSION[$namespace] is not initialized as an (currently empty) array.</p>
+
+<p>now function apply()/applySet() of the Zend_Session_Namespace class is called.</p>
+
+<pre class="highlight"><code>
+    /**
+     * apply() - enables applying user-selected function, such as array_merge() to the namespace
+     * Parameters following the $callback argument are passed to the callback function.
+     * Caveat: ignores members expiring now.
+     *
+     * Example:
+     *   $namespace-&gt;apply('array_merge', array('tree' =&gt; 'apple', 'fruit' =&gt; 'peach'), array('flower' =&gt; 'rose'));
+     *   $namespace-&gt;apply('count');
+     *
+     * @param string|array $callback - callback function
+     */
+    public function apply($callback)
+    {
+        $arg_list = func_get_args();
+        $arg_list[0] = $_SESSION[$this-&gt;_namespace]; // line 348
+        return call_user_func_array($callback, $arg_list);
+    }
+</code></pre>
+
+<p>Then the PHP Notice comes from line 348: "$arg_list[0] = $_SESSION[$this-&gt;_namespace];".
+$this-&gt;_namespace in my case is "RegistrationController". But it is filled by the __set(...) magic method of the Zend_Session_Namespace class, that has not been called before. So $_SESSION["RegistrationController"] is not initialized, leading to that notice. It only harms PHP Strict paradigms.
+It's because the initialization is missing in the constructor.</p>
+
+<p>So I added following patch:</p>
+
+<pre class="highlight"><code>
+    public function __construct($namespace = 'Default', $singleInstance = false)
+    {
+
+        ...  // omitted till line 145:
+
+        if (self::$_readable === false) {
+            /**
+             * @see Zend_Session_Exception
+             */
+            require_once 'Zend/Session/Exception.php';
+            throw new Zend_Session_Exception(self::_THROW_NOT_READABLE_MSG);
+        }
+
+        // after that I added:
+        if(!isset($_SESSION[$this-&gt;_namespace]))
+            $_SESSION[$this-&gt;_namespace] = array();
+        // this initializes the current namespace as an empty array and thats PHP Strict compliant 
+
+        if (!isset($_SESSION['__ZF'])) {
+            return; // no further processing needed
+        }
+
+        ...
+
+    }
+</code></pre>
+
+<p>This also affects the applySet(...) function, but an exception: "Zend_Session_Exception('Result must be an array. Got: ' . gettype($result))"
+is thrown.</p>
+
+<p>Best regards,
+René Kerner</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-30T03:26:45.000+0000</p> 
+        <div class="body">
+            <p>position of correction changed</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-30T03:47:00.000+0000</p> 
+        <div class="body">
+            <p>example with apply was bad...using applySet(...) would be better for that case...
+in case of apply set the Exception:
+Zend_Session_Exception('Result must be an array. Got: ' . gettype($result))
+is thrown...</p>
+
+<p>sorry for that mistake</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-30T03:50:28.000+0000</p> 
+        <div class="body">
+            <p>corrected applySet(...) function in example and issue description</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Muir (dmuir) on 2011-05-18T07:06:02.000+0000</p> 
+        <div class="body">
+            <p>Just bumped into this today. Is there a way to get around it?</p>
+
+        </div>
+    </div>
+    </div>
+

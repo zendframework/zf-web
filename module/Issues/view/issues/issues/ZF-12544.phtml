@@ -1,0 +1,214 @@
+<h2>ZF-12544: Invalid behavior when loading pages from file thru ConstructedNavigationFactory page will not become active</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2013-03-17T14:50:41.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-03-18T08:22:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have all my pages inside separate main_menu.xml file. 
+In my module.config.php i have include navigation in this way:</p>
+
+<pre class="highlight"><code>
+ 'invokables' =&gt; array(
+    ...
+   'about' =&gt; 'Front\Controller\AboutController',
+    ....
+ ),
+ 'routes' =&gt; array(
+   ....
+   'front-about' =&gt; array(
+            'type' =&gt; 'Zend\Mvc\Router\Http\Segment',
+            'options' =&gt; array(
+                'route' =&gt; '/about',
+                'defaults' =&gt; array('controller' =&gt; 'about')
+            )
+   )
+   ....
+ ),
+ 'service_manager' =&gt; array(
+        'factories' =&gt; array(
+            ......
+            'navigation' =&gt; function ($serviceManager) {
+                $conf = __DIR__ . '/../navigation/main_menu.xml';
+                $factory = new \Zend\Navigation\Service\ConstructedNavigationFactory($conf);
+                return $factory-&gt;createService($serviceManager);
+            }
+            .......
+        )
+    )
+</code></pre>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+About
+      aboutfront-about
+   ......
+</code></pre>
+
+<p>I have next error: 
+{quote}Fatal error: Zend\Navigation\Exception\DomainException: Zend\Navigation\Page\Mvc::getHref cannot execute as no Zend\Mvc\Router\RouteStackInterface instance is composed{quote}</p>
+
+<p>I found work around, just set default router for Page/MVC (It is not good solution, but it was helped):</p>
+
+<pre class="highlight"><code>
+ 'service_manager' =&gt; array(
+        'factories' =&gt; array(
+            ......
+            'navigation' =&gt; function ($serviceManager) {
+                $conf = __DIR__ . '/../navigation/main_menu.xml';
+                $factory = new \Zend\Navigation\Service\ConstructedNavigationFactory($conf);
+                \Zend\Navigation\Page\Mvc::setDefaultRouter($serviceManager-&gt;get('router'));
+                return $factory-&gt;createService($serviceManager);
+            }
+            .......
+        )
+    )
+</code></pre>
+
+<p>But now when you will open page /about, the Page\Mvc-&gt;isActive is false.</p>
+
+<p>My way to fix this issue:</p>
+
+<pre class="highlight"><code>
+From 98342a68f982d69c5315cfb07c4be2522dbac657 Mon Sep 17 00:00:00 2001
+From: Milotskiy Alexey &lt;....&gt;
+Date: Sun, 17 Mar 2013 16:42:21 +0200
+Subject: [PATCH] Fixed issue with ConstructedNavigationFactory
+
+---
+ Navigation/Service/AbstractNavigationFactory.php   |   20 +++++++++++++++-----
+ .../Service/ConstructedNavigationFactory.php       |   10 +++++++++-
+ 2 files changed, 24 insertions(+), 6 deletions(-)
+
+diff --git a/Navigation/Service/AbstractNavigationFactory.php b/Navigation/Service/AbstractNavigationFactory.php
+index 89368e8..f5af421 100644
+--- a/Navigation/Service/AbstractNavigationFactory.php
++++ b/Navigation/Service/AbstractNavigationFactory.php
+@@ -63,17 +63,27 @@ abstract class AbstractNavigationFactory implements FactoryInterface
+                 ));
+             }
+ 
+-            $application = $serviceLocator-&gt;get('Application');
+-            $routeMatch  = $application-&gt;getMvcEvent()-&gt;getRouteMatch();
+-            $router      = $application-&gt;getMvcEvent()-&gt;getRouter();
+             $pages       = $this-&gt;getPagesFromConfig($configuration['navigation'][$this-&gt;getName()]);
+-
+-            $this-&gt;pages = $this-&gt;injectComponents($pages, $routeMatch, $router);
++            $this-&gt;pages = $this-&gt;preparePages($serviceLocator, $pages);
+         }
+         return $this-&gt;pages;
+     }
+ 
+     /**
++     * @param ServiceLocatorInterface $serviceLocator
++     * @param array|\Zend\Config\Config $pages
++     * @throws \Zend\Navigation\Exception\InvalidArgumentException
++     */
++    protected function preparePages(ServiceLocatorInterface $serviceLocator, $pages)
++    {
++        $application = $serviceLocator-&gt;get('Application');
++        $routeMatch  = $application-&gt;getMvcEvent()-&gt;getRouteMatch();
++        $router      = $application-&gt;getMvcEvent()-&gt;getRouter();
++
++        return $this-&gt;injectComponents($pages, $routeMatch, $router);
++    }
++
++    /**
+      * @param string|\Zend\Config\Config|array $config
+      * @return array|null|\Zend\Config\Config
+      * @throws \Zend\Navigation\Exception\InvalidArgumentException
+diff --git a/Navigation/Service/ConstructedNavigationFactory.php b/Navigation/Service/ConstructedNavigationFactory.php
+index bbf75fa..373c588 100644
+--- a/Navigation/Service/ConstructedNavigationFactory.php
++++ b/Navigation/Service/ConstructedNavigationFactory.php
+@@ -17,11 +17,16 @@ use Zend\ServiceManager\ServiceLocatorInterface;
+ class ConstructedNavigationFactory extends AbstractNavigationFactory
+ {
+     /**
++     * @var string|\Zend\Config\Config|array
++     */
++    protected $config;
++
++    /**
+      * @param string|\Zend\Config\Config|array $config
+      */
+     public function __construct($config)
+     {
+-        $this-&gt;pages = $this-&gt;getPagesFromConfig($config);
++        $this-&gt;config = $config;
+     }
+ 
+     /**
+@@ -30,6 +35,9 @@ class ConstructedNavigationFactory extends AbstractNavigationFactory
+      */
+     public function getPages(ServiceLocatorInterface $serviceLocator)
+     {
++        if (null === $this-&gt;pages) {
++            $this-&gt;pages = $this-&gt;preparePages($serviceLocator, $this-&gt;getPagesFromConfig($this-&gt;config));
++        }
+         return $this-&gt;pages;
+     }
+ 
+-- 
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexey Milotsky (spalax) on 2013-03-17T14:58:02.000+0000</p> 
+        <div class="body">
+            <p>Please move it to ZF2, because i have not found the way to done it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-03-18T08:22:21.000+0000</p> 
+        <div class="body">
+            <p>Please report all issues for ZF2 on <a href="https://github.com/zendframework/zf2/issues">Github</a>.</p>
+
+        </div>
+    </div>
+    </div>
+

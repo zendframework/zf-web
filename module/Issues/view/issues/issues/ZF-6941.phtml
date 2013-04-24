@@ -1,0 +1,419 @@
+<h2>ZF-6941: Zend_View_Navigation_Menu expand sibling of active branch</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-06T04:07:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-01-22T10:44:12.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+            <li>Zend_View</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8317">ZF-8317</a></li>
+            <li><a href="/issues/browse/ZF-11012">ZF-11012</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12044/Zend-View-Helper-Navigation-Menu_expandBranch.patch">Zend-View-Helper-Navigation-Menu_expandBranch.patch</a></li>
+            <li><a href="/issues/secure/attachment/14710/ZF-6941_adamlundrigan.patch">ZF-6941_adamlundrigan.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I want an option to display the menu with all sibling of the active branch and not just the parents branch.</p>
+
+<p>For the exemple in the view helpers documentation display the menu like this :</p>
+
+<ul><li>Foo Server
+** FAQ
+** Editions
+** System Requirement</li>
+<li>Foo Studio</li>
+<li>Investor Relations</li>
+<li>News</li>
+<li>My Account</li>
+<li>Forums</li>
+</ul><p>The code changed in the Menu helper, I had a new option parameter : "expandBranch"</p>
+
+<pre class="highlight"><code>
+    /**
+     * Whether only active branch should be rendered
+     *
+     * @var bool
+     */
+    protected $_expandBranch = false;
+
+    /**
+     * Sets a flag indicating whether the first depth and expand the active branch
+     *
+     * @param  bool $flag                        [optional] render the first depth and the active branch
+     *                                                      . Default is true.
+     * @return Zend_View_Helper_Navigation_Menu  fluent interface, returns self
+     */
+    public function setExpandBranch($flag = true)
+    {
+        $this-&gt;_expandBranch = (bool) $flag;
+        return $this;
+    }
+
+    /**
+     * Returns a flag indicating whether the first depth and the active branch should be rendered
+     *
+     * By default, this value is false, meaning the entire menu will be
+     * be rendered.
+     *
+     * @return bool  whether only active branch should be rendered
+     */
+    public function getExpandBranch()
+    {
+        return $this-&gt;_expandBranch;
+    }
+
+    // Render methods:
+
+    /**
+     * Renders a normal menu (called from {@link renderMenu()})
+     *
+     * @param  Zend_Navigation_Container $container   container to render
+     * @param  string                    $ulClass     CSS class for first UL
+     * @param  string                    $indent      initial indentation
+     * @param  int|null                  $minDepth    minimum depth
+     * @param  int|null                  $maxDepth    maximum depth
+     * @param  bool                      $onlyActive  render only active branch?
+     * @param  bool                      $expandBranch  render sibling of the active branch
+     * @return string
+     */
+    protected function _renderMenu(Zend_Navigation_Container $container,
+                                   $ulClass,
+                                   $indent,
+                                   $minDepth,
+                                   $maxDepth,
+                                   $onlyActive,
+                                   $expandBranch)
+    {
+        $html = '';
+
+        // find deepest active
+        if ($found = $this-&gt;findActive($container, $minDepth, $maxDepth)) {
+            $foundPage = $found['page'];
+            $foundDepth = $found['depth'];
+        } else {
+            $foundPage = null;
+        }
+
+        // create iterator
+        $iterator = new RecursiveIteratorIterator($container,
+                            RecursiveIteratorIterator::SELF_FIRST);
+        if (is_int($maxDepth)) {
+            $iterator-&gt;setMaxDepth($maxDepth);
+        }
+
+        // iterate container
+        $prevDepth = -1;
+        foreach ($iterator as $page) {
+            $depth = $iterator-&gt;getDepth();
+            $isActive = $page-&gt;isActive(true);
+            if ($depth &lt; $minDepth || !$this-&gt;accept($page)) {
+                // page is below minDepth or not accepted by acl/visibilty
+                continue;
+            } else if ($expandBranch &amp;&amp; $depth &gt; $minDepth) { // If expand branch
+                // page is not active itself, but might be in the active branch
+                $accept = false;
+                if ($foundPage) {
+                    if ($foundPage-&gt;hasPage($page)) {
+                        // accept if page is a direct child of the active page
+                        $accept = true;
+                    } else if ($page-&gt;getParent()-&gt;isActive(true)) {
+                        // page is a sibling of the active branch...
+                        $accept = true;
+                    }
+                }  
+                if (!$isActive &amp;&amp; !$accept) {
+                    continue;
+                }         
+            } else if ($onlyActive &amp;&amp; !$isActive) {
+                // page is not active itself, but might be in the active branch
+                $accept = false;
+                if ($foundPage) {
+                    if ($foundPage-&gt;hasPage($page)) {
+                        // accept if page is a direct child of the active page
+                        $accept = true;
+                    } else if ($foundPage-&gt;getParent()-&gt;hasPage($page)) {
+                        // page is a sibling of the active page...
+                        if (!$foundPage-&gt;hasPages() ||
+                            is_int($maxDepth) &amp;&amp; $foundDepth + 1 &gt; $maxDepth) {
+                            // accept if active page has no children, or the
+                            // children are too deep to be rendered
+                            $accept = true;
+                        }
+                    }
+                }
+
+                if (!$accept) {
+                    continue;
+                }
+            }
+
+            // make sure indentation is correct
+            $depth -= $minDepth;
+            $myIndent = $indent . str_repeat('        ', $depth);
+
+            if ($depth &gt; $prevDepth) {
+                // start new ul tag
+                if ($ulClass &amp;&amp; $depth ==  0) {
+                    $ulClass = ' class="' . $ulClass . '"';
+                } else {
+                    $ulClass = '';
+                }
+                $html .= $myIndent . '</code></pre><code>' . self::EOL;
+            } else if ($prevDepth &gt; $depth) {
+                // close li/ul tags until we're at current depth
+                for ($i = $prevDepth; $i &gt; $depth; $i--) {
+                    $ind = $indent . str_repeat('        ', $i);
+                    $html .= $ind . '    ' . self::EOL;
+                    $html .= $ind . '' . self::EOL;
+                }
+                // close previous li tag
+                $html .= $myIndent . '    ' . self::EOL;
+            } else {
+                // close previous li tag
+                $html .= $myIndent . '    ' . self::EOL;
+            }
+
+            // render li tag and page
+            $liClass = $isActive ? ' class="active"' : '';
+            $html .= $myIndent . '    ' . self::EOL
+                   . $myIndent . '        ' . $this-&gt;htmlify($page) . self::EOL;
+
+            // store as previous depth for next iteration
+            $prevDepth = $depth;
+        }
+
+        if ($html) {
+            // done iterating container; close open ul/li tags
+            for ($i = $prevDepth+1; $i &gt; 0; $i--) {
+                $myIndent = $indent . str_repeat('        ', $i-1);
+                $html .= $myIndent . '    ' . self::EOL
+                       . $myIndent . '' . self::EOL;
+            }
+            $html = rtrim($html, self::EOL);
+        }
+
+        return $html;
+    }
+
+    /**
+     * Renders helper
+     *
+     * Renders a HTML 'ul' for the given $container. If $container is not given,
+     * the container registered in the helper will be used.
+     *
+     * Available $options:
+     *
+     *
+     * @param  Zend_Navigation_Container $container  [optional] container to
+     *                                               create menu from. Default
+     *                                               is to use the container
+     *                                               retrieved from
+     *                                               {@link getContainer()}.
+     * @param  array                     $options    [optional] options for
+     *                                               controlling rendering
+     * @return string                                rendered menu
+     */
+    public function renderMenu(Zend_Navigation_Container $container = null,
+                               array $options = array())
+    {
+        if (null === $container) {
+            $container = $this-&gt;getContainer();
+        }
+
+        $options = $this-&gt;_normalizeOptions($options);
+
+        if ($options['onlyActiveBranch'] &amp;&amp; !$options['renderParents']) {
+            $html = $this-&gt;_renderDeepestMenu($container,
+                                              $options['ulClass'],
+                                              $options['indent'],
+                                              $options['minDepth'],
+                                              $options['maxDepth']);
+        } else {
+            $html = $this-&gt;_renderMenu($container,
+                                       $options['ulClass'],
+                                       $options['indent'],
+                                       $options['minDepth'],
+                                       $options['maxDepth'],
+                                       $options['onlyActiveBranch'],
+                                       $options['expandBranch']);
+        }
+
+        return $html;
+    }
+</code>
+
+<p>I just had this condition before the activeBranch condition :</p>
+
+<pre class="highlight"><code>
+          if ($expandBranch &amp;&amp; $depth &gt; $minDepth) { // If expand branch
+                // page is not active itself, but might be in the active branch
+                $accept = false;
+                if ($foundPage) {
+                    if ($foundPage-&gt;hasPage($page)) {
+                        // accept if page is a direct child of the active page
+                        $accept = true;
+                    } else if ($page-&gt;getParent()-&gt;isActive(true)) {
+                        // page is a sibling of the active branch...
+                        $accept = true;
+                    }
+                }  
+                if (!$isActive &amp;&amp; !$accept) {
+                    continue;
+                }         
+            } 
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Robin Skoglund (robinsk) on 2009-06-13T04:35:54.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the detailed report. I see how this feature might be useful.</p>
+
+<p>Have you signed a CLA? Would you care to implement the expandBranch feature and write tests and docs for it? You probably have a better overview of exactly what needs to be tested etc.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrice De Saint Steban (lesgrumels) on 2009-06-15T14:45:21.000+0000</p> 
+        <div class="body">
+            <p>Hello,</p>
+
+<p>Yes I have signed a CLA.
+I can do it, I will send a patch as soon as possible.</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin-Timm Broich (chameleon) on 2009-06-22T23:54:07.000+0000</p> 
+        <div class="body">
+            <p>Hope this improvement will find his way into the framework asap. ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrice De Saint Steban (lesgrumels) on 2009-06-23T07:49:15.000+0000</p> 
+        <div class="body">
+            <p>Hello,</p>
+
+<p>This is the patch to add this improvement.
+There are the modification of the menu helper, tests, and documentation.
+I hope it's can be added in the next release.</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin-Timm Broich (chameleon) on 2009-08-31T07:32:27.000+0000</p> 
+        <div class="body">
+            <p>Is there a new patch for the current ZF version (1.9.2) or is there another (new) way to solve what this improvements makes?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eduard Zintz (ezintz) on 2009-09-01T02:54:48.000+0000</p> 
+        <div class="body">
+            <p>Has this patch already found his way to the framework? If not, when does the patch will be included?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrice De Saint Steban (lesgrumels) on 2009-09-01T03:16:27.000+0000</p> 
+        <div class="body">
+            <p>I don't found the path in changelog of new framework release.
+I don't know when the patch will be included.</p>
+
+<p>I don't test the path on the ZF 1.9.2 version, but I think it will work with the version. There aren't many modification in the navigation helpers (has I see in the changelog).
+I will test soon with the last version.</p>
+
+<p>For my project, I extend the menu helper to add the path code.</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikolay Goldschmidt (ccppprogrammer) on 2010-04-26T04:49:49.000+0000</p> 
+        <div class="body">
+            <p>Good job! Works like a charm on latest Zend Framework 1.9.3.
+I'm also vote for adding this patch to zf.
+Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-01T15:56:56.000+0000</p> 
+        <div class="body">
+            <p>Cleaned up patch so that it will apply cleanly against 1.11.11.  Also renamed option/methods to better describe their purpose.</p>
+
+<p>I've applied and tested the patch, with no ill-side-effects noted.  All unit tests in Navigation and View_Helper groups pass after applying patch.  The fix does, however, extend the public API of Zend_View_Helper_Navigation_Menu, so we will need to get approval from [~Matthew] before committing to SVN.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-11-01T16:14:05.000+0000</p> 
+        <div class="body">
+            <p>Hi Adam,
+I have tested your patch. Looks good and all unit tests are working.</p>
+
+<p>Thanks for the clean up!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-31T12:31:54.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24839</p>
+
+        </div>
+    </div>
+    </div>
+

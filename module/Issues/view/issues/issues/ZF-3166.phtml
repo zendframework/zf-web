@@ -1,0 +1,160 @@
+<h2>ZF-3166: Zend_View_HelperBroker</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-23T10:43:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11282/zend_view_changes.patch">zend_view_changes.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Brandon Clark raised a good point in off-list e-mail and we came up with a solution that would help people creating alternate adapters for Zend_View (e.g., Zend_View_PhpTal).</p>
+
+<p>Because PHPTAL templates only have access to the variables passed to them (and no reference to the Zend_View_Interface instance), calling helpers requires either:</p>
+
+<p>1) Explicitly assigning $this to a template variable, which breaks encapsulation, or</p>
+
+<p>2) Having Zend_View_Abstract::$_helper be a reference to a Zend_View_HelperBroker object, like the action controllers have Zend_Controller_Action_HelperBroker.</p>
+
+<p>This seems like a logical split to me.  Thoughts?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-23T11:03:51.000+0000</p> 
+        <div class="body">
+            <p>Can you provide either some inline code samples or a link to some samples showing why this is necessary? It's hard to gauge from your description.</p>
+
+<p>Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-23T11:05:45.000+0000</p> 
+        <div class="body">
+            <p>Removing assignment until we have more feedback.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2008-04-24T15:07:02.000+0000</p> 
+        <div class="body">
+            <p>Sure.  See Brandon's proposed method of making view helpers available to PHPTAL:</p>
+
+<pre><code>&lt;a rel="nofollow" href="http://blog.realmofzod.com/?p=9"&gt;http://blog.realmofzod.com/?p=9&lt;/a&gt;
+</code></pre>
+
+<p>The relevant line is 19, {{$this-&gt;this = $this;}}.  This allows the view code {{}} to access the layout view helper.  This doesn't really seem ideal, though.  My thought was to have a Zend_View_HelperBroker object to encapsulate all the helper interaction, and be able to assign that instead of {{$this}}.</p>
+
+<p>But now that I think about it, it seems like it would make more sense to have a Zend_View_Context object which only has access to view helpers and any variables assigned to it.  That way all of the private properties in Zend_View_Abstract could be protected.  In other words, all the helper methods would move to Zend_View_Context and {{assign()}} would assign variables to a Zend_View_Context object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-25T07:05:28.000+0000</p> 
+        <div class="body">
+            <p>I think the idea of a Context object is good; however, there are some implementation details that would make it impossible to use it with many of our supported PHP versions.</p>
+
+<pre class="highlight"><code>
+$view-&gt;foo[] = 42;
+</code></pre>
+
+<p>is the relevant test case here. This worked fine in 5.1.x, but then in 5.2.0, the PHP team made __get() no longer return arrays by reference, which made the above not work. In addition, ArrayObject was broken in 5.2.0 and, iirc, 5.2.1, such that using __get to proxy to an ArrayObject in that fashion did not work either. Right now, we actually set variables as public members, which makes everything work fine on all versions -- but using a Context object would necessitate using __get() again.</p>
+
+<p>A helper broker does seem like a good target, however, and with the changes to Zend_View_Abstract currently in the incubator, would be trivial to implement. The one thing I worry about, however, is that this would introduce a BC break. If so, we'd need to schedule it for 2.0.0.</p>
+
+<p>Can one of you come up with a prototype based on current incubator Zend_View code so we can evaluate what breaks there may be?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2008-04-26T15:22:13.000+0000</p> 
+        <div class="body">
+            <p>Sounds good; I'll see what I can come up with.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2008-05-03T19:51:40.000+0000</p> 
+        <div class="body">
+            <p>Whew.  I slapped this together in about an hour and a half tonight based on a checkout I did a couple days ago (9348).  There are quite a few changes here, but I did my best to not break backwards compatibility, to the point of leaving in a lot of proxy methods in Zend_View which, if you use these ideas, you'll most likely want to pare down or at least deprecate.  I removed a grand total of one method from Zend_View that I'm pretty sure was for testing (having to do with helperLoadedDir, etc.) because I only had about two hours to spare for this, but I'm pretty sure you can easily figure out how to put it back in.</p>
+
+<p>OK, here's the executive summary:</p>
+
+<ul><li>I created a Zend_View_Context object which acts as the variable store and provides access to view helpers</li>
+<li>I created Zend_View_HelperBroker based on both Zend_View and Zend_Controller_Action_HelperBroker.  This is necessary to remove any Zend_View reference in the context object.  There are no static methods or properties in Zend_View_HelperBroker, though.</li>
+<li>Scripts can no longer call render() directly, of course, since that requires a reference to Zend_View.  There's a better alternative that people should switch to instead: Zend_View_Helper_Partial.</li>
+<li>Zend_View::_run() became Zend_View_Context::run().  Not sure about the implications of this in terms of userland extensibility, but it was necessary in order to render the script within the scope of Zend_View_Context.</li>
+<li>Changed all private methods in Zend_View_Abstract to protected, then moved everything from Zend_View_Abstract into Zend_View and deleted Abstract altogether as it no longer served any purpose.  Any type checking in userland view adapters should be based on Zend_View_Interface anyway.</li>
+</ul><p>So the gain here is that Zend_View is now completely extensible (no more wholesale copying and pasting in derivative classes) and view scripts have no way to access anything besides what they're supposed to have access to: variables and helpers.</p>
+
+<p>Anyway, hope that helps give you an idea of where I was coming from.  Let me know what you think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-05-09T12:32:32.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next major release, but may revisit before then. The suggested solution offers no backwards compatitility, and thus could not be added until we work on 2.0. There may be another solution, however, but it is not within the scope of even the next minor release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-06-08T06:29:22.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Matthew as he will be the person tracking this from the Zend team. Matthew, feel free to mark this postponed if you would like to keep it out of your open issues queue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:13.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

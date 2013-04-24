@@ -1,0 +1,174 @@
+<h2>ZF-12358: Zend form with an optional file / isValid function returns false if the file isn't uploaded</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-08-02T22:54:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-03T06:56:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-12189">ZF-12189</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have the following form:</p>
+
+<pre class="literal"> 
+class Soulbag_Admin_Form_Issue_Article extends Zend_Form {
+    public function init() {
+        $element = new Zend_Form_Element_Text('title');
+        $element
+            -&gt;setLabel('Titre')
+            -&gt;setRequired(true)
+            -&gt;addValidator(new Zend_Validate_NotEmpty());
+        $this-&gt;addElement($element);
+
+        $element = new Zend_Form_Element_Text('subtitle');
+        $element-&gt;setLabel('Sous-titre');
+        $this-&gt;addElement($element);
+        
+        $element = new Zend_Form_Element_Textarea('description');
+        $element-&gt;setLabel('Description');
+        $this-&gt;addElement($element);
+        
+        $element = new Zend_Form_Element_Radio('is_headline');
+        $element
+            -&gt;setLabel('A la une')
+            -&gt;addMultiOptions(array('1' =&gt; 'Oui', '0' =&gt; 'Non'))
+            -&gt;setValue('0');
+        $this-&gt;addElement($element);
+        
+        $element = new Zend_Form_Element_File('articleimage');
+        $element
+            -&gt;setLabel('Image pour carousel')
+            -&gt;setDescription('JPEG 632x251 px')
+            -&gt;setRequired(false)
+            -&gt;setValueDisabled(true)
+            -&gt;addValidator('Count', true, array('min' =&gt; 0, 'max' =&gt; 1))
+            -&gt;setDestination(IMAGE_TMP_PATH);
+        $this-&gt;addElement($element);
+        
+        $element = new Zend_Form_Element_Hidden('id');
+        $element-&gt;addValidator(new Zend_Validate_Int())-&gt;setDecorators(array('ViewHelper'));
+        $this-&gt;addElement($element);
+        
+        $element = new Zend_Form_Element_Hidden('issue_id');
+        $element-&gt;addValidator(new Zend_Validate_Int())-&gt;setDecorators(array('ViewHelper'));
+        $this-&gt;addElement($element);
+        
+        $this
+            -&gt;setAttrib('id', 'issue_article_form')
+            -&gt;setAttrib('enctype', 'multipart/form-data');
+    }
+}
+</pre>
+
+<p>So I want the file to be optional (required is set to false, and min count to 0).</p>
+
+<p>Once submitted, I'm testing the form validity this way :</p>
+
+<pre class="literal"> 
+if ($this-&gt;getRequest()-&gt;isPost()) {
+   if (!$this-&gt;view-&gt;form-&gt;isValid($this-&gt;getRequest()-&gt;getPost())) {
+       ....
+</pre>
+
+<p>It works good when I upload a file, but when I don't, isValid returns false, despite I guess it shouldn't, as I set the file to be optional.</p>
+
+<p>Concerning HTTP traces I have :</p>
+
+<pre class="literal"> 
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="title" OTIS TAYLORss
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="subtitle" Le guérisseur
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="description" </pre><p> En préparation de la sortie de son nouvel album “Contraband” (Telarc), Otis Taylor nous a conviés à son Trance Blues Festival en novembre dernier. Un événement appelé, s’il se pérennise, à devenir majeur. C’est aussi l’occasion d’en apprendre plus sur l’homme. Retour sur l’œuvre, le parcours et l’intention artistique d’un personnage sans beaucoup d’équivalent.<br /> Par Éric D.</p>
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="is_headline" 0
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="MAX_FILE_SIZE" 2097152
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="articleimage"
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="id" 597
+-----------------------------4597977918582022601949785681 Content-Disposition: form-data; name="issue_id"
+-----------------------------4597977918582022601949785681--
+
+
+<p>After a little debug session on Zend framework, I think the problem comes from Zend_File_Transfer_Adapter_Abstract.setOptions, which is called by Zend_Form_Element_File.isValid.</p>
+
+<p>In my case, as I ask the file to be optional, this code is called :</p>
+
+<pre class="literal"> 
+if (!$this-&gt;isRequired()) {
+            $adapter-&gt;setOptions(array('ignoreNoFile' =&gt; true), $this-&gt;getName());
+</pre>
+
+<p>(Zend_Form_Element_File line 428)</p>
+
+<p>In the Zend_File_Transfer_Adapter_Abstract.setOptions function, the first line is :</p>
+
+<pre class="literal"> 
+$file = $this-&gt;_getFiles($files, false, true);
+</pre>
+
+<p>In my case, this returns null, so the ignoreNoFile is never placed in the _files array.
+This returns null because the _files array is like that :</p>
+
+<pre class="literal"> 
+Array
+(
+    [articleimage] =&gt; Array
+        (
+            [destination] =&gt; /home/smennesson/workspace/soulbag_trunk/front/public/images/tmp
+        )
+
+)
+</pre>
+
+<p>There isn't a 'name' key set because the file isn't uploaded, but _getFiles expects a 'name' key to return something:</p>
+
+<pre class="literal">
+ if (!isset($content['name'])) {
+</pre>
+
+<p>line 1468</p>
+
+<p>Maybe I'm misunderstanding something, please help.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

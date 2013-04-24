@@ -1,0 +1,242 @@
+<h2>ZF-130: the incubator version of Zend_Http_Client don't support &quot;Transfer-Encoding: chunked&quot;</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-06-22T00:49:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:29.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.1.4 (29/Jun/06)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The incubator version of Zend_Http_Client uses HTTP/1.1 by default setting,
+but it does not support Transfer-Encoding: chunked decoding.</p>
+
+<p>RFC2068#3.6 ( <a href="http://rfc.net/rfc2068.html#s3.6">http://rfc.net/rfc2068.html#s3.6</a> )</p>
+
+<blockquote>
+  <p>All HTTP/1.1 applications MUST be able to receive and decode the
+   "chunked" transfer coding</p>
+</blockquote>
+
+<p>For example Amazon ECS with REST API returns chunked encoded response, 
+if client requests using HTTP/1.1.</p>
+
+<p>I wrote Zend_Http_Client::_read to support chunked encoding.</p>
+
+<pre><code>protected function _read($socket)
+{
+    $response = '';
+
+    $transferEncodings = array();
+
+    // read headers
+    while (!feof($socket)) {
+        $buff = fgets($socket);
+        $response .= $buff;
+        if (trim($buff, "\r\n") == '') {break;}
+        if (preg_match('/^transfer-encoding:/i', $buff)) {
+            $transferEncodings = explode(',',
+                str_replace(' ', '',
+                    strtolower(
+                        substr(trim($buff), strlen('transfer-encoding:'))
+                    )
+                )
+            );
+        }
+    }
+
+    $chunked = false;
+    if (in_array('chunked', $transferEncodings)) {
+        $chunked = true;
+        unset($transferEncodings[array_search('chunked', $transferEncodings)]);
+    }
+    if (count($transferEncodings) &gt; 0) {
+        throw new Zend_Http_Exception('Unsupported Transfer-Encoding: ' . implode(', ', $transferEncodings));
+    }
+
+    // read body
+    if ($chunked) {
+        while (!feof($socket)) {
+            $buff = fgets($socket, 8192);
+            @list($size, $ext) = explode(' ', trim($buff));
+
+            // TODO - support chunk-ext
+
+            $size = base_convert($size, 16, 10);
+            if ($size == 0) {break;}
+            $buff = '';
+            while (strlen($buff) &lt; $size) {
+                $buff .= fread($socket, $size - strlen($buff));
+                if (feof($socket)) {
+                    throw new Zend_Http_Exception('HTTP stream abnormaly disconnected');
+                }
+            }
+            $response .= $buff;
+
+            $buff = fgets($socket); // CRLF
+        }
+
+        // TODO - support entity-header
+    } else {
+        while (!feof($socket)) {
+            $buff = fread($socket, 8192);
+            $response .= $buff;
+        }
+    }
+
+    fclose($socket);
+    return $response;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-06-22T16:01:25.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>In your code, you create an array out of the Transfer Encoding header by spiliting it's value on "," (commas).</p>
+
+<p>I am not sure I understand why you do this - it seems to me that the only possible value of "Trasfer-Encoding" in HTTP/1.1 (or in HTTP/1.0 for that matter) is "chunked" - no standard defines any other possible value.</p>
+
+<p>Also, HTTP/1.1 itself states that Trasfer-Encoding should contain (one) token - not a comma seperated list of tokens. It also states that a client should ignore Transfer-Encoding methods that it does not understand - so I am not sure if throwing an exception is the correct thing - I would suggest simply returning the body without decoding it, thus allowing the user to deal with it.</p>
+
+<p>Can you point me to a website / server that returns comma seperated list of encodings or some similar behaviour so I can analyze it and test with it?</p>
+
+<p>Thank you.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Naoto Ishikawa (ishinao) on 2006-06-22T22:52:30.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I was misunderstanding about treatment of "Transfer-Encoding" .
+(and read obsolete RFC, too)</p>
+
+<p>Your point is right, and in my code "Transfer-Encoding" header was treated wrong way.</p>
+
+<p>it will be fixed at following points</p>
+
+<ul><li>ignore unknown encodings, and not throw exception</li>
+<li>one "Transfer-Encoding" header line has no comma-separated values.(but it can allow transfer-extension separated by ";")</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-06-23T13:50:22.000+0000</p> 
+        <div class="body">
+            <p>I have modified the Zend_Http_Response class to support chunked body decoding (in the getBody() method) - the idea is to also implement things like gzip decompression or other decoding in the same place.</p>
+
+<p>I also added the getRawBody() method to the response to allow access to the raw (undecoded) body.</p>
+
+<p>Before I commit this, I would like to run some tests - I have tested with <a href="http://jigsaw.w3.org/HTTP/ChunkedScript">http://jigsaw.w3.org/HTTP/ChunkedScript</a> and it looks fine. I didn't really find a way to "force" chunked encoding on Apache - so it is hard for me to test this feature. Can you direct me to web pages you had problems with?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Naoto Ishikawa (ishinao) on 2006-06-24T03:51:46.000+0000</p> 
+        <div class="body">
+            <p>I had chunked encoding problems with Amazon ECS REST API.
+(to use Zend_Service_Amazon with incubator version of Zend_Http_Client)</p>
+
+<h2>Test code to get a response using chunked encoding is here.</h2>
+
+<p>$socket = fsockopen('webservices.amazon.co.jp', 80);
+fwrite($socket, "GET /onca/xml?ResponseGroup=Request&amp;SubscriptionId=1CM8G848FE80MFK7JK02&amp;Service=AWSECommerceService&amp;Operation=ItemLookup&amp;ItemId=4774128104 HTTP/1.1\r\n");
+fwrite($socket, "Host: webservices.amazon.co.jp\r\n");
+fwrite($socket, "Connection: close\r\n");
+fwrite($socket, "\r\n");
+while (!feof($socket)) {
+    echo fread($socket, 8192);
+}</p>
+
+<h2>fclose($socket);</h2>
+
+<h2>and response is</h2>
+
+<p>HTTP/1.1 200 OK
+Date: Sat, 24 Jun 2006 09:42:54 GMT
+Server: Server
+x-amz-id-1: 035SS9PYS085GC8MAC70
+x-amz-id-2: wvBNFEXLw1SCXiU3XP8eaFkPe4f/9qChbXRsJr8VTb8=
+Connection: close
+Transfer-Encoding: chunked
+Content-Type: text/xml; charset=UTF-8</p>
+
+<p>36f
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;035SS9PYS085GC8MAC70&lt;ArgumentName="Operation" Value="ItemLookup"&gt;0.0157420635223389True4774128104Request4774128104</p>
+
+<h2>0</h2>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-06-24T15:35:19.000+0000</p> 
+        <div class="body">
+            <p>I tested the url you sent and the new code seemed to be working properly. I got a well-formed XML response back.</p>
+
+<p>I have commited the new Response.php - please test your code again with revision 706</p>
+
+<p>If it is fixed- please report here.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Naoto Ishikawa (ishinao) on 2006-06-24T18:48:50.000+0000</p> 
+        <div class="body">
+            <p>I tested my code with Zend_Http_Reponse version 706 and It works fine.
+Thank you.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-06-24T23:37:22.000+0000</p> 
+        <div class="body">
+            <p>Fixed by adding Zend_Http_Response the ability to decode chunked messages.
+No changes to Zend_Http_Client.</p>
+
+        </div>
+    </div>
+    </div>
+

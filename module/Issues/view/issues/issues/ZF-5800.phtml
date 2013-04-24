@@ -1,0 +1,224 @@
+<h2>ZF-5800: toArray buggy when used with lots + 1</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-16T08:12:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-04-05T02:19:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm working with a XML config file like this one:</p>
+
+<pre class="highlight"><code>
+user1@company.comUser Name</code></pre>
+
+<p>using this code:</p>
+
+<pre class="highlight"><code>
+&lt;?$cc = $config-&gt;mailler-&gt;cc-&gt;receiver-&gt;toArray()?&gt;
+</code></pre>
+
+<p>$cc is not really what I expected it to be:</p>
+
+<pre class="literal">
+array
+  'receiver' =&gt; 
+    array
+      'mail' =&gt; string 'user1@company.com' (length=17)
+      'name' =&gt; string 'User Name' (length=9)
+      0 =&gt; 
+        array
+          'mail' =&gt; string 'nice.guy@company.com' (length=20)
+          'name' =&gt; string 'Nice Guy' (length=8)
+      1 =&gt; 
+        array
+          'mail' =&gt; string 'fred@company.com' (length=16)
+</pre>
+
+<p>I though I would get something like that:</p>
+
+<pre class="literal">
+array
+  'receiver' =&gt; 
+    array
+      0 =&gt;
+        array
+          'mail' =&gt; string 'user1@company.com' (length=17)
+          'name' =&gt; string 'User Name' (length=9)
+      1 =&gt; 
+        array
+          'mail' =&gt; string 'nice.guy@company.com' (length=20)
+          'name' =&gt; string 'Nice Guy' (length=8)
+      2 =&gt; 
+        array
+          'mail' =&gt; string 'fred@company.com' (length=16)
+</pre>
+
+<p>When I think of this, I can't see why it doesn't work as one can expect it.</p>
+
+<p>might it be a bug?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-02-19T01:03:56.000+0000</p> 
+        <div class="body">
+            <p>In fact that looks like a bug in the _processExtends() method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-03-21T11:07:43.000+0000</p> 
+        <div class="body">
+            <p>I think that this is expected behaviour as per the current parsing rules.</p>
+
+<p>In  you are specifying  as an object with two properties. You then create an array of s in , but as $receiver-&gt;mail already exists, the best it can do is create an array for you as it doesn't convert the previously created receiver object into an array.</p>
+
+<p>Now, we could change it so that it does convert the  in  into an array before merging the  in . If we did that though, then as  extends , the resultant array would be:</p>
+
+<pre class="highlight"><code>
+array
+  'receiver' =&gt; 
+    array
+      0 =&gt; 
+        array
+          'mail' =&gt; string 'nice.guy@company.com' (length=20)
+          'name' =&gt; string 'Nice Guy' (length=8)
+      1 =&gt; 
+        array
+          'mail' =&gt; string 'fred@company.com' (length=16)
+</code></pre>
+
+<p>as  would completely override .  Your expected result would never happen as that's a merge, not an override.</p>
+
+<p>Thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-03-21T11:22:09.000+0000</p> 
+        <div class="body">
+            <p>If we choose to fix it, this is the patch :</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Config/XmlTest.php
+===================================================================
+--- tests/Zend/Config/XmlTest.php   (revision 14409)
++++ tests/Zend/Config/XmlTest.php   (working copy)
+@@ -271,4 +271,31 @@
+         $this-&gt;assertEquals('staging', $config-&gt;hostname);
+ 
+     }
++
++    /*
++     * @group ZF-5800
++     * 
++     */
++    public function testArraysOfKeysCreatedUsingAttributesAndKeys()
++    {
++        $string = &lt;&lt;
++
++
++        
++                user1@company.com
++                User Name
++        
++
++
++        
++        
++
++
++EOT;
++
++        $config = new Zend_Config_Xml($string, 'dev');
++        $this-&gt;assertEquals('nice.guy@company.com', $config-&gt;receiver-&gt;{0}-&gt;mail);
++        $this-&gt;assertNull($config-&gt;receiver-&gt;mail);
++    }
+ }
+Index: library/Zend/Config/Xml.php
+===================================================================
+--- library/Zend/Config/Xml.php (revision 14409)
++++ library/Zend/Config/Xml.php (working copy)
+@@ -222,7 +222,11 @@
+                 if (isset($firstArray[$key])) {
+                     $firstArray[$key] = $this-&gt;_arrayMergeRecursive($firstArray[$key], $value);
+                 } else {
+-                    $firstArray[$key] = $value;
++                    if($key === 0) {
++                        $firstArray= array(0=&gt;$this-&gt;_arrayMergeRecursive($firstArray, $value));
++                    } else {
++                        $firstArray[$key] = $value;
++                    }
+                 }
+             }
+         } else {
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brice Laurencin (brisssou) on 2009-03-29T09:10:06.000+0000</p> 
+        <div class="body">
+            <p>in fact, thinking about it, &lt;?$cc = $config-&gt;mailler-&gt;cc-&gt;toArray()?&gt; might have the behaviour I wanted, according to that other non-bug (ZF-5973) I reported.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-03-29T09:15:07.000+0000</p> 
+        <div class="body">
+            <p>Try it, but I suspect that you'll have the same issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-04-05T02:19:51.000+0000</p> 
+        <div class="body">
+            <p>Fixed in SVN <a href="http://framework.zend.com/code/changelog/Standard_Library/?cs=14665">r14665</a> (for XML) and <a href="http://framework.zend.com/code/changelog/Standard_Library/?cs=14667">r14667</a> (for INI).</p>
+
+        </div>
+    </div>
+    </div>
+

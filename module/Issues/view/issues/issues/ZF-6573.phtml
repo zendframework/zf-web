@@ -1,0 +1,159 @@
+<h2>ZF-6573: Zend_Ldap::getCanonicalAccountName ignores Zend_Ldap::ACCTNAME_FORM_DN canonicalization type when it is specified in Zend_Ldap::options therefore Zend_Ldap throws exception Zend_Ldap_Exception with message &quot;Unknown canonical name form: 1&quot;.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-07T13:40:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-08-13T08:44:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stefan Gehrig (sgehrig)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Ldap</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I think the problem is when Zend_Ldap::getCanonicalAccountName() method is called whitout second parameter which represents canonical form. This is done in method  Zend_Auth_Adapter_Ldap::authenticate():</p>
+
+<pre class="highlight"><code>
+262  $canonicalName = $ldap-&gt;getCanonicalAccountName($username); 
+</code></pre>
+
+<p>Zend_Ldap::getCanonicalAccountName method firstly evaluates the following condition:</p>
+
+<pre class="highlight"><code>
+414 if ($form === Zend_Ldap::ACCTNAME_FORM_DN) 
+415     return $this-&gt;_getAccountDn($acctname);
+</code></pre>
+
+<p>$form variable is not set therefore it continues next to the following statement:</p>
+
+<pre class="highlight"><code>
+427 if ($form === 0)
+428     $form = $this-&gt;_getAccountCanonicalForm();
+</code></pre>
+
+<p>Previous method retrieves canonical name form from Zend_Ldap::_options. In this case, canonical name form is 1.</p>
+
+<p>Then execution proceed to the switch statement. Unfortunately this switch statement is missing Zend_Ldap::ACCTNAME_FORM_DN case, which equals 1, therefore flow is redirected to default case which throws an exception with message "Unknown canonical name form: 1".</p>
+
+<p>Is the switch statement missing Zend_Ldap::ACCTNAME_FORM_DN case ? Or maybe evaluation in line 427 should be called before evaluation in 414 ?</p>
+
+<p>Here is the Zend_Ldap::getCanonicalAccountName() method:</p>
+
+<pre class="highlight"><code>
+/**
+     * @param string $acctname The name to canonicalize
+     * @param int $type The desired form of canonicalization
+     * @return string The canonicalized name in the desired form
+     * @throws Zend_Ldap_Exception
+     */
+    public function getCanonicalAccountName($acctname, $form = 0)
+    {
+        $this-&gt;_splitName($acctname, $dname, $uname);
+
+        if (!$this-&gt;_isPossibleAuthority($dname)) {
+            /**
+             * @see Zend_Ldap_Exception
+             */
+            require_once 'Zend/Ldap/Exception.php';
+            throw new Zend_Ldap_Exception(null,
+                    "Binding domain is not an authority for user: $acctname",
+                    Zend_Ldap_Exception::LDAP_X_DOMAIN_MISMATCH);
+        }
+
+414        if ($form === Zend_Ldap::ACCTNAME_FORM_DN)
+415            return $this-&gt;_getAccountDn($acctname);
+
+        if (!$uname) {
+            /**
+             * @see Zend_Ldap_Exception
+             */
+            require_once 'Zend/Ldap/Exception.php';
+            throw new Zend_Ldap_Exception(null, "Invalid account name syntax: $acctname");
+        }
+
+        $uname = strtolower($uname);
+
+427        if ($form === 0)
+428            $form = $this-&gt;_getAccountCanonicalForm();
+
+        switch ($form) {
+            case Zend_Ldap::ACCTNAME_FORM_USERNAME:
+                return $uname;
+            case Zend_Ldap::ACCTNAME_FORM_BACKSLASH:
+                $accountDomainNameShort = $this-&gt;_options['accountDomainNameShort'];
+                if (!$accountDomainNameShort) {
+                    /**
+                     * @see Zend_Ldap_Exception
+                     */
+                    require_once 'Zend/Ldap/Exception.php';
+                    throw new Zend_Ldap_Exception(null, 'Option required: accountDomainNameShort');
+                }
+                return "$accountDomainNameShort\\$uname";
+            case Zend_Ldap::ACCTNAME_FORM_PRINCIPAL:
+                $accountDomainName = $this-&gt;_options['accountDomainName'];
+                if (!$accountDomainName) {
+                    /**
+                     * @see Zend_Ldap_Exception
+                     */
+                    require_once 'Zend/Ldap/Exception.php';
+                    throw new Zend_Ldap_Exception(null, 'Option required: accountDomainName');
+                }
+                return "$uname@$accountDomainName";
+            default:
+                /**
+                 * @see Zend_Ldap_Exception
+                 */
+                require_once 'Zend/Ldap/Exception.php';
+                throw new Zend_Ldap_Exception(null, "Unknown canonical name form: $form");
+        }
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-07-20T11:41:46.000+0000</p> 
+        <div class="body">
+            <p>fixed in trunk rev. 16888</p>
+
+        </div>
+    </div>
+    </div>
+

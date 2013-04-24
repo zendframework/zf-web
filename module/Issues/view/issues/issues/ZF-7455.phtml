@@ -1,0 +1,187 @@
+<h2>ZF-7455: $this-&gt;_redirect() behaves differently in test mode</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Docs:  Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-03T07:40:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-05T15:15:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Test_PHPUnit</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5619">ZF-5619</a></li>
+            <li><a href="/issues/browse/ZF-7496">ZF-7496</a></li>
+            <li><a href="/issues/browse/ZF-11507">ZF-11507</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In normal operation, $this-&gt;_redirect() exits after performing the redirect.  This behaviour is disabled by controller test case via $redirector-&gt;setExit(false)--in test mode, the exit is not applied.   The result of this is that actions that use _redirect() like a "return" or exit behave differently in test mode.</p>
+
+<p>i.e. actions with the following pattern:</p>
+
+<p>if ($some_condition) {
+  $this-&gt;_redirect("foo");
+}</p>
+
+<p>if ($other_condition) {
+  $this-&gt;_redirect("bar");
+}</p>
+
+<p>$this-&gt;_redirect("default");</p>
+
+<p>will always be redirected to "default" in test mode.</p>
+
+<p>If this issue cannot be fixed, it would at least be helpful to place a warning in 52.2.3.3 saying that _redirect() must be followed by return in actions, otherwise the redirect assertion may not behave as expected.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-08-03T11:18:54.000+0000</p> 
+        <div class="body">
+            <p>It's best with both _redirect() and _forward() (as well as when using the redirector action helper) to call return():</p>
+
+<pre class="highlight"><code>
+return $this-&gt;_redirect(...);
+return $this-&gt;_forward(...);
+</code></pre>
+
+<p>This will ensure that if the exit flag is disabled, the application will work in the same way.</p>
+
+<p>I will add this verbiage to the manual.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Stillwell (mjs) on 2009-08-04T00:22:33.000+0000</p> 
+        <div class="body">
+            <p>Thanks.  This seems like the best solution now that exit() has managed to get itself into the library.  Looking at "dispatch()" in ControllerTestCase.php it looks like the other point of potentially different behavior is with the JSON helper, which also disables exit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-09-18T01:38:28.000+0000</p> 
+        <div class="body">
+            <p>Added a section on testing and the redirect helper to the manual.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Olek (olek) on 2009-09-23T04:16:53.000+0000</p> 
+        <div class="body">
+            <p>This workaround partly solves the issue and fails when action helpers are involved. If I redirect from an action helper in init or preDispatch, I want the action controller not to even call the action. Unfortunately, this is not the case, and the regular action logic like rendering happens as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Stillwell (mjs) on 2009-09-30T06:18:46.000+0000</p> 
+        <div class="body">
+            <p>The updated documentation is available at</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.test.phpunit.html#zend.test.phpunit.testing.redirector">http://framework.zend.com/manual/en/…</a></p>
+
+<p>for anyone who's interested.</p>
+
+<p>I think the current text can be improved.  At the moment it doesn't really explain, or distinguish between, the problem and the solution.  There also doesn't appear to be any meaningful difference between the two "important" boxes and the non-boxed paragraph.</p>
+
+<p>I would prefer something like the following:</p>
+
+<p>There is a potential problem with combining controller testing if using the redirect helper.  By default, the redirect helper performs an exit() after issuing the redirect header.  This means that the line</p>
+
+<p>$this-&gt;_redirect(...);</p>
+
+<p>will typically serve to terminate the script; once $this-&gt;_redirect(...) is executed, no statement appearing after the redirect within the action will be executed.</p>
+
+<p>Since exit() also terminates PHPUnit, the testing harness disables this feature of _redirect(...), so that the test harness can continue to run.  However, this means that--contrary to non-test mode--statements appearing after $this-&gt;_redirect(...) <em>will be executed</em> in test mode.  This may result in unexpected behaviour.</p>
+
+<p>To prevent this, you must ensure that you exit the action after performing a _redirect(...).  The easiest way to ensure this is to preceded the call to $this-&gt;_redirect(...) with "return":</p>
+
+<pre><code>return $this-&gt;_redirect(...);
+</code></pre>
+
+<p>In summary, we recommend that</p>
+
+<pre><code>$this-&gt;_redirect(...);
+</code></pre>
+
+<p>never appears in your action methods.  Instead, you should always write:</p>
+
+<pre><code>return $this-&gt;_redirect(...);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexey Grunichev (grunichev) on 2009-10-02T05:23:30.000+0000</p> 
+        <div class="body">
+            <p>But what should user do if he has the same rules for every action, e.g.
+    public function preDispatch/init/or something like that()
+    {
+        $auth = Zend_Auth::getInstance();
+        $role = ($auth-&gt;hasIdentity() &amp;&amp; !empty($auth-&gt;getIdentity()-&gt;role))
+            ? $auth-&gt;getIdentity()-&gt;role : App_Roles::GUEST;
+        $acl = Zend_Registry::get('acl');
+        if (!$acl-&gt;isAllowed($role, App_Resources::REQUIRED_LOGIN_PAGE)) {
+            $this-&gt;_redirect('/error/denied');
+        }
+        $this-&gt;_user = $auth-&gt;getIdentity();
+    }
+it works fine in application, but in testing mode action method is invoked and can throw error (due to undefined _user properties, or we should check it in every method). Does that mean it never will work in testable applications?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-10-02T05:29:19.000+0000</p> 
+        <div class="body">
+            <p>This has obviously not been fixed sufficiently.</p>
+
+<p>I had an idea, we should investigate wheater its possible to replace the redirector helper in the controller testcase with an own implementation that behaves equally.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-05T15:15:46.000+0000</p> 
+        <div class="body">
+            <p>"Fixing" this really requires overhauls to the way the MVC workflow currently works; there's no way to return early from an action (or helper, or plugin, etc.) due to limitations in how PHP works. In plain and simple language, PHP is not an event-driven language, which makes it impossible to truly short-circuit execution.</p>
+
+<p>The EventManager in ZF2 will help in solving this issue, but there will always be edge cases when it comes to redirection and getting the response returned early.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,210 @@
+<h2>ZF-5906: Multi rowclass support in Zend_Db_Table_Abstract and Zend_Db_Table_Rowset_Abstract</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-27T03:29:02.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Rows from a database table should have the possibility to be instantiated as different types of objects depending on the values in the database row.
+Currently Zend_Db_Table_Abstract and Zend_Db_Table_Rowset_Abstract do not enable it.</p>
+
+<p>I suggest that a protected method called <em>getRowClass(array $data = array()) is added to both the _Table</em> and <em>Rowset</em> abstract classes.</p>
+
+<p>The methods to be modified are the following (changes made against ZF 1.7.2):
+-Zend_Db_Table_Abstract
+-- public function createRow(array $data = array(), $defaultSource = null)
+Replace lines</p>
+
+<pre class="highlight"><code>
+@Zend_Loader::loadClass($this-&gt;_rowClass);
+$row = new $this-&gt;_rowClass($config);
+</code></pre>
+
+<p>With</p>
+
+<pre class="highlight"><code>
+$className = $this-&gt;_getRowClass($data);
+$row = new $className($config);
+</code></pre>
+
+<p>-- public function fetchRow($where = null, $order = null)
+Replace lines</p>
+
+<pre class="highlight"><code>
+@Zend_Loader::loadClass($this-&gt;_rowClass);
+return new $this-&gt;_rowClass($data);
+</code></pre>
+
+<p>With</p>
+
+<pre class="highlight"><code>
+$className = $this-&gt;_getRowClass($rows[0]);
+return new $className($data);
+</code></pre>
+
+<p>-Zend_Db_Table_Rowset_Abstract
+-- public function current()
+Replace lines</p>
+
+<pre class="highlight"><code>
+$this-&gt;_rows[$this-&gt;_pointer] = new $this-&gt;_rowClass(
+  array(
+    'table'    =&gt; $this-&gt;_table,
+    'data'     =&gt; $this-&gt;_data[$this-&gt;_pointer],
+    'stored'   =&gt; $this-&gt;_stored,
+    'readOnly' =&gt; $this-&gt;_readOnly
+  )
+);
+</code></pre>
+
+<p>With</p>
+
+<pre class="highlight"><code>
+$className = $this-&gt;_getRowClass($this-&gt;_data[$this-&gt;_pointer]); // Find the correct class name
+$this-&gt;_rows[$this-&gt;_pointer] = new $className(
+  array(
+    'table'    =&gt; $this-&gt;_table,
+    'data'     =&gt; $this-&gt;_data[$this-&gt;_pointer],
+    'stored'   =&gt; $this-&gt;_stored,
+    'readOnly' =&gt; $this-&gt;_readOnly
+  )
+);
+</code></pre>
+
+<p>Both Zend_Db_Table_Abstract and Zend_Db_Table_Rowset_Abstract should contain the following method, which then can be overridden in inheriting classes.</p>
+
+<pre class="highlight"><code>
+/**
+ * Returns a string matching the class name for this data. Default implementation returns the classname
+ * given in ROW_CLASS configuration option.
+ * @param array $data
+ * @return string Name of the class matching the given data.
+*/
+protected function _getRowClass(array $data = array())
+{
+  @Zend_Loader::loadClass($this-&gt;_rowClass);
+  return $this-&gt;_rowClass;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Tommy Mattila (lup0) on 2009-02-27T04:12:21.000+0000</p> 
+        <div class="body">
+            <p>Example usage:</p>
+
+<pre class="highlight"><code>
+class My_Entity_Rowset extends Zend_Db_Table_Rowset_Abstract
+{
+  protected $_myClassMap = array("default" =&gt; "My_Entity_Default", "nice" =&gt; "My_Entity_Nice");
+
+  protected function _getRowClass(array $data = array())
+  {
+    $ret = $_this-&gt;_rowClass;
+    if(isset($data["type"]) {
+      $type = $data["type"];
+      if(isset($this-&gt;_myClassMap[$type]) {
+        $ret = $this-&gt;_myClassMap[$type];
+      }
+  }
+  return $ret;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Mayer (martin.mayer) on 2009-03-05T13:34:33.000+0000</p> 
+        <div class="body">
+            <p>Imho this feature should be left for userland code only where it's easy to implement. This is useful just for a few special cases.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tommy Mattila (lup0) on 2009-03-05T22:19:20.000+0000</p> 
+        <div class="body">
+            <p>The trouble with implementing this feature in userland code is that we lose compatibility with Zend Framework. Because PHP doesn't allow casting of objects we cannot call for example the fetchRow or createRow methods of the Zend_Db_Table_Abstract. We need to directly instantiate the correct implementing class. Between ZF 1.5 and 1.7 the implementation of Zend_Db_Table_Abstract::createRow() and its dependencies were modified so much that it broke the compatibility between my createRow() implementation and the rest of Zend_Db_Table_Abstract.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Mayer (martin.mayer) on 2009-03-06T02:43:33.000+0000</p> 
+        <div class="body">
+            <p>I still think it easy to do in user code and keep "compatibility" with ZF, simply by overriding Zend_Db_Table_Abstract::createRow() like this:</p>
+
+<pre class="highlight"><code>
+public function createRow(array $data = array(), $defaultSource = null)
+{
+    $oldRowClass = $this-&gt;_rowClass;
+    if ($data['attr'] == 'foo') {
+        $this-&gt;_rowClass = 'My_New_Row_Class';
+    }
+    $row = parent::createRow($data, $defaultSource);
+    $this-&gt;_rowClass = $oldRowClass;
+    return $row;
+}
+</code></pre>
+
+<p>Though the implementation of Zend_Db_Table_Abstract::createRow() changed, it still works.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tommy Mattila (lup0) on 2009-03-10T01:48:49.000+0000</p> 
+        <div class="body">
+            <p>You are right Martin that the code you showed enables us to keep Zend_Db_Table_Abstract's createRow() intact. But it doesn't work for fetchRow() because the data is retrieved inside the method the object is instantiated. Similar problems occur with the Zend_Db_Table_Rowset_Abstract::current() method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gerard Brouwer (gerard.brouwer1) on 2010-04-20T12:28:00.000+0000</p> 
+        <div class="body">
+            <p>I've the exact same need for this feature. It would be nice if it could be implement as suggested by Tommy!</p>
+
+        </div>
+    </div>
+    </div>
+

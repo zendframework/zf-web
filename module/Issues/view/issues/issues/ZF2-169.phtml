@@ -1,0 +1,196 @@
+<h2>ZF2-169: Zend\Http\Header\SetCookie::fromString fails to parse cookie when contains unknown attributes</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-02-20T16:41:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-15T00:44:57.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Enrico Zimuel (zimuel)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Http</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have found an issue when processing HTTP responses, not all Set-Cookie headers are parsed correctly.</p>
+
+<p>h2. Symptoms</p>
+
+<p>The header:</p>
+
+<pre class="highlight"><code>
+Set-Cookie: leo_auth_token="GST:xxxxxxxxxxxxxxxxx:xxxxxxxxxxxx:xxxxxxxxxxxxxxxxx"; Version=1; Max-Age=1799; Expires=Mon, 20-Feb-2012 02:49:57 GMT; Path=/
+</code></pre>
+
+<p>Value after parsing:</p>
+
+<pre class="highlight"><code>
+Max-Age=1799; Expires=Mon, 20-Feb-2012 02:49:57 GMT; Path=/
+</code></pre>
+
+<p>h2. The reason</p>
+
+<p>The problem is in the Zend\Http\Header\SetCookie::fromString factory method, more specifically with this piece of code:</p>
+
+<pre class="highlight"><code>
+
+                $header = new $setCookieClass;
+                $keyValuePairs = preg_split('#;\s*#', $headerLine);
+                foreach ($keyValuePairs as $keyValue) {
+                    if (strpos($keyValue, '=')) {
+                        list($headerKey, $headerValue) = preg_split('#=\s*#', $keyValue, 2);
+                    } else {
+                        $headerKey = $keyValue;
+                        $headerValue = null;
+                    }
+
+                    switch (str_replace(array('-', '_'), '', strtolower($headerKey))) {
+                        case 'expires':  $header-&gt;setExpires($headerValue); break;
+                        case 'domain':   $header-&gt;setDomain($headerValue); break;
+                        case 'path':     $header-&gt;setPath($headerValue); break;
+                        case 'secure':   $header-&gt;setSecure(true); break;
+                        case 'httponly': $header-&gt;setHttponly(true); break;
+                        default:
+                            $header-&gt;setName($headerKey);
+                            $header-&gt;setValue($headerValue);
+                    }
+                }
+</code></pre>
+
+<p>In the switch when an <em>unknown</em> header is found, it replaces the original name-value pair from the beginning of the cookie.
+So, for</p>
+
+<pre class="highlight"><code>
+Set-Cookie: leo_auth_token="GST:xxxxxxxxxxxxxxxxx:xxxxxxxxxxxx:xxxxxxxxxxxxxxxxx"; Version=1; Max-Age=1799; Expires=Mon, 20-Feb-2012 02:49:57 GMT; Path=/
+</code></pre>
+
+<p>...first <code>leo_auth_token</code> is considered (correctly) as the name of the cookie. But then, in the next iterations <code>Version</code> is not <em>caught</em> by the switches, the <code>default</code> branch executes and overwrites the name. Then, in the next iteration the same happens with <code>Max-Age</code>.</p>
+
+<p>Please note the both <code>Version</code> and <code>Max-Age</code> are valid attributes according to the <a href="">www.ietf.org/rfc/rfc2109.txt</a>" rel="nofollow"&gt;RFC.</p>
+
+<p>As a quick fix, I propose this:</p>
+
+<pre class="highlight"><code>
+default:
+    if (null !== $header-&gt;getName()) {
+        break;
+    }
+    $header-&gt;setName($headerKey);
+    $header-&gt;setValue($headerValue);
+</code></pre>
+
+<p>However, probably adding <code>Version</code> and <code>Max-Age</code> would also be necessary.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2012-02-29T18:31:59.000+0000</p> 
+        <div class="body">
+            <p>I fixed the bug with this PR <a href="https://github.com/zendframework/zf2/pull/861">https://github.com/zendframework/zf2/pull/861</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-14T22:35:37.000+0000</p> 
+        <div class="body">
+            <p>I think this issue still exists.  The RFC linked to above specifies that the name/value pair must be the first K=V pair encountered:</p>
+
+<pre class="highlight"><code>
+   The syntax for the Set-Cookie response header is
+
+   set-cookie      =       "Set-Cookie:" cookies
+   cookies         =       1#cookie
+   cookie          =       NAME "=" VALUE *(";" cookie-av)
+   NAME            =       attr
+   VALUE           =       value
+   cookie-av       =       "Comment" "=" value
+                   |       "Domain" "=" value
+                   |       "Max-Age" "=" value
+                   |       "Path" "=" value
+                   |       "Secure"
+                   |       "Version" "=" 1*DIGIT
+</code></pre>
+
+<p>{{Zend\Http\Header\SetCookie}} will accept name/value pairs anywhere in the header string:</p>
+
+<pre class="highlight"><code>
+
+diff --git a/tests/Zend/Http/Header/SetCookieTest.php b/tests/Zend/Http/Header/SetCookieTest.php
+index b7dc7a9..9b87a3c 100644
+--- a/tests/Zend/Http/Header/SetCookieTest.php
++++ b/tests/Zend/Http/Header/SetCookieTest.php
+@@ -129,8 +129,7 @@ class SetCookieTest extends \PHPUnit_Framework_TestCase
+     /** Implmentation specific tests here */
+
+     /**
+-     * ZF2-169
+-     *
++     * @group ZF2-169
+      * @see <a href="http://framework.zend.com/issues/browse/ZF2-169">http://framework.zend.com/issues/browse/ZF2-169</a>
+      */
+     public function testZF2_169()
+@@ -139,5 +138,15 @@ class SetCookieTest extends \PHPUnit_Framework_TestCase
+         $setCookieHeader = SetCookie::fromString($cookie);
+         $this-&gt;assertEquals($cookie, $setCookieHeader-&gt;toString());
+     }
++
++    /**
++     * @group ZF2-169
++     */
++    public function testDoesNotAcceptCookieNameFromArbitraryLocationInHeaderValue()
++    {
++        $cookie = 'Set-Cookie: Version=1; Max-Age=1799; Expires=Mon, 20-Feb-2012 02:49:57 GMT; Path=/; leo_auth_token="example"';
++        $setCookieHeader = SetCookie::fromString($cookie);
++        $this-&gt;assertNotEquals('leo_auth_token', $setCookieHeader-&gt;getName());
++    }
+ }
+</code></pre>
+
+<p>The above test fails.  I've fixed this in ZF-4520, and can issue a PR against ZF2 if necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-15T00:44:57.000+0000</p> 
+        <div class="body">
+            <p>Pull Request: <a href="https://github.com/zendframework/zf2/pull/929">https://github.com/zendframework/zf2/pull/929</a></p>
+
+        </div>
+    </div>
+    </div>
+

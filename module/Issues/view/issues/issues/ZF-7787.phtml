@@ -1,0 +1,195 @@
+<h2>ZF-7787: cache not taking locale into id</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-06T16:24:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-07T10:50:17.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.3 (22/Sep/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Someone replaced in private function _addTranslationData($data, $locale, array $options = array()) in Zend_Translate_Adapter:</p>
+
+<p>$id = 'Zend_Translate_' . preg_replace('/[^a-zA-Z0-9_]/', '<em>', $data) . '</em>' . $locale . '_' . $this-&gt;toString();</p>
+
+<p>with</p>
+
+<p>$id = 'Zend_Translate_' . md5(serialize($data)) . '_' . $this-&gt;toString();</p>
+
+<p>Now custom adapters that do not pass any locale info trough $data and using auto locale from browser, have same cache id for all languages (locales).</p>
+
+<p>So I created my ($data = mysql) adapter but I can't use cache (+null $locales for auto locales detection) with it.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-09-06T22:41:46.000+0000</p> 
+        <div class="body">
+            <p>Internal caching is not done by locale but by given data (which is normally a filename). Otherwise caching for multilocale input like TMX or array files would not work.</p>
+
+<p>Caching is a internal process. It has no effect on how translation works externally when the same data is provided.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by s (mymy) on 2009-09-07T01:16:40.000+0000</p> 
+        <div class="body">
+            <p>It has effect. Lets say you use null $locale (browser determines locale) and you have mysql adapter for language. You can't put filename into $data since it is mysql. So $data = 'mysql' all the time.</p>
+
+<p>Now someone enters with browser language EN - it gets saved in cache and next guest comes in with browser US (or other locale) it doesn't matter now since cache is loaded with EN for everyone until cache timeout. Id for EN and US locale is the same and locale is set in adapter if $locale = null.</p>
+
+<p>So cache causes one language for all guests until cache timeout. Right now adapter acts as if there can only be files used to store translation. Other custom adapters will not work with cache and auto locale from browser.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-09-07T03:55:51.000+0000</p> 
+        <div class="body">
+            <p>When you say "regardless of what is called, it's always the same data"... then of course also cache expects that data is always the same.</p>
+
+<p>With the actual aproach I see no problem even to use the old (errorous) behaviour when you are doing an individual adapter. You define within your adapter yourself what's being delivered to _addTranslationData and how it should behave.</p>
+
+<p>The actual implementation works when single languages are seperated in multiple sources.
+It works when single languages are in single sources.
+And  it works when multiple language are in single sources.
+Actually I see no single usecase where it does not work.</p>
+
+<p>Beside that you are free to define what's written within cache and used as basis for caching. This is on your own implementation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by s (mymy) on 2009-09-07T04:55:17.000+0000</p> 
+        <div class="body">
+            <p>Look here:</p>
+
+<p>bootstrap:</p>
+
+<p>Zend_Translate::setCache($cache);
+$translate = new Zend_Translate('My_Translate_Adapter_Mysql', 'mysql', null, array('scan' =&gt; Zend_Translate::LOCALE_DIRECTORY, 'disableNotices' =&gt; true));</p>
+
+<p>adapter:</p>
+
+<p>&lt;?php</p>
+
+<p>class My_Translate_Adapter_Mysql extends Zend_Translate_Adapter
+{
+    public function __construct($data, $locale = null, array $options = array())
+    {
+        parent::__construct($data, $locale, $options);
+    }</p>
+
+<pre><code>protected function _loadTranslationData($data, $locale, array $options = array())
+{
+       $this-&gt;_data = array();
+</code></pre>
+
+<p>//here i get translation data from mysql!</p>
+
+<pre><code>    if (!isset($this-&gt;_data[$locale])) {
+        $this-&gt;_data[$locale] = array();
+    }
+
+    $this-&gt;_data[$locale] = array_merge($this-&gt;_data[$locale], $mysql_translated);  
+
+    return $this-&gt;_data;
+}
+
+public function toString()
+{
+    return "Mysql";
+}
+</code></pre>
+
+<p>}</p>
+
+<p>Now tell me that "And it works when multiple language are in single sources." You can't. Cache will cause guests to see only ONE language that is currently cached.</p>
+
+<p>I have fixed this by disabling cache in bootstrap and using standard cache in my adapter. But it will not cache options and other translations (in forms).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-09-07T06:53:08.000+0000</p> 
+        <div class="body">
+            <p>No reason to get angry.</p>
+
+<p>Why are you not reading all translations into the cache (as it should be done) but instead only single translations ?</p>
+
+<p>Example:
+The user says - I want only english - then you load only english and say english is the only supported language...</p>
+
+<p>Why don't you, eighter load all languages at once, or load the languages on demand when you see they are not loaded ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by s (mymy) on 2009-09-07T08:21:16.000+0000</p> 
+        <div class="body">
+            <p>Well why would I want to load 3 times more data and process it every time someone opens page?</p>
+
+<p>All that data is serialized must be loaded etc. Zend is slow enough - dont want to add to it. And I don't want to limit size of the translation database. There will be much multilanguage content. I also use per page translations - loading all at once is no fun.</p>
+
+<p>Problem is only with cache id that is not using $locale. Only this that was working before is standing in my way to happines :P</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-09-07T10:50:12.000+0000</p> 
+        <div class="body">
+            <p>The caching algorithm will can not be changed to use the locale as target. This would reintroduce several bugs and break several things.</p>
+
+<p>But you could still load the translations on demand like described before.</p>
+
+<p>Something like this mock example:</p>
+
+<pre class="highlight"><code>
+if (!$translate-&gt;isAvailable($locale)) {
+    $translate-&gt;addTranslation($data, $locale, array('reload' =&gt; true));
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

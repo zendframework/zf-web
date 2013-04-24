@@ -1,0 +1,287 @@
+<h2>ZF-1241: Use DISTINCT when querying many-to-many relationships</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-04-10T18:09:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.3 (05/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Darby Felton (darby)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10401/zf1241-v1.patch">zf1241-v1.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Rob Allen writes:</p>
+
+<p>I've started playing with findManyToManyRowset() and it appears to provide multiple identical records of the destination table" if there is more than one record in the intersection table.</p>
+
+<p>Is there any way of doing a "distinct" findManyToManyRowset() so that I only get one record per destination table?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-04-11T00:20:57.000+0000</p> 
+        <div class="body">
+            <p>Possible patch attached:</p>
+
+<h1>Index: Abstract.php</h1>
+
+<p>--- Abstract.php    (revision 4462)
++++ Abstract.php    (working copy)
+@@ -657,7 +657,8 @@</p>
+
+<pre><code>     $select = $db-&gt;select()
+         -&gt;from(array('i' =&gt; $interName), array())
+</code></pre>
+
+<p>-            -&gt;join(array('m' =&gt; $matchName), $joinCond, '<em>');
++            -&gt;join(array('m' =&gt; $matchName), $joinCond, '</em>')
++            -&gt;distinct();</p>
+
+<pre><code>     $callerMap = $this-&gt;_prepareReference($intersectionTable, $this-&gt;_getTable(), $callerRefRule);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-17T17:34:58.000+0000</p> 
+        <div class="body">
+            <p>Assign to Darby.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-18T16:26:45.000+0000</p> 
+        <div class="body">
+            <p>I would like to see a use case where this makes sense to do. I have a counterexample that may indicate that we should not do this:</p>
+
+<p>Let's consider an example where we have bugs and products, where each bug may relate to many products, and each product may have many bugs, thereby providing the many-to-many relationship. We then have tables {{bugs}}, {{products}}, and {{bugs_products}}, where {{bugs_products}} is the intersection table between {{bugs}} and {{products}}. Irrelevant pseudo-schema information omitted for brevity:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE products ( 
+  product_id        PRIMARY KEY
+);
+
+CREATE TABLE bugs ( 
+  bug_id            PRIMARY KEY
+);
+
+CREATE TABLE bugs_products (
+  bug_id            REFERENCES bugs(bug_id),
+  product_id        REFERENCES products(product_id),
+  PRIMARY KEY(bug_id, product_id)
+);
+</code></pre>
+
+<p>Given this structure, it should be impossible that there exists more than one identical row in the {{bugs_products}} table. When is it okay that the intersection table has multiple identical records? Even if such cases exist and are not "edge" cases, why should the framework component automatically perform DISTINCT? I for one would want to know if my database tables did not comply with <a href="http://en.wikipedia.org/wiki/Database_normalization">normalization</a> rules.</p>
+
+<p>My feeling is that such automagical behavior is dangerous because it hides problems in the underlying database.</p>
+
+<p>Maybe there are compelling reasons to do this, but I'm not seeing it yet?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-04-18T17:19:06.000+0000</p> 
+        <div class="body">
+            <p>I came across the problem with this scenario:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE article( 
+  article_id        PRIMARY KEY
+);
+
+CREATE TABLE users ( 
+  user_id            PRIMARY KEY
+);
+
+CREATE TABLE comments (
+  comment_id  PRIMARY KEY
+  article_id        REFERENCES bugs(bug_id),
+  user_id           REFERENCES products(product_id),
+  comment  
+);
+</code></pre>
+
+<p>In this scenario, each user may comment more than once on an article, but if I want to create a list of all articles that a given user has commented on, then I wouldn't want multiple article records in the result set. (I've probably designed the database incorrectly !)</p>
+
+<p>Given that I've got this schema, I'd be happy if I could choose to have findManyToManyRowset() use "distinct" situations like this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-18T17:32:30.000+0000</p> 
+        <div class="body">
+            <p>Thanks, Rob, for illustrating the problem you are trying to solve! This helps a <em>lot</em>. :)</p>
+
+<p>I do not see a problem with your schema at all, and clearly you need the <em>ability</em> to select the distinct rows to solve the problem of creating the list. My concern is that we likely should not make retrieving distinct rows an implementation detail that cannot be overridden, but I agree that we should at least provide the ability to get distinct rows, in order to be able to solve problems like this, which probably are quite common.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-20T18:38:37.000+0000</p> 
+        <div class="body">
+            <p>We're marking this one as "won't fix" for the following reasons:</p>
+
+<ul><li>The desired result can already be reached with something like:</li>
+</ul><pre class="highlight"><code>
+$articlesDistinct = array_unique($rowset-&gt;toArray());
+</code></pre>
+
+<ul><li>You can build a custom query to meet the need with:</li>
+</ul><pre class="highlight"><code>
+$row-&gt;getTable()-&gt;getAdapter()-&gt;select()...
+</code></pre>
+
+<ul><li>Adding an option to the findManyToManyRowset() method is undesirable. It already has four parameters and is complicated enough without adding an additional "distinct?" parameter. Also, adding a parameter for DISTINCT seems to lead to opening the door for other query directives, such as GROUP BY, HAVING, ORDER BY, etc. Drawing the line on which query directives are supported would then be difficult to avoid scope creep. </li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-04-21T01:19:42.000+0000</p> 
+        <div class="body">
+            <p>Group By, Having, Order By, etc are useful too, but to me are clearly enhancements rather than a case that the function doesn't actually work as expected.</p>
+
+<p>array_unique doesn't work on an array of arrays, unless you are thinking of another function? Even then, you'd still end up with an array of arrays rather than a Zend_Db_Rowset which is more useful, so I don't think that's a very practical solution.</p>
+
+<p>The only solution is to forget about the Zend_Db_Table relationship code completely and write your own code using Zend_Db_Select.</p>
+
+<p>Obviously I disagree with marking this as "won't fix".</p>
+
+<p>Adding $select-&gt;distinct() to the current findManyToManyRowset() doesn't actually break the usage of the function for the schema that Darby pointed out. If it ever did "hide" a problem, the problem it is hiding is that the database engine doesn't handle the concept of a primary key!  I don't think that this is enough  of a reason for making findManyToManyRowset() useless for a large set of use-cases.</p>
+
+<p>i.e. I can't actually think of a use-case where you would ever want the current functionality of findManyToManyRowset(). Does anyone <em>ever</em> want the set of destination records to include duplicates?</p>
+
+<p>Even the examples in the documentation exhibit this problem as the code in the examples doesn't produce the expected result if the same user reports (or is assigned to) more than one bug against a given product. i.e. in example 9.73, $productsRowset contains the same product multiple times if a user ever reports more than one bug against the same product. Ditto for example 9.74 and 9.75. (in <a href="http://framework.zend.com/manual/en/zend.db.table.relationships.html">http://framework.zend.com/manual/en/…</a>)</p>
+
+<p>Clearly, you don't want to add an additional parameter to the function signature (which I'm fine with!), so I think that the distinct should be enforced as it doesn't break anything and will ensure that the dataset returned matches the user's expectations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-23T11:17:49.000+0000</p> 
+        <div class="body">
+            <p>I would suggest that the findManyToManyRowset() currently provides expected default behavior, since it provides all matches through the intersection table. The fundamental difference between the example I provided and the example you provided is that in your example includes multiple matching records in the intersection table, and rightfully so. :)</p>
+
+<p>Of course, array_unique() isn't exactly what you need, and you may have to write a little code to get the desired functional effect of creating a list of distinct article rows where each identified article has at least one comment authored by the user of the queried source row.</p>
+
+<p>I disagree that the only solution is to forget about the relationship code. The above example is easily workable with a foreach and an array. Maybe there are other ways to solve it, too. But yes, I think using Zend_Db_Select is also a reasonable solution.</p>
+
+<p>Let's consider then, making DISTINCT the default behavior. If we were to do this, then how to solve the following problem?</p>
+
+<p>/Given a user row, how to use findManyToManyRowset() to get the articles on which the user has commented, along with a count of how many times the user commented on each article?/</p>
+
+<p>Of course, the current implementation provides the solution already. But if we were to change the default behavior to DISTINCT, how now does a user with the above requirement solve the problem using the same method?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-04-23T14:11:34.000+0000</p> 
+        <div class="body">
+            <p>I know when I've lost!</p>
+
+<p>I'll live with customised versions of Zend_Db_Table_Row and hope you don't find too many bugs!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-23T14:28:56.000+0000</p> 
+        <div class="body">
+            <p>You have not lost at all - and I appreciate your good sense of humor. :) Instead, you bring forth a reasonable and common use case that should be easily solvable using this method. An extended row class is a fine option; for the implementation, I was thinking something like:</p>
+
+<pre class="highlight"><code>
+$articlesCommentCount = array();
+foreach ($userRow-&gt;findManyToManyRowset(...) as $articleRow) {
+    ++$articlesCommentCount[$articleRow-&gt;id];
+}
+// $articlesCommentCount contains the number of comments that the user has posted, indexed per article ID
+</code></pre>
+
+<p>This provides the extra information that would be lost by using DISTINCT and hopefully also solves the problem you presented. What do you think?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-04-23T14:56:59.000+0000</p> 
+        <div class="body">
+            <p>Deadpan British humour FTW :)</p>
+
+<p>The basics of the foreach() approach work fine if you don't have too many records to go through. I'd hate to do it on an 8000 odd result set! The main problem is that the subsequent foreach() in the view now iterates over an array rather than a Zend_Db_Rowset so instead of doing:</p>
+
+<pre class="highlight"><code>
+foreach($this-&gt;articles as $article)
+{
+    echo "" . $article-&gt;title . "\n";
+}
+</code></pre>
+
+<p>you do:</p>
+
+<pre class="highlight"><code>
+foreach($this-&gt;articles as $article)
+{
+    echo "" . $article['title'] . "\n";
+}
+</code></pre>
+
+<p>which breaks the convention we have here that "all iterations over database records are over objects". Hence you end up putting the type in to the variable name ($this-&gt;articleArray) which is just "messy" in my opinion!</p>
+
+<p>However, now that you've mentioned ORDER BY, I'm interested!  I've realised that the order I get the results out in only works cos the id is broadly equivalent to date added, but alphabetically would be nice too! Ditto LIMIT would be useful for paging...</p>
+
+<p>Now we are clearly in "feature-request land"!</p>
+
+<p>I'll have to do some serious thinking on the best way to do this sort of stuff. I can see two obvious routes: 1. adding $select as a new last parameter to the function call so that the user can set up the select object first before the function does it's bit. Or, 2. follow Zend_Db_Controller_Front's lead with setParam() to allow setting stuff for the object independently of the actual function call.  There's probably other, better, ways once we all start mulling over problem too!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-23T16:59:14.000+0000</p> 
+        <div class="body">
+            <p>To me, the prevailing reason not to make DISTINCT be the default behavior of the many-to-many query is performance:  to reduce the result set to DISTINCT entries requires the RDBMS to sort the result set, and this can incur a performance hit depending on the RDBMS brand.  So that why I'd leave the default as non-distinct (or indistinct?).</p>
+
+<p>One user on the fw-db mailing list said that using GROUP BY performs better than DISTINCT, but I wouldn't use that because it relies on nonstandard MySQL behavior.  To get good performance, one would group by the primary key of the destination table, so as to take advantage of the primary key index.  But that would leave out the other columns from the destination table, even though they are listed in the select-list.  This is permitted in MySQL, but not in standard SQL, so it would break usage in some other RDBMS brands.</p>
+
+<p>Can we postpone this enhancement (as well as ordering, limiting, etc.) to a future version?  I'd like to slow down the feature expansion in Zend_Db_Table until we can get our hands around the current functionality.  I can imagine an interface for declaring a "template" Zend_Db_Select object to use in Table and Row methods.  But this feature deserves to go through the proposal process.  It should be that we can implement it without breaking backward compatibility, so we could do it post-ZF1.0.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,181 @@
+<h2>ZF-11811: Prevent duplicate attributes on &lt;link&gt; tag when using Zend_View_Helper_HeadLink</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-10-10T14:55:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-22T16:56:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14951/ZF-11811.patch">ZF-11811.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The createDataStylesheet method in the HeadLink helper creates duplicate element attributes when they're passed into the $extra variable.</p>
+
+<p>For example:</p>
+
+<p>$this-&gt;headLink()-&gt;appendStylesheet('/css/auth.less', 'all', null, array('rel' =&gt; 'stylesheet/less'));</p>
+
+<p>Outputs:
+</p>
+
+<p>When what is really wanted is:</p>
+
+<p></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Richard Ayotte (flammon) on 2011-10-10T15:10:39.000+0000</p> 
+        <div class="body">
+            <p>Here's a patch.</p>
+
+<p>--- /usr/share/php/libzend-framework-php/Zend/View/Helper/HeadLink.php  2011-08-08 09:52:13.000000000 -0400
++++ /var/www/interacbh/library/AyotteSoftware/View/Helper/HeadLink.php  2011-10-10 11:05:05.811625279 -0400
+@@ -378,8 +378,8 @@
+             $extras = (array) $extras;
+         }</p>
+
+<ul><li>$attributes = compact('rel', 'type', 'href', 'media', 'conditionalStylesheet', 'extras');</li>
+<li>return $this-&gt;createData($attributes);</li>
+<li>$attributes = compact('rel', 'type', 'href', 'media', 'conditionalStylesheet');</li>
+<li><pre><code> return $this-&gt;createData(array_merge($attributes, $extras));
+</code></pre>
+
+<p>}</p>
+
+<p>/**
+@@ -434,4 +434,4 @@
+     $attributes = compact('rel', 'href', 'type', 'title', 'extras');
+     return $this-&gt;createData($attributes);
+ }
+-}
++}
+\ No newline at end of file</p></li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-27T19:11:26.000+0000</p> 
+        <div class="body">
+            <p>Your fix modifies the return values of a public method (by removing the 'extras' key).  Here is an alternate fix which maintains the same return signature while allowing keys in 'extras' to override the other keys:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/View/Helper/HeadLink.php
+===================================================================
+--- library/Zend/View/Helper/HeadLink.php       (revision 24537)
++++ library/Zend/View/Helper/HeadLink.php       (working copy)
+@@ -379,7 +379,7 @@
+         }
+
+         $attributes = compact('rel', 'type', 'href', 'media', 'conditionalStylesheet', 'extras');
+-        return $this-&gt;createData($attributes);
++        return $this-&gt;createData($this-&gt;_applyExtras($attributes));
+     }
+
+     /**
+@@ -432,6 +432,24 @@
+         $title = (string) $title;
+
+         $attributes = compact('rel', 'href', 'type', 'title', 'extras');
+-        return $this-&gt;createData($attributes);
++        return $this-&gt;createData($this-&gt;_applyExtras($attributes));
+     }
++
++    /**
++     * Apply any overrides specified in the 'extras' array
++     * @param array $attributes
++     * @return array
++     */
++    protected function _applyExtras($attributes)
++    {
++        if (isset($attributes['extras'])) {
++            foreach ($attributes['extras'] as $eKey=&gt;$eVal) {
++                if (isset($attributes[$eKey])) {
++                    $attributes[$eKey] = $eVal;
++                    unset($attributes['extras'][$eKey]);
++                }
++            }
++        }
++        return $attributes;
++    }
+ }
+Index: tests/Zend/View/Helper/HeadLinkTest.php
+===================================================================
+--- tests/Zend/View/Helper/HeadLinkTest.php     (revision 24537)
++++ tests/Zend/View/Helper/HeadLinkTest.php     (working copy)
+@@ -467,6 +467,16 @@
+         $this-&gt;helper-&gt;appendStylesheet(array('href' =&gt; '/bar/baz', 'id' =&gt; 'foo'));
+         $this-&gt;assertContains('id="foo"', $this-&gt;helper-&gt;toString());
+     }
++
++    /**
++     * @group ZF-11811
++     */
++    public function testHeadLinkAllowsOverrideOfRelAttribute()
++    {
++        $this-&gt;helper-&gt;appendStylesheet('/css/auth.less', 'all', null, array('rel' =&gt; 'stylesheet/less'));
++        $this-&gt;assertEquals(1, substr_count($this-&gt;helper-&gt;toString(), "rel=\""));
++        $this-&gt;assertContains('rel="stylesheet/less"', $this-&gt;helper-&gt;toString());
++    }
+ }
+
+ // Call Zend_View_Helper_HeadLinkTest::main() if this source file is executed directly.
+</code></pre>
+
+<p>All unit tests in the Zend_View_Helper suite pass for me after this addition.  Could you please apply this patch and give it a try?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-22T16:56:11.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24814</p>
+
+        </div>
+    </div>
+    </div>
+

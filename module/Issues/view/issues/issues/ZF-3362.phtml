@@ -1,0 +1,223 @@
+<h2>ZF-3362: about BCC and TO in Zend_Mail_Transport_Sendmail</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Docs:  Problem</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-01T11:04:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-12-14T14:19:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12218/patch_ZF3362.diff">patch_ZF3362.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code> $mail-&gt;addTo('me@example.com');
+$mail-&gt;addBcc('him@example.com');
+$mail-&gt;addBcc('them@example.com');
+</code></pre>
+
+<p>The above code snippet adds all three mail addresses to the TO field. $mail is an instance of Zend_Mail. I would expect the latter two to be added to BCC field.</p>
+
+<p>I am using standard/trunk from svn at the time 1.5.2 is released.</p>
+
+<p>NOTE: 
+Applies to using IIS under VISTA with no explicit mail transport set.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-06-01T12:33:17.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karl Mikkelsen (kingkarl85) on 2008-06-11T21:42:11.000+0000</p> 
+        <div class="body">
+            <p>To fix this problem</p>
+
+<p>File: Zend/Mail.php</p>
+
+<p>500    /**
+501     * Return list of recipient email addresses
+502     *
+503     * @return array (of strings)
+504     */
+505    public function getRecipients()
+506    {
+507     return $this-&gt;_to;
+508//        return array_keys($this-&gt;_recipients);
+509    }</p>
+
+<p>This returns all recipients by default
+comment out line 508 and replace with line 507 to only return those added in the two!!!</p>
+
+<p>CC and BCC will still work as they are added to the headers which are still included.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karl Mikkelsen (kingkarl85) on 2008-06-11T21:57:15.000+0000</p> 
+        <div class="body">
+            <p>Further Investigation found this is only happening on a windows machine IIS not on apache on linux</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-06-12T01:57:33.000+0000</p> 
+        <div class="body">
+            <p>I must add that in my case it happens on windows Vista BU using Apache and remote smtp server of ISP.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karl Mikkelsen (kingkarl85) on 2008-06-12T17:03:02.000+0000</p> 
+        <div class="body">
+            <p>**** Ignore the last change as it ill muck up the function to find out what recipients are getting mail ****</p>
+
+<p>Yeah you would be right Bart - This would happen on all Windows machines as it has to do with the way the built-in mail(); function works.</p>
+
+<p>On windows it acts as a kind of smtp router - on linux it is a direct hook into the sendmail MTA.</p>
+
+<p>So there is a fundamental difference in the two and hence why the bug only turns up on a windows installation.</p>
+
+<p>The following fix only puts the "To" recipients to the $to; in mail(); and all the Bcc and Cc are still added to the headers to they still get the email!!!!!</p>
+
+<p>Change file....</p>
+
+<p>File: Zend/Mail/Transport/Abstract.php</p>
+
+<p>// Determine recipients, and prepare headers 
+REMOVE THIS LINE 
+// $this-&gt;recipients = implode(',', $mail-&gt;getRecipients()); /** This is the old code which gets all recipients and adds them to the "to" in mail() - this is not good */</p>
+
+<p>ADD THIS LINE 
+$this-&gt;recipients = implode(',', $mail-&gt;getTo()); // now you only get the _to recipients to add to the to in mail()</p>
+
+<p>$this-&gt;_prepareHeaders($this-&gt;_getHeaders($boundary)); //All Bcc and Cc are still added as they are added in the headers where they belong</p>
+
+<p>Add this function to...</p>
+
+<p>File: Zend/Mail.php</p>
+
+<p>/** 
+* Return list of "To" recipient email addresses only, this ignore's the Cc and Bcc 
+* 
+* @return array (of strings) 
+*/ 
+public function getTo() 
+{ 
+return $this-&gt;_to; 
+}</p>
+
+<p>This is a better fix!!!!!!!! - Same basic idea though</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nico Edtinger (nico) on 2008-06-18T10:59:31.000+0000</p> 
+        <div class="body">
+            <p>Am I right, that this only happens with the sendmail transport? mail() has a different behavior under Windows. Have you tried using Zend_Mail_Transport_Smtp? Does it have similar problems?</p>
+
+<p>I currently don't have a Windows with PHP here, so if anyone is faster than me providing a patch ... But recipients and the to header are two different things. The recipients are used for the envelope and if you replace it with what's in the to header you might break the SMTP transport. There is already special treatment for Windows in Zend_Mail_Transport_Sendmail::_prepareHeaders() and if there's something that should be fixed it's in this method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-06-18T12:41:07.000+0000</p> 
+        <div class="body">
+            <p>I must admit that I did not look into transport at all. I have seen it  come by when reading about Zend_Mail, but I thought, well, if it wraps mail(), it will work, since mail() works. This basically means that I did not set the transport explicitly, so I am using the default behavior under windows.</p>
+
+<p>To me personally it doesn't really matter if it gets fixed fast, my production server being linux.</p>
+
+<p>I tried the transport just now, to be sure if it makes a difference, and yes, it does, under windows using new Zend_Mail_Transport_Smtp('smtp.myserver.nl') works as it should!</p>
+
+<p>So I guess it may come down to choosing the right transport for the job. The only downside I can see is that I will now have to configure the smtp server for the live host and the local testserver. But that's no big deal.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-06-18T12:43:25.000+0000</p> 
+        <div class="body">
+            <p>Changed priority to minor, because it works under windows if you use Zend_Mail_Transport_Smtp.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2009-01-03T17:30:33.000+0000</p> 
+        <div class="body">
+            <p>Change summary to be more understandable easyly</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-01-04T01:31:08.000+0000</p> 
+        <div class="body">
+            <p>Changed summary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-09-18T04:52:49.000+0000</p> 
+        <div class="body">
+            <p>I'll close this as documentation related issue, since this is also stated in the PHP manual and stuff.</p>
+
+<p>A passage will be added to the documentation and i'll close, any comments?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-09-18T11:21:11.000+0000</p> 
+        <div class="body">
+            <p>Fixed as documentation issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-09-24T01:52:15.000+0000</p> 
+        <div class="body">
+            <p>Well done.</p>
+
+        </div>
+    </div>
+    </div>
+

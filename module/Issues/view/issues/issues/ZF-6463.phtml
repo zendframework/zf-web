@@ -1,0 +1,304 @@
+<h2>ZF-6463: Binding params in where clause</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-29T01:14:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-09-14T10:04:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5262">ZF-5262</a></li>
+            <li><a href="/issues/browse/ZF-6517">ZF-6517</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,
+There is a big problem in fetch* methods on Zend_Db_Table and update, delete methods on Zend_Db_Adapter_Abstract because the where conditions parameters are not binded, they are just escaped and replaced into the condition.  Here is an example:</p>
+
+<pre class="highlight"><code>
+$myTable = new Zend_Db_Table_MyTable();
+$result = $myTable-&gt;fetchAll(array('label = ?' =&gt; 'MyLabel'));
+</code></pre>
+
+<p>What is the query executed?</p>
+
+<pre class="highlight"><code>
+SELECT MY_TABLE.* FROM MY_TABLE WHERE (label = 'MyLabel')
+</code></pre>
+
+<p>Wich is wrong!!
+the query should be</p>
+
+<pre class="highlight"><code>
+SELECT MY_TABLE.* FROM MY_TABLE WHERE (label = ?)
+</code></pre>
+
+<p>and MyLabel send as parameter.</p>
+
+<p>For fetch methods the problem is in Db_Table_Abstract. The '?' is just replaced using the _whereExpr() function.</p>
+
+<p>For update/delete methods the problem is in Db_Adapter_Abstract.</p>
+
+<p>Why this problem is so important? Because in Oracle we have a limited number of unique queries to execute and this bug will create many queries in db instead of only one.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-05-04T04:12:26.000+0000</p> 
+        <div class="body">
+            <p>But as of ZF 1.8.0 Zend_Db_Table_Select does allow bind variables, and this is now the approach recommended by the documentation (see <a href="http://framework.zend.com/manual/en/zend.db.table.html#zend.db.table.fetch-all">http://framework.zend.com/manual/en/…</a>):</p>
+
+<pre class="highlight"><code>
+$myTable = new Zend_Db_Table_MyTable();
+$result = $myTable-&gt;fetchAll($myTable-&gt;select()-&gt;where('label=:LABEL')
+                                         -&gt;bind(array(':LABEL'=&gt;'MyLabel')));
+</code></pre>
+
+<p>This is the approach we are using with Oracle at the moment.</p>
+
+<p>However, I think than now that Zend_Db_Select supports bind variables, Zend_Db should be upgraded to take advantage of them. For example, in Zend_Db_Select::_where() replace:</p>
+
+<pre class="highlight"><code>
+        if ($value !== null) {
+            $condition = $this-&gt;_adapter-&gt;quoteInto($condition, $value, $type);
+        }
+</code></pre>
+
+<p>with something like:</p>
+
+<pre class="highlight"><code>
+        if ($value !== null) {
+            if ($this-&gt;_adapter-&gt;supportsParameters('named')) {
+                $bind=$this-&gt;getBind();
+                $bindVariable = ':' . count($bind)+1;
+                if (isset($bind[$bindVariable]) then {
+                    require_once 'Zend/Db/Select/Exception.php';
+                    throw new Zend_Db_Select_Exception("Invalid use of both named and positional parameters');
+                }
+                $condition = str_replace('?', $bindVariable, $condition);
+                $bind[$bindVariable] = $value;
+                $this-&gt;bind($bind);
+            } else {
+                $condition = $this-&gt;_adapter-&gt;quoteInto($condition, $value, $type);
+            }
+        }
+</code></pre>
+
+<p>This would make Zend_Db_Table_Select (and Zend_Db_Table::fetchAll()) generate queries using bind parameters for the old - $result = $myTable-&gt;fetchAll(array('label = ?' =&gt; 'MyLabel')); - syntax too.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Raul Simiciuc (byraul) on 2009-05-04T04:35:18.000+0000</p> 
+        <div class="body">
+            <p>For Db_Table this can be a solution, but what about Db_Adapter (update and delete function) where i need to bind parameters in condition?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-05-04T04:51:32.000+0000</p> 
+        <div class="body">
+            <p>Raul, I agree that Zend_Db_Table_Adapter_Abstract::_whereExpr() should be updated to allow bind parameters in the where clause.</p>
+
+<p>We have been using bind parameters on Zend_Db_Table for a while (initially using our own subclass of Zend_Db_Table), but I haven't found the time to look at ..Adapter::update and ::delete yet.</p>
+
+<p>My guess is that something similar to my suggestion for Zend_Db_Select::_where() above should work, although the ::update is using positional parameters if possible, so you would need to default to using those, instead of named parameters. You would also need to add $bind as an optional parameter to ::_whereExpr() so that it could update the bind array.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-05-18T12:38:29.000+0000</p> 
+        <div class="body">
+            <p>It sounds like this is not a bug as its not preventing execution of queries.  So I can changing to feature request.</p>
+
+<p>Also, I am mostly unclear on what is being asked to be done and exactly what is asked to be supported.  Can you please provide simple use case that demonstrate what is not possible and what you think <em>should</em> be possible?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Alexandru (acid24) on 2009-07-09T23:53:00.000+0000</p> 
+        <div class="body">
+            <p>@Ralph Schindler</p>
+
+<p>Indeed the execution of queries is not affected. This is rather an optimization issue with some of the RDBMS (Oracle is one of them). So here is the problem. Let's say I have a Zend Db Table instance and I want to update a row in the table. I can do the following</p>
+
+<p>$callId = 5;
+$calls = new Demo_Db_Table_Calls();
+$where = $calls-&gt;getAdapter()-&gt;quoteInto( 'call_id = ?', $callId );
+$data = array( 'is_winner'  =&gt; 1 );
+$calls-&gt;update( $data, $where );</p>
+
+<p>The query sent out to the database server is:</p>
+
+<p>UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = '5');</p>
+
+<p>The query sent out to the database server should be:</p>
+
+<p>UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = ?)</p>
+
+<p>Sending queries with hard coded literals like this:</p>
+
+<p>UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = '5')
+UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = '6')
+UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = '7')
+UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = '8')</p>
+
+<p>will make the Oracle database server to think that it's dealing with unique queries (when in fact they are not, except the literal value) and create a new execution plan (which is costly in terms of resources) for each of this queries. The bottom line is the queries will take longer. If queries like:</p>
+
+<p>UPDATE "winning_call"."call_id" SET "is_winner" = ? WHERE (call_id = ?)</p>
+
+<p>were to be sent out to the Oracle database server an execution plan will be created ONCE (the first time) and then subsequent queries will benefit from cached execution plan.</p>
+
+<p>In large application where every second lost matters and speed is of the essence, this is a big problem.</p>
+
+<p>To be fair I apparently googled a possible solution to this problem, but it involves editing an oracle configuration file and as we know not everybody is in control of their database server to be able to benefit from it. You can read about it here <a href="http://www.oracle.com/technology/oramag/oracle/06-jan/o16asktom.html">http://oracle.com/technology/oramag/…</a>.</p>
+
+<p>I should mention that this problem is also present when making use of the Zend_Db_Abstract::delete() method and possibly others.</p>
+
+<p>Thank you.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Raul Simiciuc (byraul) on 2009-07-10T00:07:20.000+0000</p> 
+        <div class="body">
+            <p>This problem is still present in 1.8 and i don't think that this can be categorized as minor priority, because can be a big problem on large applications or even a blocker in applications with limited resources.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by asif ali (geeni.in) on 2009-08-30T19:58:21.000+0000</p> 
+        <div class="body">
+            <p>Any status on this issue. I am curious to know whether there is a possibility to use binding for update/delete actions?</p>
+
+<p>I am using Zend 1.7.7 version with Oracle 10g</p>
+
+<p>-Asif</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Manuel (xpertindia) on 2009-12-14T14:54:20.000+0000</p> 
+        <div class="body">
+            <p>ZF 1.9.6 (Not Resolved)</p>
+
+<p>I use this - $myTableObject is Zend_Db_Table object</p>
+
+<p>$select1 = $myTableObject-&gt;select()-&gt;limit(10,0)-&gt;order('upper(name) asc')-&gt;where(" name like :name ")-&gt;bind(array(':name'=&gt;'5%'));
+$data = $myTableObject-&gt;fetchAll($select1);</p>
+
+<p>And it throws an exception -</p>
+
+<p>Exception information:
+Message: Invalid bind-variable name ':name'</p>
+
+<h1>0 C:\ZF-1.8.1\library\Zend\Db\Statement.php(114): Zend_Db_Statement-&gt;_parseParameters('SELECT `re_prop...')</h1>
+
+<h1>1 C:\ZF-1.8.1\library\Zend\Db\Adapter\Mysqli.php(381): Zend_Db_Statement-&gt;__construct(Object(Zend_Db_Adapter_Mysqli), 'SELECT `re_prop...')</h1>
+
+<h1>2 C:\ZF-1.8.1\library\Zend\Db\Adapter\Abstract.php(467): Zend_Db_Adapter_Mysqli-&gt;prepare('SELECT `re_prop...')</h1>
+
+<h1>3 C:\ZF-1.8.1\library\Zend\Db\Table\Abstract.php(1509): Zend_Db_Adapter_Abstract-&gt;query(Object(Zend_Db_Table_Select))</h1>
+
+<p>A dump of  Zend_Db_Select object $select1 shows that the information exists in the class</p>
+
+<p>["_bind:protected"] =&gt; array(1) {
+    [":name"] =&gt; string(2) "5%"</p>
+
+<p>["_bind:protected"] =&gt; array(1) {
+    [":name"] =&gt; string(2) "5%"
+  }</p>
+
+<p>I suppose this binding needs to be implemented to enable queries that are more optimized for Oracle as well as MySql. We are working with 100's of thousands of rows and is a bottle-neck.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Zander (t.zander) on 2010-02-24T06:13:02.000+0000</p> 
+        <div class="body">
+            <p>This is also a real problem when using the Sqlsrv Adapter with Microsoft SQL Server and trying to delete or update something querying with a unicode string.</p>
+
+<p>As the _quote method of Zend_Db_Adapter_Sqlsrv quotes only in a non-unicode matter. (For Microsoft SQL Server it's required to prepend a "N" before a string to flag it as unicode)
+So we must use prepared statements for every query to the server which could contain a unicode string.</p>
+
+<p>Querying a japanese database row:</p>
+
+<p>Correct:
+$myTableObject-&gt;select()-&gt;where('myColumn = ?', '漢字');</p>
+
+<p>Fails:
+$myDatabase-&gt;query('SELECT * FROM myTable WHERE myColumn = ' . $myDatabase-&gt;quote('漢字'));
+As it's transformed to SELECT * FROM myTable WHERE myColumn = '漢字', which is not a Unicode string in Microsoft SQL Server way. Query should be SELECT * FROM myTable WHERE myColumn = N'漢字'</p>
+
+<p>So missing binding for updates and deletes it's not possible to manipulate these rows without losing the option to replace the adapter and database system.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dennis Ploeger (ploeger) on 2011-03-29T08:04:56.000+0000</p> 
+        <div class="body">
+            <p>People, could you please update the documentation until this bug/feature request is fixed? I just wanted to use bind variables with the DB_ADAPTER-&gt;delete method and found out (by interpreting the source and searching the issue tracker), that this problem exists.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Miriam N (mirian01) on 2011-09-14T10:04:54.000+0000</p> 
+        <div class="body">
+            <p>I also have problems with binding in wheres...
+and have 2 additional questions:
+1. Why there is a difference between the "fetch" behavior between the adapter and the db_Table?? the first 
+supports binding in "fetch" functions while the latter- does not.</p>
+
+<ol><li>I see in the documentation that in the past there was a way to bind parameters to the where db select. see here: <a href="http://framework.zend.com/manual/en/zend.db.table.html#zend.db.table.fetch-all">http://framework.zend.com/manual/en/…</a>):
+and here is a sample of the code example:
+$rows = $table-&gt;fetchAll(
+$table-&gt;select()
+    -&gt;where('bug_status = :status')
+    -&gt;bind(array(':status'=&gt;'NEW')
+    -&gt;order('bug_id ASC')
+    -&gt;limit(10, 0)
+);
+But I don't want to use this old version....</li>
+</ol>
+        </div>
+    </div>
+    </div>
+

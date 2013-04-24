@@ -1,0 +1,545 @@
+<h2>ZF-998: Possibility to merge two Zend_Config objects</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-01T16:19:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-01-23T14:40:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.2 (25/Sep/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10810/zf-998.patch">zf-998.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I propose the ability to merge two Zend_Config objects.
+The purpose is to overload a default configuration with another.</p>
+
+<p>For example, this is the default conf inside a package</p>
+
+<pre class="highlight"><code>
+$default_conf_array = array(
+    'wonderful_feature_but_instable' =&gt; false,
+    'some_files' =&gt; array(
+        'foo'=&gt;'dir/foo.xml',
+        'bar'=&gt;'dir/bar.xml',
+    ),
+);
+$default_conf = new Zend_Config($default_conf_array);
+</code></pre>
+
+<p>Then this is my own conf outside the previous package</p>
+
+<pre class="highlight"><code>
+$user_conf_array = array(
+    'wonderful_feature_but_instable'=&gt;true,
+    'some_files' =&gt; array(
+       'bar' =&gt; 'myDir/bar.xml',
+       'baz' =&gt; 'myDir/baz.xml,
+    ),
+);
+$user_conf = new Zend_Config($user_conf_array);
+</code></pre>
+
+<p>Now  i want to overload the package default conf
+the result could be into a new object</p>
+
+<pre class="highlight"><code>
+$merged_conf = Zend_Config::merge($default_conf, $user_conf);
+</code></pre>
+
+<p>or updated with a method</p>
+
+<pre class="highlight"><code>
+$default_conf-&gt;merge($user_conf);
+</code></pre>
+
+<p>anyway the expected result should be</p>
+
+<pre class="highlight"><code>
+array(    
+    'wonderful_feature_but_instable'=&gt;true,
+    'some_files' =&gt; array(
+       'foo' =&gt; 'dir/foo.xml',
+       'bar' =&gt; 'myDir/bar.xml',
+       'baz' =&gt; 'myDir/baz.xml,
+    ),
+);
+</code></pre>
+
+<p>It will be very useful for my needs (hoping that i'm not alone :)
+If you like the idea but don't have enough time, i can do the work.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-03-02T01:03:04.000+0000</p> 
+        <div class="body">
+            <p>Doesn't something like:</p>
+
+<pre class="highlight"><code>
+$merged = new Zend_Config(array_merge($default_conf-&gt;asArray(), $user_conf-&gt;asArray()));
+</code></pre>
+
+<p>work?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Romain Lalaut (roro) on 2007-03-02T07:36:26.000+0000</p> 
+        <div class="body">
+            <p>No because array_merge() is not recursive... and array_merge_recursive() has a bad behaviour with the keys (see comments <a href="http://php.net/manual/en/function.array-merge-recursive.php">http://php.net/manual/en/…</a>)</p>
+
+<p>I used this static method for a personal project</p>
+
+<pre class="highlight"><code>
+    public static function mergeArrays( &amp;$offset1, $offset2 )
+    {
+        $type1 = is_array($offset1);
+        $type2 = is_array($offset2);
+        
+        // if both offsets don't have same type : problem
+        if( $type1 != $type2 )
+                throw new MergeArraysException( $offset1, $offset2 );
+        
+        // both are not an array (string, int, ...) ? it means we must replace the current value
+        if( !$type1 ) // &amp;&amp; !$type2
+            $offset1 = $offset2;
+        
+        // both are an array : recursivity 
+        else
+            foreach ( $offset2 as $key2=&gt;$foo )
+                self::mergeArrays($offset1[$key2], $offset2[$key2]);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Uros (sekundek) on 2007-03-05T07:51:20.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I modified Config like this</p>
+
+<pre class="highlight"><code>
+
+public function __construct($array, $allowModifications = false)
+    {
+        $this-&gt;_allowModifications = (boolean) $allowModifications;
+        $this-&gt;_loadedSection = null;
+        $this-&gt;_index = 0;
+        $this-&gt;_data = array();
+        foreach ($array as $key =&gt; $value) {
+            if ($this-&gt;_isValidKeyName($key)) {
+                if (is_array($value)) {
+                    $this-&gt;_data[$key] = new Zend_Config($value, $this-&gt;_allowModifications);
+                } else {
+                    $this-&gt;_data[$key] = $value;
+                }
+            } elseif ( $value instanceof Zend_Config ) {
+                foreach ($value as $key =&gt; $v) {
+                    if ($this-&gt;_isValidKeyName($key)) {
+                        if (is_array($v)) {
+                            $this-&gt;_data[$key] = new Zend_Config($v, $this-&gt;_allowModifications);
+                        } else {
+                            $this-&gt;_data[$key] = $v;
+                        }
+                    }  else {
+                        throw new Zend_Config_Exception("Invalid key: '$key'");
+                    }             
+                }
+            } else {
+                throw new Zend_Config_Exception("Invalid key: '$key'");
+            }
+        }
+        $this-&gt;_count = count($this-&gt;_data);
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-03-07T15:42:39.000+0000</p> 
+        <div class="body">
+            <p>Why does inter-section inheritance not fulfill your need to inherit and override configuration data? I'm unsure from the problem description that you could not structure your configuration data into sections:</p>
+
+<pre class="highlight"><code>
+; ini format example
+
+[development]
+database.host = 'db.dev.example.com'
+database.name = 'mydata'
+; ...
+
+[production : development]
+database.host = 'db.example.com'
+; ...
+</code></pre>
+
+<p>In the above example, you could load the {{development}} or the {{production}} section. If you load the {{production}} section, it inherits all the values from {{development}}, and, as you can see, {{database.host}} has been overridden to a different server. The {{database.name}} value, however, would remain equal to {{mydata}}.</p>
+
+<p>Zend_Config was specifically designed to support config data inheritance; for what reasons can you not use the built-in support?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-05-30T16:18:36.000+0000</p> 
+        <div class="body">
+            <p>I have resolved this issue as discussion has stalled as to the benefits a merge system would have over using inter-section inheritance.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2007-06-29T14:34:29.000+0000</p> 
+        <div class="body">
+            <p>This functionality is useful when you want a settings file that can be checked in to your repository and one that is developer/environment-specific, but that you don't want checked in.  Having two separate files is essential, but having multiple Zend_Config objects is a hassle.</p>
+
+<p>For example, say I have the basic configuration file:</p>
+
+<pre class="highlight"><code>
+<a href="http://keithdevens.com/weblog/archive/2003/Jul/10/MergeTwoArraysV2">production]
+; settings...
+
+[development : production]
+; other settings...
+</a></code></pre>
+
+<p>In groups, an individual developer will need to supply his own settings that might override development settings.  For example, they will need to change {{database.port}} to their database instance.  You don't want this file checked in accidentally and somehow missed by QA--that would be bad.  Thus, separate configurations that are merged together.</p>
+
+<p>Here's one way to do it.  I've implemented this functionality based on a function written by Keith Devens (i.e., _mergeArrays(), posted on [his blog).  I'm not sure about the licensing, but he has <a href="http://keithdevens.com/software/license">his own license</a>.  I have contacted him to get clarification.</p>
+
+<p>In Zend_Config:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Merge two configurations.
+     *
+     * @see    _mergeArrays()
+     * @param  Zend_Config $otherConfig Configuration to merge with
+     * @return Dna_Configuration
+     */
+    public function mergeWith(Zend_Config $otherConfig)
+    {
+        $array = $this-&gt;_mergeArrays($this-&gt;toArray(), $otherConfig-&gt;toArray());
+        $this-&gt;__construct($array, $this-&gt;_allowModifications);
+
+        return $this;
+    }
+
+    /**
+     * Recursively merges two arrays and returns the result.
+     *
+     * Where there is duplication, values from the second array overwrite 
+     * values from the first.  This differs from array_merge_recursive() and 
+     * the + operator, which append those values into a new array.
+     *
+     * @param  array $a First array
+     * @param  array $b Second array (supercedes first array)
+     * @return array Merged array
+     */
+    protected function _mergeArrays($a, $b)
+    {
+        if (is_array($a) and is_array($b) and !array_key_exists(0, $a)) {
+            while (list($key) = each($b)) {
+                if (array_key_exists($key, $a)) {
+                    $a[$key] = $this-&gt;_mergeArrays($a[$key], $b[$key]);
+                } else {
+                    $a[$key] = $b[$key];
+                }
+            }
+        } else {
+            $a = $b;
+        }
+        return $a;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-06-29T17:28:30.000+0000</p> 
+        <div class="body">
+            <p>Alternatively, you can solve the problem by having each developer with his own settings that inherit from the "{{development}}" section. If committing such information is undesirable, this is also easily solved by using <a href="http://svnbook.red-bean.com/nightly/en/svn-book.html#svn.advanced.props.special.ignore">svn:ignore</a>. There is a configuration file that is in the repository and used by default, but if a copy of it exists at a known location, then the copy is used (and ignored by SVN). (Similar functionality is available in other SCM programs like CVS.)</p>
+
+<p>This is the same methodology used in the test suite, where TestConfiguration.php.dist is the default configuration, and users can copy this file to TestConfiguration.php, making whatever changes they like, and SVN ignores the file so that it is not committed with other work.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Simons (ixulai) on 2007-09-13T15:37:04.000+0000</p> 
+        <div class="body">
+            <p>I don't like hacking classes; Here is a non-destructive OO approach</p>
+
+<pre class="highlight"><code> 
+class Ixulai_Config_Compound extends Zend_Config
+{
+    public function __construct(Array $configs, $allowModifications = false)
+    {
+        $compoundConfig = array();
+
+        foreach($configs as $config) {
+
+            if(!($config instanceof Zend_Config)) {
+                throw new Zend_Config_Exception('All elements of config array must be an instance of Zend_Config');
+            }
+
+            $compoundConfig = $this-&gt;_mergeRecursive($compoundConfig, $config-&gt;toArray());
+        }
+
+        parent::__construct($compoundConfig, $allowModifications);
+    }
+
+    protected function _mergeRecursive($array1, $array2)
+    {
+        if(is_array($array1) &amp;&amp; is_array($array2)) {
+            $keys = array_keys($array2);
+            foreach($keys as $key) {
+                if(isset($array1[$key])) {
+                    $array1[$key] = $this-&gt;_mergeRecursive($array1[$key], $array2[$key]);
+                } else {
+                    $array1[$key] = $array2[$key];
+                }
+            }
+        } else {
+            $array1 = $array2;
+        }
+
+        return $array1;
+    }
+}
+</code></pre>
+
+<p>I believe I may have borrowed the mergeRecursive function from the same place as the one above though mine looks a bit different. I've had it kicking around for a while. It doesn't matter; any recursive merge function would work, even array_merge_recursive if thats what you need.</p>
+
+<p>You can compound configs as many times as you like...</p>
+
+<pre class="highlight"><code>
+$config1 = new Zend_Config_Xml('test.xml');
+$config2 = new Zend_Config_Ini('test.ini');
+$config3 = new Zend_Config(array('moo'));
+//Create a merge of 1 &amp; 2
+$config4 = new Ixulai_Config_Compound($config1, $config2);
+//Create a merge of 3 with the result from merging 1 &amp; 2
+$config5 = new Ixulai_Config_Compound($config3, $config4);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mike Simons (ixulai) on 2007-09-13T15:41:05.000+0000</p> 
+        <div class="body">
+            <p>Doh; Examples above for config4 and 5 should have arguments in an array.
+Thats what you get for not testing examples.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-09-14T07:52:00.000+0000</p> 
+        <div class="body">
+            <p>Pasting from <a href="http://www.nabble.com/Re%3A-Merging-Zend_Config-objects--p12674222s16154.html">original message</a> by [~nico]:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+function _fix_merge($array) {
+    foreach($array as $k =&gt; $v) {
+        if (!is_array($v)) {
+            continue;
+        }
+        if (is_int(key($v))) {
+            $array[$k] = $v[1];
+        } else {
+            $array[$k] = _fix_merge($v);
+        }
+    }
+    
+    return $array;
+}
+
+$config1 = new Zend_Config_Ini(...);
+$config2 = new Zend_Config_Ini(...);
+$config = new Zend_Config(_fix_merge(array_merge_recursive($config1-&gt;toArray(), $config2-&gt;toArray())));
+?&gt;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-09-15T15:25:23.000+0000</p> 
+        <div class="body">
+            <p>Suggested patch:</p>
+
+<pre class="highlight"><code>
+/**
+ * Merge another Zend_Config with this one. The items
+ * in $merge will override the same named items in
+ * the current config.
+ *
+ * @param Zend_Config $merge
+ * @return Zend_Config
+ */
+public function merge(Zend_Config $merge)
+{
+    foreach($merge as $key =&gt; $item) {
+        if(array_key_exists($key, $this-&gt;_data)) {
+            if(get_class($item) == 'Zend_Config'  &amp;&amp; get_class($this-&gt;$key) == 'Zend_Config') {
+                $this-&gt;$key = $this-&gt;$key-&gt;merge($item);
+            } else {
+                $this-&gt;$key = $item;
+            }
+        } else {
+            $this-&gt;$key = $item;
+        }
+    }
+    
+    return $this;
+}
+</code></pre>
+
+<p>Test:</p>
+
+<pre class="highlight"><code>
+public function testMerge()
+{
+    $stdArray = array(
+        'test_feature' =&gt; false,
+        'some_files' =&gt; array(
+            'foo'=&gt;'dir/foo.xml',
+            'bar'=&gt;'dir/bar.xml',
+        ),
+        2 =&gt; 123,
+    );
+    $stdConfig = new Zend_Config($stdArray, true);
+    
+    $devArray = array(
+        'test_feature'=&gt;true,
+        'some_files' =&gt; array(
+           'bar' =&gt; 'myDir/bar.xml',
+           'baz' =&gt; 'myDir/baz.xml',
+        ),
+        2 =&gt; 456,
+    );
+    $devConfig = new Zend_Config($devArray);
+    
+    $stdConfig-&gt;merge($devConfig);
+    
+    $this-&gt;assertTrue($stdConfig-&gt;test_feature);
+    $this-&gt;assertEquals('myDir/bar.xml', $stdConfig-&gt;some_files-&gt;bar);
+    $this-&gt;assertEquals('myDir/baz.xml', $stdConfig-&gt;some_files-&gt;baz);
+    $this-&gt;assertEquals('dir/foo.xml', $stdConfig-&gt;some_files-&gt;foo);
+    $this-&gt;assertEquals(456, $stdConfig-&gt;{2});
+}
+</code></pre>
+
+<p>Anyone have any objections to me committing this to the trunk?</p>
+
+<p>Regards,</p>
+
+<p>Rob...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-09-17T08:38:18.000+0000</p> 
+        <div class="body">
+            <p>I like this patch, Rob. Why did you choose {{get_class()}} over {{instanceof}}? The former approach does not support extending Zend_Config as easily, since one will have to override the {{merge()}} method in such cases where the method will be used in an extending class. Otherwise, I think this would be a nice, self-contained feature we could squeeze into 1.0.2.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-09-17T09:45:31.000+0000</p> 
+        <div class="body">
+            <p>I forgot all about instanceof !  I'll change it this evening and get it onto the trunk.</p>
+
+<p>Rob...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-09-17T13:38:34.000+0000</p> 
+        <div class="body">
+            <p>Updated merge function:</p>
+
+<pre class="highlight"><code>
+public function merge(Zend_Config $merge)
+{
+    foreach($merge as $key =&gt; $item) {
+        if(array_key_exists($key, $this-&gt;_data)) {
+            if($item instanceof Zend_Config &amp;&amp; $this-&gt;$key instanceof Zend_Config) {
+                $this-&gt;$key = $this-&gt;$key-&gt;merge($item);
+            } else {
+                $this-&gt;$key = $item;
+            }
+        } else {
+            $this-&gt;$key = $item;
+        }
+    }
+    
+    return $this;
+}
+</code></pre>
+
+<p>Commited to trunk in svn revision 6387.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-09-17T14:05:15.000+0000</p> 
+        <div class="body">
+            <p>Merged to 1.0.2 in r6389.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2007-09-21T12:40:11.000+0000</p> 
+        <div class="body">
+            <p>Thanks, Rob.  Now I can get rid of my custom class.  :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-01-23T14:40:49.000+0000</p> 
+        <div class="body">
+            <p>Fixing Fix Version to follow issue tracker conventions.</p>
+
+        </div>
+    </div>
+    </div>
+

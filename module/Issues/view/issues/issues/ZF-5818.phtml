@@ -1,0 +1,412 @@
+<h2>ZF-5818: parse_url() warnings and headers already sent when debugging with Zend Studio</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-17T13:31:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-18T11:57:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7364">ZF-7364</a></li>
+            <li><a href="/issues/browse/ZF-5965">ZF-5965</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11762/buggy.zip">buggy.zip</a></li>
+            <li><a href="/issues/secure/attachment/11855/Http.php.patch">Http.php.patch</a></li>
+            <li><a href="/issues/secure/attachment/11857/HttpTest.php.patch">HttpTest.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This may be a problem with ZF, or Zend Studio or both...but it's a blocker and something should be done.</p>
+
+<p>I've been using ZF for a half year now, upgrading everytime a new release is out. I used all versions since 1.5, and now when reaching 1.7.3 I ran into trouble.</p>
+
+<p>Since 1.7.3 Zend_Controller_Request_Http::setRequestUri() has been changed, and now uses parse_url() on the request uri. When debugging with Zend Studio, this line (see  &lt;== PROBLEMATIC LINE below) causes a number of Warnings, and causing the headers to be already sent. All new versions (1.7.4 and 1.7.5) also have the same problem.</p>
+
+<p>The debugging URL Zend Studio constructs is the following:</p>
+
+<p>bq. <a href="http://127.0.0.1/melzoo/public_html/?use_remote=1&amp;debug_session_id=1012&amp;start_debug=1&amp;debug_start_session=1&amp;debug_host=10.37.129.2%2C10.211.55.2%2C192.168.0.193%2C127.0.0.1&amp;debug_no_cache=1234905594362&amp;debug_fastfile=1&amp;debug_port=10137&amp;send_sess_end=1&amp;original_url=http://127.0.0.1/melzoo/public_html/">http://127.0.0.1/melzoo/public_html/…</a></p>
+
+<p>And this fails on the parse_url() line.</p>
+
+<p>As I said, this may not be a bug, but it's a blocker for me, being stuck at version 1.7.2, and not being able to upgrade.</p>
+
+<p>h3. New problematic code:</p>
+
+<pre class="highlight"><code> 
+ public function setRequestUri($requestUri = null)
+    {
+        if ($requestUri === null) {
+            if (isset($_SERVER['HTTP_X_REWRITE_URL'])) { // check this first so IIS will catch
+                $requestUri = $_SERVER['HTTP_X_REWRITE_URL'];
+            } elseif (isset($_SERVER['REQUEST_URI'])) {
+                $requestUri = $_SERVER['REQUEST_URI'];
+                if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strstr($requestUri, $_SERVER['HTTP_HOST'])) {
+                    $pathInfo    = parse_url($requestUri, PHP_URL_PATH); // &lt;== PROBLEMATIC LINE
+                    $queryString = parse_url($requestUri, PHP_URL_QUERY);
+                    $requestUri  = $pathInfo
+                                 . ((empty($queryString)) ? '' : '?' . $queryString);
+                }
+            } elseif (isset($_SERVER['ORIG_PATH_INFO'])) { // IIS 5.0, PHP as CGI
+                $requestUri = $_SERVER['ORIG_PATH_INFO'];
+                if (!empty($_SERVER['QUERY_STRING'])) {
+                    $requestUri .= '?' . $_SERVER['QUERY_STRING'];
+                }
+            } else {
+                return $this;
+            }
+        } elseif (!is_string($requestUri)) {
+            return $this;
+        } else {
+            // Set GET items, if available
+            if (false !== ($pos = strpos($requestUri, '?'))) {
+                // Get key =&gt; value pairs and set $_GET
+                $query = substr($requestUri, $pos + 1);
+                parse_str($query, $vars);
+                $this-&gt;setQuery($vars);
+            }
+        }
+
+        $this-&gt;_requestUri = $requestUri;
+        return $this;
+    }
+</code></pre>
+
+<p>h3. Old working code:</p>
+
+<pre class="highlight"><code>
+public function setRequestUri($requestUri = null)
+    {
+        if ($requestUri === null) {
+            if (isset($_SERVER['HTTP_X_REWRITE_URL'])) { // check this first so IIS will catch
+                $requestUri = $_SERVER['HTTP_X_REWRITE_URL'];
+            } elseif (isset($_SERVER['REQUEST_URI'])) {
+                $requestUri = $_SERVER['REQUEST_URI'];
+                if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strstr($requestUri, $_SERVER['HTTP_HOST'])) {
+                    $requestUri = preg_replace('#^[^:]*://[^/]*/#', '/', $requestUri);  // &lt;== ORIGINAL LINE
+                }
+            } elseif (isset($_SERVER['ORIG_PATH_INFO'])) { // IIS 5.0, PHP as CGI
+                $requestUri = $_SERVER['ORIG_PATH_INFO'];
+                if (!empty($_SERVER['QUERY_STRING'])) {
+                    $requestUri .= '?' . $_SERVER['QUERY_STRING'];
+                }
+            } else {
+                return $this;
+            }
+        } elseif (!is_string($requestUri)) {
+            return $this;
+        } else {
+            // Set GET items, if available
+            if (false !== ($pos = strpos($requestUri, '?'))) {
+                // Get key =&gt; value pairs and set $_GET
+                $query = substr($requestUri, $pos + 1);
+                parse_str($query, $vars);
+                $this-&gt;setQuery($vars);
+            }
+        }
+
+        $this-&gt;_requestUri = $requestUri;
+        return $this;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-17T13:53:19.000+0000</p> 
+        <div class="body">
+            <p>Is the debugging URL you provided the one that causes the failure, or some other URL?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-17T14:02:08.000+0000</p> 
+        <div class="body">
+            <p>The URL I provided is what Zend Studio creates when you click the "Debug" button.
+It takes the simple URL (in my case: <a href="http://127.0.0.1/melzoo/public_html/">http://127.0.0.1/melzoo/public_html/</a> ) and adds serveral values for debugging purposes. Surfing to the basic URL works fine, but I cannot debug this way. This is why I suggested that this may be a Zend Studio issue, and not a ZF issue.</p>
+
+<p>However, it's a blocker for anyone using ZF on Zend Studio.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-17T14:14:27.000+0000</p> 
+        <div class="body">
+            <p>If it's in anyway possible, I'd like to see the old implementation back in the new versions.
+Not sure how this would effect everything else though.</p>
+
+<p>Or if there's another way...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-17T19:45:50.000+0000</p> 
+        <div class="body">
+            <p>parse_url() was introduced for two reasons: 1) to fix another bug that was showing, and 2) because it did all the work we needed (i.e., why reinvent the wheel?)</p>
+
+<p>I think this is likely a Studio problem, and I'll try and get somebody from the Studio team to look into why it fails.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-17T19:52:44.000+0000</p> 
+        <div class="body">
+            <p>I'm fairly certain this is one of two things:</p>
+
+<ul><li>A bug with Studio</li>
+<li>A PHP version issue</li>
+</ul><p>The second argument to parse_url() was added in PHP 5.1.2; check to make sure that the PHP interpreter that you're using with Zend Studio is at least that version (better, yet, make sure it's at least our minimum supported version of 5.2.4).</p>
+
+<p>Additionally, note this caveat in the documentation for parse_url: "On seriously malformed URLs, parse_url() may return FALSE and emit a E_WARNING." That said, I took the URL you provided above verbatim, and did the following:</p>
+
+<pre class="highlight"><code>
+error_reporting(E_ALL | E_STRICT);
+ini_set('display_errors', true);
+
+$url = '<a href="http://127.0.0.1/melzoo/public_html/?use_remote=1&amp;debug_session_id=1012&amp;start_debug=1&amp;debug_start_session=1&amp;debug_host=10.37.129.2%2C10.211.55.2%2C192.168.0.193%2C127.0.0.1&amp;debug_no_cache=1234905594362&amp;debug_fastfile=1&amp;debug_port=10137&amp;send_sess_end=1&amp;original_url=http://127.0.0.1/melzoo/public_html/">http://127.0.0.1/melzoo/public_html/…</a>';
+echo parse_url($url, PHP_URL_PATH);
+</code></pre>
+
+<p>That code emitted no warnings, and returned the expected "/melzoo/public_html/" (run on PHP 5.2.8). This tells me that it's definitely environment related.  Check the items I note above.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-18T02:18:59.000+0000</p> 
+        <div class="body">
+            <p>Thanks for getting into this on such short notice.</p>
+
+<p>I have read your advice carefully, but could not find any issues with my environment. I do have 5.2.5, which should be OK.
+I also tested your code fragment, and that worked fine too, but I think ZF only runs the parse_url() function on a part of the URL, not the entire URL.</p>
+
+<p>...and yes, I have checked it now and what really happens is this:</p>
+
+<p>$pathInfo    = parse_url("/buggy/public_html/?use_remote=1&amp;debug_session_id=1004&amp;start_debug=1&amp;debug_start_session=1&amp;debug_host=10.37.129.2%2C10.211.55.2%2C192.168.0.193%2C127.0.0.1&amp;debug_no_cache=1234951691096&amp;debug_fastfile=1&amp;debug_port=10137&amp;send_sess_end=1&amp;original_url=<a href="http://127.0.0.1/">http://127.0.0.1/</a>", PHP_URL_PATH);
+// THIS LINE RETURNS FALSE AND CAUSES THE WARNING</p>
+
+<p>Basically, the host part is left out.</p>
+
+<p>I have also tried to recreate the problem in a small project, and was succesfull. The project runs, but throws a lot of these parse_url() warnings.
+In my original project, I get a "headers already sent" problem, caused by the warnings.</p>
+
+<p>I'm attaching the project archive now.</p>
+
+<p>Maybe you could look into this, or pass it along to the Zend Studio people.
+Either way, I'm stuck on 1.7.2 for the time being.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-18T02:20:30.000+0000</p> 
+        <div class="body">
+            <p>Zend Studio (Eclipse) Archive which should illustrate the problem.
+Simply import it into your workspace</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-18T02:21:45.000+0000</p> 
+        <div class="body">
+            <p>I have posted more info and a test project</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-22T10:46:45.000+0000</p> 
+        <div class="body">
+            <p>Daniel Freudenberger contacted me today with some more info.
+Since he can't post on the issue tracker, I'm posting his message.
+Maybe his insight can be of further use.</p>
+
+<p>He wrote:</p>
+
+<p>The line which causes the problem is not the line you've mentioned (the one with parse_url in it). The problem is caused by the if statement above.</p>
+
+<p>if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strstr($requestUri, $_SERVER['HTTP_HOST'])) {</p>
+
+<p>In some cases, $requestUri contains the complete URL (including protocol and hostname). In this case the if-statement should be triggered.
+You're case is different: $requestUri doesn't contain the protocol and hostname, but it contains the hostname as a get-parameter ($original_url). In this case the if statement should evaluate to false, but it doesn't.</p>
+
+<p>A fix for this problem would be following:</p>
+
+<p>$pos = strpos($requestUri, '://');
+$str = substr($requestUri, $pos);</p>
+
+<p>if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strpos($requestUri,  $_SERVER['HTTP_HOST']) === 0) {
+ ...
+}</p>
+
+<p>Sorry for my bad english, but I hope you got the problem :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nick Telford (nicktelford) on 2009-02-25T06:48:00.000+0000</p> 
+        <div class="body">
+            <p>I've come up against this problem as well. The issue is, as Daniel Freudenberger wrote, with the line:</p>
+
+<p>if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strstr($requestUri, $_SERVER['HTTP_HOST'])) {</p>
+
+<p>The issue is simple, the second part of that line checks for the existence of the server's hostname ANYWHERE in the request URI.</p>
+
+<p>The issue only affects requests where the hostname of the server exists elsewhere in the request URI. For this reason it affects most OpenID callback requests causing them to fail!</p>
+
+<p>I was going to fix this on our local copy, but I'd be more comfortable with an upstream fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nick Telford (nicktelford) on 2009-02-25T06:55:11.000+0000</p> 
+        <div class="body">
+            <p>Perhaps a solution would be to check that the first character isn't a slash (/) as well?</p>
+
+<p>if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strpos('/', $requestUri) !== 0 &amp;&amp; strstr($requestUri, $_SERVER['HTTP_HOST'])) {</p>
+
+<p>This would also yeild better performance for the (more common) scenario where the REQUEST_URI is a relative path.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-02-25T06:56:44.000+0000</p> 
+        <div class="body">
+            <p>If you find a solution, can you post it here, please?
+For some strange reason I'm not experiencing this problem anymore.</p>
+
+<p>I've upgraded Zend Studio to 6.1.1 (up from 6.1.0), maybe this has something to do with it...</p>
+
+<p>I'm now successfully using ZF 1.7.5 instead of 1.7.2.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nick Telford (nicktelford) on 2009-02-25T06:57:20.000+0000</p> 
+        <div class="body">
+            <p>Typo in the fix, got the parameter ordering wrong. Should be:
+if (isset($_SERVER['HTTP_HOST']) &amp;&amp; strpos($requestUri, '/') !== 0 &amp;&amp; strstr($requestUri, $_SERVER['HTTP_HOST'])) {</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (noopable) on 2009-03-06T23:33:58.000+0000</p> 
+        <div class="body">
+            <p>I got hit with the same problem. This is the repro code.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+echo parse_url("/path/to/?test=<a href="http://www.example.com">http://www.example.com</a>", PHP_URL_PATH);
+</code></pre>
+
+<p>result:
+<em>PHP Warning:  parse_url(/path/to/?test=<a href="http://www.example.com">http://www.example.com</a>): Unable to parse url in /root/- on line 2</em></p>
+
+<p>This is unformed request's problem, not Zend Studio's.The one at fault is the bad request, But any client can request it.</p>
+
+<p>I tested Nick's code. It works fine.
+By the way ,In this case,  Doesn't it have to throw "Bad Request Exception" ?</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wouter Samaey (woutersamaey) on 2009-03-08T06:49:19.000+0000</p> 
+        <div class="body">
+            <p>It seems there's a solution available.
+Where do we go from here?
+I don't know how to publish the solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by thing2b (thing2b) on 2009-03-22T13:26:15.000+0000</p> 
+        <div class="body">
+            <p>I may be showing my ignorance, but wouldn't the code in Zend_Controller_Request_Http::setRequestUri() be better as something like:</p>
+
+<p>// Try to parse Url
+$pathInfo = @parse_url($requestUri, PHP_URL_PATH);
+if (!$pathInfo){
+    // We have an invalid url, that we need to handle here.
+}</p>
+
+<p>Why can't ZF just suppress the error and handle the case where a URL is not passable if the result is false?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tony Ford (tony4d) on 2009-03-30T09:30:15.000+0000</p> 
+        <div class="body">
+            <p>Rather than check if it starts with a / wouldn't it be much more accurate and less prone to future bugs if you did a regexp? Like:</p>
+
+<pre class="highlight"><code>
+if (isset($_SERVER['HTTP_HOST']) &amp;&amp; preg_match('/^https?:\/\/'.$_SERVER['HTTP_HOST'].'/', $requestUri)) {
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tony Ford (tony4d) on 2009-04-04T00:26:17.000+0000</p> 
+        <div class="body">
+            <p>OK, considering this bit of code happens on every request I made an effort to not have to use a regexp for performance sake. On top of that, I was able to get rid of the parse_url calls all together, using a simple substr and strlen, which is also gonna help performance some. And, I think I've also avoided future bugs by using the built in getScheme and getHttpHost methods, so now we'll make sure to check protocol and port. We were not checking either before.</p>
+
+<p>Matthew, please checkout the patch files I attached here. I've included the bug fix in Http.php.patch and also made good improvements to the unit testing for this section of the code (HttpTest.php.patch). You had two different tests before, and one case was not covered, which is what this bug is. Furthermore, the tests were not even checking http over ssl and non-standard ports. As I said before though, considering the code didn't even support that, I guess we couldn't test for it ;) Anyway, now there is one test that tests all cases. BTW, the test I removed you had labeled it @group ZFI-233. Not even sure what that refers to (ZFI)? So, I left it in as an additional group for that new comprehensive test case.</p>
+
+<p>Last but not least. This bug was actually introduced as a result of a request I made a long time ago (which you fixed):</p>
+
+<p>ZF-3161</p>
+
+<p>Considering I didn't provide much help outside of reporting that bug, I guess I owe you and its only fitting that I provide a fix for this bug :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tony Ford (tony4d) on 2009-04-04T12:19:32.000+0000</p> 
+        <div class="body">
+            <p>I uploaded a new unit test patch file. I had a couple bugs in the other one and I think this is better with 3 separate tests anyway.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-04-14T19:04:57.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk. The patched code was missing a '://' when building the host and scheme, but that was quickly found and detected; the tests worked perfectly as use cases - thanks!</p>
+
+        </div>
+    </div>
+    </div>
+

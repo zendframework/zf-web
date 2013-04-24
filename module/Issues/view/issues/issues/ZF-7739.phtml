@@ -1,0 +1,170 @@
+<h2>ZF-7739: Incorrect parsing of comment ids in Zend_Gdata_YouTube::replyToCommentEntry</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-31T10:47:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:52:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Gdata</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The Zend_Gdata_YouTube::replyToCommentEntry method assumes a certain structure to the id field of comment entries from YouTube.  While the way the id field is parsed, corresponds to the documentation for YouTube's api, it doesn't correspond to the id values I'm getting back from YouTube.</p>
+
+<p>Example:
+Documented ID string: tag:youtube,2008:video:xpI6VNvRTII:comment:F53EAC190E4EA5C9
+ID string from YouTube: <a href="http://gdata.youtube.com/feeds/api/videos/EU-5KRo--kw/comments/JngxyOAWVePOeKTKP5dmFdvRXopsZlJE59w7BtotjKc">http://gdata.youtube.com/feeds/api/…</a></p>
+
+<p>The reason the method needs to parse the ID string is to build the proper href for the in-reply-to link.  However, it can get this href directly from the original comment entry by calling $commentEntry-&gt;getSelfLink();</p>
+
+<p>Original code:</p>
+
+<pre class="highlight"><code>
+    public function replyToCommentEntry($commentEntry, $commentText)
+    {
+        $newComment = $this-&gt;newCommentEntry();
+        $newComment-&gt;content = $this-&gt;newContent()-&gt;setText($commentText);
+        $commentId = $commentEntry-&gt;getId();
+        $commentIdArray = explode(':', $commentId);
+
+        // create a new link element
+        $inReplyToLinkHref = self::VIDEO_URI . '/' . $commentIdArray[3] .
+            '/comments/' . $commentIdArray[5];
+        $inReplyToLink = $this-&gt;newLink($inReplyToLinkHref,
+            self::IN_REPLY_TO_SCHEME, $type="application/atom+xml");
+        $links = $newComment-&gt;getLink();
+        $links[] = $inReplyToLink;
+        $newComment-&gt;setLink($links);
+        $commentFeedPostUrl = self::VIDEO_URI . '/' . $commentIdArray[3] .
+            '/comments';
+        return $this-&gt;insertEntry($newComment,
+            $commentFeedPostUrl, 'Zend_Gdata_YouTube_CommentEntry');
+    }
+</code></pre>
+
+<p>Here is my proposed fix:</p>
+
+<pre class="highlight"><code>
+    public function replyToCommentEntry($commentEntry, $commentText)
+    {
+        $newComment = $this-&gt;newCommentEntry();
+        $newComment-&gt;content = $this-&gt;newContent()-&gt;setText($commentText);
+
+        // create a new link element
+        $inReplyToLinkHref = $commentEntry-&gt;getSelfLink()-&gt;href;
+        $inReplyToLink = $this-&gt;newLink($inReplyToLinkHref,
+            self::IN_REPLY_TO_SCHEME, $type="application/atom+xml");
+        $links = $newComment-&gt;getLink();
+        $links[] = $inReplyToLink;
+        $newComment-&gt;setLink($links);
+        $commentFeedPostUrl = self::VIDEO_URI . '/' . $commentIdArray[3] .
+            '/comments';
+        return $this-&gt;insertEntry($newComment,
+            $commentFeedPostUrl, 'Zend_Gdata_YouTube_CommentEntry');
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Lee Parker (wlp1979) on 2009-08-31T14:08:02.000+0000</p> 
+        <div class="body">
+            <p>I just realized that there is one more place where the data from the parsed id field is used.  We need the video id in order to construct the url to which the new comment is posted.  So, we get the video id from the "alternate" link in the comment entry which is the standard link to view a video.</p>
+
+<p>Here is my fix corrected to get the video id as well:</p>
+
+<pre class="highlight"><code>
+    public function replyToCommentEntry($commentEntry, $commentText)
+    {
+        $newComment = $this-&gt;newCommentEntry();
+        $newComment-&gt;content = $this-&gt;newContent()-&gt;setText($commentText);
+
+        // create a new link element
+        $inReplyToLinkHref = $commentEntry-&gt;getSelfLink()-&gt;href;
+        $inReplyToLink = $this-&gt;newLink($inReplyToLinkHref,
+            self::IN_REPLY_TO_SCHEME, $type="application/atom+xml");
+        $links = $newComment-&gt;getLink();
+        $links[] = $inReplyToLink;
+        $newComment-&gt;setLink($links);
+        
+        parse_str(parse_url($commentEntry-&gt;getAlternateLink()-&gt;href, PHP_URL_QUERY), $query);
+        $commentFeedPostUrl = self::VIDEO_URI . '/' . $query['v'] .
+            '/comments';
+        return $this-&gt;insertEntry($newComment,
+            $commentFeedPostUrl, 'Zend_Gdata_YouTube_CommentEntry');
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-08-31T15:17:52.000+0000</p> 
+        <div class="body">
+            <p>Lee,
+Thanks for reporting this, as well as suggesting a patch.</p>
+
+<p>However, before I can apply your patch, for legal reasons you need to send in a signed copy of the Zend Framework CLA:</p>
+
+<pre><code>&lt;a rel="nofollow" href="http://framework.zend.com/wiki/display/ZFPROP/Contributor+License+Agreement"&gt;http://framework.zend.com/wiki/display/&amp;hellip;&lt;/a&gt;
+</code></pre>
+
+<p>Would you be okay doing this? If so, please let me know once your CLA has been received by Zend and you've been added to the developer group in Jira.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lee Parker (wlp1979) on 2009-09-28T11:17:01.000+0000</p> 
+        <div class="body">
+            <p>My CLA has finally been received by Zend, and I am in the zf-framework-dev group.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:52:33.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

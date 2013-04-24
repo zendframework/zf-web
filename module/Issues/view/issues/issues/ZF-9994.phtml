@@ -1,0 +1,483 @@
+<h2>ZF-9994: Zend_Navigation_Container improve filtering</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-15T16:47:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-01-22T08:32:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.2 (25/Feb/13)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+            <li>After1.12.0</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10459">ZF-10459</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14977/Container.php.patch">Container.php.patch</a></li>
+            <li><a href="/issues/secure/attachment/14679/ContainerTest.php.patch">ContainerTest.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The filters now is a bit basic. For instance if you add multiple classes to a page "one two" and you will search for findByClass('one'), it will return empty.</p>
+
+<p>I propose to alter the findOneBy / findAllBy /findBy functions to add smarter filtering with regex.</p>
+
+<pre class="highlight"><code>
+    &lt;?
+    public function findOneBy($property, $value, $regex = false)
+    {
+        $iterator = new RecursiveIteratorIterator($this,
+                            RecursiveIteratorIterator::SELF_FIRST);
+        
+        foreach ($iterator as $page) {
+            if ($regex ? preg_match($value, $page-&gt;get($property)) : $page-&gt;get($property) == $value) {
+                return $page;
+            }
+        }
+        return null;
+    }
+    
+    public function findAllBy($property, $value, $regex = false)
+    {
+        $found = array();
+
+        $iterator = new RecursiveIteratorIterator($this,
+                            RecursiveIteratorIterator::SELF_FIRST);     
+        
+        foreach ($iterator as $page) {
+            if ($regex ? preg_match($value, $page-&gt;get($property)) : $page-&gt;get($property) == $value) {
+                $found[] = $page;
+            }
+        }
+        return $found;
+    }
+    
+    public function findBy($property, $value, $all = false, $regex = false)
+    {
+        if ($all) {
+            return $this-&gt;findAllBy($property, $value, $regex);
+        } else {
+            return $this-&gt;findOneBy($property, $value, $regex);
+        }
+    }
+    
+    public function __call($method, $arguments)
+    {
+        if (@preg_match('/(find(?:One|All)?By)(.+)/', $method, $match)) {
+            return $this-&gt;{$match[1]}($match[2], $arguments[0], !empty($arguments[1]));
+        }
+
+        require_once 'Zend/Navigation/Exception.php';
+        throw new Zend_Navigation_Exception(sprintf(
+                'Bad method call: Unknown method %s::%s',
+                get_class($this),
+                $method));
+    }
+</code></pre>
+
+<p>You can then still use it as it works now, but also:</p>
+
+<pre class="highlight"><code>
+$container-&gt;findAllByClass('/\s?my-class\s?/', true);
+// It will also find this your-class my-class</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-06-09T07:59:42.000+0000</p> 
+        <div class="body">
+            <p>My suggestion: the use of the method as simple as possible!</p>
+
+<pre class="highlight"><code>
+public function findOneBy($property, $value, $strict = true)
+{
+    // …
+    
+    if (false === $strict) {
+        foreach ($iterator as $page) {
+            if (false !== strpos($page-&gt;get($property), $value)) {
+                return $page;
+            }
+        }
+    } else {
+        foreach ($iterator as $page) {
+            if ($page-&gt;get($property) == $value) {
+                return $page;
+            }
+        }        
+    }
+
+    // …
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-06-09T08:09:16.000+0000</p> 
+        <div class="body">
+            <p>Another idea: Respect the page properties with arrays ("rel" and "rev")</p>
+
+<pre class="highlight"><code>
+public function findOneBy($property, $value)
+{
+    $iterator = new RecursiveIteratorIterator($this,
+                        RecursiveIteratorIterator::SELF_FIRST);
+
+    foreach ($iterator as $page) {
+        $pageProperty = $page-&gt;get($property);
+        
+        if (is_array($pageProperty)) {
+            foreach ($pageProperty as $item) {
+                if (is_array($item)) {
+                    if (in_array($value, $item)) {
+                        return $page;
+                    }
+                } else {
+                    if ($item == $value) {
+                        return $page;
+                    }
+                }
+            }                
+            
+            continue;
+        }
+        
+        if ($pageProperty == $value) {
+            return $page;
+        }
+    }
+
+    return null;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-22T10:29:53.000+0000</p> 
+        <div class="body">
+            <p>Patch and unit tests added.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-22T11:16:34.000+0000</p> 
+        <div class="body">
+            <p>Sorry, here are the correct files!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-09-23T10:47:48.000+0000</p> 
+        <div class="body">
+            <p>What about my improvements?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-23T10:55:50.000+0000</p> 
+        <div class="body">
+            <p>Hi Michiel,
+basically: keep the use as easy as possible.</p>
+
+<p>Your example works:</p>
+
+<pre class="highlight"><code>
+$container-&gt;findAllByClass('my-class', false);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-23T11:04:14.000+0000</p> 
+        <div class="body">
+            <p>Sorry, the previous patch did not include the method "findBy"!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-09-23T11:08:25.000+0000</p> 
+        <div class="body">
+            <p>You must mean ```</p>
+
+<p>But then you could also have "my-class2" and that will be found as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-23T11:15:24.000+0000</p> 
+        <div class="body">
+            <p>{quote}You must mean…{quote}
+Yes, you are right!
+{quote}But then you could also have "my-class2" and that will be found as well.{quote}
+Regex vs. easy to use! ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-09-23T11:27:38.000+0000</p> 
+        <div class="body">
+            <p>Well it stays easy to use if you don't want smart filtering. If you do, you will always end up with some kind of advanced syntax to let know what you want (and what not).
+With this change you will only end to finding too much.
+I agree that you shouldn't make filtering with regex a default, because of complexity and speed. However for usability a regEx is so much more convenient.
+I always thought that ZF should be as flexible as possible.</p>
+
+<p>Btw i could easily refactor my code to make it smaller.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-23T11:35:39.000+0000</p> 
+        <div class="body">
+            <p>Ideas and code examples are always welcome!</p>
+
+<p>Thanks for your feedback.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-23T12:49:08.000+0000</p> 
+        <div class="body">
+            <p>Okay, I have another idea. I will check this with some unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T10:10:53.000+0000</p> 
+        <div class="body">
+            <p>I will replace {{strpos}} with {{preg_match}}.</p>
+
+<pre class="highlight"><code>
+if (false === $strict &amp;&amp; false === @preg_match($value, '')) {
+    $value = sprintf('%2$s%s%2$s', $value, $delimiter); // Example: '~my-class~'
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-10-06T11:01:37.000+0000</p> 
+        <div class="body">
+            <p>You lost me here. Where are you going to put this?
+What are you going to do with value?
+Where is the delimiter coming from?</p>
+
+<p>Also you don't want to test for regex and see if an error occurs and then silence it. You just have to assume it's a regex and when it fails you will get an error.
+What if want to use a regex but made a typo?</p>
+
+<p>All in all, what is wrong with my solution?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T11:06:47.000+0000</p> 
+        <div class="body">
+            <p>New patch and unit tests includes preg_match</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T11:11:43.000+0000</p> 
+        <div class="body">
+            <p>Hi Michiel,
+I was too slow! ;)
+I have attached a new patch. Please look at this and give me a feedback.</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-10-06T11:23:32.000+0000</p> 
+        <div class="body">
+            <p>Well, regex is not so fast already. If you choose to use it, please do not add extra overhead by checking if it's really a regex.
+That's why i would call the param regex in stead of strict.</p>
+
+<p>If you look at your documentation you actually suggesting it: 
+{quote}
+if true property and value must equal. 
+if false PHP's preg_match is used.
+Default is true.
+{/quote}</p>
+
+<p>Your has alot of duplication as well. Check out my code for instance.
+Also you are forgetting to change the __call method.</p>
+
+<p>But what i wrong with my code?? I'm using this for a year already and it's fine. I can add the rev / rel stuff if you want.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T11:47:44.000+0000</p> 
+        <div class="body">
+            <p>{quote}Well, regex is not so fast already. If you choose to use it, please do not add extra overhead by checking if it's really a regex.{quote}
+You are right, a performance check is needed. I will use Xdebug and my test container with 10.000 pages.</p>
+
+<p>{quote}Also you are forgetting to change the __call method.{quote}
+Ahh, I've forgotten! I will update the patch.</p>
+
+<p>{quote}But what i wrong with my code?? I'm using this for a year already and it's fine.{quote}
+Nobody said that your code is wrong! I just wanted a simple use and support for rel and rev - no more.</p>
+
+<p>{quote}I can add the rev / rel stuff if you want.{quote}
+That would be nice. (You can send me an e-mail or use Pastebin/Gist/…)</p>
+
+<p>Thanks for your fast feedback.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-10-06T11:52:14.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+Nobody said that your code is wrong! I just wanted a simple use and support for rel and rev - no more.
+{quote}</p>
+
+<p>Well the use is exactly the same. The only thing what is missing is the rev/rel support.
+So you didn't say it was wrong, but why are you writing your own code that is heavier and does the same then?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T12:01:10.000+0000</p> 
+        <div class="body">
+            <p>{quote}Well the use is exactly the same. The only thing what is missing is the rev/rel support.
+So you didn't say it was wrong, but why are you writing your own code that is heavier and does the same then?{quote}
+With your code:</p>
+
+<pre class="highlight"><code>
+$container-&gt;findOneBy('label', 'foo');
+$container-&gt;findOneBy('label', '/([o]{2})/', true);
+</code></pre>
+
+<p>With my code:</p>
+
+<pre class="highlight"><code>
+$container-&gt;findOneBy('label', 'foo'); // finds only "foo"
+$container-&gt;findOneBy('label', 'foo', false); // finds also "foo foo" &lt;--- Very easy to use!
+$container-&gt;findOneBy('label', '/([o]{2})/', false);
+
+$container-&gt;findOneBy('rel', 'Example.org');
+$container-&gt;findOneBy('rel', 'Example', false);
+$container-&gt;findOneBy('rel', '?Ex([a-z]*)?', false);
+</code></pre>
+
+<p>The only heavy thing is the support for rel and rev. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-10-06T12:17:13.000+0000</p> 
+        <div class="body">
+            <p>Ok it's slight shorter do to a <em>search</em>.</p>
+
+<pre class="highlight"><code>
+$container-&gt;findOneBy('label', 'foo', false); // yours
+$container-&gt;findOneBy('label', '/foo/', false); // mine
+</code></pre>
+
+<p>But this is magic that is too powerfull. What if i later on alter my navigation and add a label 'foobar'. I might have forgotten about this find all thingy.
+So i don't think you want to use this very often. And if you really want to, it's only 2 extra chars.
+But the major downside is you get a performance penalty every request (it's hard to cache). Also it's more obvious to a programmer that he is doing a fullsearch.</p>
+
+<p>And your documentation suggests that i have to put in a regex, but i don't really have to?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T12:29:21.000+0000</p> 
+        <div class="body">
+            <p>{quote}But the major downside is you get a performance penalty every request (it's hard to cache).{quote}
+My performance test is still open!</p>
+
+<p>By the way it is a small fix to change from {{$strict = true}} to {{$regex = false}}.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T13:05:57.000+0000</p> 
+        <div class="body">
+            <p>New round, new luck! ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Thalen (chielsen) on 2011-10-06T13:18:47.000+0000</p> 
+        <div class="body">
+            <p>Looks more like it.
+Why did you change my __call? Now you cannot pass for instance 0 or 1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T14:09:06.000+0000</p> 
+        <div class="body">
+            <p>@Michiel
+I had overlooked. Sorry!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-06T15:23:58.000+0000</p> 
+        <div class="body">
+            <p>Docblocks updated.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-03-22T12:30:47.000+0000</p> 
+        <div class="body">
+            <p>Docblocks updated.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-01-22T08:32:59.000+0000</p> 
+        <div class="body">
+            <p>Fixed on trunk (25236) and release-1.12 (25237)</p>
+
+<p>Thanks to Michiel!</p>
+
+        </div>
+    </div>
+    </div>
+

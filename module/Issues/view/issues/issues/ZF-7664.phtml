@@ -1,0 +1,170 @@
+<h2>ZF-7664: Zend_Wildfire_Protocol_JsonStream splits headers with part that are too large for at least some servers</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-23T03:34:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-17T09:29:14.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christoph Dorn (cadorn)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Wildfire</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've tried to use FirePhp classes, but FirePHP was giving error messages.
+Upon closer inspection, I've found that only the last Wf-1-1-1-X chunk was sent from server to browser.</p>
+
+<p>Zend_Wildfire_Protocol_JsonStream::getPayload() has this on line 192:
+$parts = explode("\n",chunk_split($message, 5000, "\n"));</p>
+
+<p>Reducing size of parts to 1000 chars resolved the issue:
+$parts = explode("\n",chunk_split($message, 1000, "\n"));</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2009-08-23T09:16:53.000+0000</p> 
+        <div class="body">
+            <p>Does it work for chunk sizes closer to 5,000?</p>
+
+<p>Are the responses going though a proxy?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Boris Gurvich (unirgy) on 2009-08-23T17:47:01.000+0000</p> 
+        <div class="body">
+            <p>No proxies in original tests - made sure that all the header() 's were set on server side, and seen in Firebug / Net / Response Headers that only last one goes through.</p>
+
+<p>After that tried with Fiddler2 tool, which is proxy but does not limit length of headers, with the same result.</p>
+
+<p>I do not think that my hosting uses proxy, as the SSL certificates are validated on my side.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-03-05T16:40:44.000+0000</p> 
+        <div class="body">
+            <p>Is this still a problem? Can you provide a test case?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-10-09T17:27:18.000+0000</p> 
+        <div class="body">
+            <p>Nobody else is reporting same issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-11-16T02:01:34.000+0000</p> 
+        <div class="body">
+            <p>I'm currently exploring this issue. I use a ZendServer CE v5 on my local windows machine so no proxies can get in the way of what i am doing. I set up a small script wich logs 6x6000 Bytes. Reducing the mentionend Chunk Size 1500 does fix the issue. I captured the HTTP stream with wireshark and begin to understand whats failing.</p>
+
+<pre class="literal">
+GET /headz.php HTTP/1.1
+ ...
+
+HTTP/1.1 200 OK
+ ...
+X-Wf-1-1-1-1: 6073|[{"Type":"ERROR","File":"C:\\entwicklung\\php\\headz.php","Line":35},"AAA ... AAA|\
+X-Wf-1-1-1-2: |AAA ... AAA!"]|
+X-Wf-1-1-1-4: |AAA ... AAA!"]|
+</pre>
+
+<p>Woops, where has chunk three gone on the wire? My guess is that it's either an apache or php limit for the header line length. This theory is supported by our ubuntu server wich deals with this just fine. However i don't know of such a configuration value.</p>
+
+<p>It's easily reproducable, but i gotta look up how to make this a test case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-11-16T10:14:50.000+0000</p> 
+        <div class="body">
+            <p>Hmm. It would be really good to know what is causing this.</p>
+
+<p>I have reworked the communication system in FirePHP 1.0 [1] to use only one short header which the client uses to make a second request for the actual data. The one header can get longer than 50 characters though so it would still be affected by this.</p>
+
+<p>Please let me know if you can figure anything out. This is pretty important.</p>
+
+<p>[1] - <a href="http://upgrade.firephp.org/">http://upgrade.firephp.org/</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-11-16T12:50:30.000+0000</p> 
+        <div class="body">
+            <p>Can you check if a long cookie header gets trimmed as well?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-11-17T08:03:24.000+0000</p> 
+        <div class="body">
+            <p>A single header can be much longer. It crashes at over 8K in a single header tough (varying from zend server, windows, old xampp). I also varied the chunk size and it seems at about 8K of -all- headers issued, one will fail, the next will work again. However, PHPs header_list() does -not- miss them. They gap is visible in the payload of a single TCP packet. I now think it's somewhere between PHP and Apache. For now, varying the chunk size won't fix your component. :(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-11-17T08:04:33.000+0000</p> 
+        <div class="body">
+            <p>oops -striketrough- was ment to be <em>a strong statement</em></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-11-17T08:26:27.000+0000</p> 
+        <div class="body">
+            <p>Ok. That makes me feel better. FirePHP 1.0 uses one header only and all headers together will always be well under 8k.</p>
+
+<p>I hope to have time to work on a ZF integration for FirePHP 1.0 soon. In the meantime you could use it directly bypassing the ZF components.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-11-17T09:29:13.000+0000</p> 
+        <div class="body">
+            <p>Check out this apache directive: <a href="http://httpd.apache.org/docs/2.0/mod/core.html#limitrequestfieldsize">http://httpd.apache.org/docs/2.0/…</a></p>
+
+<p>Suggested here: <a href="http://twitter.com/jappievw/status/4601815689592833">http://twitter.com/jappievw/status/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

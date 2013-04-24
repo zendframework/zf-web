@@ -1,0 +1,242 @@
+<h2>ZF-351: Query string improvement to Zend_Uri_Http and Zend_Http_Client</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-09-01T18:34:44.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-19T14:50:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.2.0 (29/Oct/06)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+            <li>Zend_Uri</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've made some changes to Zend_Uri_Http and added a query string parameter to Zend_Http_Client::get().  I've also removed Zend_Uri_Http::setQueryArray() and Zend_Uri_Http::setQueryString() and replaced them with a simpler Zend_Uri_Http::setQuery() function.</p>
+
+<p>This takes care of the @todo in Zend_Http_Client::get().</p>
+
+<pre class="highlight"><code>
+// Zend_Uri_Http::setQuery()
+
+    public function setQuery($query)
+    {
+        $queryArray = array();
+
+        if (is_array($query)) {
+            $queryArray = $query;
+        } else if (is_string($query)) {
+            parse_str($query, $queryArray);
+        }
+        if (count($queryArray)) {
+            $query = http_build_query($queryArray, '', '&amp;');
+        } else {
+            throw new Zend_Uri_Exception('Invalid query');
+        }
+        if ($this-&gt;validateQuery($query)) {
+            $this-&gt;_query = $query;
+        }
+    }
+</code></pre>
+
+<p>I made the query string the first parameter because a) I didn't think many people would have set $redirectMax explicitly, and b) it is consistent with post().  If someone needs to set $redirectMax it's easier to set the query to NULL than trying to come up with a $redirectMax each time you need to set a query.</p>
+
+<pre class="highlight"><code>
+// Zend_Http_Client::get()
+
+   /**
+     * Send a GET HTTP Request
+     *
+     * @param  array|string $arguments Arguments to pass in the query string
+     * @param  int $redirectMax Maximum number of HTTP redirections followed
+     * @return Zend_Http_Response
+     */
+    public function get($query = NULL, $redirectMax = 5)
+    {
+        if (!is_null($query))
+        {
+            $this-&gt;_uri-&gt;setQuery($query);
+        }
+</code></pre>
+
+<p>And on line 105:</p>
+
+<pre class="highlight"><code>
+                            $this-&gt;_uri-&gt;setQuery($query);
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-09-06T02:40:27.000+0000</p> 
+        <div class="body">
+            <p>I prefer not to put too much effort on the Zend_Http_Client as it is going to be replaced by the incubator Zend_Http_Client which is a complete rewrite.</p>
+
+<p>Do you think this issue concers the new Http_Client as well? This one has easier access to GET parameters and  you could either set them individually using $client-&gt;setParameterGet('foo', 'baz'), or directly access the query string by doing this:</p>
+
+<pre class="literal">
+$client-&gt;getUri()-&gt;setQuery('foo=baz');
+</pre>
+
+<p>I'm not sure if any further changes are needed. Let me know what you think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2006-09-06T10:00:39.000+0000</p> 
+        <div class="body">
+            <p>Oh, I didn't know there was a newer version of Zend_Http_Client coming.  Naturally, any updates to the old one would be a waste of time.</p>
+
+<p>However, the changes to Zend_Uri_Http (which are the bulk of my suggestion) would still apply.  I would prefer having the choice of using an array or string, and I'm sure others would as well.</p>
+
+<p>The changes to Zend_Http_Client also use the native PHP function http_build_query(), which renders Zend_Http_Client::_getParametersRecursive() redundant.</p>
+
+<p>I've only taken a couple of minutes to look at the updated Client, but I'm a bit confused why setting GET parameters is handled in two different places--why there is even that option.  It seems to me that GET should be in one place.  The most obvious choice is in the URI, since Zend_Uri_Http is or will be used in places other than Zend_Http.  In that case, you could simply have setParameterGet() should call $this-&gt;uri-&gt;setQuery().</p>
+
+<p>What do you think?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2006-09-06T10:02:14.000+0000</p> 
+        <div class="body">
+            <p>Incidentally, a single hyphen on either side is probably a poor choice of syntax for "strikethrough"...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-09-08T09:28:41.000+0000</p> 
+        <div class="body">
+            <p>I see your point now, and of course using $this-&gt;uri-&gt;setQuery() will be better, as it uses the native http_build_query().</p>
+
+<p>However, I would still like to store the GET parameters in an internal array of the client, and only when the request is sent "attach" them to the URI object - and this is important because I want people to be able to set parameters before they set the URI for example, or even set several parameters, then set a URI with it's own parameters, and when the request is sent, not to lose any of them.</p>
+
+<p>Does this makes sense to you? If so, I'll fix up my _prepare_headers() method to use $this-&gt;uri-&gt;setQuery().</p>
+
+<p>Shahar.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2006-09-08T16:46:43.000+0000</p> 
+        <div class="body">
+            <p>I think that's a good idea, Shahar.</p>
+
+<p>By the way, I've reconsidered the setQuery() function a little.  It should probably look more like this:</p>
+
+<pre class="highlight"><code>
+// Zend_Uri_Http
+
+    public function setQuery($query)
+    {
+        $this-&gt;_query = $this-&gt;_parseQuery($query);
+    }
+
+    protected function _parseQuery($query)
+    {
+        if (empty($query)) {
+            return "";
+        }
+
+        $queryArray = array();
+        if (is_array($query)) {
+            $queryArray = $query;
+        } else if (is_string($query)) {
+            parse_str($query, $queryArray);
+        }
+        if (count($queryArray) &lt; 1) {
+            throw new Zend_Uri_Exception('No query parameters found');
+        }
+        $query = http_build_query($queryArray, '', '&amp;');
+        if (!$this-&gt;validateQuery($query)) {
+            throw new Zend_Uri_Exception('Invalid query string');
+        }
+        return $query;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-09-13T16:13:31.000+0000</p> 
+        <div class="body">
+            <p>I commited Zend_Uri and Zend_Uri_Http revision 1064 which includes your suggestions, although I modified your code a bit.</p>
+
+<p>Please take a look at it and let me know what you think (if you want to).</p>
+
+<p>Do not mark this bug as fixed - I'll later proceed to change Zend_Http_Client as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2006-09-13T16:31:40.000+0000</p> 
+        <div class="body">
+            <p>Thanks for making the update.  I like the fact that you return the old query in setQuery now.</p>
+
+<p>As far as the changes in _parseQuery, I debated whether or not to include the parse_str part or not.  The main purpose there was an additional check for string validity.  Which, of course, does not belong in _parseQuery, but validateQuery.</p>
+
+<p>However, the regular expression in that method (validateQuery) doesn't seem to adequately cover query string validity.  Would something involving parse_str (perhaps comparing the array it returns to an array generated from manually parsing) be good to add there?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2006-09-13T16:33:46.000+0000</p> 
+        <div class="body">
+            <p>Brain lapse.  Ignore the parenthetical aside in the last sentence.  :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2006-09-23T02:46:36.000+0000</p> 
+        <div class="body">
+            <p>I think the recent changes to Zend_Http_Client and Zend_Uri_Http solve all issues described here. 
+I don't think using parse_str is right because just for validating the string, it's a bit overkill (building up an array and all). The query string can be validated easily with a regexp, as long as you follow the RFC.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-19T14:50:43.000+0000</p> 
+        <div class="body">
+            <p>Bookkeeping. Closing old issues and assigning them to the person who ultimately resolved the issue.</p>
+
+        </div>
+    </div>
+    </div>
+

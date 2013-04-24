@@ -1,0 +1,237 @@
+<h2>ZF-6810: Regression in Zend_Loader between 1.8.0 and 1.8.1, class_exists() causes warnings</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-26T11:55:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-02T20:13:53.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When updating from 1.8.0 to 1.8.1, I found some unit tests failing in my application. I looked around the issue list, found a lot of related problems, most of which were closed or marked as duplicate to other closed issues.</p>
+
+<p>Here is the situation:</p>
+
+<p>$className = "Prefix_To_Path_" . $token;</p>
+
+<p>if( class_exists($className) ) {
+   return new $className;
+}</p>
+
+<p>It worked perfectly in 1.8.0. However, from 1.8.1, a file not found warning is issued.</p>
+
+<p>The solution appears to be to enable error suppression. However, due to strict coding standards, that does not fit as a valid solution.</p>
+
+<p>The code base is still in development, so performance is not a major issue at this time. I would rather have a file check with optional caching than receiving a warning.</p>
+
+<p>If this issue cannot be resolved, I would like to know of a recommended alternative.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-26T13:13:40.000+0000</p> 
+        <div class="body">
+            <p>class_exists() can take an optional second argument. That argument can tell it to bypass the autoloader, if any. (See <a href="http://php.net/class_exists">http://php.net/class_exists</a> for more information.) In the example you have above, I'd recommend using:</p>
+
+<pre class="highlight"><code>
+if (class_exists($className, false)) {
+    return new $className;
+}
+</code></pre>
+
+<p>This will prevent the autoloader from triggering, which will also prevent the warnings from occurring.</p>
+
+<p>Finally, it's best to register only the namespaces you use with the autoloader, and not use it as a fallback autoloader, as it will create warnings any time it is unable to resolve a given classname; if used only as a namespace autoloader, then warnings should typically never occur.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-26T13:14:24.000+0000</p> 
+        <div class="body">
+            <p>I will likely mark this as "won't fix" or "not reproducible" unless I hear back as to the class_exists() solution noted above.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Louis-Philippe Huberdeau (lphuberdeau) on 2009-05-26T13:48:56.000+0000</p> 
+        <div class="body">
+            <p>I would expect the class to be autoloaded, hence disabling it does not appear to be a valid solution.</p>
+
+<p>If the file does not exist, I only expect class_exists to return false, just as it did in 1.8.0. There is not much use in making a check if it fails while performing it.</p>
+
+<p>I see no reason why this would fail:</p>
+
+<p>$this-&gt;assertFalse( class_exists('Zend_NotAClass') );</p>
+
+<p>Perhaps the check should be optional for performance issues, just like suppress errors is optional.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-28T10:23:04.000+0000</p> 
+        <div class="body">
+            <p>Well, it raises an E_WARNING, which PHPUnit then reports as an error (not a failure). My question is: why are you testing class_exists() in your test suite? and would it make sense to add the second "false" flag to the call (to suppress autoloading)?</p>
+
+<p>You can also turn on the suppressNotFoundWarnings flag on the autoloader prior to the check if you want to prevent the warnings and make the test pass:</p>
+
+<pre class="highlight"><code>
+Zend_Loader_Autoloader::getInstance()-&gt;suppressNotFoundWarnings(true);
+</code></pre>
+
+<p>We made the flag false by default for 1.8.1 as it was an oversight that it was on by default in 1.8.0 (we'd never intended that, as one of the principle use cases for the component was to remove error suppression by default). You should only ever need the suppression if you are using the autoloader as a fallback autoloader.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Louis-Philippe Huberdeau (lphuberdeau) on 2009-05-28T10:50:40.000+0000</p> 
+        <div class="body">
+            <p>The application is highly data driven and the goal is to be able to drop in code to extend it. In normal runs, nonexistent classes will never be loaded. However, while saving new configurations, multiple checks are made to avoid breakage later on. It gets tested by the test suite just because I verify that failures are handled correctly.</p>
+
+<p>Suppressing the warnings work, however it does not seem like a good practice. As mentioned in other reports, it may hide problems.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vestigal (vestigal) on 2012-08-02T02:50:39.000+0000</p> 
+        <div class="body">
+            <p>Could this bug please be opened again?</p>
+
+<p>Allow me to explain why I think class_exists() (and the file_exists() method that it calls) should not emit warnings. Let's say that you have a list of plugins that you want to try to load. You then write some code like this:</p>
+
+<pre class="literal"> 
+$plugins = array('plugin1', 'plugin2', 'plugin3'); // etc.
+
+foreach($plugins as $plugin) {
+   try {
+      Zend_Loader::loadClass($plugin);
+   } catch(Zend_Exception $e) {
+      // Since this is a plugin, just ignore the error and continue if we failed to load the plugin.
+      continue;
+   }
+   
+   $instantiated_plugin = new $plugin();
+   
+   // If the plugin has the method we need, call the method.
+   if(method_exists($instantiated_plugin, 'method')) {
+      $instantiated_plugin-&gt;method();
+   }
+}
+</pre>
+
+<p>What we're trying to do here is load several "plugins" and then execute a method if the plugin has that method. We have a white list of plugins that are allowed to be loaded, and we try and load each one in turn. Under the current behaviour, a warning will be emitted every time a plugin fails to be loaded, but this is clearly not what is desired.</p>
+
+<p>Is there any chance that the behaviour of this function could be changed so that it does not emit a warning when the class or file to be loaded does not exist?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-08-02T07:22:56.000+0000</p> 
+        <div class="body">
+            <p>@[~vestigal]
+{quote}
+Is there any chance that the behaviour of this function could be changed so that it does not emit a warning when the class or file to be loaded does not exist?
+{quote}
+{{Zend_Loader::loadClass()}} uses {{Zend_Loader::loadFile()}} and this uses:</p>
+
+<pre class="highlight"><code>
+if ($once) {
+    include_once $filename;
+} else {
+    include $filename;
+}
+</code></pre>
+
+<p>{quote}The include construct will emit a warning if it cannot find a file{quote}
+<a href="http://de3.php.net/manual/en/function.include.php">http://de3.php.net/manual/en/function.include.php</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vestigal (vestigal) on 2012-08-02T16:38:21.000+0000</p> 
+        <div class="body">
+            <p>Frank, thank you for the confirmation. I realize that this is what is going on; what I am asking is that we reconsider how this function works and have it not emit a warning in the case that it fails to load a class because the class' file does not exist.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-08-02T18:26:54.000+0000</p> 
+        <div class="body">
+            <p>Vestigal -- this ship has sailed. If we do not emit the warning, developers don't know what failed. If we do emit it, some people complain about noisy logs and/or display_errors. We opted for making debugging easier.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vestigal (vestigal) on 2012-08-02T20:13:53.000+0000</p> 
+        <div class="body">
+            <p>Matthew, that makes sense.</p>
+
+<p>Is there any chance that another parameter could be added to the {{loadFile()}} function that would allow for suppression of errors? The function would then look something like this:</p>
+
+<pre class="literal">
+public static function loadFile($filename, $dirs = null, $once = false, $show_errors = true) 
+{
+   ...
+   
+   if ($once) {
+      if($show_errors) {
+         include_once $filename;
+      } else {
+         @include_once $filename;
+      }
+   } else {
+      if($show_errors) {
+         include $filename;
+      } else {
+         @include $filename
+      }
+   }
+   
+   ...
+}
+</pre>
+
+<p>While perhaps not the most elegant solution, I think this would work. {{loadClass()}} would then just need to tell {{loadFile()}} to not show any errors that it encountered.</p>
+
+        </div>
+    </div>
+    </div>
+

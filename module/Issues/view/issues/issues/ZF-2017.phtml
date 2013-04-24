@@ -1,0 +1,279 @@
+<h2>ZF-2017: Illogic syntax in method Zend_Db_Select-&gt;query() while using binding parameters</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-09-30T07:54:26.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-29T09:18:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3220">ZF-3220</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11847/zf-2017.patch">zf-2017.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Db_Select-&gt;query() should behave exactly like Zend_Db_Adapter-&gt;select().
+You may not actually pass binding parameters to Zend_Db_Select-&gt;query(), while you may throught Zend_Db_Adapter-&gt;query(), whitch is a strange behavior.</p>
+
+<p>Actual Zend_Db_Select code :</p>
+
+<pre class="highlight"><code>
+    public function query($fetchMode = null)
+    {
+        $stmt = $this-&gt;_adapter-&gt;query($this);
+        if ($fetchMode == null) {
+            $fetchMode = $this-&gt;_adapter-&gt;getFetchMode();
+        }
+        $stmt-&gt;setFetchMode($fetchMode);
+        return $stmt;
+    }
+</code></pre>
+
+<p>Improvement to consider binding parameters :</p>
+
+<pre class="highlight"><code>
+    public function query($fetchMode = null, $bind = array() )
+    {
+        $stmt = $this-&gt;_adapter-&gt;query($this, $bind);
+        if ($fetchMode == null) {
+            $fetchMode = $this-&gt;_adapter-&gt;getFetchMode();
+        }
+        $stmt-&gt;setFetchMode($fetchMode);
+        return $stmt;
+    }
+</code></pre>
+
+<p>Like this, both Select and Adapter's query() methods have the same behavior.
+Use case :</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select();
+$select-&gt;from('test', array('id','champ'))
+      -&gt;where('id &gt; :id');
+$statement = $select-&gt;query(Zend_Db::FETCH_OBJ,array(':id'=&gt; 2));
+/* behaves exactly as this :
+*$db-&gt;setFetchMode(Zend_Db::FETCH_OBJ);
+*$statement = $db-&gt;query($select,array(':id'=&gt; 2));
+*/
+</code></pre>
+
+<p>We could as well improve Zend_Db_Select-&gt;query() by specifing a fetch mode directly :</p>
+
+<pre class="highlight"><code>
+    public function query($fetchMode = null, $bind = array())
+    {
+        if ($fetchMode != null) {
+           $this-&gt;_adapter-&gt;setFetchMode($fetchMode);
+        }        
+        return $this-&gt;_adapter-&gt;query($this,$bind);
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-10-01T12:24:50.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Bill</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-03-13T22:43:45.000+0000</p> 
+        <div class="body">
+            <p>I like the idea, although the latter 'fetchMode' example may need to be changed slightly. With the example shown, it will change the state of the fetchmode for the entire adapter, whereas currently the fetchmode is only applied on a per-statement basis. But yes, the $bind param is a great idea.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T22:06:44.000+0000</p> 
+        <div class="body">
+            <p>Resetting 'fix version priority' and 'fix version' to be re-evaluated for next release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-22T08:28:53.000+0000</p> 
+        <div class="body">
+            <p>I think that this is a great idea, as it is much better to use binding at the database level, rather than quoting at the Zend_Db_Adapter level.</p>
+
+<p>If we do allow Zend_Db_Select-&gt;query() to include a bind, we should also include a bind() method to allow the bind to be set up in advance.</p>
+
+<p>Using Zend_Paginator is a use case:</p>
+
+<pre class="highlight"><code>
+        $table = new Bugs();
+        $select = $table-&gt;select()-&gt;where("bug_status = :bug_status")
+                                  -&gt;bind(array(':bug_status' =&gt; $this-&gt;_getParam('status')));
+        $paginator = Zend_Paginator::factory($select, 'DbTableSelect')
+        $paginator-&gt;setCurrentPageNumber($this-&gt;_getParam('page')); 
+        $this-&gt;view-&gt;paginator = $paginator;
+</code></pre>
+
+<p>Without the bind() function there is no easy way to set up the bind variables before passing the Zend_Db_Table_Select to the Zend_Paginator, and consequently you can't use all that Zend_Paginator, View_Renderer, Front_Controller, etc. magic to just fetch the correct rows.</p>
+
+<p>I think this was planned at one time: see [<a href="http://framework.zend.com/issues/browse/ZF-105">http://framework.zend.com/issues/browse/ZF-105</a>]</p>
+
+<p>My additions to Zend_Db_Select to support this:</p>
+
+<pre class="highlight"><code>    /**
+     * Variables to bind when executing the query
+     *
+     * @var array
+     */
+    protected $_bind = array();
+
+    /**
+     * Set the bind variables for future use
+     *
+     * @param array    $bind
+     * @return Zend_Db_Select This Zend_Db_Select object.
+     */
+    public function bind($bind)
+    {
+        $this-&gt;_bind = $bind;
+        return $this;
+    }
+
+    /**
+     * Get the bind variables currently stored for future use
+     *
+     * @return array    $bind
+     */
+    public function getBind()
+    {        
+        return $this-&gt;_bind;
+    }</code></pre>
+
+<p>And then an updated query, slightly different to the one proposed in the Description:</p>
+
+<pre class="highlight"><code>    /**
+     * Execute the Select statement and return the results
+     * 
+     * @param integer $fetchMode OPTIONAL
+     * @param array   $bind      OPTIONAL
+     * @return PDO_Statement|Zend_Db_Statement
+     */
+    public function query($fetchMode = null, $bind = array())
+    {
+        if (!empty($bind)) {
+            $this-&gt;bind($bind);
+        }
+        $stmt = $this-&gt;_adapter-&gt;query($this, $this-&gt;getBind());
+        if ($fetchMode == null) {
+            $fetchMode = $this-&gt;_adapter-&gt;getFetchMode();
+        }
+        $stmt-&gt;setFetchMode($fetchMode);
+        return $stmt;
+    }</code></pre>
+
+<p>The getBind() function is required because I think a change to Zend_Db_Table_Abstract is also required. The _fetch() method selects rows using a Zend_Db_Table_Select (which inherits from Zend_Db_Select). This method needs to be aware of the stored bind variables and use them. Hence, the original code:</p>
+
+<pre class="highlight"><code>    protected function _fetch(Zend_Db_Table_Select $select)
+    {
+        $stmt = $this-&gt;_db-&gt;query($select);
+        $data = $stmt-&gt;fetchAll(Zend_Db::FETCH_ASSOC);
+        return $data;
+    }</code></pre>
+
+<p>would be replaced by:</p>
+
+<pre class="highlight"><code>    protected function _fetch(Zend_Db_Table_Select $select)
+    {
+        $stmt = $this-&gt;_db-&gt;query($select, $select-&gt;getBind());
+        $data = $stmt-&gt;fetchAll(Zend_Db::FETCH_ASSOC);
+        return $data;
+    }</code></pre>
+
+<p>In particular this is required because Zend_Paginator_Adapter_DbSelect executes $this-&gt;_select-&gt;getTable()-&gt;fetchAll($this-&gt;_select) to get the rows, and therefore fetchAll (and hence _fetch) need to know how to access the bind variables it they have been set.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-06T14:30:25.000+0000</p> 
+        <div class="body">
+            <p>This issue has gone unaddressed for too long. I'm re-assigning to Ralph for re-evaluation and categorization.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-10T09:49:46.000+0000</p> 
+        <div class="body">
+            <p>Will evaluate within 2 weeks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-03-27T18:16:21.000+0000</p> 
+        <div class="body">
+            <p>Attached patch with most suggestions in this thread applied. Will see if I can write some unit tests later on. Ralph, do you have the time to look at this?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-03-28T16:55:15.000+0000</p> 
+        <div class="body">
+            <p>Added an updated patch file, complete with unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-03-29T01:56:07.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r. 14528</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Kolesov (hedgehog) on 2009-06-29T09:18:05.000+0000</p> 
+        <div class="body">
+            <p>Still does not work properly as of 1.8.4.</p>
+
+<p>Db\Select.php</p>
+
+<p>line 674 should be:</p>
+
+<p>$stmt = $this-&gt;_adapter-&gt;query($this, $this-&gt;getBind());</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,133 @@
+<h2>ZF-11110: Zend_Db_Statement_Pdo uses unsuitable PDO methods</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-24T02:21:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-04-05T12:40:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-538">ZF-538</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Some PDO methods have different semantics compared to Zend_Db:</p>
+
+<h1>When no $type argument is given to PDOStatement::bindValue(...), it always assumes a string type. However, Zend_Db_Statement::bindValue(...) is expected to determine the database type from the value's PHP type.</h1>
+
+<h1>PDOStatement::execute($params) treats all values of $params as strings, while Zend_Db_Statement::execute($params) is expected to respect their PHP types.</h1>
+
+<p>This means that the Zend_Db_Statement_Pdo implementation can only make use of:</p>
+
+<pre><code>* PDOStatement::bindValue(...) with an explicit $type argument
+* PDOStatement::execute() without the $params argument
+</code></pre>
+
+<p>The attached patch fixes both issues for ZF 1.11.3, so all types including Boolean types will work properly.</p>
+
+<p>This solves, among others, the issue with PDO/PostgreSQL and FALSE (<a href="http://framework.zend.com/issues/browse/ZF-538">ZF-538</a>). However, in contrast to the solution discussed in <a href="http://framework.zend.com/issues/browse/ZF-538">ZF-538</a>, this patch only affects the Pdo adapter and does not force all other adapters to use explicit binds.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Volker Grabsch (vog) on 2011-02-24T02:40:33.000+0000</p> 
+        <div class="body">
+            <p>Since this issue tracking system doesn't allow me to upload a patch, I'm providing it here. Sorry for the inconvenience:</p>
+
+<pre class="highlight"><code>
+fix type issues (e.g. PostgreSQL/FALSE is encoded as empty string "''" instead of "false") by avoiding unsuitable PDO methods in Zend_Db_Statement_Pdo
+
+diff --git a/library/Zend/Db/Statement/Pdo.php b/library/Zend/Db/Statement/Pdo.php
+index 775e401..d17cc87 100644
+--- a/library/Zend/Db/Statement/Pdo.php
++++ b/library/Zend/Db/Statement/Pdo.php
+@@ -137,10 +137,17 @@ class Zend_Db_Statement_Pdo extends Zend_Db_Statement implements IteratorAggrega
+ 
+         try {
+             if ($type === null) {
+-                return $this-&gt;_stmt-&gt;bindValue($parameter, $value);
+-            } else {
+-                return $this-&gt;_stmt-&gt;bindValue($parameter, $value, $type);
++                if (is_bool($value)) {
++                    $type = PDO::PARAM_BOOL;
++                } elseif ($value === null) {
++                    $type = PDO::PARAM_NULL;
++                } elseif (is_integer($value)) {
++                    $type = PDO::PARAM_INT;
++                } else {
++                    $type = PDO::PARAM_STR;
++                }
+             }
++            return $this-&gt;_stmt-&gt;bindValue($parameter, $value, $type);
+         } catch (PDOException $e) {
+             require_once 'Zend/Db/Statement/Exception.php';
+             throw new Zend_Db_Statement_Exception($e-&gt;getMessage(), $e-&gt;getCode(), $e);
+@@ -225,10 +232,15 @@ class Zend_Db_Statement_Pdo extends Zend_Db_Statement implements IteratorAggrega
+     {
+         try {
+             if ($params !== null) {
+-                return $this-&gt;_stmt-&gt;execute($params);
+-            } else {
+-                return $this-&gt;_stmt-&gt;execute();
++                foreach ($params as $parameter =&gt; $value) {
++                    if (is_int($parameter)) {
++                        $this-&gt;bindValue($parameter + 1, $value);
++                    } else {
++                        $this-&gt;bindValue($parameter, $value);
++                    }
++                }
+             }
++            return $this-&gt;_stmt-&gt;execute();
+         } catch (PDOException $e) {
+             require_once 'Zend/Db/Statement/Exception.php';
+             throw new Zend_Db_Statement_Exception($e-&gt;getMessage(), (int) $e-&gt;getCode(), $e);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Volker Grabsch (vog) on 2011-04-05T12:40:43.000+0000</p> 
+        <div class="body">
+            <p>This is duplicate of ZF-538.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,260 @@
+<h2>ZF-2059: &quot;:0'&quot; in a String Results in Exception</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-10-11T23:30:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-03-16T14:27:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.7 (16/Mar/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3025">ZF-3025</a></li>
+            <li><a href="/issues/browse/ZF-1343">ZF-1343</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Today I ran into the following Zend_DB exception when running some routine select queries on a MySQL database:</p>
+
+<p>SQLSTATE[HY093]: Invalid parameter number: no parameters were bound</p>
+
+<p>It seems the culprit was a three-character :0' sequence in a string in the WHERE clause. That's a column, zero, and apostrophe. If you have other characters between the zero and apostrophe, it will still generate the exception, but the column and zero need to be together. You should be able to reproduce this bug if you pass one of the two following to a fetchCol or fetchAll query.</p>
+
+<p>$sql = 'SELECT something FROM somewhere WHERE somethingElse = ' . $db-&gt;quote(":0'");</p>
+
+<p>or simply:</p>
+
+<p>$sql = 'SELECT something FROM somewhere WHERE somethingElse = ':0\'';</p>
+
+<p>As this is valid sql syntax, it seems something goes awry in how Zend_DB parses the string internally.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-10-15T13:50:40.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Bill</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-10-25T14:29:16.000+0000</p> 
+        <div class="body">
+            <p><a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=6685">SVN r6685</a> includes a unit test for this case.</p>
+
+<p>Strange. On my laptop (PHP 5.1.4 on WinXP), I get no error from this test (pdo_mysql).</p>
+
+<p>But when I run on the test server (PHP 5.2.4 on Linux), I get the expected exception:</p>
+
+<pre class="highlight"><code>
+3) testQuoteStringColonZeroApostrophe(Zend_Db_Adapter_Pdo_MysqlTest)
+Zend_Db_Statement_Exception: SQLSTATE[HY093]: Invalid parameter number: no parameters were bound
+/var/local/zf/library/Zend/Db/Statement.php:279
+/var/local/zf/library/Zend/Db/Adapter/Abstract.php:396
+/var/local/zf/library/Zend/Db/Adapter/Pdo/Abstract.php:206
+/var/local/zf/library/Zend/Db/Adapter/Abstract.php:603
+</code></pre>
+
+<p>When running on the test server, I also get many other test failures and errors that do not show up on my laptop.</p>
+
+<p>The test server configuration runs the following adapters:
+* mysqli
+* pdo_mysql
+* pdo_pgsql
+* pdo_sqlite</p>
+
+<p>Maybe something changed in pdo_mysql that is breaking this for us, or is there a better suspect?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-10-25T15:26:14.000+0000</p> 
+        <div class="body">
+            <p>The pdo_mysql quoting mechanism does not appear to be to blame for this error; I'm still looking for exactly where the problem is rooted.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hakan Ensari (livrenoir) on 2007-10-25T17:08:25.000+0000</p> 
+        <div class="body">
+            <p>Not certain if it is relevant, but I originally came across this issue on Zend Core 2.0 (PHP 5.2.3, pdo_mysql), running on Mac and Linux.</p>
+
+<p>I was just playing around with the same string, and to my surprise it didn't produce the exception at first. Then, after a few different column names and switching to a different table, SQLSTATE[HY093] crept out again, and more perplexingly, the original query, which had been working fine, started producing the same message as well.</p>
+
+<p>To further complicate things, my Mac ZC setup occasionally segfaults and then reverts to outputting the exception when running queries with the suspect string. I can't really establish a pattern to all this yet.</p>
+
+<p>My apologies for the anecdotal observations. I will check out the above svn rev and test in a little more structured way when I get a chance this weekend!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-10-26T14:51:37.000+0000</p> 
+        <div class="body">
+            <p>Your comments, however anecdotal, are helpful; no need to apologize. :)</p>
+
+<p>I just committed another revision to the unit tests in <a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=6687">SVN r6687</a>.</p>
+
+<p>On PHP 5.2.4 (Linux) I get inconsistent results:</p>
+
+<pre class="highlight"><code>
+ Zend_Db_Adapter_MysqliTest
+ .
+ Zend_Db_Adapter_Pdo_MysqlTest
+ E
+ Zend_Db_Statement_Pdo_MysqlTest
+ .
+ Zend_Db_Adapter_Pdo_PgsqlTest
+ .
+ Zend_Db_Adapter_Pdo_SqliteTest
+ .
+
+There was 1 error:
+
+1) testZF2059(Zend_Db_Adapter_Pdo_MysqlTest)
+Zend_Db_Statement_Exception: SQLSTATE[HY093]: Invalid parameter number: no parameters were bound
+/home/darby/framework/trunk/library/Zend/Db/Statement.php:279
+/home/darby/framework/trunk/library/Zend/Db/Adapter/Abstract.php:396
+/home/darby/framework/trunk/library/Zend/Db/Adapter/Pdo/Abstract.php:206
+/home/darby/framework/trunk/library/Zend/Db/Adapter/Abstract.php:603
+</code></pre>
+
+<p>As you can see, the test only fails for the pdo_mysql adapter test, where it succeeds for both pdo_pgsql and pdo_sqlite. But the test passes when run for the pdo_mysql statement suite. Strange, indeed.</p>
+
+<p>Again, on PHP 5.1.4 (WinXP), all the tests succeed (only testing pdo_mysql, though). I would much like to hear a report from you after you have had a chance to check it out.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:05:31.000+0000</p> 
+        <div class="body">
+            <p>This issue should have been fixed for the 1.5 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:55.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2008-04-08T11:56:03.000+0000</p> 
+        <div class="body">
+            <p>A similar case has been reported with positional parameter placeholder ('?') and an escaped quote character.  This appears to be a fault in PDO.  See ZF-1343.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sven Herrmann (sherrmann) on 2008-04-09T13:12:38.000+0000</p> 
+        <div class="body">
+            <p>Should be fixed by the patch i attached to ZF-3025</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sven Herrmann (sherrmann) on 2008-04-10T10:18:09.000+0000</p> 
+        <div class="body">
+            <p>Just did a check and this issue is indeed fixed by the patch i attached to ZF-3025</p>
+
+<p>I think I should explain the bug (which is just a small typo) a little bit.</p>
+
+<p>The problem is in Zend_Db_Statement::_stripQuoted , which should remove quoted parts of the SQL statement. The removing of parts in the 'identifier quotes' works fine, but the removing of parts in 'quotes' doesn't work correctly if there is an escaped quote. (was going to write a more detailed explanation, but if you look at the code and the patch it should be self explaining)</p>
+
+<p>btw. the issue ZF-1343 is similar, but seems to be a PDO bug and isn't fixed by my patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sven Herrmann (sherrmann) on 2008-04-10T11:27:03.000+0000</p> 
+        <div class="body">
+            <p>Sorry.. I was wrong... my patch doesn't fix this problem. Started to get inconsistent results.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:04:15.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is incorrect.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-04T12:53:17.000+0000</p> 
+        <div class="body">
+            <p>Reassigning as Ralph is the maintainer of Zend_Db</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-01-07T16:32:00.000+0000</p> 
+        <div class="body">
+            <p>is there a PDO issue on bugs.php.net that confirms that this is a PDO and not a Zend_Db bug?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2009-01-07T18:36:00.000+0000</p> 
+        <div class="body">
+            <p>See <a href="http://bugs.php.net/bug.php?id=44251">http://bugs.php.net/bug.php?id=44251</a></p>
+
+<p>This issue was reported against PDO in PHP 5.2.5.  It is reproducible using PHP without Zend Framework.  Actually the test case involves named parameter placeholders, not positional parameter placeholders.  So it's more like the defects reported in ZF-2059 and ZF-3025.  But I would assume the same defect in PDO applies to both types of parameter placeholders.</p>
+
+<p>A comment in PHP bug 44251 claims that a fix is finally in CVS as of 2008-10-10, committed in  branches for PHP 5.2, 5.3, and HEAD.  This means it could be fixed in the recent PHP 5.2.8 release.  Why don't you try testing it?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-10T09:59:33.000+0000</p> 
+        <div class="body">
+            <p>I am inclined to close this issue if it is indeed an issue with php itself, and has found resolution in a PHP CVS.  Can someone confirm?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-03-16T14:27:04.000+0000</p> 
+        <div class="body">
+            <p>This is an issue with PHP that has been fixed as of 10/10/2008: <a href="http://bugs.php.net/bug.php?id=44251">http://bugs.php.net/bug.php?id=44251</a>. Closing as 'Not an issue' since it is a PDO issue and not a Zend Framework issue.</p>
+
+<p>,Wil</p>
+
+        </div>
+    </div>
+    </div>
+

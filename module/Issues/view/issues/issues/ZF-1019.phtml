@@ -1,0 +1,197 @@
+<h2>ZF-1019: Zend_Config and numeric keys</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-07T11:08:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.0 (17/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Config and Zend_Controller_Router_Rewrite play together for a long time now. But now and then a new Route object comes and this time I can't load them from config because of the key naming strictness in Zend_Config. Basically, I need to load an array indexed numerically. But let's work on examples.</p>
+
+<p>Standard Static Route instantiation and Zend_Config ini representation:</p>
+
+<pre class="highlight"><code>
+
+$route = new Zend_Controller_Router_Route_Static(
+    'forum', 
+    array('controller' =&gt; 'forum', 'action' =&gt; 'list')
+);
+$router-&gt;addRoute('forums', $route);
+
+/* Zend_Config ini structure to achieve the same:
+
+routes.forums.type = "Zend_Controller_Router_Route_Static"
+routes.forums.route = "forum"
+routes.forums.defaults.controller = "forum"
+routes.forums.defaults.action = "list" 
+*/
+
+$router-&gt;addConfig($config, 'routes');
+</code></pre>
+
+<p>Now, there is this new type of Route - Regex Route - which needs a mapping of regex subpatterns (which are numerically indexed in PHP) to parameter names. Example:</p>
+
+<pre class="highlight"><code>
+
+$route = new Zend_Controller_Router_Route_Regex(
+    'forum/(\d+)(?:p/(\d+))?', 
+    array('controller' =&gt; 'forum', 'action' =&gt; 'threads', 'page' =&gt; '1'),
+    array(1 =&gt; 'forum_id', 2 =&gt; 'page')
+);
+$router-&gt;addRoute('threads', $route);
+
+/* Zend_Config ini:
+
+routes.threads.type = "Zend_Controller_Router_Route_Regex"
+routes.threads.route = "forum/(\d+)(?:p/(\d+))?"
+routes.threads.defaults.controller = "forum"
+routes.threads.defaults.action = "threads"
+routes.threads.defaults.page = "1"
+routes.threads.map.1 = "forum_id"
+routes.threads.map.2 = "page"
+*/
+
+$router-&gt;addConfig($config, 'routes');
+</code></pre>
+
+<p>As you probably see already, I can't do &gt; routes.threads.map.1 = "forum_id" &lt; in Zend_Config because of a very strict naming constraints. You keep the values in associative array so why can't you allow the same kind of keys that PHP allows you to use? Is this a necessity? Or maybe you could loosen it a bit, Rob?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-03-07T15:17:08.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>The trouble is that you couldn't use the object based interface to access the data.</p>
+
+<p>i.e.</p>
+
+<pre class="highlight"><code>
+$map1 = $config-&gt;threads-&gt;map-&gt;1;
+</code></pre>
+
+<p>is invalid PHP which may be confusing.</p>
+
+<p>Obviously</p>
+
+<pre class="highlight"><code>
+$map = $config-&gt;threads-&gt;map-&gt;asArray();
+</code></pre>
+
+<p>should work fine though.</p>
+
+<p>The question is whether we should break the predictably that you can always access a config key using the object notation. If so, then the fix is easy as it's a case of changing the validation regex.</p>
+
+<p>Regards,</p>
+
+<p>Rob...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-03-07T15:33:50.000+0000</p> 
+        <div class="body">
+            <p>Of course, a simple workaround is to prefix the keys, such as {{map_1}}, so I'm tempted to say this isn't an issue.</p>
+
+<p>However, since __get() doesn't care whether the named value is a valid PHP identifier, maybe Zend_Config shouldn't care, either. Syntax like the following would work if key validation were absent:</p>
+
+<pre class="highlight"><code>
+echo $config-&gt;threads-&gt;map-&gt;{1};
+</code></pre>
+
+<p>Maybe we should relieve Zend_Config of the burden of checking the key's validity, since it appears to be more restrictive than what PHP already allows.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-07T15:39:50.000+0000</p> 
+        <div class="body">
+            <p>How about adding get and set methods which could coexist with object based interface? Like:</p>
+
+<pre class="highlight"><code>
+$map1 = $config-&gt;threads-&gt;map-&gt;get("1");
+</code></pre>
+
+<p>It's a simple change that should deal with such edge cases but won't restrict the usage at the same time. And I guess everyone knows one can't use identifiers starting with numbers as it's a basic rule of php. Could we assume that someone choosing numeric indexes knows what he is doing and let him do it? Maybe with little heads-up in the manual.</p>
+
+<pre class="highlight"><code>
+public method get($name) {
+   return $this-&gt;__get($name);
+}
+
+public method set($name, $value) {
+   $this-&gt;__set($name, $value);
+   return $this;
+}
+</code></pre>
+
+<p>Of course I only need asArray but it seems like a nice addition. What do you think?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-03-08T14:05:23.000+0000</p> 
+        <div class="body">
+            <p>Changed fix version to unknown.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-03-14T02:43:04.000+0000</p> 
+        <div class="body">
+            <p>Fixed in svn revision 3913</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-14T03:03:10.000+0000</p> 
+        <div class="body">
+            <p>Thanks, Rob.</p>
+
+        </div>
+    </div>
+    </div>
+

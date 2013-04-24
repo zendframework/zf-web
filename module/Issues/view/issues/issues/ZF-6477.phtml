@@ -1,0 +1,207 @@
+<h2>ZF-6477: Zend_Service_Amazon_S3 : Does not work for buckets located in EU</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-30T00:47:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-29T06:10:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.2 (27/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jon Whitcraft (sidhighwind)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Service_Amazon</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11914/S3.php">S3.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When you try to put an object into a bucket located in EU, you get an error from amazon, that this bucket must be accessed using the specific endpoint (bucketname.s3.amazonaws.com). 
+I have changed the function _makeRequest as follows. It seems to work so far with these changes. Haven't tested intensively.</p>
+
+<pre class="highlight"><code>
+    /**
+     * Make a request to Amazon S3
+     *
+     * TODO: support bucket.s3.amazon.com style
+     *
+     * @param  string $method
+     * @param  string $path
+     * @param  array  $params
+     * @param  array  $headers
+     * @param  string $data
+     * @return Zend_Http_Response
+     */
+    public function _makeRequest($method, $path='', $params=null, $headers=array(), $data=null)
+    {
+        $retry_count = 0;
+
+        if (!is_array($headers)) {
+            $headers = array($headers);
+        }
+
+        $headers['Date'] = gmdate(DATE_RFC1123, time());
+
+        $parts = explode('/', $path);
+        self::addSignature($method, $path, $headers);
+
+        $client = self::getHttpClient();
+
+        $client-&gt;resetParameters();
+        // Work around buglet in HTTP client - it doesn't clean headers
+        // Remove when ZHC is fixed
+        $client-&gt;setHeaders(array('Content-MD5' =&gt; null, 'Expect' =&gt; null, 'Range' =&gt; null));
+        
+        $endpoint = self::S3_ENDPOINT;
+        if (count($parts) &gt; 1){
+            $endpoint = str_replace('http://', 'http://' . $parts[0] . '.', $endpoint);
+            array_shift($parts);
+            $client-&gt;setUri($endpoint.'/'.implode('/', $parts));
+        } else {
+            $client-&gt;setUri(self::S3_ENDPOINT.'/'.$path);
+        }
+        $client-&gt;setHeaders($headers);
+
+        if (is_array($params)) {
+            foreach ($params as $name=&gt;$value) {
+                $client-&gt;setParameterGet($name, $value);
+            }
+         }
+
+         if (($method == 'PUT') &amp;&amp; ($data !== null)) {
+             if (!isset($headers['Content-type'])) {
+                 $headers['Content-type'] = self::getMimeType($path);
+             }
+             $client-&gt;setRawData($data, $headers['Content-type']);
+         }
+
+         do {
+            $retry = false;
+
+            $response = $client-&gt;request($method);
+            $response_code = $response-&gt;getStatus();
+
+            // Some 5xx errors are expected, so retry automatically
+            if ($response_code &gt;= 500 &amp;&amp; $response_code &lt; 600 &amp;&amp; $retry_count &lt;= 5) {
+                $retry = true;
+                $retry_count++;
+                sleep($retry_count / 4 * $retry_count);
+            }
+            else if ($response_code == 307) {
+                // Need to redirect, new S3 endpoint given
+                // This should never happen as Zend_Http_Client will redirect automatically
+            }
+            else if ($response_code == 100) {
+                //echo 'OK to Continue';
+            }
+        } while ($retry);
+        return $response;
+    }
+
+
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-04-30T05:09:53.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Jon</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Whitcraft (sidhighwind) on 2009-04-30T06:51:20.000+0000</p> 
+        <div class="body">
+            <p>Could your attach a patch file so i apply this and test it?</p>
+
+<p>Thanks,</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ivo Meißner (zendjunky) on 2009-05-04T02:27:01.000+0000</p> 
+        <div class="body">
+            <p>Here is a patchfile with the changes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kristof Coomans (cyberwolf) on 2009-05-18T07:51:55.000+0000</p> 
+        <div class="body">
+            <p>IMHO it would be a good idea to handle Amazon S3 API permanent redirects, which seem to use the HTTP status 301 and do not set a location header (and are therefore not handled by Zend_HTTP_Client).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Whitcraft (sidhighwind) on 2009-05-19T12:35:15.000+0000</p> 
+        <div class="body">
+            <p>Kristof,</p>
+
+<p>I didn't write this component to i'm not too entierly sure what you are talking about.  Can you please provide the docs page that explains that or submit a patch?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kristof Coomans (cyberwolf) on 2009-05-19T12:45:26.000+0000</p> 
+        <div class="body">
+            <p>Hi Jon</p>
+
+<p>You can find more information about it at <a href="http://docs.amazonwebservices.com/AmazonS3/latest/index.html?Redirects.html">http://docs.amazonwebservices.com/AmazonS3/latest/…</a>, under "Permanent Request Redirection". After thinking a bit more about this, it might be better to use domain-style requests after all, as Ivo suggests. That works in all cases (EU and US-located buckets).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Whitcraft (sidhighwind) on 2009-05-20T08:43:42.000+0000</p> 
+        <div class="body">
+            <p>This has been resolved and checked-in to svn.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Ritter (pinopinelli) on 2009-06-29T06:10:29.000+0000</p> 
+        <div class="body">
+            <p>Hello,</p>
+
+<p>are you shure that is suitable for all operations that can be done?
+When I try to DELETE an object from a bucket (in the EU) then I get an positive response from S3. But my object is still there.
+I guess the problem is, that Amazon's API also returns this positive response when you try to delete an object that does not even exist.
+I did not test for other operations yet.</p>
+
+        </div>
+    </div>
+    </div>
+

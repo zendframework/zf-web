@@ -1,0 +1,104 @@
+<h2>ZF-10151: Improved notification in Http.php validateQuery() over preg_match crash caused by PHP backtracking bug</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-14T07:10:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Uri</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Due to a known PHP-issue (see RegExp  "Known Issues") a "simple" preg_match call may crash PHP-execution. So far, this only happened in the function validateQuery() of class Zend_Uri_Http (indirectly) used by the Zend_Http_Client when (over)long URL-queries were generated.</p>
+
+<p>Workaround: reduce pcre.recursion_limit to a safe level for this call</p>
+
+<pre class="literal">
+--- library/Zend/Uri/Http.php   (revision 22559)
++++ library/Zend/Uri/Http.php   (working copy)
+@@ -630,7 +630,34 @@
+ 
+         // Determine whether the query is well-formed
+         $pattern = '/^' . $this-&gt;_regex['uric'] . '*$/';
++
++   // ======================================================================
++   // added in order to fix Segmentation Fault problem that may appear 
++   // on (over)long URLs with long URL-encoded parameters
++   // trying to catch a PHP-bug by decreasing backtracking- and recursion-limits ...
++   // ======================================================================
++
++   // decrease the PCRE recursion limit for the (possibly dangerous) preg_match call
++   $former_recursion_limit = ini_set("pcre.recursion_limit", 10000);
++
++   // the original call to pregmatch
+         $status  = @preg_match($pattern, $query);
++
++   // reset the PCRE recursion limit to its original value
++   ini_set("pcre.recursion_limit", $former_recursion_limit);
++
++   // if the reg-exp has failed to our decreased recursion limit we (Zend) can not make
++   // any statement over the validity of the query and has to assume validity ;)
++   if (PREG_RECURSION_LIMIT_ERROR == preg_last_error()) {
++       $status = true;
++           require_once 'Zend/Uri/Exception.php';
++           throw new Zend_Uri_Exception("Zend_Uri_Http validateQuery check regular expression fails due to decreased PCRE recursion limit (preventing a possible C-Segmentation Fault). Query: $query" );
++   }
++
++   // ======================================================================
++   // END OF MODIFICATION
++   // ======================================================================
++
+         if ($status === false) {
+             require_once 'Zend/Uri/Exception.php';
+             throw new Zend_Uri_Exception('Internal error: query validation failed');
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by François-Xavier MAURICARD (fxmauricard) on 2010-08-18T07:49:02.000+0000</p> 
+        <div class="body">
+            <p>In my install (PHP 5.3.3 on WinXP SP3), I had to limit the recursion to only 500. (limit is somewhere between 500 and 750).</p>
+
+        </div>
+    </div>
+    </div>
+

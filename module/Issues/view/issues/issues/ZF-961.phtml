@@ -1,0 +1,601 @@
+<h2>ZF-961: Proposed Feature: Enable Zend_Date::now() / Zend_TimeSync to interoperate</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-02-23T14:21:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-03-21T16:25:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.5.0 (17/Mar/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-932">ZF-932</a></li>
+            <li><a href="/issues/browse/ZF-987">ZF-987</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I suggest we consider another integration point between Zend_TimeSync() and Zend_Date().  All code using Zend_Date::now() might potentially benefit, if this function returned an "adjusted" date made more accurate by using Zend_TimeSync.  However, several pototential problems must be solved before such a feature could be added:</p>
+
+<p>1) Zend_TimeSync should <em>not</em> be used to query SNTP/NTP time servers frequently (e.g. once per web page request is <em>very</em> bad idea).
+2) Feature should be optional, and only enabled if explicitly requested by the develoepr
+3) Avoid coupling Zend_TimeSync to Zend_Date as much as possible (e.g. it should remain possible to use Zend_Date without loading / requiring Zend_TimeSync).
+4) The Zend_Date::now() function would need enhancement:</p>
+
+<pre class="highlight"><code>
+public static function now($locale = null)
+{    return new Zend_Date(time(), Zend_Date::TIMESTAMP, $locale);    }
+</code></pre>
+
+<p>For example, if the static public variable Zend_Date::TIMESYNC === true, then the function above would use Zend_TimeSync() to retrieve an offset needed to "guesstimate" the current time, just like I suggested in ZF-932.  However, this proposal is slightly more complex, because we need to avoid making Zend_TimeSync actually query NTP/SNTP servers everytime Zend_Date::now() is called.  Also, if this feature is added, it needs to remain optional and not force everyone to {require_once 'Zend/TimeSync.php'}, they use Zend_Date.  Thus, Zend_Date::now() would need to be "smart" and require the right classes, if needed, and use caching to prevent abuse and over-using of NTP/SNTP time servers (also an issue with the Zend_TimeSync class whether or not any other ZF classes are used).</p>
+
+<p>Example Use Case:</p>
+
+<pre class="highlight"><code>
+$date1 = new Zend_Date();
+// $date1 has an *unadjusted* time === time()
+
+// global side-effect changing behavior of Zend_Date::now()
+Zend_Date::nowUsesTimeSync(true);
+
+$date2 = new Zend_Date();
+// $date2 is adjusted by an offset determined by Zend_TimeSync (i.e. a cached value)
+
+// equivalent to new Zend_Date(), and also adjusted by the offset
+$date3 = Zend_Date::now();
+</code></pre>
+
+<p>Again, this Jira "issue" is a suggested feature improvement, and discussion is encouraged by all who wish to participate.  The idea  in this posted issue is to encourage discovery of potential problems and especially to propose solutions for any of these potential problems, so that the value of the feature can be enjoyed without any "cons".</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-23T14:40:28.000+0000</p> 
+        <div class="body">
+            <p>This would not work,  because how should Zend_Date know which Timeservers the coupled TimeSync should request...</p>
+
+<p>A user would always have to create a TimeSync object to request timeservers...</p>
+
+<p>And as soon as you have your TimeSync object you should use Zend_TimeSync-&gt;getdate and you will have a date object with the actual time from the timeserver...</p>
+
+<p>In my opinion there is no good way to back-couple these two classes.</p>
+
+<p>Zend_TimeSync is too problematic to have it directly integrated within Zend_Date. Even if this is made clear within the documentation.</p>
+
+<p>Someone who needs timeservers should always use Zend_TimeSync to get the right date object.
+He will then have to read the docu or the APIdoc of Zend_TimeSync which will lead him automatically in knowing the problems and benefit of timeservers.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-23T16:21:32.000+0000</p> 
+        <div class="body">
+            <p>This could work, if "enabled [when] explicitly requested by the developer".  I did not specify the mechanism how this could be accomplished, and there is room for creativity.</p>
+
+<p>If a developer wants to TimeSync "enable" an entire ZF application, it could be as easy as this:</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+$result = $server-&gt;getDate();
+Zend_Date::nowUsesTimeSync($result);
+
+$date = new Zend_Date(); // $date is automatically adjusted by the offset determined from $result
+$date = Zend_Date::now(); // $date is automatically adjusted by the offset determined from $result
+</code></pre>
+
+<p>However, if reasonable precautions were employed to prevent abuse of the time server, we could use <a href="http://www.pool.ntp.org/">http://www.pool.ntp.org/</a> and eliminate the client-side code above.  Yes, there could be problems if implemented wrong, but there are solutions available for correct implementations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-23T16:58:16.000+0000</p> 
+        <div class="body">
+            <p>In the most extreme case of keeping these two classes separate, the developer could be forced to do something like this (or maybe use a different Zend_TimeSync method than getInfo() to suggest an offset):</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+$result = $server-&gt;getDate();
+Zend_Date::nowUsesTimeSync($result-&gt;getInfo());
+</code></pre>
+
+<p>The benefit comes from making existing ZF code suddenly use time adjusted dates
+by merely poking a configuration value into Zend_Date's class.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-23T17:06:31.000+0000</p> 
+        <div class="body">
+            <p>Note that any use of a static class variable holding a time offset (used to adjust time() to the "accurate" time) necessitate the use of this variable by Zend_Date_DateObject::_getTime(), in order to avoid breaking isToday() and friends.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-23T17:32:16.000+0000</p> 
+        <div class="body">
+            <p>I am less concerned by how Zend_Date::now() and Zend_Date_DateObject::_getTime() access a "global" shared offset .. but I'm more concerned that it is possible to make them use this shared time offset, without losing the cool feature of making individual Zend_Date object's have a private offset that take precedence over the shared offset.</p>
+
+<p>I am somewhat worried about Zend_TimeSync, because of the danger of abusing NTP servers.  If we provide a more complete integrated "solution", there is less chance people will use Zend_TimeSync in bad ways that pound on NTP servers, giving ZF a bad reputation.</p>
+
+<p>If we provide the code and solution to make Zend_Date rely on an offset generated by Zend_TimeSync, then we have more control over the use of Zend_TimeSync, and can insure that the offset is cached for a reasonable period of time, instead of a developer literally putting the following code into their bootstrap (very bad, because it pounds on NTP servers, when the ZF app is on a busy website):</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+$result = $server-&gt;getDate();
+Zend_Date::nowUsesTimeSync($result-&gt;getInfo());
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andries Seutens (andries) on 2007-02-24T04:54:12.000+0000</p> 
+        <div class="body">
+            <p>Gavin, I am worried about this too. Perhaps a forced internal caching mechanism (eg Zend_Cache) wouldn't be such a bad idea at all? We could implement this with the possibility of abstraction, which would make it possible for the developer to use his/her own caching mechanism, or totally avoid the caching (if he/she knows what they are doing).</p>
+
+<p>I am just brainstorming out loud, and i have no actual use cases yet. I encourage everybody to think with us, and find a proper solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-24T05:17:24.000+0000</p> 
+        <div class="body">
+            <p>Please keep the issues seperated.</p>
+
+<p>This issue is not about stealthing or improving Zend_TimeSync...
+It's a Zend_Date issue.</p>
+
+<p>I think it would be better to have an own new issue about improvements for Zend_Timesync.</p>
+
+<p>Related to this issue and to write down what we discussed yesterday:</p>
+
+<p>1.) A user must not have the possibility to give an Syncronisation Offset to Zend_Date per hand. This would corrupt the actual implementation of Zend_Date.</p>
+
+<p>2.) It is no problem to have also Zend_Date::now() working with the TimeSync offset but there are some prerequisits which have to be included before this issue can be implemented</p>
+
+<p>2.1) There must be a way to store the Zend_Date object especially the private variables into a framework cache</p>
+
+<p>2.2) Zend_Date must only interoperate with an Zend_Timesync object. What makes problems here is the offset between time() and the returned real time. Working with own generated times already works. Also working with TimeSync object works (see ZF-932). What we speaking of here is having the TimeSync offset stored internally so it can be used when a user creates a Date object afterwards as TimeSync should run only once per usersession or even once per day.</p>
+
+<p>2.3) Zend_Timesync has to be stealthed and improved to prevent problems with the Stratunm servers if they were flooded with Zend Framework requests.</p>
+
+<p>2.4) Zend_Timesync has to implement a caching mechanism to prevent these flooding</p>
+
+<p>3) The actual API of Zend_Date should not change. The offset has to be known automatically, to prevent missuse. Storing it anywhere within the framework is no problem as long as we can make sure that private/protected stored variables can not be changed by other classes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-24T05:27:07.000+0000</p> 
+        <div class="body">
+            <p>A way which does not corrupt the API would be</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://pool.ntp.org</a>', 'pool');
+$date = new Zend_Date($server);
+</code></pre>
+
+<p>you can serialize / deserialize the TimeSync object and use it with Zend_Date...
+This is how this issue works NOW... this is already implemented by ZF-932.</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://pool.ntp.org</a>', 'pool');
+$store = serialize($server);
+
+//.....
+
+$server = unserialize($store);
+$date = new Zend_Date($server);
+</code></pre>
+
+<p>works already...
+only one more line than what you proposed.
+And the user has explicit to say that he wants to use the TimeSync offset which is the better way in my eyes than having this done in background.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-28T14:54:53.000+0000</p> 
+        <div class="body">
+            <p>Are there any actual problems supporting the following use case involving {{nowUsesTimeSync()}}?</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+$result = $server-&gt;getDate();
+Zend_Date::nowUsesTimeSync($server);
+$date = Zend_Date::now(); // $date is adjusted with the offset determined by Zend_TimeSync
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-28T15:32:16.000+0000</p> 
+        <div class="body">
+            <p>No cache mechanism implemented within Zend_Date
+The user does not know that he uses timesync values from now on...</p>
+
+<p>Therefor the approach to explicit give the server to Zend_Date is more accurate.
+Also when you always have to give Zend_Date the server explicit with an parameter you always have to know and recognise that you are not using time() but timeserver.</p>
+
+<p>It is no problem also to have</p>
+
+<pre class="highlight"><code>
+$date = Zend_Date::now($server);
+</code></pre>
+
+<p>implemented.</p>
+
+<p>Also for a user it would be no problem when he desides to change from time() to timeserver to change his complete code from now(); to now($server);... just a search and replace within the code, 3 mouseclicks with a modern GUI.</p>
+
+<p>$server should be serializeable and deserializeable but this are problems of Zend_TimeSync and not of this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-28T16:19:54.000+0000</p> 
+        <div class="body">
+            <p>Why should we require this:</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+$result = $server-&gt;getDate();
+$date1 = Zend_Date::now($server);
+$date2 = Zend_Date::now($server);
+$date3 = Zend_Date::now($server);
+</code></pre>
+
+<p>when we can make this work:</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+$result = $server-&gt;getDate();
+Zend_Date::nowUsesTimeSync($server);
+$date = Zend_Date::now(); // $date is adjusted with the offset determined by Zend_TimeSync
+</code></pre>
+
+<p>For a "cache mechanism", all we need to do is:</p>
+
+<pre class="highlight"><code>
+public function nowUsesTimeSync(Zend_TimeSync $server)
+{
+    $result = $server-&gt;getDate();
+    $info = $result-&gt;getInfo()
+    self::$_timeServerOffset = $info['offset'];
+}
+</code></pre>
+
+<p>{quote}.. search and replace ..{quote}
+I think search and replace is not an acceptable solution.  What if the developer can not change the code?  What if the code is part of another module or library?  What if sometimes the code should use the offset, and other times it should not?</p>
+
+<p>The solution I've proposed does not have these problems, and could be made to work with Zend_Date.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-28T16:44:58.000+0000</p> 
+        <div class="body">
+            <p>Why would you have to use 3 date objects with the actual time ???
+There will never be as much new date objects that you would have problems with adding $server by creation inmy opinion...</p>
+
+<p>{quote}
+For a "cache mechanism", all we need to do is:</p>
+
+<pre class="highlight"><code>
+public function nowUsesTimeSync(Zend_TimeSync $server)
+{
+    $result = $server-&gt;getDate();
+    $info = $result-&gt;getInfo()
+    self::$_timeServerOffset = $info['offset'];
+}
+</code></pre>
+
+<p>{quote}</p>
+
+<p>But this does not cache the offset...
+With this approach you have always to use nowUsesTimeSync before creating a Zend_Date object...
+And when you create a timeserver you can also work directly with getDate which returns you an offseted Date object.</p>
+
+<p>And also to mention...
+If you want to use several offseted date objects you just have to clone the $result-&gt;getDate(); Date object.</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync($myoptions);
+$date = new Zend_Date($server);
+// or $date = $server-&gt;getDate();
+
+$date2 = $date-&gt;clone();
+$date3 = $date-&gt;clone();
+</code></pre>
+
+<p>You have to give the server only once.</p>
+
+<p>Zend_Date is already a very huge class... with very much functionallity, even if it's very simple within its API... we should not add much more functionallity for now... it would become too complex for 1.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-28T17:02:36.000+0000</p> 
+        <div class="body">
+            <p>{quote}Why would you have to use 3 date objects with the actual time ???{quote}</p>
+
+<p>I was trying to show a simple example.  In actual code for a real-world web application, there might be many more than 3 date objects in use, scattered throughout the code.  One developer might write one part of a web app, and another developer another part, etc.</p>
+
+<p>The offset is cached internally by Zend_TimeSync, so that is not a problem.
+A ZF app only needs to use {{nowUsesTimeSync()}} once, in their bootstrap to enable their <em>entire</em> application to use accurate dates, adjusted using the offset supplied by Zend_TimeSync.  This approach is simple, efficient, and does not require "search &amp; replac" on existing code.</p>
+
+<p>I don't buy the argument that the proposed {{nowUsesTimeSync()}} is too complex to add to Zend_Date.  It is only 3 lines of code.  A couple additional lines of code would be needed to enable the existing now() method to use this offset.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-01T01:18:27.000+0000</p> 
+        <div class="body">
+            <p>Your approach only works if the date object is also used within the bootstrap file.
+If you have a subclass loading Zend_Date itself and creating a new object it would also not have the offset because it's not cached. This only works if all use the bootstrap file.</p>
+
+<p>When we have a object created with</p>
+
+<pre class="highlight"><code>
+$date = new Zend_Date($timesyncserver);
+</code></pre>
+
+<p>its also no problem to have</p>
+
+<pre class="highlight"><code>
+// syncronise boolean|Zend_TimeSync
+public static function now($syncronise = true) {
+    if ($syncronise) {
+        return new Zend_Date($timesyncserver);
+    }
+    return new Zend_Date(time());
+}
+// only example code
+</code></pre>
+
+<p>And this would be no problem because then you can decide if you want to have a syncronised object or not. If you say syncronised (which is standard behaviour) and you have not initialised a timeserver before you will get time() because offset is 0. Giving a "false" you would have time() returned.</p>
+
+<p>This is a much nicer way then having a function "nowusestimesync()" even if it would have more than 3 lines of code for the implementation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-01T13:43:18.000+0000</p> 
+        <div class="body">
+            <p>{quote}Your approach only works if the date object is also used within the bootstrap file.{quote}</p>
+
+<p>No.  All calls to Zend_Date::now()  would return an "adjusted" date, after a single call to {{nowUsesTimeSync()}}, which should be made in the application bootstrap, to enable all further usage of Zend_Date to use "synchronized" times for the duration of the current script execution.</p>
+
+<p>The offset is cached for the duration of the request by {{nowUsesTimeSync()}}.  Why would a subclass of Zend_Date() have problems? I see no problems.</p>
+
+<p>Again, we need a way to "time-sync-enable" Zend_Date, without requiring a developer to "search &amp; replace" code (including code they might not have written).</p>
+
+<p>Instead of {{ public static function now($syncronise = true) }}, I would suggest:</p>
+
+<pre class="highlight"><code>
+public static function now($syncronise = null) {
+    if (self::$_timeServerOffset &amp;&amp; $synchronize !== false) {
+        return new Zend_Date(time() + self::$_timeServerOffset);
+    }
+    return new Zend_Date(time());
+}
+
+// For a "cache mechanism", all we need to do is:
+
+public function nowUsesTimeSync(Zend_TimeSync $server)
+{
+    $result = $server-&gt;getDate();
+    $info = $result-&gt;getInfo()
+    self::$_timeServerOffset = $info['offset'];
+}
+
+// Use case:
+function bootstrap()
+{ 
+    .
+    .
+    $server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+    Zend_Date::nowUsesTimeSync($server);
+    .
+    .
+}
+
+// whenever a date is needed, regardless of where in the user's ZF application (even code this developer did not write/maintain):
+$date = Zend_Date::now(); // $date is adjusted with the offset determined by Zend_TimeSync
+</code></pre>
+
+<p>The key here is that a developer can toggle the behavior of Zend_Date component to generate synchronized dates by setting a class property, instead of having to specify this behavior for every single instance object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-01T14:47:03.000+0000</p> 
+        <div class="body">
+            <p>I think we are speaking the same but I feel missunderstood by the details you are sticked in...</p>
+
+<p>*) I said this only works when Zend_Date is used within the bootstrap.
+You said no... this has to be done in application bootstrap... my english is not so good, but we are speaking of the same thing in my opinion.</p>
+
+<p>*) Please forget "nowusestimesync"... :-(</p>
+
+<p>*) My idea with the new approach for now() does not need to search and replace for the developer.
+The idea is that now() returns the date with offset when the offset is set within Zend_Date or a timeserver is given as parameter.</p>
+
+<p>*) We say default is with offset or without offset... these are details we can change simply afterwards.
+I would say default is use the offset when avaiable.</p>
+
+<p>*) now() should be changed to accept a timeserver as input for same behaviour as the constructor.</p>
+
+<p>*) Now the user has to do getDate from the timeserver...
+It's no problem to have this implemented within the constructor and now()...
+So there is no need for the nowusestimeserver function.</p>
+
+<p>This function is what I dont like in the proposed functionality.</p>
+
+<p>now() can simply be changed to do additionally the same as your proposed nowusestimesync function.</p>
+
+<p>now() -&gt; returns new date object with offset if set
+now(false) -&gt; returns new date object with time() without offset
+now(true, TimeServer) -&gt; returns new date object with setting new offset from this timeserver for future use
+now(true, RESET_OFFSET) -&gt; resets offset to 0 in future use returning new date object</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-01T15:27:20.000+0000</p> 
+        <div class="body">
+            <p>My example does not use a Zend_Date object in the bootstrap.</p>
+
+<p>I proposed using {{nowUsesTimeSync()}} to set the offset used by the Zend_Date class for future calls to any of the Zend_Date methods needing the current time.  I purposely chose a descriptive name for this function for this JIRA issue, but I expect the final name of the function to be different.  I suggest we follow the slowly emerging pattern of using "setOptions()" class methods with Zend_Date,  instead of overloading now() with functionality related to setting options in the class.  See {{setOptions()}} in Zend_Session or Zend_Console_Getopt.</p>
+
+<p>Combining a factory method ({{now()}}) with a method altering class behavior ({{nowUsesTimeSync()}}) is not a common practice.  Can we keep these two methods separate, with descriptive function names?  If they are combined into one function as you proposed, then the bootstrap would require the creation an instance object of Zend_Date in order to set an option in Zend_Date.</p>
+
+<p>Also, my use of {{now()}} was just an example.  Setting the Zend_Date option to use time synch should affect <em>all</em> methods (including {{_gettime()}}) that require the current time().  The main idea should be supporting toggling a config "switch" in the Zend_Date class to make all Zend_Date methods use the offset to return time synchronized dates, when the current time is needed or used.  With this feature, developers can then set a simple configuration option in Zend_Date (one line of code in their application bootstrap), and then know that all relevant dates will be adjusted with a time offset determined by Zend_TimeSync.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-01T17:28:32.000+0000</p> 
+        <div class="body">
+            <p>Why is</p>
+
+<p>now($timeserver);</p>
+
+<p>a problem...
+From Now on use the timeserver offset... I would expect this is standard behaviour.</p>
+
+<p>And you do not have to create an object.</p>
+
+<p>Zend_Date::now($timeserver);</p>
+
+<p>also sets the offset without that you will have to create a date object... I see no problem on this approach.
+All methods then use the stored offset afterwards... you have not to set it once more... just one call of Zend_Date::now() is all you have to do in your bootstrap file. This IS one line of code. And it effects ALL 4 methods that use _gettime().</p>
+
+<p>Anyway... we are discussing here massive for nothing because this issue will not be implemented before Zend_Timesync is not save to do so... we have enough other opened issues which we shall target and solve...</p>
+
+<p>As soon as Zend_TimeSync is as save as it should be, we can drive this issue further... it costs me 1h per day and I have only 2 hours per day... this makes me unhappy :-/</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-01T20:37:51.000+0000</p> 
+        <div class="body">
+            <p>It is a problem because Zend_Date::now() is supposed to create an instance of Zend_Date having the current time.   If the function returns true/false on some input and returns an instance object for no input .. that is mixing things in a confusing way.  Users should know that now() simply returns an instance object with the current time, and that class options can be set using {{setOptions()}}.</p>
+
+<p>Adding unrelated functionality to this function ({{now()}}) is a problem.  Adding functionality to {{now()}} that modifies the behavior of future uses of _getTime(), now() and other methods directly or indirectly dependent on these combines unrelated functionality into the same method.</p>
+
+<p>Other ZF components use {{setOptions()}} to set options on the component.  Why not use {{setOptions()}}?
+Also, the {{usePhpDateFormat()}} can become an option supported by {{setOptions()}}.  Keeping a single, consistent API approach for all options reduces learning curves, simplifies integration with applications, and other benefits.</p>
+
+<p>In addition to {{Zend_Session::setOptions}}, for an idea of what might be possible in the long-term, see:
+<a href="http://framework.zend.com/wiki/x/Sks">http://framework.zend.com/wiki/x/Sks</a></p>
+
+<p>Yes, there is no "Fix Version" yet for this issue.  "Fix Versions" provide important guidelines for priority.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-02T01:24:36.000+0000</p> 
+        <div class="body">
+            <p>There is no "fix version" avaiable...</p>
+
+<p>Zend_Date was never proposed to work internally with Zend_TimeSync because of the problems which Zend_Timesync produces by heavily useage of the Stratum Servers.</p>
+
+<p>Zend_Date was only changed to allow Zend_TimeSync to return a proper date object.</p>
+
+<p>IF the problems within Zend_TimeSync and user missuse can be solved it would be no problem to implement this feature. But I will not implement it with the actual problems of Zend_TimeSync and users not knowing what they exactly do. This would lead to a negative image of Zend Framework because of flooding Stratum Servers.</p>
+
+<p>A strict NO from me if this can not be solved.</p>
+
+<p>I see no problem in having static setOption() integrated.
+I misliked to implement the usePhpDateFormat also... but it was told and it seemed to be necessary.
+But I am strictly against nowUsesTimeSync()... 
+Next would be a function "toStringUsesPhpDateFormatButOnlyReturningEnglishLocalizedValues" ???
+Nonono.... this can not be our way...</p>
+
+<p>WHEN we decide for now not to support a timeserver parameter then also the constructor should not accept it.
+BUT this would also mean that the getDate() function of Zend_Timesync is useless...</p>
+
+<p>Also to mention...
+It seems nice to have Zend_TimeSync strong coupled with Zend_Date... BUT we loose all possibilities of Zend_TimeSync this way.
+No way to know what server was used, no setting of the namespace and no calling of a defined server are only a few things which came in my mind.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-05T20:56:51.000+0000</p> 
+        <div class="body">
+            <p>{quote}"IF the problems within Zend_TimeSync and user missuse can be solved it would be no problem to implement this feature." {quote}
+So far, I have not seen or heard anyone disagree about the importance of solving ZF-987, before any sort of integration between Zend_Date and Zend_TimeSync.  Earlier, I added ZF-987 as a dependency of this issue (i.e. this issue can not be adequately solved until after ZF-987).</p>
+
+<p>If ZF-987 is solved, then it should be possible to:</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+Zend_Date::setOptions(array('timesync' =&gt; $server));  // or $server-&gt;getInfo(), or whatever Zend_Date wants to compute the needed information
+$date = new Zend_Date();  // $date is adjusted based on the information from Zend_TimeSync
+</code></pre>
+
+<p>Just to throw out another idea for consideration, if a reasonable use case exists where computations are complex, then Zend_Date could simply accept a callback, instead of an instance of Zend_TimeSync.  A developer would then be responsible for implementing the callback, possibly using Zend_TimeSync.  For example:</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('<a>ntp://serveraddress</a>', 'alias');  
+Zend_Date::setOptions(array('timesync' =&gt; $callback));  // or $server-&gt;getInfo(), or whatever Zend_Date wants to compute the needed information
+$date = new Zend_Date();  // $date is adjusted based on the results of something like: call_user_func($callback, time())
+</code></pre>
+
+<p>In both alternatives above, the developer is in control, and has the ability to determine which time servers to use.  I've also spoken with Andries about the possibility of developer-supplied algorithms for selecting amongst a set of time servers to use, based on information dynamically gathered by Zend_TimeSync* classes.  For example, developers could select the time servers with the lowest latency.  I do not see any problems including this functionality with the two alternatives shown above in code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-01T14:04:34.000+0000</p> 
+        <div class="body">
+            <p>Integrated with SVN-7015.</p>
+
+<p>Now there is a own option which can be set.</p>
+
+<pre class="highlight"><code>
+$server = new Zend_TimeSync('0.pool.ntp.org');
+Zend_Date::setOptions(array('timesync' =&gt; $server));
+</code></pre>
+
+<p>This sets the given offset for all new instances of Zend_Date independently of the way it is created.</p>
+
+        </div>
+    </div>
+    </div>
+

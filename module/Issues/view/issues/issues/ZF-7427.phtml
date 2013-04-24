@@ -1,0 +1,201 @@
+<h2>ZF-7427: Zend_Db_Adapter_Oracle-&gt;describeTable() does not perform acceptably on large databases</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-30T20:35:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-21T20:39:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Oracle</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10415">ZF-10415</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The Zend_Db_Adapter_Oracle-&gt;describeTable() function will not perform on large databases.</p>
+
+<p>The reason is that this function queries some large, key tables such as ALL_TAB_COLUMNS, ALL_CONSTRAINTS, but the joins/filters are written in a way which they will tablescan the database rather than use any indexes efficiently.</p>
+
+<p>On smaller databases this would not even be noticeable. But we have large oracle databases at work, with many objects in them, and so these queries are table-scanning and will not finish executing for us.</p>
+
+<p>With some simple changes I was able to fix these performance issues. This is my re-written function:</p>
+
+<pre class="highlight"><code>
+    public function describeTable($tableName, $schemaName = null)
+    {
+        $version = $this-&gt;getServerVersion();
+        if (($version === null) || version_compare($version, '9.0.0', '&gt;=')) {
+            $sql = "    SELECT  TC.TABLE_NAME,
+                                TC.OWNER,
+                                TC.COLUMN_NAME,
+                                TC.DATA_TYPE,
+                                TC.DATA_DEFAULT,
+                                TC.NULLABLE,
+                                TC.COLUMN_ID,
+                                TC.DATA_LENGTH,
+                                TC.DATA_SCALE,
+                                TC.DATA_PRECISION,
+                                C.CONSTRAINT_TYPE,
+                                CC.POSITION
+                        FROM    ALL_TAB_COLUMNS TC
+                        LEFT    JOIN (
+                                    ALL_CONS_COLUMNS CC
+                            JOIN    ALL_CONSTRAINTS C ON (CC.CONSTRAINT_NAME = C.CONSTRAINT_NAME AND CC.TABLE_NAME = C.TABLE_NAME AND C.CONSTRAINT_TYPE = 'P'" . ($schemaName ? ' AND C.OWNER = UPPER(:SCNAME)' : '') . ")
+                        ) ON TC.TABLE_NAME                  = CC.TABLE_NAME
+                        AND     TC.COLUMN_NAME              = CC.COLUMN_NAME
+                        " . ($schemaName ? ' AND CC.OWNER   = UPPER(:SCNAME)' : '') . "
+                        WHERE   TC.TABLE_NAME               = UPPER(:TBNAME)";
+
+            $bind[':TBNAME'] = $tableName;
+
+            if($schemaName) {
+                $sql .= ' AND TC.OWNER = UPPER(:SCNAME)';
+                $bind[':SCNAME'] = $schemaName;
+            }
+
+            $sql .= ' ORDER BY TC.COLUMN_ID';
+        } else {
+            $subSql="SELECT AC.OWNER, AC.TABLE_NAME, ACC.COLUMN_NAME, AC.CONSTRAINT_TYPE, ACC.POSITION
+                from ALL_CONSTRAINTS AC, ALL_CONS_COLUMNS ACC
+                  WHERE ACC.CONSTRAINT_NAME = AC.CONSTRAINT_NAME
+                    AND ACC.TABLE_NAME = AC.TABLE_NAME
+                    AND ACC.OWNER = AC.OWNER
+                    AND AC.CONSTRAINT_TYPE = 'P'
+                    AND UPPER(AC.TABLE_NAME) = UPPER(:TBNAME)";
+            $bind[':TBNAME'] = $tableName;
+            if ($schemaName) {
+                $subSql .= ' AND UPPER(ACC.OWNER) = UPPER(:SCNAME)';
+                $bind[':SCNAME'] = $schemaName;
+            }
+            $sql="SELECT TC.TABLE_NAME, TC.OWNER, TC.COLUMN_NAME, TC.DATA_TYPE,
+                    TC.DATA_DEFAULT, TC.NULLABLE, TC.COLUMN_ID, TC.DATA_LENGTH,
+                    TC.DATA_SCALE, TC.DATA_PRECISION, CC.CONSTRAINT_TYPE, CC.POSITION
+                FROM ALL_TAB_COLUMNS TC, ($subSql) CC
+                WHERE UPPER(TC.TABLE_NAME) = UPPER(:TBNAME)
+                  AND TC.OWNER = CC.OWNER(+) AND TC.TABLE_NAME = CC.TABLE_NAME(+) AND TC.COLUMN_NAME = CC.COLUMN_NAME(+)";
+            if ($schemaName) {
+                $sql .= ' AND UPPER(TC.OWNER) = UPPER(:SCNAME)';
+            }
+            $sql .= ' ORDER BY TC.COLUMN_ID';
+        }
+
+        $stmt = $this-&gt;query($sql, $bind);
+
+        /**
+         * Use FETCH_NUM so we are not dependent on the CASE attribute of the PDO connection
+         */
+        $result = $stmt-&gt;fetchAll(Zend_Db::FETCH_NUM);
+
+        $table_name      = 0;
+        $owner           = 1;
+        $column_name     = 2;
+        $data_type       = 3;
+        $data_default    = 4;
+        $nullable        = 5;
+        $column_id       = 6;
+        $data_length     = 7;
+        $data_scale      = 8;
+        $data_precision  = 9;
+        $constraint_type = 10;
+        $position        = 11;
+
+        $desc = array();
+        foreach ($result as $key =&gt; $row) {
+            list ($primary, $primaryPosition, $identity) = array(false, null, false);
+            if ($row[$constraint_type] == 'P') {
+                $primary = true;
+                $primaryPosition = $row[$position];
+                /**
+                 * Oracle does not support auto-increment keys.
+                 */
+                $identity = false;
+            }
+            $desc[$this-&gt;foldCase($row[$column_name])] = array(
+                'SCHEMA_NAME'      =&gt; $this-&gt;foldCase($row[$owner]),
+                'TABLE_NAME'       =&gt; $this-&gt;foldCase($row[$table_name]),
+                'COLUMN_NAME'      =&gt; $this-&gt;foldCase($row[$column_name]),
+                'COLUMN_POSITION'  =&gt; $row[$column_id],
+                'DATA_TYPE'        =&gt; $row[$data_type],
+                'DEFAULT'          =&gt; $row[$data_default],
+                'NULLABLE'         =&gt; (bool) ($row[$nullable] == 'Y'),
+                'LENGTH'           =&gt; $row[$data_length],
+                'SCALE'            =&gt; $row[$data_scale],
+                'PRECISION'        =&gt; $row[$data_precision],
+                'UNSIGNED'         =&gt; null, // @todo
+                'PRIMARY'          =&gt; $primary,
+                'PRIMARY_POSITION' =&gt; $primaryPosition,
+                'IDENTITY'         =&gt; $identity
+            );
+        }
+        return $desc;
+    }
+</code></pre>
+
+<p>Basically the key is to use the OWNER column in the joins. Without this, there are way too many rows to scan through for the database. The original code was attempting to do this, but in a way that was still causing table-scans to occur.</p>
+
+<p>For instance, the original code had this in the where clause:</p>
+
+<pre class="highlight"><code>
+if ($schemaName) { 
+    $sql .= ' AND UPPER(TC.OWNER) = UPPER(:SCNAME)';
+</code></pre>
+
+<p>You can't put UPPER() around TC.OWNER, because as soon as you do that, Oracle will not use any indexes that are attached to that column. (unless there was a function based index there, but there isn't).   It happens to be unnecessary to use UPPER() anyway, since the column is in uppercase anyhow.</p>
+
+<p>Cheers,
+-adam</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2011-04-22T14:28:31.000+0000</p> 
+        <div class="body">
+            <p>It seems to be duplicated by ZF-10415.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ross Davis (molecularbear) on 2012-06-21T20:39:50.000+0000</p> 
+        <div class="body">
+            <p>Thank you, Adam! My describeTable() performance went from 0.3s/query to 0.1s/query with this optimization.</p>
+
+        </div>
+    </div>
+    </div>
+

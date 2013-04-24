@@ -1,0 +1,298 @@
+<h2>ZF-12141: Zend_Date::toString returns wrong date for some 'php' formats</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-04-09T13:56:27.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-11T08:08:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+            <li>Zend_Locale</li>
+            <li>zend_date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Simple example:</p>
+
+<pre class="highlight"><code>
+$date = new Zend_Date();
+echo $date-&gt;toString(DateTime::ATOM, 'php'); // 2012-04-09\UTC12:21:48+00:00
+</code></pre>
+
+<p>This code display 2012-04-09\UTC12:21:48+00:00 but 2012-04-09T12:21:48+00:00 is expected instead.</p>
+
+<p>But example bellow works as expected:</p>
+
+<pre class="highlight"><code>
+$date = new Zend_Date();
+echo $date-&gt;toString(Zend_Date::ATOM); // 2012-04-09T12:21:48+00:00
+</code></pre>
+
+<p>The basic problem is that Zend_Date::toString uses Zend_Locale_Format::convertPhpToIsoFormat for php format type that works incorrectly with formats that contain symbols are escaped with backslash (\T in example). Zend_Locale_Format::convertPhpToIsoFormat just splits format string to array and convert each symbol to ISO separately. But it should be more complicated. The simplest way to fix it is to get escaped symbol right after backslash and put it into single quotes so Zend_Date will parse it as comment.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Vladyslav Mustafin (vladm) on 2012-04-09T16:19:03.000+0000</p> 
+        <div class="body">
+            <p>It might looks like below:</p>
+
+<pre class="highlight"><code>
+    public static function convertPhpToIsoFormat($format)
+    {
+        if ($format === null) {
+            return null;
+        }
+
+        $convert = array('d' =&gt; 'dd'  , 'D' =&gt; 'EE'  , 'j' =&gt; 'd'   , 'l' =&gt; 'EEEE', 'N' =&gt; 'eee' , 'S' =&gt; 'SS'  ,
+                         'w' =&gt; 'e'   , 'z' =&gt; 'D'   , 'W' =&gt; 'ww'  , 'F' =&gt; 'MMMM', 'm' =&gt; 'MM'  , 'M' =&gt; 'MMM' ,
+                         'n' =&gt; 'M'   , 't' =&gt; 'ddd' , 'L' =&gt; 'l'   , 'o' =&gt; 'YYYY', 'Y' =&gt; 'yyyy', 'y' =&gt; 'yy'  ,
+                         'a' =&gt; 'a'   , 'A' =&gt; 'a'   , 'B' =&gt; 'B'   , 'g' =&gt; 'h'   , 'G' =&gt; 'H'   , 'h' =&gt; 'hh'  ,
+                         'H' =&gt; 'HH'  , 'i' =&gt; 'mm'  , 's' =&gt; 'ss'  , 'e' =&gt; 'zzzz', 'I' =&gt; 'I'   , 'O' =&gt; 'Z'   ,
+                         'P' =&gt; 'ZZZZ', 'T' =&gt; 'z'   , 'Z' =&gt; 'X'   , 'c' =&gt; 'yyyy-MM-ddTHH:mm:ssZZZZ',
+                         'r' =&gt; 'r'   , 'U' =&gt; 'U');
+        $values = str_split($format);
+        $escaped = false;
+        $temp = array();
+        foreach ($values as $key =&gt; $value) {
+            if ($v == '\\') {
+                $escaped = true;
+                continue;
+            }
+            if ($escaped) {
+                $temp[] = str_replace("'''", "''", "'$value'");
+                $escaped = false;
+            } else if ($value == "'") {
+                $temp[] = "''";
+            } else if (isset($convert[$value]) === true) {
+                $temp[] = $convert[$value];
+            } else {
+                $temp[] = $value;
+            }
+        }
+
+        return join($values);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vladyslav Mustafin (vladm) on 2012-04-09T16:21:41.000+0000</p> 
+        <div class="body">
+            <p>Wrong return in my example, it should be:
+```
+Sorry for typo.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrick Heck (patrickheck) on 2012-05-02T17:18:34.000+0000</p> 
+        <div class="body">
+            <p>Hi Mustafin,</p>
+
+<p>thanks for the code snippet. However I found two issues that still exist:
+1. Inserting of consecutive escaped characters like "\a\t" result in "a't"
+2. A masked backslash was not displayed</p>
+
+<p>My suggestion is to improve it like this:</p>
+
+<pre class="highlight"><code>
+public static function convertPhpToIsoFormat($format)
+    {
+        if ($format === null) {
+            return null;
+        }
+
+        $convert = array('d' =&gt; 'dd'  , 'D' =&gt; 'EE'  , 'j' =&gt; 'd'   , 'l' =&gt; 'EEEE', 'N' =&gt; 'eee' , 'S' =&gt; 'SS'  ,
+                         'w' =&gt; 'e'   , 'z' =&gt; 'D'   , 'W' =&gt; 'ww'  , 'F' =&gt; 'MMMM', 'm' =&gt; 'MM'  , 'M' =&gt; 'MMM' ,
+                         'n' =&gt; 'M'   , 't' =&gt; 'ddd' , 'L' =&gt; 'l'   , 'o' =&gt; 'YYYY', 'Y' =&gt; 'yyyy', 'y' =&gt; 'yy'  ,
+                         'a' =&gt; 'a'   , 'A' =&gt; 'a'   , 'B' =&gt; 'B'   , 'g' =&gt; 'h'   , 'G' =&gt; 'H'   , 'h' =&gt; 'hh'  ,
+                         'H' =&gt; 'HH'  , 'i' =&gt; 'mm'  , 's' =&gt; 'ss'  , 'e' =&gt; 'zzzz', 'I' =&gt; 'I'   , 'O' =&gt; 'Z'   ,
+                         'P' =&gt; 'ZZZZ', 'T' =&gt; 'z'   , 'Z' =&gt; 'X'   , 'c' =&gt; 'yyyy-MM-ddTHH:mm:ssZZZZ',
+                         'r' =&gt; 'r'   , 'U' =&gt; 'U');
+        $values = str_split($format);
+        $escaped = false;
+        $lastescaped = false;
+        $temp = array();
+        foreach ($values as $key =&gt; $value) {
+            if (!$escaped &amp;&amp; $value == '\\') {
+                $escaped = true;
+                continue;
+            }
+            if ($escaped) {
+                if (!$lastescaped) {
+                    $temp[] = "'";
+                    $lastescaped = true;
+                } 
+                $temp[] = $value;
+                $escaped = false;
+            } else { 
+                if ($lastescaped) {
+                    $temp[] = "'";
+                    $lastescaped = false;
+                }
+                if ($value == "'") {
+                    $temp[] = "''";
+                } else if (isset($convert[$value]) === true) {
+                    $temp[] = $convert[$value];
+                } else {
+                    $temp[] = $value;
+                }
+            }
+        }
+        return join($temp);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrick Heck (patrickheck) on 2012-05-02T18:10:01.000+0000</p> 
+        <div class="body">
+            <p>I just realized that the string "\a\'\b" wouldn't work properly with this code. The result would be "a''b" instead of "a'b". To fix this the escaped sequence should only be terminated if the current character is != "'".</p>
+
+<pre class="highlight"><code>
+    public static function convertPhpToIsoFormat($format)
+    {
+        if ($format === null) {
+            return null;
+        }
+
+        $convert = array('d' =&gt; 'dd'  , 'D' =&gt; 'EE'  , 'j' =&gt; 'd'   , 'l' =&gt; 'EEEE', 'N' =&gt; 'eee' , 'S' =&gt; 'SS'  ,
+                         'w' =&gt; 'e'   , 'z' =&gt; 'D'   , 'W' =&gt; 'ww'  , 'F' =&gt; 'MMMM', 'm' =&gt; 'MM'  , 'M' =&gt; 'MMM' ,
+                         'n' =&gt; 'M'   , 't' =&gt; 'ddd' , 'L' =&gt; 'l'   , 'o' =&gt; 'YYYY', 'Y' =&gt; 'yyyy', 'y' =&gt; 'yy'  ,
+                         'a' =&gt; 'a'   , 'A' =&gt; 'a'   , 'B' =&gt; 'B'   , 'g' =&gt; 'h'   , 'G' =&gt; 'H'   , 'h' =&gt; 'hh'  ,
+                         'H' =&gt; 'HH'  , 'i' =&gt; 'mm'  , 's' =&gt; 'ss'  , 'e' =&gt; 'zzzz', 'I' =&gt; 'I'   , 'O' =&gt; 'Z'   ,
+                         'P' =&gt; 'ZZZZ', 'T' =&gt; 'z'   , 'Z' =&gt; 'X'   , 'c' =&gt; 'yyyy-MM-ddTHH:mm:ssZZZZ',
+                         'r' =&gt; 'r'   , 'U' =&gt; 'U');
+        $values = str_split($format);
+        $escaped = false;
+        $lastescaped = false;
+        $temp = array();
+        foreach ($values as $key =&gt; $value) {
+            if (!$escaped &amp;&amp; $value == '\\') {
+                $escaped = true;
+                continue;
+            }
+            if ($escaped) {
+                if (!$lastescaped) {
+                    $temp[] = "'";
+                    $lastescaped = true;
+                } 
+                $temp[] = $value;
+                $escaped = false;
+            } else { 
+                if ($value == "'") {
+                    $temp[] = "''";
+                } else {
+                    if ($lastescaped) {
+                        $temp[] = "'";
+                        $lastescaped = false;
+                    }
+                    if (isset($convert[$value]) === true) {
+                        $temp[] = $convert[$value];
+                    } else {
+                        $temp[] = $value;
+                    }
+                }
+            }
+        }
+        echo join($temp) . "<br />";
+        return join($temp);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vladyslav Mustafin (vladm) on 2012-08-09T08:55:34.000+0000</p> 
+        <div class="body">
+            <p>Hi Heck,</p>
+
+<p>{quote}
+2. A masked backslash was not displayed
+{quote}
+If you try to get an output of</p>
+
+<pre class="highlight"><code>
+you'll get a string
+</code></pre><pre class="literal"><code>
+For this output the valid iso date format is
+</code></pre><code>
+You could check it with this code
+</code>
+
+<p>So masked backslash in php date format should be converted to a single backslash for iso date format. No needs to escape it in iso, but with your last snippet it will.</p>
+
+<pre class="highlight"><code>
+will return
+</code></pre>
+
+<p>`</p>
+
+<p>\
+With small additional condition we can get the expected behaviour:</p>
+
+<pre class="highlight"><code>
+...
+            if ($escaped) {
+                if ($v != '\\' &amp;&amp; !$lastescaped) { // added *$v != '\\' &amp;&amp;* condition here allows us to get correct backslashes for iso date format
+                    $temp[] = "'";
+                    $lastescaped = true;
+                } 
+                $temp[] = $value;
+                $escaped = false;
+            }
+...
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vladyslav Mustafin (vladm) on 2012-08-11T08:08:38.000+0000</p> 
+        <div class="body">
+            <p>Yet another typo please use '$value' instead of '$v' in my examples.
+Sorry for that.</p>
+
+        </div>
+    </div>
+    </div>
+

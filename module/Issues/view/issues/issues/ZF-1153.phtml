@@ -1,0 +1,281 @@
+<h2>ZF-1153: Problem with schema using Zend_Db_Adapter_Pdo_Pgsql</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-28T10:52:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:00.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Darby Felton (darby)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1402">ZF-1402</a></li>
+            <li><a href="/issues/browse/ZF-1134">ZF-1134</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Problem with schema using Zend_Db_Adapter_Pdo_Pgsql</p>
+
+<p>I have a model</p>
+
+<pre class="highlight"><code>
+class MyModel extends Zend_Db_Table {
+    protected function _setupMetadata(){
+        $this-&gt;_schema = 'someSchema';
+        parent::_setupMetadata();
+    }
+
+    protected function _setupTableName(){
+        $this-&gt;_name = 'someTable';
+        parent::_setupTableName();
+    }
+}
+</code></pre>
+
+<p>and when i try make</p>
+
+<pre class="highlight"><code>
+$obj = new MyModel();
+$colect = $obj-&gt;fetchAll();
+</code></pre>
+
+<p>I receive an error of SQL. This occurs because Zend_Db_Select generates a wrong sql instruction, like this:</p>
+
+<pre class="highlight"><code>
+SELECT "someTable"."id", "someTable"."column1", "someTable"."column2" FROM "someTable"
+</code></pre>
+
+<p>when would be</p>
+
+<pre class="highlight"><code>
+SELECT "someTable"."id", "someTable"."column1", "someTable"."column2" FROM "someSchema"."someTable"
+</code></pre>
+
+<p>I suggest a form to correct this:</p>
+
+<p>In Zend_Db_Table_Abstract</p>
+
+<pre class="highlight"><code>
+protected function _fetch($where = null, $order = null, $count = null, $offset = null)
+{
+    // selection tool
+    $select = $this-&gt;_db-&gt;select();
+
+    // the FROM clause
+-   //$select-&gt;from($this-&gt;_name, $this-&gt;_cols);
++   $select-&gt;from($this-&gt;_name, $this-&gt;_cols, $this-&gt;_schema);
+
+...
+</code></pre>
+
+<p>In Zend_Db_Select</p>
+
+<pre class="highlight"><code>
+public function from($name, $cols = '*', $schema = null, $schemaName = null)
+{
+    return $this-&gt;joinInner($name, null, $cols, $schemaName);
+}
+
+public function join($name, $cond, $cols = '*', $schemaName = null)
+{
+    return $this-&gt;joinInner($name, $cond, $cols, $schemaName);
+}
+
+public function joinInner($name, $cond, $cols = '*', $schemaName = null)
+{
+    return $this-&gt;_join(self::INNER_JOIN, $name, $cond, $cols, $schemaName);
+}
+</code></pre>
+
+<p>make the same for other join methods (joinLeft, joinRight, joinFull, joinCross, joinNatural)</p>
+
+<pre class="highlight"><code>
+protected function _join($type, $name, $cond, $cols, $schemaName = null)
+{
+    ...
+
+    if (!empty($correlationName)) {
+        if (array_key_exists($correlationName, $this-&gt;_parts[self::FROM])) {
+            throw new Zend_Db_Select_Exception(
+              "You cannot define a correlation name '$correlationName' more than once");
+        }
+
+        $this-&gt;_parts[self::FROM][$correlationName] = array(
+            'joinType' =&gt; $type,
++           'schemaName' =&gt; $schemaName,
+            'tableName' =&gt; $tableName,
+            'joinCondition' =&gt; $cond
+        );
+    }
+
+    ...
+}
+</code></pre>
+
+<p>and finally</p>
+
+<pre class="highlight"><code>
+public function __toString()
+{
+    ...
+
+    foreach ($this-&gt;_parts[self::FROM] as $correlationName =&gt; $table) {
+        $tmp = '';
+        if (empty($from)) {
++           if ($table['schemaName'] != null)
++               $tmp .= $this-&gt;_adapter-&gt;quoteIdentifier($table['schemaName']).".";
+
+            // First table is named alone ignoring join information
+            $tmp .= $this-&gt;_adapter-&gt;quoteTableAs($table['tableName'], $correlationName);
+        } else {
+            // Subsequent tables may have joins
+            if (! empty($table['joinType'])) {
+                $tmp .= ' ' . strtoupper($table['joinType']) . ' ';
+            }
+
++           if ($table['schemaName'] != null)
++               $tmp .= $this-&gt;_adapter-&gt;quoteIdentifier($table['schemaName']).".";
+
+            $tmp .= $this-&gt;_adapter-&gt;quoteTableAs($table['tableName'], $correlationName);
+            if (! empty($table['joinCondition'])) {
+                $tmp .= ' ON ' . $table['joinCondition'];
+            }
+        }
+        // add the table name and condition
+        // add to the list
+        $from[] = $tmp;
+    }
+
+    ...
+}
+</code></pre>
+
+<p>These alterations must work.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mark Gibson (jollytoad) on 2007-03-30T05:09:45.000+0000</p> 
+        <div class="body">
+            <p>Schema qualified names are already supported.</p>
+
+<p>Throughout Zend_Db classes, wherever a table name is required you can supply:</p>
+
+<ul><li>a single string containing a qualified or unqualified name.
+eg: {{"table"}} or {{"schema.table"}}</li>
+<li>an array containing the schema as the first item, and name as the second.
+eg: {{array('schema', 'table')}}</li>
+<li>a Zend_Db_Expr for the rare occasion that a name contains a dot.
+eg. {{new Zend_Db_Expr('"odd.schema"."strange.table"')}}</li>
+</ul><p>So in your code above use:</p>
+
+<pre class="highlight"><code>
+$this-&gt;_name = 'someSchema.someTable';
+</code></pre>
+
+<p>or</p>
+
+<pre class="highlight"><code>
+$this-&gt;_name = array('someSchema','someTable');
+</code></pre>
+
+<p>This is all implemented in <a href="http://framework.zend.com/apidoc/core/Zend_Db/Adapter/Zend_Db_Adapter_Abstract.html#quoteIdentifier">Zend_Db_Adapter_Abstract::quoteIdentifier()</a>,
+and fully supported by Zend_Db_Select, and by Zend_Db_Table.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Manuel Ferreira (mfcn) on 2007-03-30T08:39:00.000+0000</p> 
+        <div class="body">
+            <p>In this case the attribute "_schema" no make sense.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Manuel Ferreira (mfcn) on 2007-03-30T09:07:26.000+0000</p> 
+        <div class="body">
+            <p>I made a test and changed my model:</p>
+
+<pre class="highlight"><code>
+class MyModel extends Zend_Db_Table {
+    protected function _setupTableName(){
+        $this-&gt;_name = 'someSchema.someTable';
+        parent::_setupTableName();
+    }
+}
+</code></pre>
+
+<p>I receive the same SQL error.</p>
+
+<p>These tests had been made using PostgreSQL 8.1.</p>
+
+<p>Did I make some mistake???</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-03-30T20:32:01.000+0000</p> 
+        <div class="body">
+            <p>I'm working on revising the test framework for Zend_Db_Table now.  I'll make sure that there are tests that verify schema-qualified tables can work in PostgreSQL.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-21T16:57:29.000+0000</p> 
+        <div class="body">
+            <p>Linking to ZF-1402.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-21T16:57:58.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Darby.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-05-25T14:19:31.000+0000</p> 
+        <div class="body">
+            <p>Resolved with <a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=4969">SVN r4969</a>.</p>
+
+        </div>
+    </div>
+    </div>
+

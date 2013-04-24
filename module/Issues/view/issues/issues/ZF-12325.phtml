@@ -1,0 +1,129 @@
+<h2>ZF-12325: Zend_Mail : sending a message with setBodyText and createAttachment cause gmail to receave a blank email with a &quot;noname&quot; attachment</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-07-06T20:26:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-06T20:26:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Dolf Schimmel (Freeaqingme) (freak)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is caused by Zend_Mail_Transport_Abstract::_buildBody() appending the text part "Content-Disposition" headers to the message top headers.</p>
+
+<p>I think there is a conflict between the "Content-Disposition: inline" header and the "Content-Type: multipart/mixed;"</p>
+
+<p>Here is a snipplet of code to reproduce</p>
+
+<pre class="highlight"><code>
+$transport = new \Zend_Mail_Transport_Smtp($smtpHost);
+\Zend_Mail::setDefaultTransport($transport);
+
+$mail = new \Zend_Mail('UTF-8');
+$mail-&gt;setFrom('asdf@asdf.com', 'ASDF')
+     -&gt;setSubject('Subject')
+     -&gt;setBodyText('Body')
+     -&gt;addTo('asdf2@asdf.com', 'ASDF2');
+                            
+$attachment = $mail-&gt;createAttachment(file_get_contents($path));
+$attachment-&gt;type = 'application/pdf';
+$attachment-&gt;disposition = \Zend_Mime::DISPOSITION_ATTACHMENT;
+$attachment-&gt;filename = 'Test.pdf';         
+$mail-&gt;send();
+</code></pre>
+
+<p>The resulting header look like this :</p>
+
+<pre class="highlight"><code>
+From: asdf@asdf.com
+Subject: ASDF
+To: asdf2@asdf.com
+Date: Fri, 06 Jul 2012 11:31:23 -0400
+Content-Type: multipart/mixed;
+ boundary="=_07cc44413e2aa6b79877aba401f7f090"
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: inline
+MIME-Version: 1.0
+</code></pre>
+
+<p>As I understand it, the body part headers are copied to the message header for the case when the whole message is plain text without attachment.  For both case to work, we have to check if there is only one part in the message.</p>
+
+<p>Here is my patch</p>
+
+<pre class="highlight"><code>
+diff --git a/lib/Zend/Mail/Transport/Abstract.php b/lib/Zend/Mail/Transport/Abstract.php
+index 1d225a3..14d74cb 100644
+--- a/lib/Zend/Mail/Transport/Abstract.php
++++ b/lib/Zend/Mail/Transport/Abstract.php
+@@ -284,14 +284,18 @@ abstract class Zend_Mail_Transport_Abstract
+             throw new Zend_Mail_Transport_Exception('No body specified');
+         }
+ 
+-        // Get headers
+-        $this-&gt;_headers = $this-&gt;_mail-&gt;getHeaders();
+-        $headers = $body-&gt;getHeadersArray($this-&gt;EOL);
+-        foreach ($headers as $header) {
+-            // Headers in Zend_Mime_Part are kept as arrays with two elements, a
+-            // key and a value
+-            $this-&gt;_headers[$header[0]] = array($header[1]);
+-        }
++               // Get headers
++               $this-&gt;_headers = $this-&gt;_mail-&gt;getHeaders();
++
++               if(count($this-&gt;_parts) == 1 ){
++                       // Copy the body headers into the message header        
++                       $headers = $body-&gt;getHeadersArray($this-&gt;EOL);
++                       foreach ($headers as $header) {
++                               // Headers in Zend_Mime_Part are kept as arrays with two elements, a
++                               // key and a value
++                               $this-&gt;_headers[$header[0]] = array($header[1]);
++                       }
++               }
+     }
+ 
+     /**
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

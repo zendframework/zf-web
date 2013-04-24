@@ -1,0 +1,280 @@
+<h2>ZF-12027: Zend_Form::GetValues() not rendered congruent with post data </h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-01-27T02:05:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-21T23:35:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+            <li>zend_form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Adding a subform to a Zend_Form, and setting isArray to false will properly add that subform with expected markup, such that the subform creates appropriate array notation (The $_POST data does not show subform values in a nested array).</p>
+
+<p>However, calling the form's getValues() method renders the data differently, in that the returned result will put the subform's values into a sub-array.</p>
+
+<p>Wouldn't it be expected that a request-&gt;getPost() and a form-&gt;getValues() would have a congruent structure?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-01-27T07:45:57.000+0000</p> 
+        <div class="body">
+            <p>Hi Matthew,
+can you provide a complete code example to reproduce the problem?
+Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Larson (matthewmatician) on 2012-01-27T14:34:37.000+0000</p> 
+        <div class="body">
+            <p>Sure:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+class Application_Form_Sub extends Zend_Form
+{
+    public function init()
+    {
+        $this-&gt;setIsArray(false);
+
+        $this-&gt;addElement(
+            'Text',
+            'subInput',
+            array('label' =&gt; 'input in a subform',)
+        );
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+&lt;?php
+class Application_Form_Super extends Zend_Form
+{
+    public function init()
+    {
+        $this-&gt;addElement(
+            'Text',
+            'superInput',
+            array('label' =&gt; 'regular input',)
+        );
+
+        $sub = new Application_Form_Sub();
+        $this-&gt;addSubForm($sub,'sub');
+
+        $this-&gt;addElement(
+            'Submit',
+            'submit',
+            array('label' =&gt; 'submit',)
+        );
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+&lt;?php
+class IndexController extends Zend_Controller_Action
+{
+    public function indexAction
+    {
+        $form = new Application_Form_Super();
+        $this-&gt;view-&gt;form = $form;
+        $request = $this-&gt;getRequest();
+        if($request-&gt;isPost() &amp;&amp; $form-&gt;isValid($request-&gt;getPost())){
+
+            echo '</code></pre><h2><code>Post Data:</code></h2><code></code><pre><code>';
+            var_dump ($request-&gt;getPost());
+            echo '</code></pre><code>';
+
+            echo '</code><h2><code>Form Values</code></h2><code></code><pre><code>';
+            var_dump ($form-&gt;getValues());
+            echo '</code></pre><code>';
+        }
+    }
+}
+</code>
+
+<pre class="highlight"><code>
+&lt;?php echo $this-&gt;form; ?&gt;
+</code></pre>
+
+<p>Just run the view, put in some values, and see that the two outputted arrays don't have the same structure.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Larson (matthewmatician) on 2012-01-27T16:58:18.000+0000</p> 
+        <div class="body">
+            <p>Also, the same issue exists for Zend_Form::getValidValues().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Larson (matthewmatician) on 2012-01-27T17:14:23.000+0000</p> 
+        <div class="body">
+            <p>I did a review of the code. I believe I have established a fix:</p>
+
+<pre class="highlight"><code>
+class Zend_Form ...
+{
+    ...
+
+    /**
+     * Retrieve all form element values
+     *
+     * All changes made have been marked with comments
+     *
+     * @param  bool $suppressArrayNotation
+     * @return array
+     */
+    public function getValues($suppressArrayNotation = false)
+    {
+        //... no changes until the second foreach loop
+        
+        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+            $merge = array();
+            if (!$subForm-&gt;isArray()) {
+                //copied and changed this line:
+                //$merge[$key] = $subForm-&gt;getValues();
+                $merge = $subForm-&gt;getValues();
+            } else {
+                $merge = $this-&gt;_attachToArray($subForm-&gt;getValues(true),
+                                               $subForm-&gt;getElementsBelongTo());
+            }
+            $values = $this-&gt;_array_replace_recursive($values, $merge);
+        }
+
+        if (!$suppressArrayNotation &amp;&amp;
+            $this-&gt;isArray() &amp;&amp;
+            !$this-&gt;_getIsRendered()) {
+            $values = $this-&gt;_attachToArray($values, $this-&gt;getElementsBelongTo());
+        }
+
+        return $values;
+    }
+
+//Regarding getValidValues, it was a little more involved:
+
+    /**
+     * Returns only the valid values from the given form input.
+     *
+     * For models that can be saved in a partially valid state, for example when following the builder,
+     * prototype or state patterns it is particularly interessting to retrieve all the current valid
+     * values to persist them.
+     *
+     * All changes have been marked with comments
+     *
+     * @param  array $data
+     * @param  bool $suppressArrayNotation
+     * @return array
+     */
+    public function getValidValues($data, $suppressArrayNotation = false)
+    {
+        //... no changes until the second foreach loop
+        
+        foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+            $merge = array();
+
+            //added a local variable, swapped $data with $subData within this loop
+            $subData = isset($data[$key]) ? $data[$key] : $data;
+
+            // copied and changed the following line:
+            //if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
+            if (!$form-&gt;isArray()) {
+                $tmp = $form-&gt;getValidValues($subData);
+                if (!empty($tmp)) {
+                    //copied and changed the following line:
+                    //$merge[$key] = $tmp;
+                    $merge = $tmp;
+                }
+            } else {
+                $tmp = $form-&gt;getValidValues($data, true);
+                if (!empty($tmp)) {
+                    $merge = $this-&gt;_attachToArray($tmp, $form-&gt;getElementsBelongTo());
+                }
+            }
+            $values = $this-&gt;_array_replace_recursive($values, $merge);
+        }
+        if (!$suppressArrayNotation &amp;&amp;
+            $this-&gt;isArray() &amp;&amp;
+            !empty($values) &amp;&amp;
+            !$this-&gt;_getIsRendered()) {
+            $values = $this-&gt;_attachToArray($values, $this-&gt;getElementsBelongTo());
+        }
+
+        return $values;
+    }
+
+
+</code></pre>
+
+<p>Hope this helps!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stewart Lord (stewartlord) on 2012-03-21T23:32:47.000+0000</p> 
+        <div class="body">
+            <p>Note, this same problem also affects getMessages(). The fix is nearly identical.</p>
+
+<pre class="highlight"><code>
+foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+    $merge = $subForm-&gt;getMessages(null, true);
+    if (!empty($merge)) {
+        if (!$subForm-&gt;isArray()) {
+// OFFENDING LINE: $merge = array($key =&gt; $merge);
+        } else {
+            $merge = $this-&gt;_attachToArray($merge,
+                                           $subForm-&gt;getElementsBelongTo());
+        }
+        $messages = $this-&gt;_array_replace_recursive($messages, $merge);
+    }
+}
+</code></pre>
+
+<p>Removing the offending line fixes the problem.</p>
+
+        </div>
+    </div>
+    </div>
+

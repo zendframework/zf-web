@@ -1,0 +1,240 @@
+<h2>ZF-11142: Filter Input throws wrong not empty message error when validating</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-06T09:08:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-26T18:10:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+            <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter_Input</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8446">ZF-8446</a></li>
+            <li><a href="/issues/browse/ZF-9289">ZF-9289</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13813/Input.php.patch">Input.php.patch</a></li>
+            <li><a href="/issues/secure/attachment/13812/InputTest.php.patch">InputTest.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I couldn't find any previous bugs like this, so hopefully it's not a duplicate. The problem is that, if you have two validators where the first uses NotEmpty and the second one doesn't, it throws the NotEmpty error of the first.</p>
+
+<p>Here's an example. Suppose you have these validators:</p>
+
+<pre class="highlight"><code> 
+$validators = array(
+    'field1'    =&gt; array(
+            'NotEmpty', 'Float',
+            'presence'  =&gt; 'required',
+            'messages'  =&gt; array(
+                'Field1 is empty',
+                array(
+                    Zend_Validate_Float::NOT_FLOAT =&gt; "Field1 must be a number."
+                )
+            )
+        ),
+    'field2'    =&gt; array(
+            'presence' =&gt; 'required'
+        )
+);
+</code></pre>
+
+<p>Your input to this is a valid float for field1 and an empty string for field2. You run it through Zend_Filter_Input, and it doesn't validate. If you get the messages for field2, it'll return: [field1] =&gt; Array ( [isEmpty] =&gt; Field1 is empty. ) It also seems to ignore any defaults set in an $options for Zend_Filter_Input.</p>
+
+<p>FWIW, my guess is the issue lies in Zend/Filter/Input.php::878-879.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Greg (ggilbert) on 2011-03-10T19:43:42.000+0000</p> 
+        <div class="body">
+            <p>Bart, just to clarify: the problem isn't in the NotEmpty validator - it's in the one following it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-11T00:34:24.000+0000</p> 
+        <div class="body">
+            <p>Thanks for watching! I realize the problem is in the combination. However, when I put together a UnitTest to verify the bug, I use a very simple form with two fields and a NotEmpty validator on the first element. Nothing else, just to isolate the problem you described.</p>
+
+<p>To my surprise, the form validates regardless of the values passed into it. So I now have a problem: is that a bug or something I am doing wrong in the test. In any case, it is obviously not the best way to test, because it involves a form, which does not give us the desired isolation level for this test.</p>
+
+<p>Then I also wondered what Zend_Filter_Input actually does in this context? Are you using the validators to configure the input filter? You probably do, so I will have to narrow my test function around this scenario. It is also something I did not do before, so my next step will be figuring out the desired behavior with validators that do work.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-16T22:06:18.000+0000</p> 
+        <div class="body">
+            <p>I created a unit test for this issue that should reproduce it, but it passes. So I will resolve this as 'not a bug'.</p>
+
+<p>It did not look into the default options being ignored. There are also quite a few other 'issues' I encountered during testing that I would like to investigate further.</p>
+
+<p>Here is my unit test:</p>
+
+<pre class="highlight"><code>
+/**
+ * @group ZF-11142
+ */
+public function testTwoValidatorsInChainShowCorrectError()
+{
+    require_once 'Zend/Validate/NotEmpty.php';
+    require_once 'Zend/Validate/Float.php';
+    $validators = array(
+        'field1'    =&gt; array(
+                'NotEmpty', 'Float',
+                'presence'  =&gt; 'required',
+                'messages'  =&gt; array(
+                    'Field1 is empty',
+                    array(
+                        Zend_Validate_Float::NOT_FLOAT =&gt; 
+                        "Field1 must be a number."
+                    )
+                )
+            ),
+        'field2'    =&gt; array(
+                'presence' =&gt; 'required'
+            )
+    );
+    
+    $data = array('field1' =&gt; 0.0, 'field2' =&gt; 'text');
+    $input = new Zend_Filter_Input(null, $validators, $data);
+    $input-&gt;hasValid();
+    $messages = $input-&gt;getMessages();
+    $this-&gt;assertSame(  'Field1 is empty', 
+                        $messages['field1'][Zend_Validate_NotEmpty::IS_EMPTY], 
+                        'custom message not shown');
+    $this-&gt;assertSame(0, count($messages['field2']));
+}
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-16T22:07:28.000+0000</p> 
+        <div class="body">
+            <p>resolved as not an issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-17T09:21:13.000+0000</p> 
+        <div class="body">
+            <p>I read more carefully in the bug description (again) and I added a second test that actually confirms the bug. Sorry for the confusion.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Greg (ggilbert) on 2011-03-19T20:05:40.000+0000</p> 
+        <div class="body">
+            <p>Heh, that's alright. Sorry I didn't respond to your earlier question; things got really busy. Anyway, let me know how it turns out. Thanks again for relooking at this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-20T21:59:44.000+0000</p> 
+        <div class="body">
+            <p>Finally, I confirmed and fixed this one. It is too late at night now to create a patch, I will try to supply one tomorrow.</p>
+
+<p>I also found a complete section of code, with the "$unifiedMessages" that I could disable without getting any failures in the UnitTests. So wether this is undertested functionality, or it is completely pointless code. Maybe Ralph can look at my comments in Zend_Filter_Input, once I have provided the patch and the UnitTest.</p>
+
+<p>The key to solving this problem was in the suggested lines of code. The default Not empty message must be preserved and restored before re-entering the loop of $_validationRules. Otherwise, the not empty message of any given NotEmpty validator will persist in any required field that comes after it.</p>
+
+<p><em>Workaround</em>
+If for now, anyone wants a workaround: provide your NotEmpty validators as the last ones in the chain and you will not have a problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-21T20:38:16.000+0000</p> 
+        <div class="body">
+            <p>Added a patch for the unit test for Zend_Filter_Input that add a test case that proves this bug and a patch that fixes the bug.</p>
+
+<p>I the fixing patch I chose to preserve the default not empty message in a variable and restore it at the end of each iteration over the validation rules. Other approaches may be possible, but this works.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-21T20:39:23.000+0000</p> 
+        <div class="body">
+            <p>Changed from bug to patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-21T20:42:37.000+0000</p> 
+        <div class="body">
+            <p>Assigned it back to Ralph. Ralph, could you try the patches and review them? I can commit them, but I read on the wiki that the component owner should commit.</p>
+
+<p>I will commit them if you are simply to busy in about a week or so...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-27T19:45:34.000+0000</p> 
+        <div class="body">
+            <p>This issue seems to be a duplicate or at least related to ZF-9289</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-28T10:16:53.000+0000</p> 
+        <div class="body">
+            <p>Fix is in svn now</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-04-01T09:45:26.000+0000</p> 
+        <div class="body">
+            <p>Thanks for fixing
+Reopening for integration into ZF2</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-26T18:10:50.000+0000</p> 
+        <div class="body">
+            <p>Fixed for ZF2 with GH-267</p>
+
+        </div>
+    </div>
+    </div>
+

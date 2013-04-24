@@ -1,0 +1,152 @@
+<h2>ZF-6283: Zend_Search_Lucene indexing memory usage improvement.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-13T06:56:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-31T08:39:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>In Progress</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <h2>The issue was originaly reported by Jurriën Stutterheim:</h2>
+
+<p>Zend_Search_Lucene memory leak?</p>
+
+<p>I ran into a problem indexing a relatively small amount of records
+(+/- 50k). Memory usage slowly rises from roughly 45MB to the memory limit of 128M (using the default merge factor of 10). When the indexing process hits the limit, I've only indexed roughly 15k documents. When using a merge factor of 5 I manage to squeeze in a few thousand extra records before running out of memory again. Executing the same code, but uncommenting the $index-&gt;addDocument() call, I happily iterate over the 50k records, using only 47MB of memory.</p>
+
+<p>Strangely enough I've never experienced this in a previous application, where I'd index 150k records (roughly the same size as the current ones) without a problem. Could there be a memory leak of some sorts? Or is this expected?
+I'm using Zend Server 4.0.1 on Mac OS X 10.5.6 with mbstring enabled</p>
+
+<h2>(non-overloading) and set to UTF-8. I'm running the Zend_Search_Lucene from the trunk. Of course I could increase the memory limit to 256M or 512M, but that's not ideal.</h2>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2009-04-13T07:31:16.000+0000</p> 
+        <div class="body">
+            <p>That's possible to get such behavior in some cases:
+1. PHP doesn't detect cyclic object references and doesn't destroy object structures with cyclic references. It only checks if object is not referred (using references counter) and destroys object if number of references is 0.
+Zend_Search_Lucene shouldn't create such structures, but... it's better to check it again.</p>
+
+<ol><li><p>Some strings operations (like .= operator) produces high level of free memory fragmentation. It increases overall memory usage. So it also should be checked.</p></li>
+<li><p>Index growing also increases memory usage.</p></li>
+</ol><p>Could you perform the following experiments?</p>
+
+<ol><li>Check amount of memory used by loaded index.
+a) Create new index and add as much documents as it's possible (2-5 documents before reaching memory usage limit). Check memory usage at the end of script:</li>
+</ol><pre class="highlight"><code>
+...
+
+var_dump(memory_get_usage());
+var_dump(memory_get_usage(true));
+</code></pre>
+
+<p>b) Open index using separate script and check memory usage:</p>
+
+<pre class="highlight"><code>
+$index = Zend_Search_Lucene::open($indexPath);
+// Load dictionary index structures
+$index-&gt;hasTerm(new Zend_Search_Lucene_Index_Term('dummy_data', 'dummy_fieldname'));
+
+var_dump(memory_get_usage());
+var_dump(memory_get_usage(true));
+</code></pre>
+
+<ol><li><p>Check, if increasing memory usage is not caused by missing destroy operation for document objects. Use <em>the_same</em> document object for each addDocument() operation and check memory usage during indexing (in compare to the current memory utilization).</p></li>
+<li><p>If above experiments don't give enough information, try to track document objects creation/destroy operations (add destructor to the document object and make debug output for document creation/destroy operations).</p></li>
+</ol><p>PS Which Analyzer do you use for indexing? If it's UTF-8 analyzer, then it may be [ZF-4997] related problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-15T15:24:31.000+0000</p> 
+        <div class="body">
+            <p>I will try and get you the result of 1.a. later today. In the mean time...</p>
+
+<p>1.b:
+int(1693916)
+int(2097152)</p>
+
+<ol><li>Adding the same document to the index - using a merge factor of 10 - roughly 50k times keeps memory usage to an acceptable level. At 25k documents, the PHP process only consumes 56MB. Below is the original index method, where I manually unset the search document:</li>
+</ol><pre class="highlight"><code>
+public function addPublication(Pub_Publication $publication)
+{
+    $document = new Zend_Search_Lucene_Document();
+
+    $this-&gt;_mapper-&gt;pubToSearchDocument($publication, $document); // Only strings, booleans, and integers get added here
+
+    $this-&gt;_index-&gt;addDocument($document); // Commenting this out keeps memory consumption to 47MB
+
+    unset($document);
+}
+</code></pre>
+
+<p>Is the document retained in the index somehow?</p>
+
+<p>Index setup:</p>
+
+<pre class="highlight"><code>
+Zend_Search_Lucene_Search_QueryParser::setDefaultEncoding('utf-8');
+Zend_Search_Lucene_Analysis_Analyzer::setDefault(
+    new Zend_Search_Lucene_Analysis_Analyzer_Common_Utf8Num_CaseInsensitive()
+);
+</code></pre>
+
+<p>The problem also occurred without the UTF-8 analyzer though : )</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-15T18:43:27.000+0000</p> 
+        <div class="body">
+            <p>The indexing performed better than before this run... I managed to squeeze in roughly 45500 records before hitting the memory limit of 128MB. Not sure why it performed better this time around though...</p>
+
+<p>Memory usage:</p>
+
+<p>int(133245448)
+int(134217728)</p>
+
+        </div>
+    </div>
+    </div>
+

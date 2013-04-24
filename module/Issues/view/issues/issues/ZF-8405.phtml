@@ -1,0 +1,200 @@
+<h2>ZF-8405: Zend_Form::_sort() depends on the __get magic method. But it should not.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-27T00:34:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-27T08:48:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Look at the <em>_sort()</em> method:
+It uses <em>_ _ get()</em> magic method for access children. So it's not possible to override <em>_ _ get</em> method without overriding <em>_sort()</em>.</p>
+
+<p>(on) I propose to create another method <em>getChild</em> and use it in *__get* and *_sort* methods:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Аccess to elements, form groups, and display groups
+     * 
+     * @param string $name
+     * @return Zend_Form_Element|Zend_Form|null
+     */
+    public function getChild($name)
+    {
+        if (isset($this-&gt;_elements[$name])) {
+            return $this-&gt;_elements[$name];
+        } elseif (isset($this-&gt;_subForms[$name])) {
+            return $this-&gt;_subForms[$name];
+        } elseif (isset($this-&gt;_displayGroups[$name])) {
+            return $this-&gt;_displayGroups[$name];
+        }
+
+        return null;
+    }
+
+    /**
+     * Overloading: access to elements, form groups, and display groups
+     * 
+     * @param  string $name 
+     * @return Zend_Form_Element|Zend_Form|null
+     */
+    public function __get($name)
+    {
+        $child = $this-&gt;getChild($name);
+        if (!child) {
+            // Also it would be nice to notify developer if the requested item does not exist.
+            throw new Exception(__METHOD__ . ": Form child '$name' does not exist!");
+        }
+
+        return $child;
+    }
+
+    /**
+     * Sort items according to their order
+     * 
+     * @return void
+     */
+    protected function _sort()
+    {
+        if ($this-&gt;_orderUpdated) {
+            $items = array();
+            $index = 0;
+            foreach ($this-&gt;_order as $key =&gt; $order) {
+                if (null === $order) {
+                    //-------------------------------------
+                    // The bottleneck was the __get magic method
+                    //-------------------------------------
+                    if (null === ($order = $this-&gt;getChild($key)-&gt;getOrder())) {
+                        while (array_search($index, $this-&gt;_order, true)) {
+                            ++$index;
+                        }
+                        $items[$index] = $key;
+                        ++$index;
+                    } else {
+                        $items[$order] = $key;
+                    }
+                } else {
+                    $items[$order] = $key;
+                }
+            }
+
+            $items = array_flip($items);
+            asort($items);
+            $this-&gt;_order = $items;
+            $this-&gt;_orderUpdated = false;
+        }
+    }
+</code></pre>
+
+<p>Original code is:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Overloading: access to elements, form groups, and display groups
+     * 
+     * @param  string $name 
+     * @return Zend_Form_Element|Zend_Form|null
+     */
+    public function __get($name)
+    {
+        if (isset($this-&gt;_elements[$name])) {
+            return $this-&gt;_elements[$name];
+        } elseif (isset($this-&gt;_subForms[$name])) {
+            return $this-&gt;_subForms[$name];
+        } elseif (isset($this-&gt;_displayGroups[$name])) {
+            return $this-&gt;_displayGroups[$name];
+        }
+
+        return null;
+    }
+
+    /**
+     * Sort items according to their order
+     * 
+     * @return void
+     */
+    protected function _sort()
+    {
+        if ($this-&gt;_orderUpdated) {
+            $items = array();
+            $index = 0;
+            foreach ($this-&gt;_order as $key =&gt; $order) {
+                if (null === $order) {
+                    //-------------------------------------
+                    // The bottleneck is __get magic method
+                    //-------------------------------------
+                    if (null === ($order = $this-&gt;{$key}-&gt;getOrder())) {
+                        while (array_search($index, $this-&gt;_order, true)) {
+                            ++$index;
+                        }
+                        $items[$index] = $key;
+                        ++$index;
+                    } else {
+                        $items[$order] = $key;
+                    }
+                } else {
+                    $items[$order] = $key;
+                }
+            }
+
+            $items = array_flip($items);
+            asort($items);
+            $this-&gt;_order = $items;
+            $this-&gt;_orderUpdated = false;
+        }
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-11-27T08:48:18.000+0000</p> 
+        <div class="body">
+            <p>Overloading as a method of access to the elements was a design decision for this iteration of Zend_Form. We plan to revisit and reverse that decision... but it cannot happen until we can introduce BC breaks -- which will occur with 2.0.</p>
+
+<p>If you want to help with that effort, please visit the <a href="http://framework.zend.com/wiki/display/ZFDEV2/Zend_Form+2.0">Zend_Form 2.0 planning page</a> and provide feedback.</p>
+
+        </div>
+    </div>
+    </div>
+

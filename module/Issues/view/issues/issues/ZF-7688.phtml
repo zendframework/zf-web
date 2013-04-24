@@ -1,0 +1,435 @@
+<h2>ZF-7688: Strange tokenizing from analyzer</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-25T23:29:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-09T15:29:05.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7685">ZF-7685</a></li>
+            <li><a href="/issues/browse/ZF-7738">ZF-7738</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12174/multi-token-plus-dummy-indexer-highlighting.patch">multi-token-plus-dummy-indexer-highlighting.patch</a></li>
+            <li><a href="/issues/secure/attachment/12169/preprocessor_multi_token_awareness.patch">preprocessor_multi_token_awareness.patch</a></li>
+            <li><a href="/issues/secure/attachment/12173/preprocessor_multi_token_awareness_and_highlighting.patch">preprocessor_multi_token_awareness_and_highlighting.patch</a></li>
+            <li><a href="/issues/secure/attachment/12166/Term.php.patch">Term.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have an index with a Zend_Search_Lucene_Analysis_Analyzer_Common_Utf8Num_CaseInsensitive analyzer.</p>
+
+<p>When I query the index with the query "foo_bar*" (without quotes) I get the following exception: 
+Zend_Search_Lucene_Search_QueryParserException' with message 'Wildcard search is supported only for non-multiple word terms' in Zend/Search/Lucene/Search/Query/Preprocessing/Term.php:182</p>
+
+<p>I get no exception when I query with the query "foo bar*".</p>
+
+<p>I've looked within Term.php and in the first example with "foo_bar*" as query, the analyzer tokenizes the query into 'foo' and 'bar' but in the second example to only 'bar'. The first example given me therefor an exception because on line 180:
+{{
+if (count($tokens) &gt; 1) {
+throw exception;
+} }}</p>
+
+<p>I'm a bit confused on how the analyzer works because if the analyzer tokenizes words in cases of characters like an underscore or an '@'-sign <em>and</em> with plain spaces I would expect to get an exception in both cases. For some reason, it doesn't seem to tokenize the query "foo bar*" into 2 tokens where I would've expected it.</p>
+
+<p>Now, to work around this I could rerun the analyzer to check if the query got tokenized into multiple tokens. If the only 1 token is found i could append a wildcard (because my app requires it that way) and otherwise I should not append it.</p>
+
+<p>Is this just a limitation of the module or doesn't the analyzer work properly?
+Please shine some light into this one :) Thanks!</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-27T09:11:13.000+0000</p> 
+        <div class="body">
+            <p>I was able to reproduce this.</p>
+
+<p>query parser turns "foo_bar<em>"  (with quotes) into
+Zend_Search_Lucene_Search_Query_Boolean Object
+(
+    [_subqueries:private] =&gt; Array
+        (
+            [0] =&gt; Zend_Search_Lucene_Search_Query_Preprocessing_Phrase Object
+                (
+                    [_phrase:private] =&gt; foo_bar</em>
+                    [_phraseEncoding:private] =&gt; utf-8
+                    [_field:private] =&gt; 
+                    [_slop:private] =&gt; 
+                    [_matches:protected] =&gt; 
+                    [_boost:private] =&gt; 1
+                    [_weight:protected] =&gt; 
+                    [_currentColorIndex:private] =&gt; 0
+                )</p>
+
+<pre><code>    )
+
+[_signs:private] =&gt; Array
+    (
+        [0] =&gt; 
+    )
+
+[_resVector:private] =&gt; 
+[_coord:private] =&gt; 
+[_boost:private] =&gt; 1
+[_weight:protected] =&gt; 
+[_currentColorIndex:private] =&gt; 0
+</code></pre>
+
+<p>)
+which is ok. same with "foo bar*"</p>
+
+<p>foo bar*  turns into
+Zend_Search_Lucene_Search_Query_Boolean Object
+(
+    [_subqueries:private] =&gt; Array
+        (
+            [0] =&gt; Zend_Search_Lucene_Search_Query_Preprocessing_Term Object
+                (
+                    [_word:private] =&gt; foo
+                    [_encoding:private] =&gt; utf-8
+                    [_field:private] =&gt; 
+                    [_matches:protected] =&gt; 
+                    [_boost:private] =&gt; 1
+                    [_weight:protected] =&gt; 
+                    [_currentColorIndex:private] =&gt; 0
+                )</p>
+
+<pre><code>        [1] =&gt; Zend_Search_Lucene_Search_Query_Preprocessing_Term Object
+            (
+                [_word:private] =&gt; bar*
+                [_encoding:private] =&gt; utf-8
+                [_field:private] =&gt; 
+                [_matches:protected] =&gt; 
+                [_boost:private] =&gt; 1
+                [_weight:protected] =&gt; 
+                [_currentColorIndex:private] =&gt; 0
+            )
+
+    )
+
+[_signs:private] =&gt; Array
+    (
+        [0] =&gt; 
+        [1] =&gt; 
+    )
+
+[_resVector:private] =&gt; 
+[_coord:private] =&gt; 
+[_boost:private] =&gt; 1
+[_weight:protected] =&gt; 
+[_currentColorIndex:private] =&gt; 0
+</code></pre>
+
+<p>)
+which is ok too (of which both "foo" and "bar*" do not cause issues because each of them have a count($tokens) of 1 within Term.php line 182</p>
+
+<p>"foo_bar<em>" however leads to
+end_Search_Lucene_Search_Query_Boolean Object
+(
+    [_subqueries:private] =&gt; Array
+        (
+            [0] =&gt; Zend_Search_Lucene_Search_Query_Preprocessing_Term Object
+                (
+                    [_word:private] =&gt; foo_bar</em>
+                    [_encoding:private] =&gt; utf-8
+                    [_field:private] =&gt; 
+                    [_matches:protected] =&gt; 
+                    [_boost:private] =&gt; 1
+                    [_weight:protected] =&gt; 
+                    [_currentColorIndex:private] =&gt; 0
+                )</p>
+
+<pre><code>    )
+
+[_signs:private] =&gt; Array
+    (
+        [0] =&gt; 
+    )
+
+[_resVector:private] =&gt; 
+[_coord:private] =&gt; 
+[_boost:private] =&gt; 1
+[_weight:protected] =&gt; 
+[_currentColorIndex:private] =&gt; 0
+</code></pre>
+
+<p>)
+that leads to "foo_bar" being passed as argument 0 ($subPatterns[0]) in
+class Zend_Search_Lucene_Search_Query_Preprocessing_Term line 180:
+$tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()-&gt;tokenize($subPattern[0], $subPatternsEncoding);
+which leads to the following array:
+(
+    [0] =&gt; Zend_Search_Lucene_Analysis_Token Object
+        (
+            [_termText:private] =&gt; foo
+            [_startOffset:private] =&gt; 0
+            [_endOffset:private] =&gt; 3
+            [_positionIncrement:private] =&gt; 1
+        )</p>
+
+<pre><code>[1] =&gt; Zend_Search_Lucene_Analysis_Token Object
+    (
+        [_termText:private] =&gt; bar
+        [_startOffset:private] =&gt; 4
+        [_endOffset:private] =&gt; 7
+        [_positionIncrement:private] =&gt; 1
+    )
+</code></pre>
+
+<p>)
+which has a count() of 2 and raises the above error!</p>
+
+<p>so basically it comes down to</p>
+
+<p>foo bar* is interpreted as 
+foo OR bar*</p>
+
+<p>while
+foo_bar* (doe to the space interpretation of _ in the analyzer but NOT by the query analyzer)
+is interpreted as something weird like (semantic wise)
+(foo OR bar)*
+which doesn't work.</p>
+
+<p>I run into the exact same symtom when building an analyzer that returned more than one result token for the same source token (synonyme analyzer) and accidentally using that on a query string.</p>
+
+<p>Work around: make sure no tokens in a query string contain characters that get interpreted as  by the analyzer OR set the default analyzer to a self written one that treats underscore and similar characters as non spaces</p>
+
+<p>fix: don't know, maybe change AnalyzerCommon's default behaviour regarding underscores ?</p>
+
+<p>I really hope this wiki software keeps my formatting or this will be really hard to read ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-27T09:39:11.000+0000</p> 
+        <div class="body">
+            <p>Hmm formatting is still semi ok.</p>
+
+<p>I wonder, why does Term.php do a tokenisation of the pattern in line 180, just to add all the tokens back together into one string in line 186, and in between complain if its more than one?</p>
+
+<p>I guess throwing the original error is valid because a search for foo_bar* would never succeed, since the index (due to _ being interpreted as space by the tokenizer) only stored
+"foo"
+and "barblub"
+even if the indexed text had "foo_barblub" in it</p>
+
+<p>so what the user really wanted "foo_bar<em>" to be turned to is not a query wildcard to "foo_bar</em>" but a
+Zend_Search_Lucene_Search_Query_Phrase (
+array("foo","bar<em>")
+)
+with bar</em> interpreted as a wildcard query.</p>
+
+<p>HOWEVER this is only true if (count($tokens) &gt;1) because of "foo_bar" gets tokenized as two separate words due to a char interpreted as space.</p>
+
+<p>assuming you had a synonyme analyzer that had "bar" listed as synonyme for "foo"</p>
+
+<p>then "foo<em>" would rise the same error in Term.php line 182 due to count=2
+however what the user wanted there is either
+foo</em> OR bar*
+or
+foo* without searching for bar</p>
+
+<p>how to solve that? - I'd suggest to not use multi-token analyzers on query strings. Its unnecceasary if both variants are already stored in the index anyway.
+foo_bar* could then be safely turned into a phrase search (if phrase searches containing wildcard queries is valid in itself, didn't test that ;)</p>
+
+<p>(I am currently working on a patch to submit that allows TokenFilters that create multiple tokens out of one, like Java Lucene does. I have the code working here, but I'm waiting for my CLA being approved ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-28T02:38:12.000+0000</p> 
+        <div class="body">
+            <p>The equivalent error occurs when doing a fuzzy search for something like</p>
+
+<p>mod_php~</p>
+
+<p>Fatal error:  Uncaught exception 'Zend_Search_Lucene_Search_QueryParserException' with message 'Fuzzy search is supported only for non-multiple word terms' in /home/raven/studium/zendtest/Zend/Search/Lucene/Search/Query/Preprocessing/Fuzzy.php:217
+Stack trace:</p>
+
+<h1>0 Zend/Search/Lucene/Search/Query/Preprocessing/Fuzzy.php(130): Zend_Search_Lucene_Search_Query_Preprocessing_Fuzzy-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>1 Zend/Search/Lucene/Search/Query/Boolean.php(146): Zend_Search_Lucene_Search_Query_Preprocessing_Fuzzy-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>2 Zend/Search/Lucene.php(905): Zend_Search_Lucene_Search_Query_Boolean-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>3 [internal function]: Zend_Search_Lucene-&gt;find(Object(Zend_Search_Lucene_Search_Query_Boolean))</h1>
+
+<h1>4 Zend/Search/Lucene/Proxy.php(346): call_user_func_array(Array, Array)</h1>
+
+<h1>5 index.php(355): Zend_Search_Lucene_Proxy-&gt;find in /Zend/Search/Lucene/Search/Query/Preprocessing/Fuzzy.php on line 217</h1>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-28T04:42:21.000+0000</p> 
+        <div class="body">
+            <p>This patch fixes this issue for foo_bar* by returning a phrase query that has foo in position 0 and all possible matching terms for a bar* wildcard query in posion 1</p>
+
+<p>Known bugs:</p>
+
+<p>A search for foo<em>_bar</em> will not raise the original error ( since the partial string "_bar" creates only one token with text "bar") therefore it will be turned into a wildcard query for foo*bar* as with the old code.</p>
+
+<p>foo<em>bar</em> will not find foo_bar in the index since only foo and bar have been indexed.</p>
+
+<p>It may be necessary to change the indicator when to split the pattern up into several. count($analyzer-&gt;tokenize()) seems to be a bad indicator since it will give 1 for a string like "_foo".
+Possible but hacky solution: test wether tokenize("x".$x) leads to array("x".$y) or array("x",$y) (comma versus dot)
+Mr Veremyev, what do you think?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-28T09:00:55.000+0000</p> 
+        <div class="body">
+            <p>I added another patch. (preprocessor_multi_token_awareness.patch)</p>
+
+<p>It adds complete multi token awareness to both the Fuzzy and the Term preprocessor, taking 
+$token-&gt;getPositionIncrement() into account to create exact phrase queries in case a substring within a fuzzy or wildcard term gets tokenized into multiple tokens.</p>
+
+<p>I tested it briefly before posting on both the original foo_bar* problems as well as "real" alternative token scenarios (tokenizer returning two alternative tokens for the same string) and combinations of those.</p>
+
+<p>Unfortunately I did not come up with a more sensible test wether the first character in a "subPattern" is treated as a word boundary by the used analyzer, so I used the previously described hack :(</p>
+
+<p>Do you know a better way?</p>
+
+<p>Maybe trying to tokenize the first character only and see if there is a non empty result?
+(but then one has to worry about encoding and multibytenesses too)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-30T14:56:45.000+0000</p> 
+        <div class="body">
+            <p>Another patch.</p>
+
+<p>I fixed the test for wether the first character of a subPattern is tokenisable or not in a IMHO reasonable way.</p>
+
+<p>There is a problem with the fixed pattern search however, which is, the existing highlighting code won't work.</p>
+
+<p>I need to take this as an opportunity to say that I heartly disagree with the way highlighting is done currently, because it duplicates functionality both in code and exection.</p>
+
+<p>In a bad way.</p>
+
+<p>And A lot!</p>
+
+<p>With the cascaded protected _highlightMatches() function within queries, simple queries (for example Query_Term) just highlight EXACT matches, thus needing the $document-&gt;highlight function to tokenize the entire document.</p>
+
+<p>For every single query term.</p>
+
+<p>Worse, with complicated tokens like Fuzzy or Wildcard, the Query's highlight function itself has to tokenize the document AGAIN to find matches - for every single Fuzzy/Wildcard term - which then are given back to the highlighter class to tokenize the document AGAIN to finally highlight them.</p>
+
+<p>Everywhere and all the _highlightMatches() function also duplicates the functionality of rewrite(), doing more or less the same things and stumbling over the same pitfalls (mostly in combination with strings that create multiple tokens)</p>
+
+<p>In practice (as in production setup) I had cases where the search took 3 seconds, and the highlighting of 10 relatively short result excerpts kept the servers CPU busy for 40!!! seconds. That is completely and utterly unusable for a production web application (I have to say though,  there were quite many terms in that index due to a synonym plus stem analyzer being used (around 100k terms)</p>
+
+<p>It would be easier (and faster) to just INDEX the to be highlighted document into a temporary In-Memory Lucene Index, and then rewrite the query and feed $query-&gt;getQueryTerms() to the $highlighter.</p>
+
+<p>But in practice even that would be overkill.
+In 99.99% of the cases the to be highlighted text is text stored somewhere in the index ANYWAY, since the to be highlighted text is part of a document originally indexed, AKA a search result.
+So calling $query-&gt;rewrite() with the search index would provide all the required data to highlight the result.</p>
+
+<p>I used this approach in this patch.
+Pro: It fixes highlighting: Everything the query finds is also highlighted succesfully
+Contra: It changes the API: Calling highlightMatches() on a non-rewritten query will rise an exception.</p>
+
+<p>Better probably would be to do the temporary indexing solution mentioned above.</p>
+
+<p>In practice (as in my production setup)  I went one step further. We didn't even use the DocumentHTML class for highlighting, the highlighting code instead called:</p>
+
+<p>$analyzer-&gt;tokenize() on the to be highlighted document ONCE and stored the result in an array.</p>
+
+<p>Then I called $query()-&gt;rewrite()-&gt;getQueryTokens() and stored that in a second array.</p>
+
+<p>PHP's array_intersect() gives me all the tokens matched in the to be highlighted text. Including their string positions.
+All thats needed is to use mb_substr() (its multi-byte safe - unlike the original DocumentHTML highlight code!) on the original texts to get the raw, non tokenized versions of the to be highligted words.</p>
+
+<p>a simple preg_replace later and the text is highlighted. No DOM class involved. (But thats up to the user of course)</p>
+
+<p>Speedup between Lucene's Highlighter and mine with the same 10 documents and the same index: 40 seconds went down to 0.8, thats factor 50!</p>
+
+<p>All in all this tells me, Zend Lucene needs some serieous internal redesign as far as highlighting goes. BADLY.</p>
+
+<p>So I don't really care wether my fix currently breaks the original highlighting code ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-30T18:36:30.000+0000</p> 
+        <div class="body">
+            <p>Ok. Highlighting - new style :)</p>
+
+<p>This patch gets rid of all protected _highlightMatches() functions in all Queries</p>
+
+<p>Query-&gt;highlightmatches and htmlFragmentHighlightMatches() now create a new "dummy" index
+(class Zend_Search_Lucene_TempIndex)
+which has the ability to temporarily store a single document (or a few documents)
+which is promptly added via addDocument() from the provided HTML code
+(which correctly tokenizes said document using the default-analyzer and stores found terms in an array)</p>
+
+<p>then $query-&gt;rewrite(...) is called with this index, to rewrite the query based on the dummy index containing only the terms found in the to be highlighted text.</p>
+
+<p>which then are forwarded to the highlighter itself.</p>
+
+<p>I didn't test it with range queries though, but from how Range-&gt;rewrite() looks, all needed functions are supported, too.</p>
+
+<p>Henceforth multi-terms should no longer be a problem &gt;:)</p>
+
+<p>Code might need cleanup and some alterations to be conformous with Zend and Lucene coding rules and policies, though I tried to keep it tidy ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-08-31T10:18:41.000+0000</p> 
+        <div class="body">
+            <p>I put the patches fixing this bug into seperate issues ( ZF-7738, ZF-7736 ) , since they somehow outgrew the context of this particular issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvestre Ledru (sylvestre) on 2011-08-09T15:29:05.000+0000</p> 
+        <div class="body">
+            <p>Is there any chance that, one day, this bug could be fixed ? 
+I have many users who are complaining about the underscore breaking the search ...</p>
+
+<p>What kind of alternatives are available to Zend Lucene ?</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+    </div>
+

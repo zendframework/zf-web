@@ -1,0 +1,168 @@
+<h2>ZF-9504: Zend_XmlRpc_Generator: memory leak</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-22T04:06:47.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-27T11:13:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_XmlRpc_Server</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8457">ZF-8457</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13036/trace.xt.bz2">trace.xt.bz2</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>With Zend Framework 1.9.5 we've any problems with our xmlrpc-server.
+Now (with 1.10.2) we've got this error:
+PHP Fatal error:  Allowed memory size of 134217728 bytes exhausted (tried to allocate 220715 bytes) in /usr/local/zend/share/ZendFramework/library/Zend/XmlRpc/Generator/GeneratorAbstract.php on line 127</p>
+
+<p>I've tried both:
+- Zend_XmlRpc_Value::setGenerator(new Zend_XmlRpc_Generator_XmlWriter());
+- Zend_XmlRpc_Value::setGenerator(new Zend_XmlRpc_Generator_DomDocument());</p>
+
+<p>Best Regards
+Sascha Wojewsky</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by David Abdemoulaie (hobodave) on 2010-04-26T18:47:54.000+0000</p> 
+        <div class="body">
+            <p>I have been able to duplicate this memory leak as well, please view the attached xdebug trace. (45M, 1.2M compressed).</p>
+
+<p>Things to note:</p>
+
+<p>The return value from this xmlrpc call is an array in the following format:</p>
+
+<pre class="literal">
+array(
+    'values' =&gt; array(
+        0 =&gt; array(
+            'id' =&gt; 1,
+            'name' =&gt; 'Foobar',
+            'group_id' =&gt; 7,
+            'priority' =&gt; 0,
+        ),
+       // ...
+       740 =&gt; array(/* ... */),
+    ),
+    'last_modified' =&gt; '2010-01-01 00:00:00',
+)
+</pre>
+
+<p>The entire resultset is loaded into the PHP array format between lines 5577348 and 6837560. This increases script memory usage by 1.2M for a total of 6.6M.</p>
+
+<p>Line 63810 Zend_XmlRpc_Response-&gt;__toString(), invoked marking beginning of copying the PHP array into the corresponding Zend_XmlRpc_Value object graph - current usage 6.5M</p>
+
+<p>Line 86148 - Zend_XmlRpc_Value object graph construction completes - current usage 8.7M</p>
+
+<p>Line 86245 - Zend_XmlRpc_Generator_GeneratorAbstract-&gt;__toString() invoked, leak begins - current usage 9072432 bytes</p>
+
+<p>Now continue searching the document for invocations of Zend_XmlRpc_Generator_GeneratorAbstract-&gt;__toString():</p>
+
+<p>Line 86283 - Usage: 9072744 (312 byte increase)
+Line 86321 - Usage: 9073144 (400 byte increase)
+Line 86349 - Usage: 9073612 (468 byte increase)
+...
+Line 247124  - Usage: 726055636 
+Line 247162 - Usage: 726371428 (315792 byte increase)
+Line 247200 - Usage: 726687288 (315860 byte increase)</p>
+
+<p>The memory usage continues to increase exponentially. You can view this easily by simply grepping for Zend_XmlRpc_Generator_GeneratorAbstract-&gt;stripDeclaration() and noting the increasing deltas in column 3. By the time the script crashes, each call to saveXml() is increasing the memory usage by over 300KB.</p>
+
+<p>There is clearly something wrong here, though I haven't yet figured out yet.</p>
+
+<p>The memory usage is increasing exponentially, but the rate of increase is linear. This leads me to believe it's a problem similar to:</p>
+
+<pre class="literal">
+&lt;?php
+
+$o = new stdClass();
+$o-&gt;str = 'abc';
+
+$arr = array($o);
+for ($i = 0; $i &lt; 100; $i++) {
+    $o = clone $o; 
+    $o-&gt;str .= 'abc';
+    $arr[] = $o; 
+}
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Abdemoulaie (hobodave) on 2010-04-27T10:09:20.000+0000</p> 
+        <div class="body">
+            <p>I have confirmed my suspicions from the example above. Each Zend_XmlRpc_Value node has an $_xml property. During the _generateXml() methods the Generator is reused, thus a full copy of the DOM as xml is saved at each node.</p>
+
+<p>e.g.</p>
+
+<p>First Node</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0"?&gt;
+updatesid1</code></pre>
+
+<p>Second Node</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0"?&gt;
+updatesid1nameRelocate / Remove</code></pre>
+
+<p>Third Node</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0"?&gt;
+updatesid1nameRelocate / Removedescription</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-27T11:13:48.000+0000</p> 
+        <div class="body">
+            <p>Patch created by hobodave, and applied by matthew in trunk and 1.10 release branch; saw improvements of 1GB memory usage -&gt; 8.8MB after patch, and &gt; 300% decrease in time needed to execute.</p>
+
+<p>Will release with 1.10.4.</p>
+
+        </div>
+    </div>
+    </div>
+

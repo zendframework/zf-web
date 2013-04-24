@@ -1,0 +1,163 @@
+<h2>ZF-7366: Zend_Paginator does not use cached Zend_Db_Select correctly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-23T07:51:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-23T07:59:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6989">ZF-6989</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Caching is not working correctly when using Zend_Paginator to paginate Zend_Db_Select results.  The values are being cached (I can see the files in my cache location), but they are not being used.</p>
+
+<p>The problem is that the cache IDs are being generated incorrectly.</p>
+
+<pre class="highlight"><code>
+class Dashboard_Feed extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'FEED';
+    protected $_primary = 'FEED_ID';
+}
+</code></pre>
+
+<pre class="highlight"><code>
+$feed = new Dashboard_Feed( Zend_Registry::get('db') );
+$select = $feed-&gt;select()-&gt;order('FEED_TITLE' );
+
+$paginator = Zend_Paginator::factory( $select );
+$paginator-&gt;setCache( Zend_Registry::get('cache') );
+$paginator-&gt;setCurrentPageNumber( $this-&gt;_getParam('page', 1) );
+$paginator-&gt;setItemCountPerPage(10);
+</code></pre>
+
+<pre class="highlight"><code>
+cache.frontend.type = "Core"
+cache.frontend.options.automatic_serialization = true
+cache.frontend.options.cache_id_prefix = "dashboard_"
+
+cache.backend.type = "File"
+cache.backend.options.cache_dir = APPLICATION_PATH "/../data/cache/"
+</code></pre>
+
+<p>Db adapter is Oracle</p>
+
+<p>Upon first execution, <em>zend_cache---dashboard_Zend_Paginator_1_81a9b1f25e24763494338baa43444b99</em> is creating in my cache directory - so far so good.</p>
+
+<p>I make a change to one of the items in the DB and refresh.  I should <em>not</em> see the change since the results are cached; however, I do see it.  Zend_Paginator went back to the database to get the info.</p>
+
+<p>I looked into the Zend_Paginator.php to attempt to get to the bottom of the issue.  The problem can be observed in <em>getItemsByPage(...)</em>.  See the comments I inserted.</p>
+
+<pre class="highlight"><code>
+public function getItemsByPage($pageNumber)
+{
+    $pageNumber = $this-&gt;normalizePageNumber($pageNumber);
+
+    if ($this-&gt;_cacheEnabled()) {
+        // here, _getCacheId(...)  returns "Zend_Paginator_1_a479583744ccc3a9c4d653c390e7ff7f"
+        $data = self::$_cache-&gt;load($this-&gt;_getCacheId($pageNumber));
+        if ($data !== false) {
+            return $data;
+        }
+    }
+
+    $offset = ($pageNumber - 1) * $this-&gt;_itemCountPerPage;
+
+    $items = $this-&gt;_adapter-&gt;getItems($offset, $this-&gt;_itemCountPerPage);
+
+    $filter = $this-&gt;getFilter();
+
+    if ($filter !== null) {
+        $items = $filter-&gt;filter($items);
+    }
+
+    if (!$items instanceof Traversable) {
+        $items = new ArrayIterator($items);
+    }
+
+    if ($this-&gt;_cacheEnabled()) {
+        // here, _getCacheId(...)  returns "Zend_Paginator_1_81a9b1f25e24763494338baa43444b99"
+        self::$_cache-&gt;save($items, $this-&gt;_getCacheId($pageNumber), array($this-&gt;_getCacheInternalId()));
+    }
+
+    return $items;
+}
+</code></pre>
+
+<p>As you can see, when the items are cached, the cache ID corresponds to what was created in my cache directory (obviously), but when Paginator tries to <em>read</em> the cache, it's looking for the wrong ID!</p>
+
+<p>The source of the problem is that <em>_getCacheInternalId()</em> serializes the adapter to identify the cache entry.</p>
+
+<pre class="highlight"><code>
+protected function _getCacheInternalId()
+{
+    return md5(serialize($this-&gt;_adapter).$this-&gt;_itemCountPerPage);
+}
+</code></pre>
+
+<p>Of course, the adapter's state is going to be different after results are retrieved vs before they are retrieved, so this mechanism cannot work.  I saved the serialized value of the adapter from the first and second calls to _getInternalCacheId() to a file and did a diff... there are several differences.</p>
+
+<p>The problem is <em>greatly</em> exacerbated if one is using Zend_Db_Profiler.  I was using the profiler to determine if the cache was working correctly.  Instead, Zend_Paginator was creating a brand new cache entry <em>with a different ID each time</em> every time I reloaded the page.  Why?  Well, the profiler contains performance information on the queries that have been run thus far.  This information will be different from request to request 99.99% of the time.  Different content = different serialization = different cacheId.</p>
+
+<p>I would appreciate it if anybody can comment on this bug and perhaps queue up a resolution for the next ZF patch/release.</p>
+
+<p>I am devising a workaround to use in my project and will post it here for the benefit of others who have encountered this problem.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-07-23T07:57:12.000+0000</p> 
+        <div class="body">
+            <p>Duplicates #ZF-6989 , even if it gives more informations (will be linked into #ZF-6989)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-07-23T07:59:44.000+0000</p> 
+        <div class="body">
+            <p>Please, get the patch attached to ZF-6989 and make a use case.
+We are actually looking for help to test that in order to provide a patch the better it could be.</p>
+
+        </div>
+    </div>
+    </div>
+
