@@ -1,0 +1,61 @@
+--- library/Zend/Reflection/Method.php	(revision 24401)
++++ library/Zend/Reflection/Method.php	(working copy)
+@@ -143,26 +143,38 @@
+      */
+     public function getBody()
+     {
+-        $lines = array_slice(
+-            file($this->getDeclaringClass()->getFileName(), FILE_IGNORE_NEW_LINES),
+-            $this->getStartLine(),
+-            ($this->getEndLine() - $this->getStartLine()),
+-            true
+-        );
+-
+-        $firstLine = array_shift($lines);
+-
+-        if (trim($firstLine) !== '{') {
+-            array_unshift($lines, $firstLine);
++        $tokenInfos = token_get_all(file_get_contents($this->getDeclaringClass()->getFileName()));
++        $inMethod = false;
++        $inMethodBody = false;
++        $braceCount = 0;
++        $bodyContent = array();
++        $tokenCount = count($tokenInfos);
++        $parsed = false;
++        for ($i = 0; $i < $tokenCount && ! $parsed; $i ++) {
++            $tokenInfo = $tokenInfos[$i];
++            if (is_array($tokenInfo)) {
++                if (! $inMethod) {
++                    $inMethod = ($tokenInfo[0] == T_FUNCTION && $tokenInfos[$i + 2][1] == $this->getName() && $tokenInfos[$i + 2][2] == $this->getStartLine());
++                } elseif ($inMethodBody) {
++                    $bodyContent[] = $tokenInfo[1];
++                }
++            } elseif ($inMethod) {
++                if ($inMethodBody) {
++                    $bodyContent[] = $tokenInfo;
++                }
++                if ($tokenInfo == '{') {
++                    // We detect the real start of the method's body
++                    $inMethodBody = (++ $braceCount > 0);
++                } elseif ($tokenInfo == '}') {
++                    $inMethodBody = (-- $braceCount > 0);
++                    $parsed = ! $inMethodBody;
++                    if ($parsed) {
++                        // We remove the last closing brace
++                        array_pop($bodyContent);
++                    }
++                }
++            }
+         }
+-
+-        $lastLine = array_pop($lines);
+-
+-        if (trim($lastLine) !== '}') {
+-            array_push($lines, $lastLine);
+-        }
+-
+-        // just in case we had code on the bracket lines
+-        return rtrim(ltrim(implode("\n", $lines), '{'), '}');
++        return implode('', $bodyContent);
+     }
+ }

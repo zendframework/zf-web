@@ -1,0 +1,82 @@
+Index: tests/Zend/Feed/ReaderTest.php
+===================================================================
+--- tests/Zend/Feed/ReaderTest.php	(revision 23901)
++++ tests/Zend/Feed/ReaderTest.php	(working copy)
+@@ -319,6 +319,29 @@
+         }
+         $this->assertTrue(Zend_Feed_Reader::isRegistered('JungleBooks'));
+     }
++    
++    /**
++     * @group ZF-11184
++     */
++    public function testImportingUriWithEmptyResponseBodyTriggersException()
++    {
++        try
++        {
++            $currClient = Zend_Feed_Reader::getHttpClient();
++            $testAdapter = new Zend_Http_Client_Adapter_Test();
++            $testAdapter->setResponse(new Zend_Http_Response(200,array(),''));
++            Zend_Feed_Reader::setHttpClient(new Zend_Http_Client(null, array(
++                'adapter'=>$testAdapter
++            )));
++        } catch(Exception $e) {
++            $this->fail($e->getMessage());
++        }
++        
++        try {
++            $result = Zend_Feed_Reader::import('http://www.example.com');
++            $this->fail('Expected exception Zend_Feed_Exception on empty response body');
++        } catch (Zend_Feed_Exception $e) {}        
++    }
+ 
+     protected function _getTempDirectory()
+     {
+Index: library/Zend/Feed/Reader.php
+===================================================================
+--- library/Zend/Feed/Reader.php	(revision 23901)
++++ library/Zend/Feed/Reader.php	(working copy)
+@@ -266,6 +266,10 @@
+                     $cache->save($response->getHeader('Last-Modified'), $cacheId.'_lastmodified');
+                 }
+             }
++            if (empty($responseXml)) {
++                require_once 'Zend/Feed/Exception.php';
++                throw new Zend_Feed_Exception('Feed failed to load, got empty response body');
++            }
+             return self::importString($responseXml);
+         } elseif ($cache) {
+             $data = $cache->load($cacheId);
+@@ -279,6 +283,10 @@
+             }
+             $responseXml = $response->getBody();
+             $cache->save($responseXml, $cacheId);
++            if (empty($responseXml)) {
++                require_once 'Zend/Feed/Exception.php';
++                throw new Zend_Feed_Exception('Feed failed to load, got empty response body');
++            }
+             return self::importString($responseXml);
+         } else {
+             $response = $client->request('GET');
+@@ -286,7 +294,12 @@
+                 require_once 'Zend/Feed/Exception.php';
+                 throw new Zend_Feed_Exception('Feed failed to load, got response code ' . $response->getStatus());
+             }
+-            $reader = self::importString($response->getBody());
++            $responseXml = $response->getBody();
++            if (empty($responseXml)) {
++                require_once 'Zend/Feed/Exception.php';
++                throw new Zend_Feed_Exception('Feed failed to load, got empty response body');
++            }
++            $reader = self::importString($responseXml);
+             $reader->setOriginalSourceUri($uri);
+             return $reader;
+         }
+@@ -320,6 +333,7 @@
+      */
+     public static function importString($string)
+     {
++        
+         $libxml_errflag = libxml_use_internal_errors(true);
+         $dom = new DOMDocument;
+         $status = $dom->loadXML($string);

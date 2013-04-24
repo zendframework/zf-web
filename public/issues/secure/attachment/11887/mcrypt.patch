@@ -1,0 +1,308 @@
+Index: Mcrypt.php
+===================================================================
+--- Mcrypt.php	(revision 15114)
++++ Mcrypt.php	(working copy)
+@@ -37,11 +37,14 @@
+     /**
+      * Definitions for encryption
+      * array(
+-     *     'key' => encryption key string
++     *     'key' => encryption key string, a hash of which will be used unless otherwise specified
+      *     'algorithm' => algorithm to use
+      *     'algorithm_directory' => directory where to find the algorithm
+      *     'mode' => encryption mode to use
+      *     'modedirectory' => directory where to find the mode
++     *     'vector' => initialization vector
++     *     'salt' => use a hash of the encryption key instead of the key string itself
++     *     'do_padding' => pad the values of key or vector if needed, chop if necessary
+      *  ))
+      */
+     protected $_encryption = array(
+@@ -50,16 +53,15 @@
+         'algorithm_directory' => '',
+         'mode'                => 'cbc',
+         'mode_directory'      => '',
+-        'vector'              => null
++        'vector'              => null,
++    	'salt'			  	  => false,
++    	'do_padding'		  => true
+     );
+ 
+     /**
+      * Class constructor
+      *
+-     * @param string|array $oldfile   File which should be renamed/moved
+-     * @param string|array $newfile   New filename, when not set $oldfile will be used as new filename
+-     *                                for $value when filtering
+-     * @param boolean      $overwrite If set to true, it will overwrite existing files
++     * @param Zend_Config|array $options The options to be used for encryption
+      */
+     public function __construct($options)
+     {
+@@ -125,28 +127,12 @@
+             throw new Zend_Filter_Exception('The given algorithm can not be used due an internal mcrypt problem');
+         }
+ 
+-        $cipher = mcrypt_module_open(
+-            $options['algorithm'],
+-            $options['algorithm_directory'],
+-            $options['mode'],
+-            $options['mode_directory']);
++        $this->_encryption = $options;
+ 
+-        if ($cipher === false) {
+-            require_once 'Zend/Filter/Exception.php';
+-            throw new Zend_Filter_Exception('Mcrypt can not be opened with your settings');
+-        }
++        $this->setVector($options['vector']);
++        $this->setSalt($options['salt']);
++		$this->setDoPadding($options['do_padding']);
+ 
+-        if (empty($options['vector'])) {
+-            srand();
+-            $options['vector'] = mcrypt_create_iv(mcrypt_enc_get_iv_size($cipher), MCRYPT_RAND);
+-        } else {
+-            $options['vector'] = str_pad($options['vector'], mcrypt_enc_get_iv_size($cipher));
+-            $options['vector'] = substr($options['vector'], 0, mcrypt_enc_get_iv_size($cipher));
+-        }
+-
+-        mcrypt_module_close($cipher);
+-        $this->_encryption = $options;
+-
+         return $this;
+     }
+ 
+@@ -159,6 +145,31 @@
+     {
+         return $this->_encryption['vector'];
+     }
++    
++    /**
++     * Returns the status of key hashing
++     * 
++     * True will hash the provided key and perform encryption/decryption using
++     * that hash.  False will use the provided key as is. 
++     * 
++     * @return bool
++     */
++    public function getSalt()
++    {
++    	return $this->_encryption['salt'];
++    }
++    
++    /**
++     * Returns the status of key and vector padding 
++     * 
++     * True will cause key or vector to be padded if they are too short, chopped if they are too long
++     * 
++     * @return bool
++     */
++    public function getDoPadding()
++    {
++    	return $this->_encryption['do_padding'];
++    }
+ 
+     /**
+      * Sets the initialization vector
+@@ -168,39 +179,69 @@
+      */
+     public function setVector($vector = null)
+     {
++    	$cipher = $this->_openCipherModule();
++    	$iv_size = mcrypt_enc_get_iv_size($cipher);
++    	
+         if (empty($vector)) {
+-            $cipher = mcrypt_module_open(
+-                $this->_encryption['algorithm'],
+-                $this->_encryption['algorithm_directory'],
+-                $this->_encryption['mode'],
+-                $this->_encryption['mode_directory']);
+-
+-            if ($cipher === false) {
+-                require_once 'Zend/Filter/Exception.php';
+-                throw new Zend_Filter_Exception('Mcrypt can not be opened with your settings');
+-            }
+-
+             srand();
+-            $this->_encryption['vector'] = mcrypt_create_iv(mcrypt_enc_get_iv_size($cipher), MCRYPT_RAND);
+-            mcrypt_module_close($cipher);
++            $this->_encryption['vector'] = mcrypt_create_iv($iv_size, MCRYPT_RAND);
+         } else {
+-            $this->_encryption['vector'] = $vector;
++        	if (strlen($vector) === $iv_size) {
++        		$this->_encryption['vector'] = $vector;
++        	} elseif ($this->_encryption['do_padding'] === true) {
++        		$this->_encryption['vector'] = $this->_pad($vector, $iv_size);
++        	} else {
++        		require_once 'Zend/Filter/Exception.php';
++        		throw new Zend_Filter_Exception('Your vector is not an appropriate size for the selected algorithm.');
++        	}
+         }
++        $this->_closeCipherModule($cipher);
+ 
+         return $this;
+     }
+-
++    
+     /**
+-     * Defined by Zend_Filter_Interface
+-     *
+-     * Encrypts the file $value with the defined settings
+-     *
+-     * @param  string $value Full path of file to change
+-     * @return string The filename which has been set, or false when there were errors
++     * Sets the status of key hashing
++     * 
++     * @param bool $hash Whether or not to hash key before use
++     * @return Zend_Filter_Encrypt_Mcrypt
+      */
+-    public function encrypt($value)
++    public function setSalt($hash)
+     {
+-        $cipher = mcrypt_module_open(
++        if ($hash == false) {
++        	$this->_encryption['salt'] = false;
++        } else {
++        	$this->_encryption['salt'] =  true;
++        }
++        
++        return $this;
++    }
++    
++    /**
++     * Sets the status of key and vector padding
++     * 
++     * @param bool $hash Whether or not to pad/chop key and vector if needed
++     * @return Zend_Filter_Encrypt_Mcrypt
++     */
++    public function setDoPadding($padding)
++    {
++        if ($padding == false) {
++        	$this->_encryption['do_padding'] = false;
++        } else {
++        	$this->_encryption['do_padding'] =  true;
++        }
++        
++        return $this;
++    }
++    
++    /**
++     * Open and return a Mcrypt module
++     * 
++     * @return mcrypt Open Mcrypt Resource
++     */
++    protected function _openCipherModule()
++    {
++    	$cipher = mcrypt_module_open(
+             $this->_encryption['algorithm'],
+             $this->_encryption['algorithm_directory'],
+             $this->_encryption['mode'],
+@@ -211,14 +252,80 @@
+             throw new Zend_Filter_Exception('Mcrypt can not be opened with your settings');
+         }
+ 
+-        srand();
+-        $keysize = mcrypt_enc_get_key_size($cipher);
+-        $key     = substr(md5($this->_encryption['key']), 0, $keysize);
++        return $cipher;
++    }
++    
++    /**
++     * Initialize and return a Mcrypt module, opening it if necessary
++     * 
++     * @param resource $cipher (Optional) Open Mcrypt module
++     * @return mcrypt Initialized Mcrypt Resource
++     */
++    protected function _getCipherModule($cipher = null)
++    {
++    	if ($cipher === null) {
++    		$cipher = $this->_openCipherModule();
++    	}
++    	
++        if($this->_encryption['salt'] === true) {
++        	srand();
++        	$keysize = mcrypt_enc_get_key_size($cipher);
++        	$key     = substr(md5($this->_encryption['key']), 0, $keysize);
++        } else {
++        	$keysizes = mcrypt_enc_get_supported_key_sizes($cipher);
++        	$key = $this->_encryption['key'];
++        	if (in_array(strlen($key), $keysizes)) {
++        		$key = $this->_encryption['key'];
++        	} elseif ($this->_encryption['do_padding'] === true) {
++        		$key = $this->_pad($this->_encryption['key'], mcrypt_enc_get_key_size($cipher));
++        	} else {
++        		require_once 'Zend/Filter/Exception.php';
++        		throw new Zend_Filter_Exception('Your key is not an appropriate size for the selected algorithm.');
++        	}
++        }
+ 
+         mcrypt_generic_init($cipher, $key, $this->_encryption['vector']);
++        return $cipher;
++    }
++    
++    /**
++     * Deinitialize and close a Mcrypt module
++     * 
++     * @param resource $cipher Open Mcrypt module 
++     * @return void
++     */
++    protected function _closeCipherModule($cipher)
++    {
++    	mcrypt_module_close($cipher);
++    }
++    
++    /**
++     * Pads and chops a value to a certain size
++     * 
++     * @param string $value Value to be padded/chopped
++     * @param int $size Length of the value when it is returned
++     * @return string
++     */
++    protected function _pad($value, $size)
++    {
++		$value = str_pad($value, $size);
++        $value = substr($value, 0, $size);
++        return $value;
++    }
++
++    /**
++     * Defined by Zend_Filter_Interface
++     *
++     * Encrypts the file $value with the defined settings
++     *
++     * @param  string $value Full path of file to change
++     * @return string The filename which has been set, or false when there were errors
++     */
++    public function encrypt($value)
++    {
++        $cipher = $this->_getCipherModule();
+         $encrypted = mcrypt_generic($cipher, $value);
+-        mcrypt_generic_deinit($cipher);
+-        mcrypt_module_close($cipher);
++        $this->_closeCipherModule($cipher);
+ 
+         return $encrypted;
+     }
+@@ -233,20 +340,9 @@
+      */
+     public function decrypt($value)
+     {
+-        $cipher = mcrypt_module_open(
+-            $this->_encryption['algorithm'],
+-            $this->_encryption['algorithm_directory'],
+-            $this->_encryption['mode'],
+-            $this->_encryption['mode_directory']);
+-
+-        srand();
+-        $keysize = mcrypt_enc_get_key_size($cipher);
+-        $key     = substr(md5($this->_encryption['key']), 0, $keysize);
+-
+-        mcrypt_generic_init($cipher, $key, $this->_encryption['vector']);
++        $cipher = $this->_getCipherModule();
+         $decrypted = mdecrypt_generic($cipher, $value);
+-        mcrypt_generic_deinit($cipher);
+-        mcrypt_module_close($cipher);
++        $this->_closeCipherModule($cipher);
+ 
+         return $decrypted;
+     }

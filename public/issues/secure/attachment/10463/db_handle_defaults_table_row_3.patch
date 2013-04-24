@@ -1,0 +1,98 @@
+Index: Zend/Db/Table/Row/Abstract.php
+===================================================================
+--- Zend/Db/Table/Row/Abstract.php	(revision 1220)
++++ Zend/Db/Table/Row/Abstract.php	(revision 1220)
+@@ -174,7 +174,14 @@
+     public function __set($key, $value)
+     {
+         $key = $this->_transformColumn($key);
+-        if (!array_key_exists($key, $this->_data)) {
++        if ($table = $this->_getTable()) {
++            $info = $table->info();
++            $cols = array_combine($info['cols'], $info['cols']);
++        } else {
++            $cols = $this->_data;
++        }
++
++        if (!array_key_exists($key, $cols)) {
+             require_once 'Zend/Db/Table/Row/Exception.php';
+             throw new Zend_Db_Table_Row_Exception("Specified column \"$key\" is not in the row");
+         }
+Index: Zend/Db/Table/Abstract.php
+===================================================================
+--- Zend/Db/Table/Abstract.php	(revision 1220)
++++ Zend/Db/Table/Abstract.php	(revision 1220)
+@@ -47,6 +47,7 @@
+     const NAME             = 'name';
+     const PRIMARY          = 'primary';
+     const COLS             = 'cols';
++    const DEFAULTS         = 'defaults';
+     const METADATA         = 'metadata';
+     const METADATA_CACHE   = 'metadataCache';
+     const ROW_CLASS        = 'rowClass';
+@@ -108,6 +109,13 @@
+     protected $_cols;
+ 
+     /**
++     * The table column names for which defaults values have been specified.
++     *
++     * @var array
++     */
++    protected $_defaults;
++
++    /**
+      * The primary key column or columns.
+      * A compound key should be declared as an array.
+      * You may declare a single-column primary key 
+@@ -470,6 +478,7 @@
+         $this->_setupTableName();
+         $this->_setupMetadata();
+         $this->_setupPrimaryKey();
++        $this->_setupDefaults();
+     }
+ 
+     /**
+@@ -602,6 +611,23 @@
+     }
+ 
+     /**
++     * Initialize the list of columns with default values.
++     *
++     * @return void
++     * @throws Zend_Db_Table_Exception
++     */
++    protected function _setupDefaults()
++    {
++        if (!$this->_defaults) {
++            foreach ($this->_metadata as $col) {
++                if ($col['DEFAULT'] !== null) {
++                    $this->_defaults[ $col['COLUMN_POSITION'] ] = $col['COLUMN_NAME'];
++                }
++            }
++        }
++    }
++
++    /**
+      * Returns a normalized version of the reference map
+      *
+      * @return array
+@@ -655,7 +681,8 @@
+             self::ROWSET_CLASS     => $this->_rowsetClass,
+             self::REFERENCE_MAP    => $this->_referenceMap,
+             self::DEPENDENT_TABLES => $this->_dependentTables,
+-            self::SEQUENCE         => $this->_sequence
++            self::SEQUENCE         => $this->_sequence,
++            self::DEFAULTS         => $this->_defaults
+         );
+     }
+ 
+@@ -963,7 +990,8 @@
+      */
+     public function createRow(array $data = array())
+     {
+-        $defaults = array_combine($this->_cols, array_fill(0, count($this->_cols), null));
++        $colsWithoutDefaults = array_diff($this->_cols, $this->_defaults);
++        $defaults = array_combine($colsWithoutDefaults, array_fill(0, count($colsWithoutDefaults), null));
+         $keys = array_flip($this->_cols);
+         $data = array_intersect_key($data, $keys);
+         $data = array_merge($defaults, $data);

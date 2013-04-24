@@ -1,0 +1,132 @@
+Index: library/Zend/Controller/Action/Helper/Cache.php
+===================================================================
+--- library/Zend/Controller/Action/Helper/Cache.php	(revision 24795)
++++ library/Zend/Controller/Action/Helper/Cache.php	(working copy)
+@@ -130,16 +130,26 @@
+     public function removePage($relativeUrl, $recursive = false)
+     {
+         $cache = $this->getCache(Zend_Cache_Manager::PAGECACHE);
++        $encodedCacheId = $this->_encodeCacheId($relativeUrl);
++
+         if ($recursive) {
+             $backend = $cache->getBackend();
+             if (($backend instanceof Zend_Cache_Backend)
+                 && method_exists($backend, 'removeRecursively')
+             ) {
+-                return $backend->removeRecursively($relativeUrl);
++                $result = $backend->removeRecursively($encodedCacheId);
++                if (is_null($result) ) {
++                    $result = $backend->removeRecursively($relativeUrl);
++                }
++                return $result;
+             }
+         }
+ 
+-        return $cache->remove($relativeUrl);
++        $result = $cache->remove($encodedCacheId);
++        if (is_null($result) ) {
++            $result = $cache->remove($relativeUrl);
++        }
++        return $result;
+     }
+ 
+     /**
+Index: tests/Zend/Controller/Action/Helper/CacheTest.php
+===================================================================
+--- tests/Zend/Controller/Action/Helper/CacheTest.php	(revision 24795)
++++ tests/Zend/Controller/Action/Helper/CacheTest.php	(working copy)
+@@ -150,6 +150,55 @@
+         $this->assertNotEquals('verified', $cache->res);
+     }
+ 
++    /**
++     * @group ZF-11885
++     * @dataProvider dataprovider_testEncodedCacheIdsAreUsedConsistently
++     */
++    public function testEncodedCacheIdsAreUsedConsistently($recursive)
++    {
++        $helper = new Zend_Controller_Action_Helper_Cache();
++        $cache = new Mock_Zend_Cache_Page_TestingEncodedCacheId();
++        $helper->setCache('page', $cache);
++        $helper->direct(array('baz'));
++        $helper->preDispatch();
++        $uriKey = bin2hex($this->request->getRequestUri());
++
++        // Ensure that start method encodes key properly
++        $this->assertTrue(isset($cache->items[$uriKey]));
++
++        // Ensure that remove method encodes key properly
++        $helper->removePage($this->request->getRequestUri(), $recursive);
++        $this->assertFalse(isset($cache->items[$uriKey]));
++    }
++
++    /**
++     * @group ZF-11885
++     * @dataProvider dataprovider_testEncodedCacheIdsAreUsedConsistently
++     */
++    public function testRemovePageAcceptsPreEncodedCacheIds($recursive)
++    {
++        $helper = new Zend_Controller_Action_Helper_Cache();
++        $cache = new Mock_Zend_Cache_Page_TestingEncodedCacheId();
++        $helper->setCache('page', $cache);
++        $helper->direct(array('baz'));
++        $helper->preDispatch();
++        $uriKey = bin2hex($this->request->getRequestUri());
++
++        // Ensure that remove method will accept pre-encoded key
++        $helper->removePage($uriKey, $recursive);
++        $this->assertFalse(isset($cache->items[$uriKey]));
++    }
++
++    /**
++     * Data provider for testEncodedCacheIdsAreUsedConsistently
++     * @see ZF-11885
++     */
++    public function dataprovider_testEncodedCacheIdsAreUsedConsistently()
++    {
++        return array(array(true),array(false));
++    }
++
++
+     /**public function testPostDispatchEndsOutputBufferPageCaching()
+     {
+         $helper = new Zend_Controller_Action_Helper_Cache;
+@@ -178,14 +227,14 @@
+ {
+     public function remove($id)
+     {
+-        if ($id == '/foo') {return 'verified';}
++        if ($id == bin2hex('/foo')) {return 'verified';}
+     }
+ }
+ class Mock_Zend_Cache_Page_2 extends Zend_Cache_Backend
+ {
+     public function removeRecursively($id)
+     {
+-        if ($id == '/foo') {return 'verified';}
++        if ($id == bin2hex('/foo')) {return 'verified';}
+     }
+ }
+ class Mock_Zend_Cache_Page_3 extends Zend_Cache_Core
+@@ -221,6 +270,21 @@
+     }
+ }
+ 
++class Mock_Zend_Cache_Page_TestingEncodedCacheId extends Zend_Cache_Core
++{
++    public $items;
++
++    public function start($id, array $tags = array())
++    {
++        $this->items[$id] = $tags;
++    }
++
++    public function remove($id)
++    {
++        unset($this->items[$id]);
++    }
++}
++
+ /**class Mock_Zend_Cache_Page_5 extends Zend_Cache_Core
+ {
+     public $res;

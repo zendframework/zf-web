@@ -1,0 +1,129 @@
+--- Zend/Tag/ItemList.php	(revision 14515)
++++ Zend/Tag/ItemList.php	(working copy)
+@@ -83,7 +83,7 @@
+         }
+         
+         // Calculate the thresholds
+-        $steps      = count($weightList);
++        $steps      = count($values);
+         $delta      = ($maxWeight - $minWeight) / $steps;
+         $thresholds = array();
+         
+@@ -94,9 +94,9 @@
+         // Then assign the weight values 
+         foreach ($this->_items as $item) {
+             $threshold = 100 * log($item->getWeight() + 2); 
+-            for ($i = 0; $i <= $steps; $i++) {
+-                if ($threshold <= $thresholds[$i]) {
+-                    $items->setParam('weightValue', $values[$i]);
++            foreach ($values as $index => $value) {
++                if ($threshold <= $thresholds[$index]) {
++                    $item->setParam('weightValue', $value);
+                     break;
+                 }
+             }
+@@ -202,7 +202,12 @@
+      * @param  Zend_Tag_IItem $item
+      * @return void
+      */
+-    public function offsetSet($offset, Zend_Tag_IItem $item) {
++    public function offsetSet($offset, $item) {
++        if (false === $item instanceof Zend_Tag_IItem) {
++            throw new Zend_Tag_Exception('item must be an instance of ' 
++                         . '\'Zend_Tag_IItem\'');
++        }
++
+         if ($offset === null) {
+             $this->_items[] = $item;
+         } else {
+Index: Zend/Tag/Cloud/Decorator/Tag.php
+===================================================================
+--- Zend/Tag/Cloud/Decorator/Tag.php	(revision 14515)
++++ Zend/Tag/Cloud/Decorator/Tag.php	(working copy)
+@@ -102,5 +102,5 @@
+      * @param  array $tags
+      * @return array
+      */
+-    abstract public function render(array $tags);
++    abstract public function render(Zend_Tag_ItemList $tags);
+ }
+Index: Zend/Tag/Cloud/Decorator/HtmlTag.php
+===================================================================
+--- Zend/Tag/Cloud/Decorator/HtmlTag.php	(revision 14515)
++++ Zend/Tag/Cloud/Decorator/HtmlTag.php	(working copy)
+@@ -160,18 +160,19 @@
+      * @param  array $tags
+      * @return array
+      */
+-    public function render(array $tags)
++    public function render(Zend_Tag_ItemList $tags)
+     {
+         $result = array();
+         
+         foreach ($tags as $tag) {
+             if ($this->_classList === null) {
+-                $attribute = sprintf('style="font-size: %d%s"', $tag->getWeightValue(), $this->_fontSizeUnit);
++                $attribute = sprintf('style="font-size: %d%s"', $tag->getWeight(), $this->_fontSizeUnit);
+             } else {
+-                $attribute = sprintf('class="%s"', htmlspecialchars($tag->getWeightValue()));
++                $attribute = sprintf('class="%s"', htmlspecialchars($tag->getWeight()));
+             }
+             
+-            $tagHtml = sprintf('<a href="%s" %s>%s</a>', $tag->getUrl(), $attribute, $tag->getTitle());
++            //$tagHtml = sprintf('<a href="%s" %s>%s</a>', $tag->getUrl(), $attribute, $tag->getTitle());
++            $tagHtml = sprintf('<span %s>%s</span>', $attribute, $tag->getTitle());
+             
+             foreach ($this->_htmlTags as $key => $data) {
+                 if (is_array($data)) {
+Index: Zend/Tag/Cloud.php
+===================================================================
+--- Zend/Tag/Cloud.php	(revision 14515)
++++ Zend/Tag/Cloud.php	(working copy)
+@@ -89,7 +89,7 @@
+         }
+ 
+         if ($this->_tagDecorator === null) {
+-            $this->setTagsDecorator('tagHtml');
++            $this->setTagDecorator('htmlTag');
+         }
+         
+         if ($this->_tags === null) {
+@@ -146,7 +146,7 @@
+     public function setTags(array $tags)
+     {
+         // Validate and cleanup the tags
+-        $this->_tags = array();
++        $this->_tags = new Zend_Tag_ItemList();
+         
+         foreach ($tags as $tag) {
+             if ($tag instanceof Zend_Tag_IItem) {
+@@ -270,7 +270,7 @@
+             throw new Zend_Tag_Cloud_Exception('Decorator is no instance of Zend_Tag_Cloud_Decorator_Tag');
+         }
+ 
+-        $this->_tagsDecorator = $decorator;
++        $this->_tagDecorator = $decorator;
+ 
+         return $this;
+     }
+@@ -294,7 +294,7 @@
+     {
+         if ($this->_pluginLoader === null) {
+             $prefix     = 'Zend_Tag_Cloud_Decorator_';
+-            $pathPrefix = 'Zend/TagCloud/Decorator/';
++            $pathPrefix = 'Zend/Tag/Cloud/Decorator/';
+ 
+             require_once 'Zend/Loader/PluginLoader.php';
+             $this->_pluginLoader = new Zend_Loader_PluginLoader(array($prefix => $pathPrefix));
+@@ -314,9 +314,9 @@
+             require_once 'Zend/TagCloud/Exception.php';
+             throw new Zend_Tag_Cloud_Exception('No tags are defined');
+         }
+-        
++
+         $this->_tags->spreadWeightValues($this->_tagDecorator->getWeightList());
+-        
++
+         $tagsResult  = $this->_tagDecorator->render($this->_tags);
+         $cloudResult = $this->_cloudDecorator->render($tagsResult);
+ 

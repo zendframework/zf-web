@@ -1,0 +1,126 @@
+Index: tests/Zend/Auth/Adapter/DbTable/BasicSqliteTest.php
+===================================================================
+--- tests/Zend/Auth/Adapter/DbTable/BasicSqliteTest.php	(revision 22206)
++++ tests/Zend/Auth/Adapter/DbTable/BasicSqliteTest.php	(working copy)
+@@ -342,6 +342,63 @@
+         $this->_adapter->authenticate();
+     }
+ 
++
++    /**
++     * Test fallback to default database adapter, when no such adapter set
++     *
++     * @expectedException Zend_Auth_Adapter_Exception
++     * @group ZF-7510
++     */
++    public function testAuthenticateWithDefaultDbAdapterNoAdapterException()
++    {
++        require_once('Zend/Db/Table/Abstract.php');
++        // preserve default db adapter between cases
++        $tmp = Zend_Db_Table_Abstract::getDefaultAdapter();
++
++        // make sure that no default adapter exists
++        Zend_Db_Table_Abstract::setDefaultAdapter(null);
++        try {
++            $this->_adapter = new Zend_Auth_Adapter_DbTable();
++        } catch (Exception $e) {
++            $this->assertContains('No database adapter present', $e->getMessage());
++            throw $e;
++        }
++
++        // restore adapter
++        Zend_Db_Table_Abstract::setDefaultAdapter($tmp);
++    }
++
++    /**
++     * Test fallback to default database adapter
++     *
++     * @group ZF-7510
++     */
++    public function testAuthenticateWithDefaultDbAdapter()
++    {
++        require_once('Zend/Db/Table/Abstract.php');
++        // preserve default adapter between cases
++        $tmp = Zend_Db_Table_Abstract::getDefaultAdapter();
++
++        // make sure that default db adapter exists
++        Zend_Db_Table_Abstract::setDefaultAdapter($this->_db);
++
++        // check w/o passing adapter
++        $this->_adapter = new Zend_Auth_Adapter_DbTable();
++        $this->_adapter
++            ->setTableName('users')
++            ->setIdentityColumn('username')
++            ->setCredentialColumn('password')
++            ->setTableName('users')
++            ->setIdentity('my_username')
++            ->setCredential('my_password');
++        $result = $this->_adapter->authenticate();
++        $this->assertTrue($result->isValid());
++
++        // restore adapter
++        Zend_Db_Table_Abstract::setDefaultAdapter($tmp);
++    }
++
++
+     protected function _setupDbAdapter($optionalParams = array())
+     {
+         $params = array('dbname' => TESTS_ZEND_AUTH_ADAPTER_DBTABLE_PDO_SQLITE_DATABASE);
+Index: library/Zend/Auth/Adapter/DbTable.php
+===================================================================
+--- library/Zend/Auth/Adapter/DbTable.php	(revision 22206)
++++ library/Zend/Auth/Adapter/DbTable.php	(working copy)
+@@ -118,17 +118,17 @@
+     /**
+      * __construct() - Sets configuration options
+      *
+-     * @param  Zend_Db_Adapter_Abstract $zendDb
++     * @param  Zend_Db_Adapter_Abstract $zendDb If null, default database adapter assumed
+      * @param  string                   $tableName
+      * @param  string                   $identityColumn
+      * @param  string                   $credentialColumn
+      * @param  string                   $credentialTreatment
+      * @return void
+      */
+-    public function __construct(Zend_Db_Adapter_Abstract $zendDb, $tableName = null, $identityColumn = null,
++    public function __construct(Zend_Db_Adapter_Abstract $zendDb = null, $tableName = null, $identityColumn = null,
+                                 $credentialColumn = null, $credentialTreatment = null)
+     {
+-        $this->_zendDb = $zendDb;
++        $this->_setDbAdapter($zendDb);
+ 
+         if (null !== $tableName) {
+             $this->setTableName($tableName);
+@@ -148,6 +148,32 @@
+     }
+ 
+     /**
++     * _setDbAdapter() - set the database adapter to be used for quering
++     *
++     * @param Zend_Db_Adapter_Abstract 
++     * @throws Zend_Auth_Adapter_Exception
++     * @return Zend_Auth_Adapter_DbTable
++     */
++    protected function _setDbAdapter(Zend_Db_Adapter_Abstract $zendDb = null)
++    {
++        $this->_zendDb = $zendDb;
++
++        /**
++         * If no adapter is specified, fetch default database adapter.
++         */
++        if(null === $this->_zendDb) {
++            require_once 'Zend/Db/Table/Abstract.php';
++            $this->_zendDb = Zend_Db_Table_Abstract::getDefaultAdapter();
++            if (null === $this->_zendDb) {
++                require_once 'Zend/Auth/Adapter/Exception.php';
++                throw new Zend_Auth_Adapter_Exception('No database adapter present');
++            }
++        }
++        
++        return $this;
++    }
++
++    /**
+      * setTableName() - set the table name to be used in the select query
+      *
+      * @param  string $tableName

@@ -1,0 +1,266 @@
+Index: tests/Zend/Http/Client/CommonHttpTests.php
+===================================================================
+--- tests/Zend/Http/Client/CommonHttpTests.php	(revision 21194)
++++ tests/Zend/Http/Client/CommonHttpTests.php	(working copy)
+@@ -859,7 +859,7 @@
+     {
+         if(!($this->client->getAdapter() instanceof Zend_Http_Client_Adapter_Stream)) {
+               $this->markTestSkipped('Current adapter does not support streaming');
+-              return;   
++              return;
+         }
+         $this->client->setUri($this->baseuri . 'staticFile.jpg');
+         $this->client->setStream();
+@@ -876,15 +876,16 @@
+         
+         $expected = $this->_getTestFileContents('staticFile.jpg');
+ 
+-        $this->assertEquals($expected, $stream_read, 'Downloaded stream does not seem to match!');
+-        $this->assertEquals($expected, $file_read, 'Downloaded file does not seem to match!');
++        // Using strcmp rather then assertEquals because we really don't want to see a diff of a binary file.
++        $this->assertTrue(strcmp($expected, $stream_read) == 0, 'Downloaded stream does not seem to match!');
++        $this->assertTrue(strcmp($expected, $file_read) == 0, 'Downloaded file does not seem to match!');
+     }
+     
+     public function testStreamResponseBody()
+     {
+         if(!($this->client->getAdapter() instanceof Zend_Http_Client_Adapter_Stream)) {
+               $this->markTestSkipped('Current adapter does not support streaming');
+-              return;   
++              return;
+         }
+         $this->client->setUri($this->baseuri . 'staticFile.jpg');
+         $this->client->setStream();
+@@ -897,14 +898,15 @@
+         $body = $response->getBody();
+         
+         $expected = $this->_getTestFileContents('staticFile.jpg');
+-        $this->assertEquals($expected, $body, 'Downloaded stream does not seem to match!');
++        // Using strcmp rather then assertEquals because we really don't want to see a diff of a binary file.
++        $this->assertTrue(strcmp($expected, $body) == 0, 'Downloaded stream does not seem to match!');
+     }
+     
+     public function testStreamResponseNamed()
+     {
+         if(!($this->client->getAdapter() instanceof Zend_Http_Client_Adapter_Stream)) {
+               $this->markTestSkipped('Current adapter does not support streaming');
+-              return;   
++              return;
+         }
+         $this->client->setUri($this->baseuri . 'staticFile.jpg');
+         $outfile = tempnam(sys_get_temp_dir(), "outstream");
+@@ -922,20 +924,22 @@
+         
+         $expected = $this->_getTestFileContents('staticFile.jpg');
+ 
+-        $this->assertEquals($expected, $stream_read, 'Downloaded stream does not seem to match!');
+-        $this->assertEquals($expected, $file_read, 'Downloaded file does not seem to match!');
++        // Using strcmp rather then assertEquals because we really don't want to see a diff of a binary file.
++        $this->assertTrue(strcmp($expected, $stream_read) == 0, 'Downloaded stream does not seem to match!');
++        $this->assertTrue(strcmp($expected, $file_read) == 0, 'Downloaded file does not seem to match!');
+     }
+        
+     public function testStreamRequest()
+     {
+         if(!($this->client->getAdapter() instanceof Zend_Http_Client_Adapter_Stream)) {
+               $this->markTestSkipped('Current adapter does not support streaming');
+-              return;   
++              return;
+         }
+-        $data = fopen(dirname(realpath(__FILE__)) . DIRECTORY_SEPARATOR . '_files' . DIRECTORY_SEPARATOR . 'staticFile.jpg', "r"); 
++        $data = fopen(dirname(realpath(__FILE__)) . DIRECTORY_SEPARATOR . '_files' . DIRECTORY_SEPARATOR . 'staticFile.jpg', "r");
+         $res = $this->client->setRawData($data, 'image/jpeg')->request('PUT');
+         $expected = $this->_getTestFileContents('staticFile.jpg');
+-        $this->assertEquals($expected, $res->getBody(), 'Response body does not contain the expected data');
++        // Using strcmp rather then assertEquals because we really don't want to see a diff of a binary file.
++        $this->assertEquals(strcmp($expected, $res->getBody()) == 0, 'Response body does not contain the expected data');
+     }
+     
+     /**
+Index: library/Zend/Http/Client/Adapter/Exception.php
+===================================================================
+--- library/Zend/Http/Client/Adapter/Exception.php	(revision 21194)
++++ library/Zend/Http/Client/Adapter/Exception.php	(working copy)
+@@ -34,5 +34,6 @@
+  */
+ class Zend_Http_Client_Adapter_Exception extends Zend_Http_Client_Exception
+ {
+-    const READ_TIMEOUT = 1000;
++    const READ_TIMEOUT  = 1000;
++    const WRITE_TIMEOUT = 1001;
+ }
+Index: library/Zend/Http/Client/Adapter/Socket.php
+===================================================================
+--- library/Zend/Http/Client/Adapter/Socket.php	(revision 21194)
++++ library/Zend/Http/Client/Adapter/Socket.php	(working copy)
+@@ -62,7 +62,7 @@
+ 
+     /**
+      * Stream for storing output
+-     * 
++     *
+      * @var resource
+      */
+     protected $out_stream = null;
+@@ -380,19 +380,22 @@
+                     do {
+                         $current_pos = ftell($this->socket);
+                         if ($current_pos >= $read_to) break;
+-
++                        
++                        $line = @fread($this->socket, $read_to - $current_pos);
++                        $lineLen = strlen($line);
++                        if ($line === false || $lineLen === 0) {
++                            $this->_checkSocketReadTimeout();
++                            break;
++                        }
+                         if($this->out_stream) {
+-                            if(stream_copy_to_stream($this->socket, $this->out_stream, $read_to - $current_pos) == 0) {
+-                              $this->_checkSocketReadTimeout();
+-                              break;   
+-                             }
++                            if ($lineLen > 0) {
++                                if(@fwrite($this->out_stream, $line, $lineLen) == 0) {
++                                    $this->_checkSocketWriteTimeout();
++                                    break;
++                                }
++                            }
+                         } else {
+-                            $line = @fread($this->socket, $read_to - $current_pos);
+-                            if ($line === false || strlen($line) === 0) {
+-                                $this->_checkSocketReadTimeout();
+-                                break;
+-                            }
+-                                    $chunk .= $line;
++                            $chunk .= $line;
+                         }
+                     } while (! feof($this->socket));
+ 
+@@ -421,22 +424,24 @@
+             $chunk = '';
+ 
+             for ($read_to = $current_pos + $headers['content-length'];
+-                 $read_to > $current_pos;
+-                 $current_pos = ftell($this->socket)) {
+-
+-                 if($this->out_stream) {
+-                     if(@stream_copy_to_stream($this->socket, $this->out_stream, $read_to - $current_pos) == 0) {
+-                          $this->_checkSocketReadTimeout();
+-                          break;   
+-                     }
+-                 } else {
+-                    $chunk = @fread($this->socket, $read_to - $current_pos);
+-                    if ($chunk === false || strlen($chunk) === 0) {
+-                        $this->_checkSocketReadTimeout();
+-                        break;
++                $read_to > $current_pos;
++                $current_pos = ftell($this->socket)) {
++                
++                $chunk = @fread($this->socket, $read_to - $current_pos);
++                $chunkLen = strlen($chunk);
++                if ($chunk === false || $chunkLen === 0) {
++                    $this->_checkSocketReadTimeout();
++                    break;
++                }
++                if($this->out_stream) {
++                    if ($chunkLen > 0) {
++                        if(@fwrite($this->out_stream, $chunk, $chunkLen) == 0) {
++                            $this->_checkSocketWriteTimeout();
++                            break;
++                        }
+                     }
+-
+-                    $response .= $chunk;
++                } else {
++                   $response .= $chunk;
+                 }
+ 
+                 // Break if the connection ended prematurely
+@@ -447,19 +452,21 @@
+         } else {
+ 
+             do {
++                $chunk = @fread($this->socket, 8192);
++                $chunkLen = strlen($chunk);
++                if ($chunk === false || $chunkLen === 0) {
++                    $this->_checkSocketReadTimeout();
++                    break;
++                }
+                 if($this->out_stream) {
+-                    if(@stream_copy_to_stream($this->socket, $this->out_stream) == 0) {
+-                          $this->_checkSocketReadTimeout();
+-                          break;   
+-                     }
+-                }  else {
+-                    $buff = @fread($this->socket, 8192);
+-                    if ($buff === false || strlen($buff) === 0) {
+-                        $this->_checkSocketReadTimeout();
+-                        break;
+-                    } else {
+-                        $response .= $buff;
++                    if ($chunkLen > 0) {
++                        if(@fwrite($this->out_stream, $chunk, $chunkLen) == 0) {
++                            $this->_checkSocketWriteTimeout();
++                            break;
++                        }
+                     }
++                } else {
++                   $response .= $chunk;
+                 }
+ 
+             } while (feof($this->socket) === false);
+@@ -507,14 +514,52 @@
+             }
+         }
+     }
++
++    /**
++     * Check if the socket has timed out - if so close connection and throw
++     * an exception
++     *
++     * @throws Zend_Http_Client_Adapter_Exception with WRITE_TIMEOUT code
++     */
++    protected function _checkSocketWriteTimeout()
++    {
++        if ($this->out_stream) {
++            $this->_checkSocketTimeout(
++                $this->out_stream,
++                "Write timed out after {$this->config['timeout']} seconds",
++                Zend_Http_Client_Adapter_Exception::WRITE_TIMEOUT);
++        }
++    }
++
++    /**
++     * Check if the socket has timed out - if so close connection and throw
++     * an exception
++     *
++     * @throws Zend_Http_Client_Adapter_Exception with READ_TIMEOUT code
++     */
++    protected function _checkSocketTimeout($socket, $message, $code)
++    {
++        if ($this->socket) {
++            $info = stream_get_meta_data($this->socket);
++            $timedout = $info['timed_out'];
++            if ($timedout) {
++                $this->close();
++                require_once 'Zend/Http/Client/Adapter/Exception.php';
++                throw new Zend_Http_Client_Adapter_Exception(
++                    $message,
++                    $code
++                );
++            }
++        }
++    }
+     
+     /**
+      * Set output stream for the response
+-     * 
++     *
+      * @param resource $stream
+      * @return Zend_Http_Client_Adapter_Socket
+      */
+-    public function setOutputStream($stream) 
++    public function setOutputStream($stream)
+     {
+         $this->out_stream = $stream;
+         return $this;

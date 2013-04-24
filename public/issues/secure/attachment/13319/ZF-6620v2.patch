@@ -1,0 +1,155 @@
+Index: library/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Abstract.php	(revision 23004)
++++ library/Zend/Db/Adapter/Abstract.php	(working copy)
+@@ -184,7 +184,8 @@
+ 
+         $options = array(
+             Zend_Db::CASE_FOLDING           => $this->_caseFolding,
+-            Zend_Db::AUTO_QUOTE_IDENTIFIERS => $this->_autoQuoteIdentifiers
++            Zend_Db::AUTO_QUOTE_IDENTIFIERS => $this->_autoQuoteIdentifiers,
++            Zend_Db::FETCH_MODE             => $this->_fetchMode,
+         );
+         $driverOptions = array();
+ 
+@@ -236,6 +237,16 @@
+             }
+         }
+ 
++        if (array_key_exists(Zend_Db::FETCH_MODE, $options)) {
++            if (is_string($options[Zend_Db::FETCH_MODE])) {
++                $constant = 'Zend_Db::FETCH_' . strtoupper($options[Zend_Db::FETCH_MODE]);
++                if(defined($constant)) {
++                    $options[Zend_Db::FETCH_MODE] = constant($constant);
++                }
++            }
++            $this->setFetchMode((int) $options[Zend_Db::FETCH_MODE]);
++        }
++
+         // obtain quoting property if there is one
+         if (array_key_exists(Zend_Db::AUTO_QUOTE_IDENTIFIERS, $options)) {
+             $this->_autoQuoteIdentifiers = (bool) $options[Zend_Db::AUTO_QUOTE_IDENTIFIERS];
+Index: library/Zend/Db.php
+===================================================================
+--- library/Zend/Db.php	(revision 23004)
++++ library/Zend/Db.php	(working copy)
+@@ -43,6 +43,11 @@
+     const CASE_FOLDING = 'caseFolding';
+ 
+     /**
++     * Use the FETCH_MODE constant in the config of a Zend_Db_Adapter.
++     */
++    const FETCH_MODE = 'fetchMode';
++
++    /**
+      * Use the AUTO_QUOTE_IDENTIFIERS constant in the config of a Zend_Db_Adapter.
+      */
+     const AUTO_QUOTE_IDENTIFIERS = 'autoQuoteIdentifiers';
+Index: tests/Zend/Db/Adapter/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Adapter/TestCommon.php	(revision 23004)
++++ tests/Zend/Db/Adapter/TestCommon.php	(working copy)
+@@ -2094,4 +2094,20 @@
+         unset($stmt);
+         $this->_util->dropTable($tableName);
+     }
++
++    /**
++     * @group ZF-6620
++     */
++    public function testAdapterOptionFetchMode()
++    {
++        $params = $this->_util->getParams();
++
++        $params['options'] = array(
++            Zend_Db::FETCH_MODE => 'obj'
++        );
++        $db = Zend_Db::factory($this->getDriver(), $params);
++        $select = $db->select()->from('zfproducts');
++        $row = $db->fetchRow($select);
++        $this->assertType('stdClass', $row);
++    }
+ }
+Index: tests/Zend/Db/Adapter/Static.php
+===================================================================
+--- tests/Zend/Db/Adapter/Static.php	(revision 23004)
++++ tests/Zend/Db/Adapter/Static.php	(working copy)
+@@ -288,7 +288,8 @@
+      */
+     public function setFetchMode($mode)
+     {
+-        return;
++        $this->_fetchMode = $mode;
++        return $this;
+     }
+ 
+     /**
+Index: tests/Zend/Db/Adapter/StaticTest.php
+===================================================================
+--- tests/Zend/Db/Adapter/StaticTest.php	(revision 23004)
++++ tests/Zend/Db/Adapter/StaticTest.php	(working copy)
+@@ -380,6 +380,33 @@
+ 
+     }
+ 
++    /**
++     * @group ZF-6620
++     */
++    public function testDbConstructorSetOptionFetchMode()
++    {
++        $db = new Zend_Db_Adapter_Static(array('dbname' => 'dummy'));
++        $this->assertEquals($db->getFetchMode(), Zend_Db::FETCH_ASSOC);
++
++        $params = array(
++            'dbname' => 'dummy',
++            'options' => array(
++                Zend_Db::FETCH_MODE => 'obj'
++             )
++        );
++        $db = new Zend_Db_Adapter_Static($params);
++        $this->assertEquals($db->getFetchMode(), Zend_Db::FETCH_OBJ);
++
++        $params = array(
++            'dbname' => 'dummy',
++            'options' => array(
++                Zend_Db::FETCH_MODE => Zend_Db::FETCH_OBJ
++             )
++        );
++        $db = new Zend_Db_Adapter_Static($params);
++        $this->assertEquals($db->getFetchMode(), Zend_Db::FETCH_OBJ);
++    }
++
+     protected function _isCaseSensitiveFileSystem()
+     {
+         if (self::$_isCaseSensitiveFileSystem === null) {
+Index: tests/Zend/Application/Resource/DbTest.php
+===================================================================
+--- tests/Zend/Application/Resource/DbTest.php	(revision 23004)
++++ tests/Zend/Application/Resource/DbTest.php	(working copy)
+@@ -203,6 +203,26 @@
+         $resource->init();
+         $this->assertType('Zend_Cache_Core', Zend_Db_Table::getDefaultMetadataCache());
+     }
++
++    /**
++     * @group ZF-6620
++     */
++    public function testSetOptionFetchMode()
++    {
++        $config = array(
++            'bootstrap' => $this->bootstrap,
++            'adapter' => 'PDO_SQLite',
++            'params'  => array(
++                'dbname'    => ':memory:',
++                'options'   => array(
++                    'fetchMode' => 'obj'
++                )
++            ),
++        );
++        $resource = new Zend_Application_Resource_Db($config);
++        $db = $resource->init();
++        $this->assertEquals($db->getFetchMode(), Zend_Db::FETCH_OBJ);
++    }
+ }
+ 
+ if (PHPUnit_MAIN_METHOD == 'Zend_Application_Resource_DbTest::main') {

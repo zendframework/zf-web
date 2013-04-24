@@ -1,0 +1,334 @@
+--- tests/Zend/File/ClassFileLocatorTest.php	(Revision 25022)
++++ tests/Zend/File/ClassFileLocatorTest.php	(Arbeitskopie)
+@@ -83,14 +83,66 @@
+         $this->assertTrue($found, "Locator skipped an interface?");
+     }
+ 
++    public function testIterationShouldInjectNamespaceInFoundItems()
++    {
++        $locator = new Zend_File_ClassFileLocator(dirname(__FILE__));
++        $found = false;
++        foreach ($locator as $file) {
++            $classes = $file->getClasses();
++            foreach ($classes as $class) {
++                if (strpos($class, '\\', 1)) {
++                    $found = true;
++                }
++            }
++        }
++        $this->assertTrue($found);
++    }
++
+     public function testIterationShouldInjectClassInFoundItems()
+     {
+         $locator = new Zend_File_ClassFileLocator(dirname(__FILE__));
+         $found = false;
+         foreach ($locator as $file) {
+-            $this->assertTrue(isset($file->classname));
++            $classes = $file->getClasses();
++            foreach ($classes as $class) {
++                $found = true;
++                break;
++            }
+         }
++        $this->assertTrue($found);
+     }
++
++    public function testIterationShouldFindMultipleClassesInMultipleNamespacesInSinglePhpFile()
++    {
++        $locator = new Zend_File_ClassFileLocator(__DIR__);
++        $foundFirst = false;
++        $foundSecond = false;
++        $foundThird = false;
++        $foundFourth = false;
++        foreach ($locator as $file) {
++            if (preg_match('/MultipleClassesInMultipleNamespaces\.php$/', $file->getFilename())) {
++                $classes = $file->getClasses();
++                foreach ($classes as $class) {
++                    if ($class === 'ZendTest\File\TestAsset\LocatorShouldFindFirstClass') {
++                        $foundFirst = true;
++                    }
++                    if ($class === 'ZendTest\File\TestAsset\LocatorShouldFindSecondClass') {
++                        $foundSecond = true;
++                    }
++                    if ($class === 'ZendTest\File\TestAsset\SecondTestNamespace\LocatorShouldFindThirdClass') {
++                        $foundThird = true;
++                    }
++                    if ($class === 'ZendTest\File\TestAsset\SecondTestNamespace\LocatorShouldFindFourthClass') {
++                        $foundFourth = true;
++                    }
++                }
++            }
++        }
++        $this->assertTrue($foundFirst);
++        $this->assertTrue($foundSecond);
++        $this->assertTrue($foundThird);
++        $this->assertTrue($foundFourth);
++    }
+ }
+ 
+ if (PHPUnit_MAIN_METHOD == 'Zend_File_ClassFileLocatorTest::main') {
+Index: tests/Zend/File/TestAsset/MultipleClassesInMultipleNamespaces.php
+===================================================================
+--- tests/Zend/File/TestAsset/MultipleClassesInMultipleNamespaces.php	(Revision 0)
++++ tests/Zend/File/TestAsset/MultipleClassesInMultipleNamespaces.php	(Revision 0)
+@@ -0,0 +1,46 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   ZendTest
++ * @package    ZendTest_File
++ * @subpackage Exception
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++namespace ZendTest\File\TestAsset
++{
++
++    class LocatorShouldFindFirstClass
++    {
++    }
++
++    class LocatorShouldFindSecondClass
++    {
++    }
++
++}
++
++namespace ZendTest\File\TestAsset\SecondTestNamespace
++{
++
++    class LocatorShouldFindThirdClass
++    {
++    }
++
++    class LocatorShouldFindFourthClass
++    {
++    }
++
++}
+Index: library/Zend/File/ClassFileLocator.php
+===================================================================
+--- library/Zend/File/ClassFileLocator.php	(Revision 25022)
++++ library/Zend/File/ClassFileLocator.php	(Arbeitskopie)
+@@ -18,6 +18,8 @@
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+ 
++require_once 'Zend/File/PhpClassFile.php';
++
+ /**
+  * Locate files containing PHP classes, interfaces, or abstracts
+  * 
+@@ -56,6 +58,7 @@
+         }
+ 
+         parent::__construct($iterator);
++        $this->setInfoClass('Zend_File_PhpClassFile');
+ 
+         // Forward-compat with PHP 5.3
+         if (version_compare(PHP_VERSION, '5.3.0', '<')) {
+@@ -70,14 +73,13 @@
+ 
+     /**
+      * Filter for files containing PHP classes, interfaces, or abstracts
+-     * 
++     *
+      * @return bool
+      */
+     public function accept()
+     {
+         $file = $this->getInnerIterator()->current();
+-
+-        // If we somehow have something other than an SplFileInfo object, just 
++        // If we somehow have something other than an SplFileInfo object, just
+         // return false
+         if (!$file instanceof SplFileInfo) {
+             return false;
+@@ -96,30 +98,29 @@
+         $contents = file_get_contents($file->getRealPath());
+         $tokens   = token_get_all($contents);
+         $count    = count($tokens);
+-        $i        = 0;
+-        while ($i < $count) {
++        $t_trait  = defined('T_TRAIT') ? T_TRAIT : -1; // For preserve PHP 5.3 compatibility
++        for ($i = 0; $i < $count; $i++) {
+             $token = $tokens[$i];
+-
+             if (!is_array($token)) {
+                 // single character token found; skip
+                 $i++;
+                 continue;
+             }
+-
+-            list($id, $content, $line) = $token;
+-
+-            switch ($id) {
++            switch ($token[0]) {
+                 case T_NAMESPACE:
+                     // Namespace found; grab it for later
+                     $namespace = '';
+-                    $done      = false;
+-                    do {
+-                        ++$i;
++                    for ($i++; $i < $count; $i++) {
+                         $token = $tokens[$i];
+                         if (is_string($token)) {
+                             if (';' === $token) {
+-                                $done = true;
++                                $saveNamespace = false;
++                                break;
+                             }
++                            if ('{' === $token) {
++                                $saveNamespace = true;
++                                break;
++                            }
+                             continue;
+                         }
+                         list($type, $content, $line) = $token;
+@@ -129,44 +130,49 @@
+                                 $namespace .= $content;
+                                 break;
+                         }
+-                    } while (!$done && $i < $count);
+-
+-                    // Set the namespace of this file in the object
+-                    $file->namespace = $namespace;
++                    }
++                    if ($saveNamespace) {
++                        $savedNamespace = $namespace;
++                    }
+                     break;
++                case $t_trait:
+                 case T_CLASS:
+                 case T_INTERFACE:
+-                    // Abstract class, class, or interface found
++                    // Abstract class, class, interface or trait found
+ 
+                     // Get the classname
+-                    $class = '';
+-                    do {
+-                        ++$i;
++                    for ($i++; $i < $count; $i++) {
+                         $token = $tokens[$i];
+                         if (is_string($token)) {
+                             continue;
+                         }
+                         list($type, $content, $line) = $token;
+-                        switch ($type) {
+-                            case T_STRING:
+-                                $class = $content;
+-                                break;
++                        if (T_STRING == $type) {
++                            // If a classname was found, set it in the object, and
++                            // return boolean true (found)
++                            if (!isset($namespace) || null === $namespace) {
++                                if (isset($saveNamespace) && $saveNamespace) {
++                                    $namespace = $savedNamespace;
++                                } else {
++                                    $namespace = null;
++                                }
++
++                            }
++                            $class = (null === $namespace) ? $content : $namespace . '\\' . $content;
++                            $file->addClass($class);
++                            $namespace = null;
++                            break;
+                         }
+-                    } while (empty($class) && $i < $count);
+-
+-                    // If a classname was found, set it in the object, and 
+-                    // return boolean true (found)
+-                    if (!empty($class)) {
+-                        $file->classname = $class;
+-                        return true;
+                     }
+                     break;
+                 default:
+                     break;
+             }
+-            ++$i;
+         }
+-
++        $classes = $file->getClasses();
++        if (!empty($classes)) {
++            return true;
++        }
+         // No class-type tokens found; return false
+         return false;
+     }
+Index: library/Zend/File/PhpClassFile.php
+===================================================================
+--- library/Zend/File/PhpClassFile.php	(Revision 0)
++++ library/Zend/File/PhpClassFile.php	(Revision 0)
+@@ -0,0 +1,58 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category  Zend
++ * @package   Zend_File_Transfer
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license   http://framework.zend.com/license/new-bsd     New BSD License
++ * @version   $Id: Transfer.php 24593 2012-01-05 20:35:02Z matthew $
++ */
++
++/**
++ * Locate files containing PHP classes, interfaces, abstracts or traits
++ *
++ * @category  Zend
++ * @package   Zend_File
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license   http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_File_PhpClassFile extends SplFileInfo
++{
++    /**
++     * @var array
++     */
++    protected $classes;
++
++    /**
++     * Get classes
++     *
++     * @return array
++     */
++    public function getClasses()
++    {
++        return $this->classes;
++    }
++
++    /**
++     * Add class
++     *
++     * @param string $class
++     * @return Zend_File_PhpClassFile
++     */
++    public function addClass($class)
++    {
++        $this->classes[] = $class;
++        return $this;
++    }
++}

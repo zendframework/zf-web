@@ -1,0 +1,123 @@
+--- Transfer.old	2009-12-30 08:30:07.000000000 -0500
++++ Transfer.php	2009-12-30 09:25:51.000000000 -0500
+@@ -30,32 +30,105 @@
+ class Zend_File_Transfer
+ {
+     /**
+-     * Creates a file processing handler
++     * Factory for instantiating Zend_File_Transfer_Adapter_Abstract adapters.
++     * The first parameter is the name of the adapter, relative to Zend_File_Transfer_Adapter.
++     * The second parameter is an optional array of configuration options to be passed to the
++     * adapter, with two exceptions: you can pass the name of the adapter using the key
++     * 'adapter', and you can pass an alternate adapter namespace using the key 'adapterNamespace'.
+      *
+-     * @param string $protocol Protocol to use
++     * The configuration can be passed as the first parameter.
++     *
++     * @param   string|array|Zend_Config|null  $adapter
++     * @param   array   $config
++     *
++     * @return  Zend_File_Transfer_Adapter_Abstract
++     * @access  public
++     * @static
+      */
+-    public function __construct($protocol = null)
++    public static function factory($adapter = null, Array $config = array())
+     {
+-        require_once 'Zend/File/Transfer/Exception.php';
+-        throw new Zend_File_Transfer_Exception('Implementation in progress');
++        if ($config instanceof Zend_Config) {
++            $config = $config->toArray();
++        }
+ 
+-        switch (strtoupper($protocol)) {
+-            default:
+-                $adapter = 'Zend_File_Transfer_Adapter_Http';
+-                break;
++        /*
++         * Convert Zend_Config argument to plain string
++         * adapter name and separate config object.
++         */
++        if ($adapter instanceof Zend_Config) {
++            if (isset($adapter->params)) {
++                $config = $adapter->params->toArray();
++            }
++            if (isset($adapter->adapter)) {
++                $adapter = (string) $adapter->adapter;
++            } else {
++                $adapter = null;
++            }
+         }
+ 
+-        if (!class_exists($adapter)) {
++        /*
++         * Verify that adapter parameters are in an array.
++         */
++        if (!is_array($config)) {
++            /**
++             * @see Zend_File_Transfer_Exception
++             */
++            require_once 'Zend/File/Transfer/Exception.php';
++            throw new Zend_File_Transfer_Exception('Adapter parameters must be in an array or a Zend_Config object');
++        }
++
++        /*
++         * Verify that an adapter name has been specified.
++         */
++        if (!is_string($adapter) || empty($adapter)) {
++            /**
++             * @see Zend_File_Transfer_Exception
++             */
++            require_once 'Zend/File/Transfer/Exception.php';
++            throw new Zend_File_Transfer_Exception('Adapter name must be specified in a string');
++        }
++
++        /*
++         * Form full adapter class name
++         */
++        $adapterNamespace = 'Zend_File_Transfer_Adapter';
++        if (isset($config['adapterNamespace'])) {
++            if ($config['adapterNamespace'] != '') {
++                $adapterNamespace = $config['adapterNamespace'];
++            }
++            unset($config['adapterNamespace']);
++        }
++
++        // Adapter no longer normalized- see http://framework.zend.com/issues/browse/ZF-5606
++        $adapterName = $adapterNamespace . '_';
++        $adapterName .= str_replace(' ', '_', ucwords(str_replace('_', ' ', strtolower($adapter))));
++
++        /*
++         * Load the adapter class.  This throws an exception
++         * if the specified class cannot be loaded.
++         */
++        if (!class_exists($adapterName)) {
+             require_once 'Zend/Loader.php';
+-            Zend_Loader::loadClass($adapter);
++            Zend_Loader::loadClass($adapterName);
+         }
+ 
+-        $this->_adapter = new $adapter();
+-        if (!$this->_adapter instanceof Zend_File_Transfer_Adapter) {
++        /*
++         * Create an instance of the adapter class.
++         * Pass the config to the adapter class constructor.
++         */
++        $adapter = new $adapterName($config);
++
++        /*
++         * Verify that the object created is a descendent of the abstract adapter type.
++         */
++        if (!$adapter instanceof Zend_File_Transfer_Adapter_Abstract) {
++            /**
++             * @see Zend_File_Transfer_Exception
++             */
+             require_once 'Zend/File/Transfer/Exception.php';
+-            throw new Zend_File_Transfer_Exception("Adapter " . $adapter . " does not extend Zend_File_Transfer_Adapter'");
++            throw new Zend_File_Transfer_Exception("Adapter class '$adapterName' does not extend Zend_File_Transfer_Adapter_Abstract");
+         }
+ 
+-        return $this->_adapter;
++        return $adapter;
+     }
+ }

@@ -1,0 +1,60 @@
+Index: tests/Zend/Mail/MailTest.php
+===================================================================
+--- tests/Zend/Mail/MailTest.php	(revision 23392)
++++ tests/Zend/Mail/MailTest.php	(working copy)
+@@ -1007,6 +1007,23 @@
+         $headers = $mail->getHeaders();
+         $this->assertFalse(isset($headers['foo']));
+     }
++    
++    /**
++     * @group ZF-9070
++     */
++    public function testMethodFilterEmailShouldntStripDoubleQuoteFromLocalPartOfEmailAddress()
++    {
++        $mail = new Zend_Mail();
++        
++        $mail->setFrom('"Abc@def"@example.com', 'John Smith');
++        $from = $mail->getFrom();
++        $this->assertEquals('"Abc@def"@example.com', $from);
++        
++        $mail->clearFrom();
++        $mail->setFrom('Abc"def@example.com', 'John Smith');
++        $from = $mail->getFrom();
++        $this->assertEquals('Abcdef@example.com', $from);
++    }
+ 
+     public static function dataSubjects()
+     {
+Index: library/Zend/Mail.php
+===================================================================
+--- library/Zend/Mail.php	(revision 23392)
++++ library/Zend/Mail.php	(working copy)
+@@ -1204,6 +1204,11 @@
+      */
+     protected function _filterEmail($email)
+     {
++        $parts = explode('@', $email);
++        $domain = array_pop($parts);
++        $local = implode('@', $parts);
++        $quoted = strpos($local, '"') === 0 && strrpos($local, '"') === strlen($local) - 1;
++
+         $rule = array("\r" => '',
+                       "\n" => '',
+                       "\t" => '',
+@@ -1212,8 +1217,14 @@
+                       '<'  => '',
+                       '>'  => '',
+         );
++        $local = strtr($local, $rule);
++        $domain = strtr($domain, $rule);
+ 
+-        return strtr($email, $rule);
++        if ($quoted) {
++            $local = '"' . $local . '"';
++        }
++
++        return $local . '@' . $domain;
+     }
+ 
+     /**

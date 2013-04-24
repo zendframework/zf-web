@@ -1,0 +1,216 @@
+commit c126a138cd47a67f5c68df03a1cd339e69a42a3e
+Author: Colin Guthrie <colin.guthrie@tribalogic.net>
+Date:   Thu Jan 20 14:19:05 2011 +0000
+
+    Zend: Allow the creation of multipart/alternative messages which contain a multipart/related section as one of the alternatives.
+    
+    This allows us to send a well formed Plain Text + HTML multipart/alternative message
+    where the HTML part can contain (i.e. embed) the images it refers to by encoding the whole
+    section as a multipart/related block.
+
+diff --git a/Zend/Mail.php b/Zend/Mail.php
+index b00e38a..f29d6fd 100644
+--- a/Zend/Mail.php
++++ b/Zend/Mail.php
+@@ -163,6 +163,12 @@ class Zend_Mail extends Zend_Mime_Message
+      */
+     protected $_type = null;
+ 
++    /**
++     * HTML Related attachments
++     * @var Zend_Mime_Message
++     */
++    protected $_htmlRelatedAttachments = null;
++
+     /**#@-*/
+ 
+     /**
+@@ -216,6 +222,7 @@ class Zend_Mail extends Zend_Mime_Message
+         if ($charset != null) {
+             $this->_charset = $charset;
+         }
++        $this->_htmlRelatedAttachments = new Zend_Mime_Message();
+     }
+ 
+     /**
+@@ -433,6 +440,73 @@ class Zend_Mail extends Zend_Mime_Message
+     }
+ 
+     /**
++     * Adds an existing attachment related to the HTML part of the message
++     *
++     * @param  Zend_Mime_Part $attachment
++     * @return Zend_Mail Provides fluent interface
++     */
++    public function addHtmlRelatedAttachment(Zend_Mime_Part $attachment)
++    {
++        if (!$this->_bodyHtml) {
++            /**
++             * @see Zend_Mail_Exception
++             */
++            require_once 'Zend/Mail/Exception.php';
++            throw new Zend_Mail_Exception('No HTML Body defined');
++        }
++        $this->_htmlRelatedAttachments->addPart($attachment);
++        return $this;
++    }
++
++    /**
++     * Creates a Zend_Mime_Part attachment related to the HTML part of the message
++     *
++     * Attachment is automatically added to the mail object after creation. The
++     * attachment object is returned to allow for further manipulation.
++     *
++     * @param  string         $body
++     * @param  string         $cid The Content Id
++     * @param  string         $mimeType
++     * @param  string         $disposition
++     * @param  string         $encoding
++     * @param  string         $filename OPTIONAL A filename for the attachment
++     * @return Zend_Mime_Part Newly created Zend_Mime_Part object (to allow
++     * advanced settings)
++     */
++    public function createHtmlRelatedAttachment($body, $cid = null,
++                                     $mimeType    = Zend_Mime::TYPE_OCTETSTREAM,
++                                     $disposition = Zend_Mime::DISPOSITION_INLINE,
++                                     $encoding    = Zend_Mime::ENCODING_BASE64,
++                                     $filename    = null)
++    {
++
++        if (null === $cid) {
++            static $unique = 0;
++            $cid = md5($body . ($unique++));
++        }
++        $mp = new Zend_Mime_Part($body);
++        $mp->id = $cid;
++        $mp->encoding = $encoding;
++        $mp->type = $mimeType;
++        $mp->disposition = $disposition;
++        $mp->filename = $filename;
++
++        $this->addHtmlRelatedAttachment($mp);
++
++        return $mp;
++    }
++
++    /**
++     * Returns the list of all Zend_Mime_Parts related to the HTML part of the message
++     *
++     * @return array of Zend_Mime_Part
++     */
++    public function getHtmlRelatedAttachments()
++    {
++      return $this->_htmlRelatedAttachments;
++    }
++
++    /**
+      * Adds an existing attachment to the mail message
+      *
+      * @param  Zend_Mime_Part $attachment
+diff --git a/Zend/Mail/Transport/Abstract.php b/Zend/Mail/Transport/Abstract.php
+index 50e06ae..d0ae4e0 100644
+--- a/Zend/Mail/Transport/Abstract.php
++++ b/Zend/Mail/Transport/Abstract.php
+@@ -232,24 +232,48 @@ abstract class Zend_Mail_Transport_Abstract
+      */
+     protected function _buildBody()
+     {
+-        if (($text = $this->_mail->getBodyText())
+-            && ($html = $this->_mail->getBodyHtml()))
++        $text = $this->_mail->getBodyText();
++        $html = $this->_mail->getBodyHtml();
++
++        $htmlAttachments = $this->_mail->getHtmlRelatedAttachments();
++        $htmlAttachmentParts = $htmlAttachments->getParts();
++        $hasHtmlRelatedParts = count($htmlAttachmentParts);
++
++        if (($text && $html)
++            || ($html && $hasHtmlRelatedParts) && count($this->_parts))
+         {
+             // Generate unique boundary for multipart/alternative
+             $mime = new Zend_Mime(null);
+             $boundaryLine = $mime->boundaryLine($this->EOL);
+             $boundaryEnd  = $mime->mimeEnd($this->EOL);
+ 
+-            $text->disposition = false;
+             $html->disposition = false;
+ 
+-            $body = $boundaryLine
+-                  . $text->getHeaders($this->EOL)
+-                  . $this->EOL
+-                  . $text->getContent($this->EOL)
+-                  . $this->EOL
+-                  . $boundaryLine
+-                  . $html->getHeaders($this->EOL)
++            if ($hasHtmlRelatedParts) {
++                $message = new Zend_Mime_Message();
++                array_unshift($htmlAttachmentParts, $html);
++                $message->setParts($htmlAttachmentParts);
++                $htmlMime = $htmlAttachments->getMime();
++                $message->setMime($htmlMime);
++                $html = new Zend_Mime_Part($message->generateMessage($this->EOL, false));
++                $html->boundary = $htmlMime->boundary();
++                $html->type = Zend_Mime::MULTIPART_RELATED;
++                $html->encoding = null;
++            }
++
++            $body = $boundaryLine;
++
++            if ($text) {
++                $text->disposition = false;
++
++                $body.= $text->getHeaders($this->EOL)
++                      . $this->EOL
++                      . $text->getContent($this->EOL)
++                      . $this->EOL
++                      . $boundaryLine;
++            }
++
++            $body.= $html->getHeaders($this->EOL)
+                   . $this->EOL
+                   . $html->getContent($this->EOL)
+                   . $this->EOL
+@@ -272,6 +296,13 @@ abstract class Zend_Mail_Transport_Abstract
+         // If not multipart, then get the body
+         if (false !== ($body = $this->_mail->getBodyHtml())) {
+             array_unshift($this->_parts, $body);
++
++            if ($hasHtmlRelatedParts) {
++                $this->_mail->setType(Zend_Mime::MULTIPART_RELATED);
++                foreach ($htmlAttachmentParts as $part) {
++                    $this->_parts[] = $part;
++                }
++            }
+         } elseif (false !== ($body = $this->_mail->getBodyText())) {
+             array_unshift($this->_parts, $body);
+         }
+diff --git a/Zend/Mime/Message.php b/Zend/Mime/Message.php
+index 42ab6f6..c5d7896 100644
+--- a/Zend/Mime/Message.php
++++ b/Zend/Mime/Message.php
+@@ -130,9 +130,10 @@ class Zend_Mime_Message
+      * is generated and used.
+      *
+      * @param string $EOL EOL string; defaults to {@link Zend_Mime::LINEEND}
++     * @param boolean $showWarning Should a warning be shown for non-MIME clients: defaults to true
+      * @return string
+      */
+-    public function generateMessage($EOL = Zend_Mime::LINEEND)
++    public function generateMessage($EOL = Zend_Mime::LINEEND, $showWarning = true)
+     {
+         if (! $this->isMultiPart()) {
+             $body = array_shift($this->_parts);
+@@ -141,8 +142,11 @@ class Zend_Mime_Message
+             $mime = $this->getMime();
+ 
+             $boundaryLine = $mime->boundaryLine($EOL);
+-            $body = 'This is a message in Mime Format.  If you see this, '
+-                  . "your mail reader does not support this format." . $EOL;
++            $body = '';
++            if ($showWarning) {
++                $body = 'This is a message in Mime Format.  If you see this, '
++                      . "your mail reader does not support this format." . $EOL;
++            }
+ 
+             foreach (array_keys($this->_parts) as $p) {
+                 $body .= $boundaryLine

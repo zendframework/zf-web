@@ -1,0 +1,126 @@
+*** LockManager.php.orig	2008-02-16 05:58:39.000000000 -0500
+--- LockManager.php	2008-07-08 11:52:22.000000000 -0400
+***************
+*** 43,48 ****
+--- 43,49 ----
+      const WRITE_LOCK_FILE        = 'write.lock.file';
+      const READ_LOCK_FILE         = 'read.lock.file';
+      const OPTIMIZATION_LOCK_FILE = 'optimization.lock.file';
++     const ESCALATE_LOCK_FILE     = 'escalate-read.lock.file';
+      
+      /**
+       * Obtain exclusive write lock on the index
+***************
+*** 100,105 ****
+--- 101,153 ----
+          $lock->unlock();
+      }
+  
++     /*
++      * Obtain the exclusive "read escalation" lock
++      *
++      * Required to protect the escalate/de-escalate read lock process
++      * on GFS (and potentially other) mounted filesystems.
++      *
++      * @param Zend_Search_Lucene_Storage_Directory $lockDirectory
++      * @return boolean
++      *
++      * Why we need this:
++      *  While GFS supports cluster-wide locking via flock(), it's
++      *  implementation isn't quite what it should be.  The locking
++      *  semantics that work consistently on a local filesystem tend to
++      *  fail on GFS mounted filesystems.  This appears to be a design defect
++      *  in the implementation of GFS.  How this manifests itself is that
++      *  conditional promotion of a shared lock to exclusive will always
++      *  fail, lock release requests are honored but not immediately
++      *  processed (causing erratic failures of subsequent conditional
++      *  requests) and the releasing of the exclusive lock before the
++      *  shared lock is set when a lock is demoted (which can open a window
++      *  of opportunity for another process to gain an exclusive lock when
++      *  it shoudln't be allowed to).
++      *
++      */
++ 
++     private static function obtainEscalateLock(Zend_Search_Lucene_Storage_Directory $lockDirectory)
++     {
++         $lock = $lockDirectory->createFile(self::ESCALATE_LOCK_FILE);
++         return $lock->lock(LOCK_EX, true);
++     }
++ 
++     /*
++      * Release the exclusive "read escalation" lock
++      *
++      * Required to protect the escalate/de-escalate read lock process
++      * on GFS (and potentially other) mounted filesystems.
++      *
++      * @param Zend_Search_Lucene_Storage_Directory $lockDirectory
++      *
++      */
++ 
++     private static function releaseEscalateLock(Zend_Search_Lucene_Storage_Directory $lockDirectory)
++     {
++         $lock = $lockDirectory->getFileObject(self::ESCALATE_LOCK_FILE);
++         $lock->unlock();
++     }
++ 
+      /**
+       * Escalate Read lock to exclusive level
+       * 
+***************
+*** 111,121 ****
+          $lock = $lockDirectory->getFileObject(self::READ_LOCK_FILE);
+          
+          // Try to escalate read lock
+!         if (!$lock->lock(LOCK_EX, true)) {
+!             // Restore lock state
+!             $lock->lock(LOCK_SH);
+!             return false;
+!         }
+          return true;
+      }
+  
+--- 159,192 ----
+          $lock = $lockDirectory->getFileObject(self::READ_LOCK_FILE);
+          
+          // Try to escalate read lock
+!         if (self::obtainEscalateLock($lockDirectory)) {
+!             // First, release the shared lock for the benefit of GFS since
+!             // it will fail the conditional request to promote the lock to
+!             // "exclusive" while the shared lock is held (even when we are
+!             // the only holder).
+! 
+!             $lock->unlock();
+! 
+!             // GFS is really poor.  While the above "unlock" returns, GFS
+!             // doesn't clean up it's tables right away (which wiill potentially
+!             // cause the conditional locking for the "exclusive" lock to fail.
+!             // We will retry the conditional lock request several times on a
+!             // failure to get past this.  The performance hit is negligible
+!             // in the grand scheme of things and only will occur with GFS
+!             // filesystems or if another local process has the shared lock
+!             // on local filesystems.
+! 
+!             $retries = 0;
+!             while (!$lock->lock(LOCK_EX, true)) {
+!                 $retries++;
+!                 if ($retries > 10) {
+!                     // Restore lock state
+!                     $lock->lock(LOCK_SH);
+!                     self::releaseEscalateLock($lockDirectory);
+!                     return false;
+!                 }
+!             }
+!         }
+          return true;
+      }
+  
+***************
+*** 128,133 ****
+--- 199,205 ----
+      {
+          $lock = $lockDirectory->getFileObject(self::READ_LOCK_FILE);
+          $lock->lock(LOCK_SH);
++         self::releaseEscalateLock($lockDirectory);
+      }
+  
+      /**

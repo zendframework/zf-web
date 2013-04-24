@@ -1,0 +1,197 @@
+Index: tests/Zend/Log/Formatter/XmlTest.php
+===================================================================
+--- tests/Zend/Log/Formatter/XmlTest.php	(revision 18428)
++++ tests/Zend/Log/Formatter/XmlTest.php	(working copy)
+@@ -46,22 +46,30 @@
+         $this->assertContains('foo', $line);
+         $this->assertContains((string)42, $line);
+     }
+-    
++
+     public function testConfiguringElementMapping()
+     {
+         $f = new Zend_Log_Formatter_Xml('log', array('foo' => 'bar'));
+         $line = $f->format(array('bar' => 'baz'));
+         $this->assertContains('<log><foo>baz</foo></log>', $line);
+     }
+-    
++
++    public function testCallbacks()
++    {
++        $f      = new Zend_Log_Formatter_Xml();
++        $fields = array('custom' => array('Zend_Log_Formatter_XmlTest_TestObject3', 'getValue'));
++        $line   = $f->format($fields);
++        $this->assertContains('<logEntry><custom>Custom value</custom></logEntry>', $line);
++    }
++
+     public function testXmlDeclarationIsStripped()
+     {
+         $f = new Zend_Log_Formatter_Xml();
+         $line = $f->format(array('message' => 'foo', 'priority' => 42));
+-        
++
+         $this->assertNotContains('<\?xml version=', $line);
+     }
+-    
++
+     public function testXmlValidates()
+     {
+         $f = new Zend_Log_Formatter_Xml();
+@@ -96,3 +104,11 @@
+         $this->assertContains('&amp;amp', $line);
+     }
+ }
++
++class Zend_Log_Formatter_XmlTest_TestObject3
++{
++    public static function getValue()
++    {
++        return 'Custom value';
++    }
++}
+\ No newline at end of file
+Index: tests/Zend/Log/Formatter/SimpleTest.php
+===================================================================
+--- tests/Zend/Log/Formatter/SimpleTest.php	(revision 18428)
++++ tests/Zend/Log/Formatter/SimpleTest.php	(working copy)
+@@ -46,14 +46,14 @@
+             $this->assertRegExp('/must be a string/i', $e->getMessage());
+         }
+     }
+-    
++
+     public function testDefaultFormat()
+     {
+         $fields = array('timestamp'    => 0,
+                         'message'      => 'foo',
+                         'priority'     => 42,
+                         'priorityName' => 'bar');
+-        
++
+         $f = new Zend_Log_Formatter_Simple();
+         $line = $f->format($fields);
+ 
+@@ -62,7 +62,7 @@
+         $this->assertContains($fields['priorityName'], $line);
+         $this->assertContains((string)$fields['priority'], $line);
+     }
+-    
++
+     function testComplexValues()
+     {
+         $fields = array('timestamp'    => 0,
+@@ -70,19 +70,19 @@
+                         'priorityName' => 'bar');
+ 
+         $f = new Zend_Log_Formatter_Simple();
+-        
++
+         $fields['message'] = 'Foo';
+         $line = $f->format($fields);
+         $this->assertContains($fields['message'], $line);
+-        
++
+         $fields['message'] = 10;
+         $line = $f->format($fields);
+         $this->assertContains($fields['message'], $line);
+-        
++
+         $fields['message'] = 10.5;
+         $line = $f->format($fields);
+         $this->assertContains($fields['message'], $line);
+-        
++
+         $fields['message'] = true;
+         $line = $f->format($fields);
+         $this->assertContains('1', $line);
+@@ -91,28 +91,50 @@
+         $line = $f->format($fields);
+         $this->assertContains('Resource id ', $line);
+         fclose($fields['message']);
+-        
++
+         $fields['message'] = range(1,10);
+         $line = $f->format($fields);
+         $this->assertContains('array', $line);
+-        
++
+         $fields['message'] = new Zend_Log_Formatter_SimpleTest_TestObject1();
+         $line = $f->format($fields);
+         $this->assertContains($fields['message']->__toString(), $line);
+-        
++
+         $fields['message'] = new Zend_Log_Formatter_SimpleTest_TestObject2();
+         $line = $f->format($fields);
+         $this->assertContains('object', $line);
+     }
++
++    public function testCallbacks()
++    {
++        $fields = array('timestamp'    => 0,
++                        'message'      => 'foo',
++                        'priority'     => 42,
++                        'priorityName' => 'bar',
++                        'custom'       => array('Zend_Log_Formatter_SimpleTest_TestObject3', 'getValue'));
++
++        $format = '%timestamp% %priorityName% (%priority%): %message% %custom%' . PHP_EOL;
++        $f = new Zend_Log_Formatter_Simple($format);
++        $line = $f->format($fields);
++        $this->assertRegExp('/Method value$/', $line);
++    }
+ }
+ 
+ class Zend_Log_Formatter_SimpleTest_TestObject1 {
+-  
++
+     public function __toString()
+     {
+-        return 'Hello World';      
++        return 'Hello World';
+     }
+ }
+ 
+ class Zend_Log_Formatter_SimpleTest_TestObject2 {
+ }
++
++class Zend_Log_Formatter_SimpleTest_TestObject3
++{
++    public static function getValue()
++    {
++        return 'Method value';
++    }
++}
+Index: library/Zend/Log/Formatter/Simple.php
+===================================================================
+--- library/Zend/Log/Formatter/Simple.php	(revision 18428)
++++ library/Zend/Log/Formatter/Simple.php	(working copy)
+@@ -70,6 +70,12 @@
+     {
+         $output = $this->_format;
+         foreach ($event as $name => $value) {
++        	// String callbacks are not handled to avoid side-effects
++        	if (is_array($value) && is_callable($value)) {
++        		$value = call_user_func($value);
++        	} elseif (is_a($value, 'Closure')) {
++        		$value = $value();
++        	}
+ 
+             if ((is_object($value) && !method_exists($value,'__toString'))
+                 || is_array($value)) {
+Index: library/Zend/Log/Formatter/Xml.php
+===================================================================
+--- library/Zend/Log/Formatter/Xml.php	(revision 18428)
++++ library/Zend/Log/Formatter/Xml.php	(working copy)
+@@ -75,6 +75,13 @@
+         $elt = $dom->appendChild(new DOMElement($this->_rootElement));
+ 
+         foreach ($dataToInsert as $key => $value) {
++            // String callbacks are not handled to avoid side-effects
++            if (is_array($value) && is_callable($value)) {
++                $value = call_user_func($value);
++            } elseif (is_a($value, 'Closure')) {
++                $value = $value();
++            }
++
+             if($key == "message") {
+                 $value = htmlspecialchars($value);
+             }

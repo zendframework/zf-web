@@ -1,0 +1,998 @@
+Index: library/Zend/XmlRpc/Request.php
+===================================================================
+--- library/Zend/XmlRpc/Request.php	(revision 19822)
++++ library/Zend/XmlRpc/Request.php	(working copy)
+@@ -116,7 +116,7 @@
+     public function setEncoding($encoding)
+     {
+         $this->_encoding = $encoding;
+-        Zend_XmlRpc_Value::setEncoding($encoding);
++        Zend_XmlRpc_Value::getGenerator()->setEncoding($encoding);
+         return $this;
+     }
+ 
+@@ -406,25 +406,21 @@
+     {
+         $args   = $this->_getXmlRpcParams();
+         $method = $this->getMethod();
+-
+         $generator = Zend_XmlRpc_Value::getGenerator();
+-        $generator->startElement('methodCall')
+-                  ->startElement('methodName', $method)
+-                  ->endElement('methodName');
++        
++        $element = new Zend_XmlRpc_Generator_Element('methodCall', array(
++            new Zend_XmlRpc_Generator_Element('methodName', array($method))
++        ));
+ 
+         if (is_array($args) && count($args)) {
+-            $generator->startElement('params');
+-
++            $params = new Zend_XmlRpc_Generator_Element('params');
++            $element->appendChild($params);
+             foreach ($args as $arg) {
+-                $generator->startElement('param');
+-                $arg->generateXml();
+-                $generator->endElement('param');
++                /* @var $arg Zend_XmlRpc_Value */
++                $params->appendChild(new Zend_XmlRpc_Generator_Element('param', array($arg)));
+             }
+-            $generator->endElement('params');
+         }
+-        $generator->endElement('methodCall');
+-
+-        return $generator->flush();
++        return $generator->generateXml($element);
+     }
+ 
+     /**
+@@ -434,6 +430,6 @@
+      */
+     public function __toString()
+     {
+-        return $this->saveXML();
++        return $this->saveXml();
+     }
+ }
+Index: library/Zend/XmlRpc/Value/Scalar.php
+===================================================================
+--- library/Zend/XmlRpc/Value/Scalar.php	(revision 19822)
++++ library/Zend/XmlRpc/Value/Scalar.php	(working copy)
+@@ -39,17 +39,20 @@
+     /**
+      * Generate the XML code that represent a scalar native MXL-RPC value
+      *
+-     * @return void
++     * @return string
+      */
+-    protected function _generateXml()
++    public function saveXml()
+     {
+-        $generator = $this->getGenerator();
++        if (!$this->_as_xml) {   // The XML code was not calculated yet
++            $generator = $this->getGenerator();
++            $element = new Zend_XmlRpc_Generator_Element('value', array(
++                    new Zend_XmlRpc_Generator_Element($this->_type, array(
++                        $this->_value                    )
++                ))
++            );
++            $this->_as_xml = $this->_stripXmlDeclaration($generator->generateXml($element));
++        }
+ 
+-        $generator->startElement('value')
+-                  ->startElement($this->_type, $this->_value)
+-                  ->endElement($this->_type)
+-                  ->endElement('value');
+-
+-        $this->_xml = (string)$generator;
++        return $this->_as_xml;
+     }
+ }
+\ No newline at end of file
+Index: library/Zend/XmlRpc/Value/Array.php
+===================================================================
+--- library/Zend/XmlRpc/Value/Array.php	(revision 19822)
++++ library/Zend/XmlRpc/Value/Array.php	(working copy)
+@@ -47,29 +47,26 @@
+         parent::__construct($value);
+     }
+ 
+-
+     /**
+-     * Generate the XML code that represent an array native MXL-RPC value
++     * Return the XML code that represent an array native MXL-RPC value
+      *
+-     * @return void
++     * @return string
+      */
+-    protected function _generateXml()
++    public function saveXml()
+     {
+-        $generator = $this->getGenerator();
+-        $generator->startElement('value')
+-                  ->startElement('array')
+-                  ->startElement('data');
+-
+-        if (is_array($this->_value)) {
+-            foreach ($this->_value as $val) {
+-                $val->generateXml();
+-            }
++        if (!$this->_as_xml) {   // The XML code was not calculated yet
++            $generator = $this->getGenerator();
++            $members = is_array($this->_value) ? $this->_value : array();
++            
++            $element = new Zend_XmlRpc_Generator_Element('value', array(
++                new Zend_XmlRpc_Generator_Element('array', array(
++                    new Zend_XmlRpc_Generator_Element('data', $members)
++                ))
++            ));
++            $this->_as_xml = $this->_stripXmlDeclaration($generator->generateXml($element));
+         }
+-        $generator->endElement('data')
+-                  ->endElement('array')
+-                  ->endElement('value');
+ 
+-        $this->_xml = (string)$generator;
++        return $this->_as_xml;
+     }
+ }
+ 
+Index: library/Zend/XmlRpc/Value/Struct.php
+===================================================================
+--- library/Zend/XmlRpc/Value/Struct.php	(revision 19822)
++++ library/Zend/XmlRpc/Value/Struct.php	(working copy)
+@@ -51,26 +51,35 @@
+     /**
+      * Generate the XML code that represent struct native MXL-RPC value
+      *
+-     * @return void
++     * @return string
+      */
+-    protected function _generateXML()
++    public function saveXml()
+     {
+-        $generator = $this->getGenerator();
+-        $generator->startElement('value')
+-                  ->startElement('struct');
+-
+-        if (is_array($this->_value)) {
+-            foreach ($this->_value as $name => $val) {
+-                /* @var $val Zend_XmlRpc_Value */
+-                $generator->startElement('member')
+-                          ->startElement('name', $name)
+-                          ->endElement('name');
+-                $val->generateXml();
+-                $generator->endElement('member');
++        if (!$this->_as_xml) {   // The XML code was not calculated yet
++            
++            $generator = $this->getGenerator();
++            
++            // assemble envelope
++            $element = new Zend_XmlRpc_Generator_Element('value', array(
++                $struct = new Zend_XmlRpc_Generator_Element('struct')
++            ));
++            
++            // assemble members
++            if (is_array($this->_value)) {
++                foreach ($this->_value as $name => $val) {
++                    /* @var $val Zend_XmlRpc_Value */
++                    $struct->appendChild(new Zend_XmlRpc_Generator_Element('member', 
++                        array(
++                            new Zend_XmlRpc_Generator_Element('name', array($name)),
++                            $val
++                        )
++                    ));
++                }
+             }
++            
++            $this->_as_xml = $this->_stripXmlDeclaration($generator->generateXml($element));
+         }
+-        $generator->endElement('struct')
+-                  ->endElement('value');
+-        $this->_xml = (string)$generator;
++
++        return $this->_as_xml;
+     }
+-}
+\ No newline at end of file
++}
+Index: library/Zend/XmlRpc/Generator/XmlWriter.php
+===================================================================
+--- library/Zend/XmlRpc/Generator/XmlWriter.php	(revision 19822)
++++ library/Zend/XmlRpc/Generator/XmlWriter.php	(working copy)
+@@ -17,75 +17,63 @@
+  * @subpackage Generator
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+- * @version    $Id: Client.php 17752 2009-08-22 15:49:54Z lars $
+- */
++ * @version    $Id$
++ */  
+ 
+ /**
+- * @var Zend_XmlRpc_Generator_GeneratorAbstract
++ * @var Zend_XmlRpc_Generator_AbstractGenerator
+  */
+-require_once 'Zend/XmlRpc/Generator/GeneratorAbstract.php';
++require_once 'Zend/XmlRpc/Generator/AbstractGenerator.php';
+ 
+ /**
+- * XML generator adapter based on XMLWriter
++ * XML generator adapter based on XMLWriter.
+  */
+-class Zend_XmlRpc_Generator_XmlWriter extends Zend_XmlRpc_Generator_GeneratorAbstract
++class Zend_XmlRpc_Generator_XmlWriter extends Zend_XmlRpc_Generator_AbstractGenerator
+ {
+     /**
+-     * XMLWriter instance
+-     *
+-     * @var XMLWriter
++     * Return the XML-RPC XML code representing an 
++     * Zend_XmlRpc_Generator_Element.
++     * 
++     * @param Zend_XmlRpc_Generator_Element $element
++     * @return string
+      */
+-    protected $_xmlWriter;
+-
+-    /**
+-     * Initialized XMLWriter instance
+-     *
+-     * @return void
+-     */
+-    protected function _init()
++    public function generateXml(Zend_XmlRpc_Generator_Element $element)
+     {
+-        $this->_xmlWriter = new XMLWriter();
+-        $this->_xmlWriter->openMemory();
+-        $this->_xmlWriter->startDocument('1.0', $this->_encoding);
+-    }
++        $writer = new XMLWriter();
++        $writer->openMemory();
++        $writer->startDocument('1.0', $this->getEncoding());
+ 
+-    /**
+-     * Start XML element
+-     *
+-     * Method opens a new XML element with an element name and an optional value
+-     *
+-     * @param string $name
+-     * @param string $value
+-     * @return Zend_XmlRpc_Generator_XmlWriter Fluent interface
+-     */
+-    public function startElement($name, $value = null)
+-    {
+-        $this->_xmlWriter->startElement($name);
+-
+-        if ($value !== null) {
+-            $this->_xmlWriter->text($value);
+-        }
+-
+-        return $this;
++        $this->_generateXml($writer, $element);
++        return $writer->flush();    
+     }
+ 
+     /**
+-     * End of an XML element
+-     *
+-     * Called to mark the end of an XML element
+-     *
+-     * @param string $name
+-     * @return Zend_XmlRpc_Generator_XmlWriter Fluent interface
++     * Recursively walk through the element tree and write elements to the
++     * XMLWriter instance.
++     * 
++     * @param XMLWriter $writer
++     * @param Zend_XmlRpc_Generator_Element $element
++     * @return void
+      */
+-    public function endElement($name)
++    protected function _generateXml(XMLWriter $writer, 
++        Zend_XmlRpc_Generator_Element $element)
+     {
+-        $this->_xmlWriter->endElement();
+-
+-        return $this;
+-    }
++        $writer->startElement($element->getName());
+ 
+-    public function saveXml()
+-    {
+-        return $this->_xmlWriter->flush(false);
++        foreach($element->getChildren() as $child) {
++            
++            if($child instanceof Zend_XmlRpc_Generator_Element) {
++                /* @var $child Zend_XmlRpc_Generator_Element */
++                $this->_generateXml($writer, $child);
++            } 
++            elseif($child instanceof Zend_XmlRpc_Value) {
++                /* @var $child Zend_XmlRpc_Value */
++                $writer->writeRaw($child->saveXml());
++            }
++            else {
++                $writer->text($child);
++            }
++        }
++        $writer->endElement();
+     }
+ }
+\ No newline at end of file
+Index: library/Zend/XmlRpc/Generator/AbstractGenerator.php
+===================================================================
+--- library/Zend/XmlRpc/Generator/AbstractGenerator.php	(revision 0)
++++ library/Zend/XmlRpc/Generator/AbstractGenerator.php	(revision 0)
+@@ -0,0 +1,71 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_XmlRpc
++ * @subpackage Generator
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */  
++
++/**
++ * @var Zend_XmlRpc_Generator_Element
++ */
++require_once 'Zend/XmlRpc/Generator/Element.php';
++
++/**
++ * @var Zend_XmlRpc_Value
++ */
++require_once 'Zend/XmlRpc/Value.php';
++
++/**
++ * Abstract XML generator adapter.
++ */
++abstract class Zend_XmlRpc_Generator_AbstractGenerator
++{
++    /**
++     * XML output encoding. 
++     * Default is UTF-8.
++     * @var string
++     */
++    protected $_encoding = 'UTF-8';
++    
++    /**
++     * Sets the XML output encoding.
++     * @param string $encoding
++     * @return Zend_XmlRpc_Generator_Abstract Fluent interface
++     */
++    public function setEncoding($encoding)
++    {
++        $this->_encoding = $encoding;
++        return $this;
++    }
++    
++    /**
++     * Get the XML output encoding.
++     * @return string
++     */
++    public function getEncoding()
++    {
++        return $this->_encoding;
++    }
++
++    /**
++     * Generate the XML fragment representing the passed element.
++     * @param Zend_XmlRpc_Generator_Element $data
++     * @return string
++     */
++    abstract public function generateXml(Zend_XmlRpc_Generator_Element $data);
++}
+\ No newline at end of file
+Index: library/Zend/XmlRpc/Generator/GeneratorAbstract.php
+===================================================================
+--- library/Zend/XmlRpc/Generator/GeneratorAbstract.php	(revision 19822)
++++ library/Zend/XmlRpc/Generator/GeneratorAbstract.php	(working copy)
+@@ -1,114 +0,0 @@
+-<?php
+-/**
+- * Zend Framework
+- *
+- * LICENSE
+- *
+- * This source file is subject to the new BSD license that is bundled
+- * with this package in the file LICENSE.txt.
+- * It is also available through the world-wide-web at this URL:
+- * http://framework.zend.com/license/new-bsd
+- * If you did not receive a copy of the license and are unable to
+- * obtain it through the world-wide-web, please send an email
+- * to license@zend.com so we can send you a copy immediately.
+- *
+- * @category   Zend
+- * @package    Zend_XmlRpc
+- * @subpackage Generator
+- * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+- * @license    http://framework.zend.com/license/new-bsd     New BSD License
+- * @version    $Id: Client.php 17752 2009-08-22 15:49:54Z lars $
+- */
+-
+-/**
+- * Abstract XML generator adapter
+- */
+-abstract class Zend_XmlRpc_Generator_GeneratorAbstract
+-{
+-    /**
+-     * @var string
+-     */
+-    protected $_encoding;
+-
+-    /**
+-     * Construct new instance of the generator
+-     *
+-     * @param string $encoding XML encoding, default UTF-8
+-     */
+-    public function __construct($encoding = 'UTF-8')
+-    {
+-        $this->_encoding = $encoding;
+-        $this->_init();
+-    }
+-
+-    /**
+-     * Start XML element
+-     *
+-     * Method opens a new XML element with an element name and an optional value
+-     * 
+-     * @param string $name
+-     * @param string $value
+-     * @return Zend_XmlRpc_Generator_Abstract Fluent interface
+-     */
+-    abstract public function startElement($name, $value = null);
+-
+-    /**
+-     * End of an XML element
+-     *
+-     * Method marks the end of an XML element
+-     *
+-     * @param string $name
+-     * @return Zend_XmlRpc_Generator_Abstract Fluent interface
+-     */
+-    abstract public function endElement($name);
+-
+-    /**
+-     * Returns XML as a string
+-     *
+-     * @return string
+-     */
+-    abstract public function saveXml();
+-
+-    /**
+-     * Return encoding
+-     * 
+-     * @return string
+-     */
+-    public function getEncoding()
+-    {
+-        return $this->_encoding;
+-    }
+-
+-    /**
+-     * Returns the XML as a string and flushes all internal buffers
+-     *
+-     * @return string
+-     */
+-    public function flush()
+-    {
+-        $xml = $this->saveXml();
+-        $this->_init();
+-        return $xml;
+-    }
+-
+-    /**
+-     * Returns XML without document declaration
+-     *
+-     * @return string
+-     */
+-    public function __toString()
+-    {
+-        return $this->stripDeclaration($this->saveXml());
+-    }
+-
+-    /**
+-     * Removes XML declaration from a string
+-     *
+-     * @param string $xml
+-     * @return string
+-     */
+-    public function stripDeclaration($xml)
+-    {
+-        return preg_replace('/<\?xml version="1.0"( encoding="[^\"]*")?\?>\n/u', '', $xml);
+-    }
+-}
+Index: library/Zend/XmlRpc/Generator/DomDocument.php
+===================================================================
+--- library/Zend/XmlRpc/Generator/DomDocument.php	(revision 19822)
++++ library/Zend/XmlRpc/Generator/DomDocument.php	(working copy)
+@@ -17,86 +17,70 @@
+  * @subpackage Generator
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+- * @version    $Id: Client.php 17752 2009-08-22 15:49:54Z lars $
+- */
++ * @version    $Id$
++ */  
+ 
+ /**
+- * @var Zend_XmlRpc_Generator_GeneratorAbstract
++ * @var Zend_XmlRpc_Generator_AbstractGenerator
+  */
+-require_once 'Zend/XmlRpc/Generator/GeneratorAbstract.php';
++require_once 'Zend/XmlRpc/Generator/AbstractGenerator.php';
+ 
+ /**
+- * DOMDocument based implementation of a XML/RPC generator
++ * XML generator adapter based on DOMDocument.
+  */
+-class Zend_XmlRpc_Generator_DomDocument extends Zend_XmlRpc_Generator_GeneratorAbstract
++class Zend_XmlRpc_Generator_DomDocument extends Zend_XmlRpc_Generator_AbstractGenerator
+ {
+     /**
+-     * @var DOMDocument
+-     */
+-    protected $_dom;
+-
+-    /**
+-     * @var DOMNode
+-     */
+-    protected $_currentElement;
+-
+-    /**
+-     * Start XML element
+-     *
+-     * Creates a new XML element and appends it to the document tree
+-     *
+-     * @param string $name
+-     * @param string $value
+-     * @return Zend_XmlRpc_Generator_DomDocument Fluent interface
+-     */
+-    public function startElement($name, $value = null)
+-    {
+-        $newElement = $this->_dom->createElement($name);
+-
+-        $this->_currentElement = $this->_currentElement->appendChild($newElement);
+-
+-        if ($value !== null) {
+-            $this->_currentElement->appendChild($this->_dom->createTextNode($value));
+-        }
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * End of an XML element
+-     *
+-     * Resets $_currentElement to the next parent node in the hierarchy
+-     *
+-     * @param string $name
+-     * @return Zend_XmlRpc_Generator_DomDocument Fluent interface
+-     */
+-    public function endElement($name)
+-    {
+-        if (isset($this->_currentElement->parentNode)) {
+-            $this->_currentElement = $this->_currentElement->parentNode;
+-        }
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * Save XML as a string
+-     *
++     * Return the XML-RPC XML code representing an 
++     * Zend_XmlRpc_Generator_Element.
++     * 
++     * @param Zend_XmlRpc_Generator_Element $element
+      * @return string
+      */
+-    public function saveXml()
++    public function generateXml(Zend_XmlRpc_Generator_Element $element)
+     {
+-        return $this->_dom->saveXml();
++        $dom   = new DOMDocument('1.0');
++        $this->_generateXml($dom, $element);
++        return $dom->saveXML();
+     }
+ 
+     /**
+-     * Initializes internal objects
+-     *
++     * Builds the document recursively.
++     * 
++     * @param DOMDocument $dom
++     * @param Zend_XmlRpc_Generator_Element $element
++     * @param DOMElement $rootNode
+      * @return void
+      */
+-    protected function _init()
++    protected function _generateXml(DOMDocument $dom, 
++        Zend_XmlRpc_Generator_Element $element, DOMElement $rootNode = null)
+     {
+-        $this->_dom = new DOMDocument('1.0', $this->_encoding);
+-        $this->_currentElement = $this->_dom;
++        $node = $dom->createElement($element->getName());
++        if(is_null($rootNode)) {
++            $dom->appendChild($node);
++        } else {
++            $rootNode->appendChild($node);
++        }
++
++        foreach($element->getChildren() as $child) {
++        
++            if($child instanceof Zend_XmlRpc_Generator_Element) {
++                /* @var $child Zend_XmlRpc_Generator_Element */
++                $this->_generateXml($dom, $child, $node);
++            } 
++            elseif($child instanceof Zend_XmlRpc_Value) {
++                /* @var $child Zend_XmlRpc_Value */
++                $importNode = new DOMDocument();
++                $importNode->loadXML($child->saveXML());
++                $node->appendChild($dom->importNode(
++                    $importNode->documentElement, true
++                ));
++            }
++            else {
++                $node->appendChild(
++                    $dom->createTextNode($child)
++                );
++            }
++        }
+     }
+-}
+\ No newline at end of file
++}
+Index: library/Zend/XmlRpc/Generator/Element.php
+===================================================================
+--- library/Zend/XmlRpc/Generator/Element.php	(revision 0)
++++ library/Zend/XmlRpc/Generator/Element.php	(revision 0)
+@@ -0,0 +1,81 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_XmlRpc
++ * @subpackage Generator
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */  
++
++/**
++ * XML element definition for Zend_XmlRpc_Generator_Abstract.
++ */
++class Zend_XmlRpc_Generator_Element
++{
++    /**
++     * Element name.
++     * @var string
++     */
++    protected $_name = null;
++    
++    /**
++     * Content of the element. This can be Zend_XmlRpc_Generator_Element, 
++     * Zend_XmlRpc_Value or string types.
++     * @var array
++     */
++    protected $_children = array();
++    
++    /**
++     * Constructor.
++     * @param string $name
++     * @param string |¬†Zend_XmlRpc_Value $value
++     * @param array | Zend_XmlRpc_Generator_Element $children
++     */
++    public function __construct($name, array $children = array()) 
++    {
++        $this->_name = $name;
++        $this->_children = $children;
++    }
++    
++    /**
++     * Get the name
++     * @return string
++     */
++    public function getName()
++    {
++        return $this->_name;
++    }
++    
++    /**
++     * Get content of this element.
++     * @return array
++     */
++    public function getChildren()
++    {
++        return $this->_children;
++    }
++    
++    /**
++     * Append a child.
++     * @param string | Zend_XmlRpc_Generator_Element |¬†Zend_XmlRpc_Value¬†$child
++     * @return Zend_XmlRpc_Generator_Element Fluent interface
++     */
++    public function appendChild($child)
++    {
++        $this->_children[] = $child;
++        return $this;
++    }
++}
+\ No newline at end of file
+Index: library/Zend/XmlRpc/Value.php
+===================================================================
+--- library/Zend/XmlRpc/Value.php	(revision 19822)
++++ library/Zend/XmlRpc/Value.php	(working copy)
+@@ -37,6 +37,12 @@
+ abstract class Zend_XmlRpc_Value
+ {
+     /**
++     * XML generator.
++     * @var Zend_XmlRpc_Generator_Abstract
++     */
++    protected static $_generator = null;
++    
++    /**
+      * The native XML-RPC representation of this object's value
+      *
+      * If the native type of this object is array or struct, this will be an array
+@@ -53,12 +59,8 @@
+     /**
+      * XML code representation of this object (will be calculated only once)
+      */
+-    protected $_xml;
++    protected $_as_xml;
+ 
+-    /**
+-     * @var Zend_XmlRpc_Generator_GeneratorAbstract
+-     */
+-    protected static $_generator;
+ 
+     /**
+      * Specify that the XML-RPC native type will be auto detected from a PHP variable type
+@@ -97,49 +99,6 @@
+         return $this->_type;
+     }
+ 
+-    /**
+-     * Get XML generator instance
+-     *
+-     * @return Zend_XmlRpc_Generator_GeneratorAbstract
+-     */
+-    public static function getGenerator()
+-    {
+-        if (!self::$_generator) {
+-            if (extension_loaded('xmlwriter')) {
+-                require_once 'Zend/XmlRpc/Generator/XmlWriter.php';
+-                self::$_generator = new Zend_XmlRpc_Generator_XmlWriter();
+-            } else {
+-                require_once 'Zend/XmlRpc/Generator/DomDocument.php';
+-                self::$_generator = new Zend_XmlRpc_Generator_DomDocument();
+-            }
+-        }
+-
+-        return self::$_generator;
+-    }
+-
+-    /**
+-     * Sets XML generator instance
+-     *
+-     * @param Zend_XmlRpc_Generator_GeneratorAbstract $generator
+-     * @return void
+-     */
+-    public static function setGenerator(Zend_XmlRpc_Generator_GeneratorAbstract $generator)
+-    {
+-        self::$_generator = $generator;
+-    }
+-
+-    /**
+-     * Changes the encoding of the generator
+-     *
+-     * @param string $encoding
+-     * @return void
+-     */
+-    public static function setEncoding($encoding)
+-    {
+-        $generator = self::getGenerator();
+-        $newGenerator = new $generator($encoding);
+-        self::setGenerator($newGenerator);
+-    }
+ 
+     /**
+      * Return the value of this object, convert the XML-RPC native value into a PHP variable
+@@ -154,26 +113,13 @@
+      *
+      * @return string
+      */
+-    public function saveXml()
+-    {
+-        if (!$this->_xml) {
+-            $this->generateXml();
+-        }
+-        return $this->_xml;
+-    }
++    abstract public function saveXml();
+ 
+-    /**
+-     * Generate XML code that represent a native XML/RPC value
+-     *
+-     * @return void
+-     */
+-    public function generateXml()
++    protected function _stripXmlDeclaration($xml)
+     {
+-        if (!$this->_xml) {
+-            $this->_generateXml();
+-        }
++        return preg_replace('/<\?xml version="1.0"( encoding="[^\"]*")?\?>\n/u', '', $xml);
+     }
+-
++    
+     /**
+      * Creates a Zend_XmlRpc_Value* object, representing a native XML-RPC value
+      * A XmlRpcValue object can be created in 3 ways:
+@@ -480,6 +426,36 @@
+      */
+     protected function _setXML($xml)
+     {
+-        $this->_xml = $this->getGenerator()->stripDeclaration($xml);
++        $this->as_xml = $this->_stripXmlDeclaration($xml);
++    }
++
++    /**
++     * Sets XML generator instance
++     *
++     * @param Zend_XmlRpc_Generator_Abstract $generator
++     * @return void
++     */
++    public static function setGenerator(Zend_XmlRpc_Generator_Abstract $generator)
++    {
++        self::$_generator = $generator;
++    }
++    
++    /**
++     * Get XML generator instance
++     *
++     * @return Zend_XmlRpc_Generator_Abstract
++     */
++    public static function getGenerator()
++    {
++        if (!self::$_generator) {
++            if (extension_loaded('xmlwriter')) {
++                require_once 'Zend/XmlRpc/Generator/XmlWriter.php';
++                self::$_generator = new Zend_XmlRpc_Generator_XmlWriter();
++            } else {
++                require_once 'Zend/XmlRpc/Generator/DomDocument.php';
++                self::$_generator = new Zend_XmlRpc_Generator_DomDocument();
++            }
++        }
++        return self::$_generator;
+     }
+ }
+Index: library/Zend/XmlRpc/Server.php
+===================================================================
+--- library/Zend/XmlRpc/Server.php	(revision 19822)
++++ library/Zend/XmlRpc/Server.php	(working copy)
+@@ -392,7 +392,7 @@
+     public function setEncoding($encoding)
+     {
+         $this->_encoding = $encoding;
+-        Zend_XmlRpc_Value::setEncoding($encoding);
++        Zend_XmlRpc_Value::getGenerator()->setEncoding($encoding);
+         return $this;
+     }
+ 
+Index: library/Zend/XmlRpc/Fault.php
+===================================================================
+--- library/Zend/XmlRpc/Fault.php	(revision 19822)
++++ library/Zend/XmlRpc/Fault.php	(working copy)
+@@ -168,7 +168,7 @@
+     public function setEncoding($encoding)
+     {
+         $this->_encoding = $encoding;
+-        Zend_XmlRpc_Value::setEncoding($encoding);
++        Zend_XmlRpc_Value::getGenerator()->setEncoding($encoding);
+         return $this;
+     }
+ 
+@@ -284,15 +284,14 @@
+             'faultString' => $this->getMessage()
+         );
+         $value = Zend_XmlRpc_Value::getXmlRpcValue($faultStruct);
+-
++        
+         $generator = Zend_XmlRpc_Value::getGenerator();
+-        $generator->startElement('methodResponse')
+-                  ->startElement('fault');
+-        $value->saveXml();
+-        $generator->endElement('fault')
+-                  ->endElement('methodResponse');
+-
+-        return $generator->flush();
++        $element = new Zend_XmlRpc_Generator_Element('methodResponse', array(
++            new Zend_XmlRpc_Generator_Element('fault', array(
++                $value
++            ))
++        ));
++        return $generator->generateXml($element);
+     }
+ 
+     /**
+@@ -302,6 +301,6 @@
+      */
+     public function __toString()
+     {
+-        return $this->saveXML();
++        return $this->saveXml();
+     }
+ }
+Index: library/Zend/XmlRpc/Response.php
+===================================================================
+--- library/Zend/XmlRpc/Response.php	(revision 19822)
++++ library/Zend/XmlRpc/Response.php	(working copy)
+@@ -89,7 +89,7 @@
+     public function setEncoding($encoding)
+     {
+         $this->_encoding = $encoding;
+-        Zend_XmlRpc_Value::setEncoding($encoding);
++        Zend_XmlRpc_Value::getGenerator()->setEncoding($encoding);
+         return $this;
+     }
+ 
+@@ -223,17 +223,15 @@
+      */
+     public function saveXml()
+     {
+-        $value = $this->_getXmlRpcReturn();
+         $generator = Zend_XmlRpc_Value::getGenerator();
+-        $generator->startElement('methodResponse')
+-                  ->startElement('params')
+-                  ->startElement('param');
+-        $value->generateXml();
+-        $generator->endElement('param')
+-                  ->endElement('params')
+-                  ->endElement('methodResponse');
+-
+-        return $generator->flush();
++        $element = new Zend_XmlRpc_Generator_Element('methodResponse', array(
++            new Zend_XmlRpc_Generator_Element('params', array(
++                new Zend_XmlRpc_Generator_Element('param', array(
++                    $this->_getXmlRpcReturn()
++                ))
++            ))
++        ));
++        return $generator->generateXml($element);
+     }
+ 
+     /**
+@@ -243,6 +241,6 @@
+      */
+     public function __toString()
+     {
+-        return $this->saveXML();
++        return $this->saveXml();
+     }
+ }

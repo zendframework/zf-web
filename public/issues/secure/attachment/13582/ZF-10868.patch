@@ -1,0 +1,1160 @@
+Only in Zend/: .buildpath
+Only in Zend/: .project
+Only in Zend/: .settings
+diff -ru Zend-1.11.1/Controller/Action/Helper/Abstract.php Zend/Controller/Action/Helper/Abstract.php
+--- Zend-1.11.1/Controller/Action/Helper/Abstract.php	2010-01-13 13:55:25.000000000 -0500
++++ Zend/Controller/Action/Helper/Abstract.php	2010-12-26 23:31:02.000000000 -0500
+@@ -136,6 +136,21 @@
+     }
+ 
+     /**
++     * isResponse() -
++     *
++     * @return boolean
++     */
++    public function isResponse($type, $namespace = 'Zend_Controller_Response')
++    {
++        $controller = $this->getActionController();
++        if (null === $controller) {
++            $controller = $this->getFrontController();
++        }
++
++        return $controller->isResponse($type, $namespace);
++    }
++
++    /**
+      * getName()
+      *
+      * @return string
+diff -ru Zend-1.11.1/Controller/Action/Helper/AutoCompleteDojo.php Zend/Controller/Action/Helper/AutoCompleteDojo.php
+--- Zend-1.11.1/Controller/Action/Helper/AutoCompleteDojo.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Controller/Action/Helper/AutoCompleteDojo.php	2010-12-26 22:56:25.000000000 -0500
+@@ -80,7 +80,11 @@
+         }
+ 
+         $response = Zend_Controller_Front::getInstance()->getResponse();
+-        $response->setHeader('Content-Type', 'application/json');
++
++        // Only set the content type header if we have an HTTP response.
++        if (Zend_Controller_Front::getInstance()->isResponse('http')) {
++            $response->setHeader('Content-Type', 'application/json');
++        }
+ 
+         return $data->toJson();
+     }
+diff -ru Zend-1.11.1/Controller/Action/Helper/ContextSwitch.php Zend/Controller/Action/Helper/ContextSwitch.php
+--- Zend-1.11.1/Controller/Action/Helper/ContextSwitch.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Controller/Action/Helper/ContextSwitch.php	2010-12-26 23:30:07.000000000 -0500
+@@ -276,11 +276,13 @@
+ 
+         $this->_getViewRenderer()->setViewSuffix($suffix);
+ 
+-        $headers = $this->getHeaders($context);
+-        if (!empty($headers)) {
+-            $response = $this->getResponse();
+-            foreach ($headers as $header => $content) {
+-                $response->setHeader($header, $content);
++        if ($this->isResponse('http')) {
++            $headers = $this->getHeaders($context);
++            if (!empty($headers)) {
++                $response = $this->getResponse();
++                foreach ($headers as $header => $content) {
++                    $response->setHeader($header, $content);
++                }
+             }
+         }
+ 
+diff -ru Zend-1.11.1/Controller/Action/Helper/Redirector.php Zend/Controller/Action/Helper/Redirector.php
+--- Zend-1.11.1/Controller/Action/Helper/Redirector.php	2010-10-26 08:45:52.000000000 -0400
++++ Zend/Controller/Action/Helper/Redirector.php	2010-12-26 23:56:46.000000000 -0500
+@@ -486,7 +486,10 @@
+             }
+         }
+ 
+-        $this->getResponse()->sendHeaders();
++        if ($this->isResponse('http')) {
++            $this->getResponse()->sendHeaders();
++        }
++
+         exit();
+     }
+ 
+diff -ru Zend-1.11.1/Controller/Action/Helper/ViewRenderer.php Zend/Controller/Action/Helper/ViewRenderer.php
+--- Zend-1.11.1/Controller/Action/Helper/ViewRenderer.php	2010-01-13 13:55:25.000000000 -0500
++++ Zend/Controller/Action/Helper/ViewRenderer.php	2010-12-26 23:37:42.000000000 -0500
+@@ -965,12 +965,12 @@
+      */
+     protected function _shouldRender()
+     {
+-        return (!$this->getFrontController()->getParam('noViewRenderer')
++        return ((!$this->getFrontController()->getParam('noViewRenderer')
+             && !$this->_neverRender
+             && !$this->_noRender
+             && (null !== $this->_actionController)
+-            && $this->getRequest()->isDispatched()
+-            && !$this->getResponse()->isRedirect()
++            && $this->getRequest()->isDispatched())
++            || ($this->isResponse('http') && !$this->getResponse()->isRedirect())
+         );
+     }
+ 
+diff -ru Zend-1.11.1/Controller/Action.php Zend/Controller/Action.php
+--- Zend-1.11.1/Controller/Action.php	2010-08-05 14:30:27.000000000 -0400
++++ Zend/Controller/Action.php	2010-12-26 23:29:46.000000000 -0500
+@@ -330,6 +330,26 @@
+     }
+ 
+     /**
++     * A helper method to determine if the response in the front controller is
++     * of a certain type named by $type, with the optional namespace $namespace.
++     *
++     * The use-case for this method is a clean means of testing for the appropriate
++     * response type before attempting to act upon the response. There are a few
++     * potential holes in the framework that if not properly tested could cause
++     * exceptions and/or fatal errors.
++     *
++     * @param string $type - The type of response (i.e., 'http' or 'cli')
++     * @param string $namespace - The optional namespace to prepent to the type
++     *
++     * @return boolean
++     * @access public
++     */
++    public function isResponse($type, $namespace = 'Zend_Controller_Response')
++    {
++        return $this->getFrontController()->isResponse($type, $namespace);
++    }
++
++    /**
+      * Set the Response object
+      *
+      * @param Zend_Controller_Response_Abstract $response
+@@ -580,7 +600,7 @@
+     protected function _getParam($paramName, $default = null)
+     {
+         $value = $this->getRequest()->getParam($paramName);
+-		 if ((null === $value || '' === $value) && (null !== $default)) {
++         if ((null === $value || '' === $value) && (null !== $default)) {
+             $value = $default;
+         }
+ 
+diff -ru Zend-1.11.1/Controller/Front.php Zend/Controller/Front.php
+--- Zend-1.11.1/Controller/Front.php	2010-01-12 16:36:08.000000000 -0500
++++ Zend/Controller/Front.php	2010-12-27 00:06:36.000000000 -0500
+@@ -644,6 +644,27 @@
+     }
+ 
+     /**
++     * A helper method to determine if the response in the front controller is
++     * of a certain type named by $type, with the optional namespace $namespace.
++     *
++     * The use-case for this method is a clean means of testing for the appropriate
++     * response type before attempting to act upon the response. There are a few
++     * potential holes in the framework that if not properly tested could cause
++     * exceptions and/or fatal errors.
++     *
++     * @param string $type - The type of response (i.e., 'http' or 'cli')
++     * @param string $namespace - The optional namespace to prepent to the type
++     *
++     * @return boolean
++     * @access public
++     */
++    public function isResponse($type, $namespace = 'Zend_Controller_Response')
++    {
++        $class = sprintf('%s_%s', trim($namespace, '_'), ucfirst(strtolower($type)));
++        return is_a($this->getResponse(), $class);
++    }
++
++    /**
+      * Add or modify a parameter to use when instantiating an action controller
+      *
+      * @param string $name
+diff -ru Zend-1.11.1/Controller/Response/Abstract.php Zend/Controller/Response/Abstract.php
+--- Zend-1.11.1/Controller/Response/Abstract.php	2010-03-02 18:01:19.000000000 -0500
++++ Zend/Controller/Response/Abstract.php	2010-12-26 22:59:56.000000000 -0500
+@@ -44,331 +44,23 @@
+     protected $_exceptions = array();
+ 
+     /**
+-     * Array of headers. Each header is an array with keys 'name' and 'value'
+-     * @var array
+-     */
+-    protected $_headers = array();
+-
+-    /**
+-     * Array of raw headers. Each header is a single string, the entire header to emit
+-     * @var array
+-     */
+-    protected $_headersRaw = array();
+-
+-    /**
+-     * HTTP response code to use in headers
+-     * @var int
+-     */
+-    protected $_httpResponseCode = 200;
+-
+-    /**
+-     * Flag; is this response a redirect?
+-     * @var boolean
+-     */
+-    protected $_isRedirect = false;
+-
+-    /**
+      * Whether or not to render exceptions; off by default
+      * @var boolean
+      */
+     protected $_renderExceptions = false;
+ 
+     /**
+-     * Flag; if true, when header operations are called after headers have been
+-     * sent, an exception will be raised; otherwise, processing will continue
+-     * as normal. Defaults to true.
+-     *
+-     * @see canSendHeaders()
+-     * @var boolean
+-     */
+-    public $headersSentThrowsException = true;
+-
+-    /**
+-     * Normalize a header name
+-     *
+-     * Normalizes a header name to X-Capitalized-Names
+-     *
+-     * @param  string $name
+-     * @return string
+-     */
+-    protected function _normalizeHeader($name)
+-    {
+-        $filtered = str_replace(array('-', '_'), ' ', (string) $name);
+-        $filtered = ucwords(strtolower($filtered));
+-        $filtered = str_replace(' ', '-', $filtered);
+-        return $filtered;
+-    }
+-
+-    /**
+-     * Set a header
+-     *
+-     * If $replace is true, replaces any headers already defined with that
+-     * $name.
+-     *
+-     * @param string $name
+-     * @param string $value
+-     * @param boolean $replace
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function setHeader($name, $value, $replace = false)
+-    {
+-        $this->canSendHeaders(true);
+-        $name  = $this->_normalizeHeader($name);
+-        $value = (string) $value;
+-
+-        if ($replace) {
+-            foreach ($this->_headers as $key => $header) {
+-                if ($name == $header['name']) {
+-                    unset($this->_headers[$key]);
+-                }
+-            }
+-        }
+-
+-        $this->_headers[] = array(
+-            'name'    => $name,
+-            'value'   => $value,
+-            'replace' => $replace
+-        );
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * Set redirect URL
+-     *
+-     * Sets Location header and response code. Forces replacement of any prior
+-     * redirects.
+-     *
+-     * @param string $url
+-     * @param int $code
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function setRedirect($url, $code = 302)
+-    {
+-        $this->canSendHeaders(true);
+-        $this->setHeader('Location', $url, true)
+-             ->setHttpResponseCode($code);
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * Is this a redirect?
+-     *
+-     * @return boolean
+-     */
+-    public function isRedirect()
+-    {
+-        return $this->_isRedirect;
+-    }
+-
+-    /**
+-     * Return array of headers; see {@link $_headers} for format
+-     *
+-     * @return array
+-     */
+-    public function getHeaders()
+-    {
+-        return $this->_headers;
+-    }
+-
+-    /**
+-     * Clear headers
+-     *
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function clearHeaders()
+-    {
+-        $this->_headers = array();
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * Clears the specified HTTP header
+-     *
+-     * @param  string $name
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function clearHeader($name)
+-    {
+-        if (! count($this->_headers)) {
+-            return $this;
+-        }
+-
+-        foreach ($this->_headers as $index => $header) {
+-            if ($name == $header['name']) {
+-                unset($this->_headers[$index]);
+-            }
+-        }
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * Set raw HTTP header
+-     *
+-     * Allows setting non key => value headers, such as status codes
+-     *
+-     * @param string $value
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function setRawHeader($value)
+-    {
+-        $this->canSendHeaders(true);
+-        if ('Location' == substr($value, 0, 8)) {
+-            $this->_isRedirect = true;
+-        }
+-        $this->_headersRaw[] = (string) $value;
+-        return $this;
+-    }
+-
+-    /**
+-     * Retrieve all {@link setRawHeader() raw HTTP headers}
+-     *
+-     * @return array
+-     */
+-    public function getRawHeaders()
+-    {
+-        return $this->_headersRaw;
+-    }
+-
+-    /**
+-     * Clear all {@link setRawHeader() raw HTTP headers}
+-     *
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function clearRawHeaders()
+-    {
+-        $this->_headersRaw = array();
+-        return $this;
+-    }
+-
+-    /**
+-     * Clears the specified raw HTTP header
+-     *
+-     * @param  string $headerRaw
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function clearRawHeader($headerRaw)
+-    {
+-        if (! count($this->_headersRaw)) {
+-            return $this;
+-        }
+-
+-        $key = array_search($headerRaw, $this->_headersRaw);
+-        unset($this->_headersRaw[$key]);
+-
+-        return $this;
+-    }
+-
+-    /**
+-     * Clear all headers, normal and raw
+-     *
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function clearAllHeaders()
+-    {
+-        return $this->clearHeaders()
+-                    ->clearRawHeaders();
+-    }
+-
+-    /**
+-     * Set HTTP response code to use with headers
+-     *
+-     * @param int $code
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function setHttpResponseCode($code)
+-    {
+-        if (!is_int($code) || (100 > $code) || (599 < $code)) {
+-            require_once 'Zend/Controller/Response/Exception.php';
+-            throw new Zend_Controller_Response_Exception('Invalid HTTP response code');
+-        }
+-
+-        if ((300 <= $code) && (307 >= $code)) {
+-            $this->_isRedirect = true;
+-        } else {
+-            $this->_isRedirect = false;
+-        }
+-
+-        $this->_httpResponseCode = $code;
+-        return $this;
+-    }
+-
+-    /**
+-     * Retrieve HTTP response code
+-     *
+-     * @return int
+-     */
+-    public function getHttpResponseCode()
+-    {
+-        return $this->_httpResponseCode;
+-    }
+-
+-    /**
+-     * Can we send headers?
++     * Depending on the type of response will determine how to send the response.
++     * For example, using the HTTP response, there will need to be consideration
++     * for HTTP headers (have they been sent? send them. etc.). But, for other
++     * types of responses (i.e., CLI), we do not need to care about headers -
++     * in fact, dealing with headers in a CLI can cause erroneous errors.
+      *
+-     * @param boolean $throw Whether or not to throw an exception if headers have been sent; defaults to false
+-     * @return boolean
+-     * @throws Zend_Controller_Response_Exception
++     * @return void
++     * @access public
++     * @abstract
+      */
+-    public function canSendHeaders($throw = false)
+-    {
+-        $ok = headers_sent($file, $line);
+-        if ($ok && $throw && $this->headersSentThrowsException) {
+-            require_once 'Zend/Controller/Response/Exception.php';
+-            throw new Zend_Controller_Response_Exception('Cannot send headers; headers already sent in ' . $file . ', line ' . $line);
+-        }
+-
+-        return !$ok;
+-    }
+-
+-    /**
+-     * Send all headers
+-     *
+-     * Sends any headers specified. If an {@link setHttpResponseCode() HTTP response code}
+-     * has been specified, it is sent with the first header.
+-     *
+-     * @return Zend_Controller_Response_Abstract
+-     */
+-    public function sendHeaders()
+-    {
+-        // Only check if we can send headers if we have headers to send
+-        if (count($this->_headersRaw) || count($this->_headers) || (200 != $this->_httpResponseCode)) {
+-            $this->canSendHeaders(true);
+-        } elseif (200 == $this->_httpResponseCode) {
+-            // Haven't changed the response code, and we have no headers
+-            return $this;
+-        }
+-
+-        $httpCodeSent = false;
+-
+-        foreach ($this->_headersRaw as $header) {
+-            if (!$httpCodeSent && $this->_httpResponseCode) {
+-                header($header, true, $this->_httpResponseCode);
+-                $httpCodeSent = true;
+-            } else {
+-                header($header);
+-            }
+-        }
+-
+-        foreach ($this->_headers as $header) {
+-            if (!$httpCodeSent && $this->_httpResponseCode) {
+-                header($header['name'] . ': ' . $header['value'], $header['replace'], $this->_httpResponseCode);
+-                $httpCodeSent = true;
+-            } else {
+-                header($header['name'] . ': ' . $header['value'], $header['replace']);
+-            }
+-        }
+-
+-        if (!$httpCodeSent) {
+-            header('HTTP/1.1 ' . $this->_httpResponseCode);
+-            $httpCodeSent = true;
+-        }
+-
+-        return $this;
+-    }
++    public abstract function sendResponse();
+ 
+     /**
+      * Set body content
+@@ -756,28 +448,6 @@
+     }
+ 
+     /**
+-     * Send the response, including all headers, rendering exceptions if so
+-     * requested.
+-     *
+-     * @return void
+-     */
+-    public function sendResponse()
+-    {
+-        $this->sendHeaders();
+-
+-        if ($this->isException() && $this->renderExceptions()) {
+-            $exceptions = '';
+-            foreach ($this->getException() as $e) {
+-                $exceptions .= $e->__toString() . "\n";
+-            }
+-            echo $exceptions;
+-            return;
+-        }
+-
+-        $this->outputBody();
+-    }
+-
+-    /**
+      * Magic __toString functionality
+      *
+      * Proxies to {@link sendResponse()} and returns response value as string
+diff -ru Zend-1.11.1/Controller/Response/Cli.php Zend/Controller/Response/Cli.php
+--- Zend-1.11.1/Controller/Response/Cli.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Controller/Response/Cli.php	2010-12-26 22:22:20.000000000 -0500
+@@ -38,14 +38,24 @@
+ class Zend_Controller_Response_Cli extends Zend_Controller_Response_Abstract
+ {
+     /**
+-     * Flag; if true, when header operations are called after headers have been
+-     * sent, an exception will be raised; otherwise, processing will continue
+-     * as normal. Defaults to false.
++     * Send the response, including all headers, rendering exceptions if so
++     * requested.
+      *
+-     * @see canSendHeaders()
+-     * @var boolean
++     * @return void
+      */
+-    public $headersSentThrowsException = false;
++    public function sendResponse()
++    {
++        if ($this->isException() && $this->renderExceptions()) {
++            $exceptions = '';
++            foreach ($this->getException() as $e) {
++                $exceptions .= $e->__toString() . "\n";
++            }
++            echo $exceptions;
++            return;
++        }
++
++        $this->outputBody();
++    }
+ 
+ 
+     /**
+diff -ru Zend-1.11.1/Controller/Response/Http.php Zend/Controller/Response/Http.php
+--- Zend-1.11.1/Controller/Response/Http.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Controller/Response/Http.php	2010-12-26 23:51:24.000000000 -0500
+@@ -35,4 +35,346 @@
+  */
+ class Zend_Controller_Response_Http extends Zend_Controller_Response_Abstract
+ {
++    /**
++     * Array of headers. Each header is an array with keys 'name' and 'value'
++     * @var array
++     */
++    protected $_headers = array();
++
++    /**
++     * Array of raw headers. Each header is a single string, the entire header to emit
++     * @var array
++     */
++    protected $_headersRaw = array();
++
++    /**
++     * HTTP response code to use in headers
++     * @var int
++     */
++    protected $_httpResponseCode = 200;
++
++    /**
++     * Flag; is this response a redirect?
++     * @var boolean
++     */
++    protected $_isRedirect = false;
++
++    /**
++     * Flag; if true, when header operations are called after headers have been
++     * sent, an exception will be raised; otherwise, processing will continue
++     * as normal. Defaults to true.
++     *
++     * @see canSendHeaders()
++     * @var boolean
++     */
++    public $headersSentThrowsException = true;
++
++    /**
++     * Normalize a header name
++     *
++     * Normalizes a header name to X-Capitalized-Names
++     *
++     * @param  string $name
++     * @return string
++     */
++    protected function _normalizeHeader($name)
++    {
++        $filtered = str_replace(array('-', '_'), ' ', (string) $name);
++        $filtered = ucwords(strtolower($filtered));
++        $filtered = str_replace(' ', '-', $filtered);
++        return $filtered;
++    }
++
++    /**
++     * Set a header
++     *
++     * If $replace is true, replaces any headers already defined with that
++     * $name.
++     *
++     * @param string $name
++     * @param string $value
++     * @param boolean $replace
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function setHeader($name, $value, $replace = false)
++    {
++        $this->canSendHeaders(true);
++        $name  = $this->_normalizeHeader($name);
++        $value = (string) $value;
++
++        if ($replace) {
++            foreach ($this->_headers as $key => $header) {
++                if ($name == $header['name']) {
++                    unset($this->_headers[$key]);
++                }
++            }
++        }
++
++        $this->_headers[] = array(
++            'name'    => $name,
++            'value'   => $value,
++            'replace' => $replace
++        );
++
++        return $this;
++    }
++
++    /**
++     * Set redirect URL
++     *
++     * Sets Location header and response code. Forces replacement of any prior
++     * redirects.
++     *
++     * @param string $url
++     * @param int $code
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function setRedirect($url, $code = 302)
++    {
++        $this->canSendHeaders(true);
++        $this->setHeader('Location', $url, true)
++             ->setHttpResponseCode($code);
++
++        return $this;
++    }
++
++    /**
++     * Is this a redirect?
++     *
++     * @return boolean
++     */
++    public function isRedirect()
++    {
++        return $this->_isRedirect;
++    }
++
++    /**
++     * Return array of headers; see {@link $_headers} for format
++     *
++     * @return array
++     */
++    public function getHeaders()
++    {
++        return $this->_headers;
++    }
++
++    /**
++     * Clear headers
++     *
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function clearHeaders()
++    {
++        $this->_headers = array();
++
++        return $this;
++    }
++
++    /**
++     * Clears the specified HTTP header
++     *
++     * @param  string $name
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function clearHeader($name)
++    {
++        if (! count($this->_headers)) {
++            return $this;
++        }
++
++        foreach ($this->_headers as $index => $header) {
++            if ($name == $header['name']) {
++                unset($this->_headers[$index]);
++            }
++        }
++
++        return $this;
++    }
++
++    /**
++     * Set raw HTTP header
++     *
++     * Allows setting non key => value headers, such as status codes
++     *
++     * @param string $value
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function setRawHeader($value)
++    {
++        $this->canSendHeaders(true);
++        if ('Location' == substr($value, 0, 8)) {
++            $this->_isRedirect = true;
++        }
++        $this->_headersRaw[] = (string) $value;
++        return $this;
++    }
++
++    /**
++     * Retrieve all {@link setRawHeader() raw HTTP headers}
++     *
++     * @return array
++     */
++    public function getRawHeaders()
++    {
++        return $this->_headersRaw;
++    }
++
++    /**
++     * Clear all {@link setRawHeader() raw HTTP headers}
++     *
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function clearRawHeaders()
++    {
++        $this->_headersRaw = array();
++        return $this;
++    }
++
++    /**
++     * Clears the specified raw HTTP header
++     *
++     * @param  string $headerRaw
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function clearRawHeader($headerRaw)
++    {
++        if (! count($this->_headersRaw)) {
++            return $this;
++        }
++
++        $key = array_search($headerRaw, $this->_headersRaw);
++        unset($this->_headersRaw[$key]);
++
++        return $this;
++    }
++
++    /**
++     * Clear all headers, normal and raw
++     *
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function clearAllHeaders()
++    {
++        return $this->clearHeaders()
++                    ->clearRawHeaders();
++    }
++
++    /**
++     * Set HTTP response code to use with headers
++     *
++     * @param int $code
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function setHttpResponseCode($code)
++    {
++        if (!is_int($code) || (100 > $code) || (599 < $code)) {
++            require_once 'Zend/Controller/Response/Exception.php';
++            throw new Zend_Controller_Response_Exception('Invalid HTTP response code');
++        }
++
++        if ((300 <= $code) && (307 >= $code)) {
++            $this->_isRedirect = true;
++        } else {
++            $this->_isRedirect = false;
++        }
++
++        $this->_httpResponseCode = $code;
++        return $this;
++    }
++
++    /**
++     * Retrieve HTTP response code
++     *
++     * @return int
++     */
++    public function getHttpResponseCode()
++    {
++        return $this->_httpResponseCode;
++    }
++
++    /**
++     * Can we send headers?
++     *
++     * @param boolean $throw Whether or not to throw an exception if headers have been sent; defaults to false
++     * @return boolean
++     * @throws Zend_Controller_Response_Exception
++     */
++    public function canSendHeaders($throw = false)
++    {
++        $ok = headers_sent($file, $line);
++        if ($ok && $throw && $this->headersSentThrowsException) {
++            require_once 'Zend/Controller/Response/Exception.php';
++            throw new Zend_Controller_Response_Exception('Cannot send headers; headers already sent in ' . $file . ', line ' . $line);
++        }
++
++        return !$ok;
++    }
++
++    /**
++     * Send all headers
++     *
++     * Sends any headers specified. If an {@link setHttpResponseCode() HTTP response code}
++     * has been specified, it is sent with the first header.
++     *
++     * @return Zend_Controller_Response_Abstract
++     */
++    public function sendHeaders()
++    {
++        // Only check if we can send headers if we have headers to send
++        if (count($this->_headersRaw) || count($this->_headers) || (200 != $this->_httpResponseCode)) {
++            $this->canSendHeaders(true);
++        } elseif (200 == $this->_httpResponseCode) {
++            // Haven't changed the response code, and we have no headers
++            return $this;
++        }
++
++        $httpCodeSent = false;
++
++        foreach ($this->_headersRaw as $header) {
++            if (!$httpCodeSent && $this->_httpResponseCode) {
++                header($header, true, $this->_httpResponseCode);
++                $httpCodeSent = true;
++            } else {
++                header($header);
++            }
++        }
++
++        foreach ($this->_headers as $header) {
++            if (!$httpCodeSent && $this->_httpResponseCode) {
++                header($header['name'] . ': ' . $header['value'], $header['replace'], $this->_httpResponseCode);
++                $httpCodeSent = true;
++            } else {
++                header($header['name'] . ': ' . $header['value'], $header['replace']);
++            }
++        }
++
++        if (!$httpCodeSent) {
++            header('HTTP/1.1 ' . $this->_httpResponseCode);
++            $httpCodeSent = true;
++        }
++
++        return $this;
++    }
++
++    /**
++     * Send the response, including all headers, rendering exceptions if so
++     * requested.
++     *
++     * @return void
++     */
++    public function sendResponse()
++    {
++        $this->sendHeaders();
++
++        if ($this->isException() && $this->renderExceptions()) {
++            $exceptions = '';
++            foreach ($this->getException() as $e) {
++                $exceptions .= $e->__toString() . "\n";
++            }
++            echo $exceptions;
++            return;
++        }
++
++        $this->outputBody();
++    }
+ }
+diff -ru Zend-1.11.1/Layout/Controller/Plugin/Layout.php Zend/Layout/Controller/Plugin/Layout.php
+--- Zend-1.11.1/Layout/Controller/Plugin/Layout.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Layout/Controller/Plugin/Layout.php	2010-12-26 23:38:51.000000000 -0500
+@@ -111,8 +111,8 @@
+         $helper = $this->getLayoutActionHelper();
+ 
+         // Return early if forward detected
+-        if (!$request->isDispatched()
+-            || $this->getResponse()->isRedirect()
++        if (!$request->isDispatched() ||
++            (Zend_Controller_Front::getInstance()->isResponse('http') && $this->getResponse()->isRedirect())
+             || ($layout->getMvcSuccessfulActionOnly()
+                 && (!empty($helper) && !$helper->isActionControllerSuccessful())))
+         {
+diff -ru Zend-1.11.1/OpenId.php Zend/OpenId.php
+--- Zend-1.11.1/OpenId.php	2010-07-22 14:41:39.000000000 -0400
++++ Zend/OpenId.php	2010-12-26 23:54:31.000000000 -0500
+@@ -416,11 +416,11 @@
+      *
+      * @param string $url URL to redirect to
+      * @param array $params additional variable/value pairs to send
+-     * @param Zend_Controller_Response_Abstract $response
++     * @param Zend_Controller_Response_Http $response
+      * @param string $method redirection method ('GET' or 'POST')
+      */
+     static public function redirect($url, $params = null,
+-        Zend_Controller_Response_Abstract $response = null, $method = 'GET')
++        Zend_Controller_Response_Http $response = null, $method = 'GET')
+     {
+         $url = Zend_OpenId::absoluteUrl($url);
+         $body = "";
+diff -ru Zend-1.11.1/Test/PHPUnit/Constraint/Redirect.php Zend/Test/PHPUnit/Constraint/Redirect.php
+--- Zend-1.11.1/Test/PHPUnit/Constraint/Redirect.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Test/PHPUnit/Constraint/Redirect.php	2010-12-26 23:21:54.000000000 -0500
+@@ -100,9 +100,9 @@
+      */
+     public function evaluate($other, $assertType = null)
+     {
+-        if (!$other instanceof Zend_Controller_Response_Abstract) {
++        if (!($other instanceof Zend_Controller_Response_Http)) {
+             require_once 'Zend/Test/PHPUnit/Constraint/Exception.php';
+-            throw new Zend_Test_PHPUnit_Constraint_Exception('Redirect constraint assertions require a response object');
++            throw new Zend_Test_PHPUnit_Constraint_Exception('Redirect constraint assertions require an HTTP response object');
+         }
+ 
+         if (strstr($assertType, 'Not')) {
+@@ -209,6 +209,11 @@
+      */
+     protected function _match($response, $match)
+     {
++        if (!($response instanceof Zend_Controller_Response_Http)) {
++            require_once 'Zend/Test/PHPUnit/Constraint/Exception.php';
++            throw new Zend_Test_PHPUnit_Constraint_Exception('Redirect constraint assertions require an HTTP response object');
++        }
++
+         if (!$response->isRedirect()) {
+             return false;
+         }
+@@ -229,6 +234,11 @@
+      */
+     protected function _notMatch($response, $match)
+     {
++        if (!($response instanceof Zend_Controller_Response_Http)) {
++            require_once 'Zend/Test/PHPUnit/Constraint/Exception.php';
++            throw new Zend_Test_PHPUnit_Constraint_Exception('Redirect constraint assertions require an HTTP response object');
++        }
++
+         if (!$response->isRedirect()) {
+             return true;
+         }
+@@ -249,6 +259,11 @@
+      */
+     protected function _regex($response, $pattern)
+     {
++        if (!($response instanceof Zend_Controller_Response_Http)) {
++            require_once 'Zend/Test/PHPUnit/Constraint/Exception.php';
++            throw new Zend_Test_PHPUnit_Constraint_Exception('Redirect constraint assertions require an HTTP response object');
++        }
++
+         if (!$response->isRedirect()) {
+             return false;
+         }
+@@ -269,6 +284,11 @@
+      */
+     protected function _notRegex($response, $pattern)
+     {
++        if (!($response instanceof Zend_Controller_Response_Http)) {
++            require_once 'Zend/Test/PHPUnit/Constraint/Exception.php';
++            throw new Zend_Test_PHPUnit_Constraint_Exception('Redirect constraint assertions require an HTTP response object');
++        }
++
+         if (!$response->isRedirect()) {
+             return true;
+         }
+diff -ru Zend-1.11.1/Test/PHPUnit/Constraint/ResponseHeader.php Zend/Test/PHPUnit/Constraint/ResponseHeader.php
+--- Zend-1.11.1/Test/PHPUnit/Constraint/ResponseHeader.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/Test/PHPUnit/Constraint/ResponseHeader.php	2010-12-26 23:58:45.000000000 -0500
+@@ -269,10 +269,10 @@
+     /**
+      * Retrieve response code
+      *
+-     * @param  Zend_Controller_Response_Abstract $response
++     * @param  Zend_Controller_Response_Http $response
+      * @return int
+      */
+-    protected function _getCode(Zend_Controller_Response_Abstract $response)
++    protected function _getCode(Zend_Controller_Response_Http $response)
+     {
+         $test = $response->getHttpResponseCode();
+         if (null === $test) {
+@@ -308,11 +308,11 @@
+     /**
+      * Retrieve response header
+      *
+-     * @param  Zend_Controller_Response_Abstract $response
++     * @param  Zend_Controller_Response_Http $response
+      * @param  string $header
+      * @return string|null
+      */
+-    protected function _getHeader(Zend_Controller_Response_Abstract $response, $header)
++    protected function _getHeader(Zend_Controller_Response_Http $response, $header)
+     {
+         $headers = $response->sendHeaders();
+         $header  = strtolower($header);
+diff -ru Zend-1.11.1/Tool/Project/Context/Zf/ControllerFile.php Zend/Tool/Project/Context/Zf/ControllerFile.php
+--- Zend-1.11.1/Tool/Project/Context/Zf/ControllerFile.php	2010-10-21 11:35:21.000000000 -0400
++++ Zend/Tool/Project/Context/Zf/ControllerFile.php	2010-12-26 23:51:51.000000000 -0500
+@@ -43,7 +43,7 @@
+      * @var string
+      */
+     protected $_moduleName = null;
+-    
++
+     /**
+      * @var string
+      */
+@@ -102,7 +102,7 @@
+     {
+         $className = ($this->_moduleName) ? ucfirst($this->_moduleName) . '_' : '';
+         $className .= ucfirst($this->_controllerName) . 'Controller';
+-        
++
+         $codeGenFile = new Zend_CodeGenerator_Php_File(array(
+             'fileName' => $this->getPath(),
+             'classes' => array(
+@@ -145,12 +145,14 @@
+     case Zend_Controller_Plugin_ErrorHandler::EXCEPTION_NO_ACTION:
+ 
+         // 404 error -- controller or action not found
+-        \$this->getResponse()->setHttpResponseCode(404);
++        if (\$this->isResponse('http'))
++            \$this->getResponse()->setHttpResponseCode(404);
+         \$this->view->message = 'Page not found';
+         break;
+     default:
+         // application error
+-        \$this->getResponse()->setHttpResponseCode(500);
++        if (\$this->isResponse('http'))
++            \$this->getResponse()->setHttpResponseCode(500);
+         \$this->view->message = 'Application error';
+         break;
+ }
+diff -ru Zend-1.11.1/View/Helper/Action.php Zend/View/Helper/Action.php
+--- Zend-1.11.1/View/Helper/Action.php	2010-01-05 21:05:09.000000000 -0500
++++ Zend/View/Helper/Action.php	2010-12-26 23:44:09.000000000 -0500
+@@ -100,8 +100,11 @@
+         }
+ 
+         $this->response->clearBody();
+-        $this->response->clearHeaders()
+-                       ->clearRawHeaders();
++
++        if (Zend_Controller_Front::getInstance()->isResponse('http')) {
++            $this->response->clearHeaders()
++                           ->clearRawHeaders();
++        }
+     }
+ 
+     /**
+@@ -139,7 +142,7 @@
+ 
+ 
+         if (!$this->request->isDispatched()
+-            || $this->response->isRedirect())
++            || (Zend_Controller_Front::getInstance()->isResponse('http') && $this->response->isRedirect()))
+         {
+             // forwards and redirects render nothing
+             return '';
+diff -ru Zend-1.11.1/View/Helper/Json.php Zend/View/Helper/Json.php
+--- Zend-1.11.1/View/Helper/Json.php	2010-11-28 08:10:03.000000000 -0500
++++ Zend/View/Helper/Json.php	2010-12-26 23:35:21.000000000 -0500
+@@ -73,8 +73,13 @@
+             }
+         }
+ 
+-        $response = Zend_Controller_Front::getInstance()->getResponse();
+-        $response->setHeader('Content-Type', 'application/json', true);
++        $frontController = Zend_Controller_Front::getInstance();
++        $response = $frontController->getResponse();
++
++        if ($frontController->isResponse('http')) {
++            $response->setHeader('Content-Type', 'application/json', true);
++        }
++
+         return $data;
+     }
+ }
+diff -ru Zend-1.11.1/Wildfire/Channel/HttpHeaders.php Zend/Wildfire/Channel/HttpHeaders.php
+--- Zend-1.11.1/Wildfire/Channel/HttpHeaders.php	2010-10-12 16:36:15.000000000 -0400
++++ Zend/Wildfire/Channel/HttpHeaders.php	2010-12-26 22:58:33.000000000 -0500
+@@ -270,7 +270,8 @@
+             return true;
+         }
+ 
+-        if (!($this->getRequest() instanceof Zend_Controller_Request_Http)) {
++        if (!($this->getRequest() instanceof Zend_Controller_Request_Http) ||
++            !($this->getResponse() instanceof Zend_Controller_Response_Http)) {
+             return false;
+         }
+ 
+@@ -330,7 +331,11 @@
+     {
+         if (!$this->_response) {
+             $response = Zend_Controller_Front::getInstance()->getResponse();
+-            if ($response) {
++            // Since this class relies on an HTTP response, we only set the
++            // response if we have an actual instance of Zend_Controller_Response_Http.
++            // This ensures that if we are using something else (i.e.,
++            // Zend_Controller_Repsonse_Cli), we can fail appropriately below.
++            if (Zend_Controller_Front::getInstance()->isResponse('http')) {
+                 $this->setResponse($response);
+             }
+         }

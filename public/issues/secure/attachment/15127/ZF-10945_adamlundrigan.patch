@@ -1,0 +1,112 @@
+Index: library/Zend/Application.php
+===================================================================
+--- library/Zend/Application.php	(revision 24878)
++++ library/Zend/Application.php	(working copy)
+@@ -82,7 +82,7 @@
+ 
+         if (null !== $options) {
+             if (is_string($options)) {
+-                $options = $this->_loadConfig($options);
++                $options = array('config'=>$options);
+             } elseif ($options instanceof Zend_Config) {
+                 $options = $options->toArray();
+             } elseif (!is_array($options)) {
+@@ -124,15 +124,30 @@
+     public function setOptions(array $options)
+     {
+         if (!empty($options['config'])) {
+-            if (is_array($options['config'])) {
+-                $_options = array();
+-                foreach ($options['config'] as $tmp) {
+-                    $_options = $this->mergeOptions($_options, $this->_loadConfig($tmp));
++            $_configs = array(); // keep track of loaded configs files
++            while (isset($options['config'])) {
++                $configProp = $options['config'];
++                unset($options['config']);
++
++                if (is_array($configProp)) {
++                    $_options = array();
++                    foreach ($configProp as $tmp) {
++                        if (!in_array($configProp, $_configs)) {
++                            $_configs[] = $tmp;
++                            $_options = $this->mergeOptions($_options, $this->_loadConfig($tmp));
++                            
++                        }
++                    }
++                    $options = $this->mergeOptions($_options, $options);
++                } else {
++                    if (!in_array($configProp, $_configs)) {
++                        $_configs[] = $configProp;
++                        $options = $this->mergeOptions($this->_loadConfig($configProp), $options);
++                    }
+                 }
+-                $options = $this->mergeOptions($_options, $options);
+-            } else {
+-                $options = $this->mergeOptions($this->_loadConfig($options['config']), $options);
+             }
++            
++            $options['config'] = $_configs;
+         }
+ 
+         $this->_options = $options;
+Index: tests/Zend/Application/ApplicationTest.php
+===================================================================
+--- tests/Zend/Application/ApplicationTest.php	(revision 24878)
++++ tests/Zend/Application/ApplicationTest.php	(working copy)
+@@ -361,7 +361,34 @@
+         $application = new Zend_Application('testing', $config);
+         $this->assertTrue($application->hasOption('foo'));
+     }
++    
++    /**
++     * @group ZF-10945
++     */
++    public function testPassingStringShouldLoadEmbbededOptions()
++    {
++        $application = new Zend_Application('testing', dirname(__FILE__) . '/_files/zf-10945-1.inc');
++        $this->assertTrue($application->hasOption('foo'));
++    }
+ 
++     /**
++     * @group ZF-10945
++     */
++       public function testPassingArrayWithConfigStringShouldLoadEmbbededOptions()
++    {
++        $application = new Zend_Application('testing', array('config' => dirname(__FILE__) . '/_files/zf-10945-1.inc'));
++        $this->assertTrue($application->hasOption('foo'));
++    }
++
++     /**
++     * @group ZF-10945
++     */
++       public function testPassingArrayWithConfigArrayShouldLoadEmbbededOptions()
++    {
++        $application = new Zend_Application('testing', array('config' => array(dirname(__FILE__) . '/_files/zf-10945-1.inc')));
++        $this->assertTrue($application->hasOption('foo'));
++    }
++
+     public function testPassingArrayOptionsToConstructorShouldLoadOptions()
+     {
+         $config = new Zend_Config_Ini(dirname(__FILE__) . '/_files/appconfig.ini', 'testing');
+Index: tests/Zend/Application/_files/zf-10945-1.inc
+===================================================================
+--- tests/Zend/Application/_files/zf-10945-1.inc	(revision 0)
++++ tests/Zend/Application/_files/zf-10945-1.inc	(revision 0)
+@@ -0,0 +1,5 @@
++<?php
++$config = array(
++    'config' => dirname(__FILE__) . '/zf-10945-2.inc',
++);
++return $config;
+\ No newline at end of file
+Index: tests/Zend/Application/_files/zf-10945-2.inc
+===================================================================
+--- tests/Zend/Application/_files/zf-10945-2.inc	(revision 0)
++++ tests/Zend/Application/_files/zf-10945-2.inc	(revision 0)
+@@ -0,0 +1,6 @@
++<?php
++$config = array(
++    'foo' => 'bar',
++    'config' => dirname(__FILE__) . '/zf-10945-1.inc',
++);
++return $config;

@@ -1,0 +1,97 @@
+Index: library/Zend/Config/Xml.php
+===================================================================
+--- library/Zend/Config/Xml.php	(revision 16021)
++++ library/Zend/Config/Xml.php	(working copy)
+@@ -81,10 +81,11 @@
+         
+         set_error_handler(array($this, '_loadFileErrorHandler')); // Warnings and errors are suppressed
+         if (strstr($xml, '<?xml')) {
+-            $config = simplexml_load_string($xml);
++            $xml = $this->_parseXml($xml);
+         } else {
+-            $config = simplexml_load_file($xml);
++            $xml = $this->_parseXml(file_get_contents($xml));
+         }
++        $config = simplexml_load_string($xml);
+ 
+         restore_error_handler();
+         // Check if there was a error while loading file
+@@ -129,6 +130,23 @@
+ 
+         $this->_loadedSection = $section;
+     }
++    
++    /**
++     * Replaces PHP Constants in the xml structure
++     * like Zend_Config_Ini does throught parse_ini_file()
++     *
++     * @param string $xml
++     * @return string the xml string with PHP constants replaced
++     */
++    protected function _parseXmlForPHPConstants($xml)
++    {
++        $constants = get_defined_constants(true);
++        $search    = array_keys($constants['user']);
++        $replace   = array_values($constants['user']);
++        
++        return str_replace(array_keys($constants['user']),
++                           array_values($constants['user']), $xml);
++    }
+ 
+     /**
+      * Helper function to process each element in the section and handle
+Index: tests/Zend/Config/_files/constants.xml
+===================================================================
+--- tests/Zend/Config/_files/constants.xml	(revision 0)
++++ tests/Zend/Config/_files/constants.xml	(revision 0)
+@@ -0,0 +1,13 @@
++<?xml version="1.0"?>
++<config>
++    <root>
++        <hostname>ZF6960_HOST</hostname>
++        <name>ZF6960_NAME</name>
++        <db>
++            <host>127.0.0.1</host>
++            <user>username</user>
++            <pass>password</pass>
++            <name>live</name>
++        </db>
++    </root>
++</config>
+\ No newline at end of file
+Index: tests/Zend/Config/XmlTest.php
+===================================================================
+--- tests/Zend/Config/XmlTest.php	(revision 16021)
++++ tests/Zend/Config/XmlTest.php	(working copy)
+@@ -43,9 +43,11 @@
+     protected $_xmlFileAllSectionsConfig;
+     protected $_xmlFileCircularConfig;
+     protected $_xmlFileInvalid;
++    protected $_xmlFileConstants;
+ 
+     public function setUp()
+     {
++        $this->_xmlFileConstants = dirname(__FILE__) . '/_files/constants.xml';
+         $this->_xmlFileConfig = dirname(__FILE__) . '/_files/config.xml';
+         $this->_xmlFileAllSectionsConfig = dirname(__FILE__) . '/_files/allsections.xml';
+         $this->_xmlFileCircularConfig = dirname(__FILE__) . '/_files/circular.xml';
+@@ -217,6 +219,19 @@
+             $this->assertContains('failed to load', $expected->getMessage());
+         }
+     }
++    
++    /**
++     * @group ZF-6960
++     *
++     */
++    public function testZF6960_ConstantsMustBeReplacedInXml()
++    {
++        define ('ZF6960_HOST', 'testHost');
++        define ('ZF6960_NAME', 'testName');
++        $config = new Zend_Config_Xml($this->_xmlFileConstants);
++        $this->assertContains('testHost', $config->root->hostname);
++        $this->assertContains('testName', $config->root->name);
++    }
+ 
+     public function testShortParamsOne()
+     {

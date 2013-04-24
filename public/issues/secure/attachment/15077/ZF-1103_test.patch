@@ -1,0 +1,167 @@
+Index: tests/Zend/Db/Table/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Table/TestCommon.php	(revision 24774)
++++ tests/Zend/Db/Table/TestCommon.php	(working copy)
+@@ -1613,6 +1613,39 @@
+         $this->assertEquals(0, count($rows));
+     }
+ 
++    /**
++     * @group ZF-1103
++     */
++    public function testTableCascadeRecurseDelete()
++    {
++        $tblRecursive = $this->_getTable('My_ZendDbTable_TableCascadeRecursive');
++
++        // Enforce initial table structure
++        $parentRow = $tblRecursive->find(1)->current();
++        $this->assertType('Zend_Db_Table_Row', $parentRow);
++        $childRows = $parentRow->findDependentRowset('My_ZendDbTable_TableCascadeRecursive', 'Children');
++        $this->assertType('Zend_Db_Table_Rowset', $childRows);
++        $this->assertEquals(2, count($childRows));
++        foreach ( $childRows as $childRow ) {
++            $this->assertType('Zend_Db_Table_Row', $childRow);
++            $subChildRows = $childRow->findDependentRowset('My_ZendDbTable_TableCascadeRecursive', 'Children');
++            $this->assertType('Zend_Db_Table_Rowset', $subChildRows);
++            $this->assertEquals( $childRow['item_id'] == 3 ? 2 : 0 , count($subChildRows));
++        }
++
++        // Perform the delete
++        $parentRow->delete();
++
++        // Assert that all children of #1 (2,3,4,5) are removed recursively
++        $this->assertNull($tblRecursive->find(1)->current());
++        $this->assertNull($tblRecursive->find(2)->current());
++        $this->assertNull($tblRecursive->find(3)->current());
++        $this->assertNull($tblRecursive->find(4)->current());
++        $this->assertNull($tblRecursive->find(5)->current());
++        //... but #6 remains
++        $this->assertType('Zend_Db_Table_Row', $tblRecursive->find(6)->current());
++    }
++
+     public function testSerialiseTable()
+     {
+         $table = $this->_table['products'];
+@@ -1793,3 +1826,4 @@
+         Zend_Db_Table_Abstract::setDefaultMetadataCache(null);
+     }
+ }
++
+Index: tests/Zend/Db/Table/_files/My/ZendDbTable/TableCascadeRecursive.php
+===================================================================
+--- tests/Zend/Db/Table/_files/My/ZendDbTable/TableCascadeRecursive.php	(revision 0)
++++ tests/Zend/Db/Table/_files/My/ZendDbTable/TableCascadeRecursive.php	(revision 0)
+@@ -0,0 +1,53 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Db
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id: TableBugs.php 24593 2012-01-05 20:35:02Z matthew $
++ */
++
++
++/**
++ * @see Zend_Db_Table_Abstract
++ */
++require_once 'Zend/Db/Table/Abstract.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Db
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class My_ZendDbTable_TableCascadeRecursive extends Zend_Db_Table_Abstract
++{
++
++    protected $_name = 'zfalt_cascade_recursive';
++    protected $_primary = 'item_id'; // Deliberate non-array value
++
++    protected $_dependentTables = array('My_ZendDbTable_TableCascadeRecursive');
++
++    protected $_referenceMap    = array(
++        'Children' => array(
++            'columns'           => array('item_parent'),
++            'refTableClass'     => 'My_ZendDbTable_TableCascadeRecursive',
++            'refColumns'        => array('item_id'),
++            'onDelete'          => self::CASCADE
++        )
++    );
++
++}
+Index: tests/Zend/Db/TestUtil/Common.php
+===================================================================
+--- tests/Zend/Db/TestUtil/Common.php	(revision 24774)
++++ tests/Zend/Db/TestUtil/Common.php	(working copy)
+@@ -217,7 +217,8 @@
+         'noprimarykey'  => 'zfnoprimarykey',
+         'Documents'     => 'zfdocuments',
+         'Price'         => 'zfprice',
+-        'AltBugsProducts' => 'zfalt_bugs_products'
++        'AltBugsProducts' => 'zfalt_bugs_products',
++        'CascadeRecursive' => 'zfalt_cascade_recursive'
+     );
+ 
+     public function getTableName($tableId)
+@@ -291,6 +292,16 @@
+             );
+     }
+ 
++    protected function _getColumnsCascadeRecursive()
++    {
++        return array(
++            'item_id'       => 'INTEGER NOT NULL',
++            'item_parent'   => 'INTEGER NULL',
++            'item_data'     => 'VARCHAR(100)',
++            'PRIMARY KEY'   => 'item_id'
++        );
++    }
++
+     protected function _getDataAccounts()
+     {
+         return array(
+@@ -407,6 +418,18 @@
+         );
+     }
+ 
++    protected function _getDataCascadeRecursive()
++    {
++        return array(
++            array('item_id' => '1', 'item_parent' => NULL, 'item_data' => '1'),
++            array('item_id' => '2', 'item_parent' => '1', 'item_data' => '1.2'),
++            array('item_id' => '3', 'item_parent' => '1', 'item_data' => '1.3'),
++            array('item_id' => '4', 'item_parent' => '3', 'item_data' => '1.3.4'),
++            array('item_id' => '5', 'item_parent' => '3', 'item_data' => '1.3.5'),
++            array('item_id' => '6', 'item_parent' => NULL, 'item_data' => '6')
++        );
++    }
++
+     public function populateTable($tableId)
+     {
+         $tableName = $this->getTableName($tableId);
+@@ -487,6 +510,9 @@
+         $this->createTable('Price');
+         $this->populateTable('Price');
+ 
++        $this->createTable('CascadeRecursive');
++        $this->populateTable('CascadeRecursive');
++
+         $this->createView();
+     }
+ 

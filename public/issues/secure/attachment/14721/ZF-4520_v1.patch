@@ -1,0 +1,867 @@
+Index: library/Zend/Http/Header/SetCookie.php
+===================================================================
+--- library/Zend/Http/Header/SetCookie.php	(revision 0)
++++ library/Zend/Http/Header/SetCookie.php	(revision 0)
+@@ -0,0 +1,487 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Header
++ * @version    $Id$
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Http_Header_Exception_InvalidArgumentException
++ */
++require_once "Zend/Http/Header/Exception/InvalidArgumentException.php";
++
++/**
++ * @see Zend_Http_Header_Exception_RuntimeException
++ */
++require_once "Zend/Http/Header/Exception/RuntimeException.php";
++
++/**
++ * Zend_Http_Client is an implementation of an HTTP client in PHP. The client
++ * supports basic features like sending different HTTP requests and handling
++ * redirections, as well as more advanced features like proxy settings, HTTP
++ * authentication and cookie persistence (using a Zend_Http_CookieJar object)
++ *
++ * @todo Implement proxy settings
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Header
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Http_Header_SetCookie
++{
++    /**
++     * Cookie name
++     *
++     * @var string
++     */
++    protected $name = null;
++
++    /**
++     * Cookie value
++     *
++     * @var string
++     */
++    protected $value = null;
++
++    /**
++     * Cookie expiry date
++     *
++     * @var int
++     */
++    protected $expires = null;
++
++    /**
++     * Cookie domain
++     *
++     * @var string
++     */
++    protected $domain = null;
++
++    /**
++     * Cookie path
++     *
++     * @var string
++     */
++    protected $path = null;
++
++    /**
++     * Whether the cookie is secure or not
++     *
++     * @var boolean
++     */
++    protected $secure = null;
++
++    /**
++     * @var true
++     */
++    protected $httponly = null;
++
++
++    /**
++     * Generate a new Cookie object from a cookie string
++     * (for example the value of the Set-Cookie HTTP header)
++     *
++     * @param string $cookieStr
++     * @param Zend_Uri_Http|string $refUri Reference URI for default values (domain, path)
++     * @param boolean $encodeValue Whether or not the cookie's value should be
++     *                             passed through urlencode/urldecode
++     * @return Zend_Http_Cookie A new Zend_Http_Cookie object or false on failure.
++     */
++    public static function fromString($cookieStr, $refUri = null, $encodeValue = true)
++    {
++        // Set default values
++        if (is_string($refUri)) {
++            $refUri = Zend_Uri_Http::factory($refUri);
++        }
++
++        $name    = '';
++        $value   = '';
++        $domain  = '';
++        $path    = '';
++        $expires = null;
++        $secure  = false;
++        $httpOnly = false;
++        $parts   = explode(';', $cookieStr);
++
++        // If first part does not include '=', fail
++        if (strpos($parts[0], '=') === false) return false;
++
++        // Get the name and value of the cookie
++        list($name, $value) = explode('=', trim(array_shift($parts)), 2);
++        $name  = trim($name);
++        if ($encodeValue) {
++            $value = urldecode(trim($value));
++        }
++
++        // Set default domain and path
++        if ($refUri instanceof Zend_Uri_Http) {
++            $domain = $refUri->getHost();
++            $path = $refUri->getPath();
++            $path = substr($path, 0, strrpos($path, '/'));
++        }
++
++        // Set other cookie parameters
++        foreach ($parts as $part) {
++            $part = trim($part);
++            if (strtolower($part) == 'secure') {
++                $secure = true;
++                continue;
++            }
++            if (strtolower($part) == 'httponly') {
++                $httpOnly = true;
++                continue;
++            }
++
++            $keyValue = explode('=', $part, 2);
++            if (count($keyValue) == 2) {
++                list($k, $v) = $keyValue;
++                switch (strtolower($k))    {
++                    case 'expires':
++                        if(($expires = strtotime($v)) === false) {
++                            /**
++                             * The expiration is past Tue, 19 Jan 2038 03:14:07 UTC
++                             * the maximum for 32-bit signed integer. Zend_Date
++                             * can get around that limit.
++                             *
++                             * @see Zend_Date
++                             */
++                            require_once 'Zend/Date.php';
++
++                            $expireDate = new Zend_Date($v);
++                            $expires = $expireDate->getTimestamp();
++                        }
++                        break;
++
++                    case 'path':
++                        $path = $v;
++                        break;
++
++                    case 'domain':
++                        $domain = $v;
++                        break;
++
++                    default:
++                        break;
++                }
++            }
++        }
++
++        if ($name !== '') {
++            $ret = new self($name, $value, $domain, $expires, $path, $secure, $httpOnly);
++            $ret->encodeValue = ($encodeValue) ? true : false;
++            return $ret;
++        } else {
++            return false;
++        }
++    }
++
++    /**
++     * Cookie object constructor
++     *
++     * @todo Add validation of each one of the parameters (legal domain, etc.)
++     *
++     * @param string $name
++     * @param string $value
++     * @param string $domain
++     * @param int $expires
++     * @param string $path
++     * @param bool $secure
++     * @param bool $httponly
++     * @return SetCookie
++     */
++    public function __construct($name = null, $value = null, $domain = null, $expires = null, $path = null, $secure = false, $httponly = false)
++    {
++        $this->type = 'Cookie';
++
++        if ($name) {
++            $this->setName($name);
++        }
++
++        if ($value) {
++            $this->setValue($value); // in parent
++        }
++
++        if ($domain) {
++            $this->setDomain($domain);
++        }
++
++        if ($expires) {
++            $this->setExpires($expires);
++        }
++
++        if ($secure) {
++            $this->setSecure($secure);
++        }
++        
++        if ($httponly) {
++            $this->setHttponly($httponly);
++        }
++    }
++
++    /**
++     * @return string 'Set-Cookie'
++     */
++    public function getFieldName()
++    {
++        return 'Set-Cookie';
++    }
++
++    /**
++     * @throws Zend_Http_Header_Exception_RuntimeException
++     * @return string
++     */
++    public function getFieldValue()
++    {
++        if ($this->getName() == '') {
++            throw new Zend_Http_Header_Exception_RuntimeException('A cookie name is required to generate a field value for this cookie');
++        }
++        $fieldValue = $this->getName() . '=' . urlencode($this->getValue());
++        if (($expires = $this->getExpires())) {
++            $fieldValue .= '; Expires=' . $expires;
++        }
++        if (($domain = $this->getDomain())) {
++            $fieldValue .= '; Domain=' . $domain;
++        }
++        if (($path = $this->getPath())) {
++            $fieldValue .= '; Path=' . $path;
++        }
++        if ($this->isSecure()) {
++            $fieldValue .= '; Secure';
++        }
++        if ($this->isHttponly()) {
++            $fieldValue .= '; HttpOnly';
++        }
++        return $fieldValue;
++    }
++
++    /**
++     * @param string $name
++     * @return SetCookie
++     */
++    public function setName($name)
++    {
++        if (preg_match("/[=,; \t\r\n\013\014]/", $name)) {
++            throw new Zend_Http_Header_Exception_InvalidArgumentException("Cookie name cannot contain these characters: =,; \\t\\r\\n\\013\\014 ({$name})");
++        }
++
++        $this->name = $name;
++        return $this;
++    }
++
++    /**
++     * @return string
++     */
++    public function getName()
++    {
++        return $this->name;
++    }
++
++    /**
++     * @param string $value
++     */
++    public function setValue($value)
++    {
++        $this->value = $value;
++        return $this;
++    }
++
++    /**
++     * @return string
++     */
++    public function getValue()
++    {
++        return $this->value;
++    }
++
++    /**
++     * @param int $expires
++     * @return SetCookie
++     */
++    public function setExpires($expires)
++    {
++        if (!empty($expires)) {
++            if (is_string($expires)) {
++                $expires = strtotime($expires);
++            } elseif (!is_int($expires)) {
++                throw new Zend_Http_Header_Exception_InvalidArgumentException('Invalid expires time specified');
++            }
++            $this->expires = (int) $expires;
++        }
++        return $this;
++    }
++
++    /**
++     * @return int
++     */
++    public function getExpires($inSeconds = false)
++    {
++        if ($this->expires == null) {
++            return;
++        }
++        if ($inSeconds) {
++            return $this->expires;
++        }
++        return gmdate('D, d-M-Y H:i:s', $this->expires) . ' GMT';
++    }
++
++    /**
++     * @param string $domain
++     */
++    public function setDomain($domain)
++    {
++        $this->domain = $domain;
++        return $this;
++    }
++
++    /**
++     * @return string
++     */
++    public function getDomain()
++    {
++        return $this->domain;
++    }
++
++    /**
++     * @param string $path
++     */
++    public function setPath($path)
++    {
++        $this->path = $path;
++        return $this;
++    }
++
++    /**
++     * @return string
++     */
++    public function getPath()
++    {
++        return $this->path;
++    }
++
++    /**
++     * @param boolean $secure
++     */
++    public function setSecure($secure)
++    {
++        $this->secure = $secure;
++        return $this;
++    }
++
++    /**
++     * @return boolean
++     */
++    public function isSecure()
++    {
++        return $this->secure;
++    }
++
++    /**
++     * @param bool $httponly
++     */
++    public function setHttponly($httponly)
++    {
++        $this->httponly = $httponly;
++        return $this;
++    }
++
++    /**
++     * @return bool
++     */
++    public function isHttponly()
++    {
++        return $this->httponly;
++    }
++
++    /**
++     * Check whether the cookie has expired
++     *
++     * Always returns false if the cookie is a session cookie (has no expiry time)
++     *
++     * @param int $now Timestamp to consider as "now"
++     * @return boolean
++     */
++    public function isExpired($now = null)
++    {
++        if ($now === null) {
++            $now = time();
++        }
++
++        if (is_int($this->expires) && $this->expires < $now) {
++            return true;
++        } else {
++            return false;
++        }
++    }
++
++    /**
++     * Check whether the cookie is a session cookie (has no expiry time set)
++     *
++     * @return boolean
++     */
++    public function isSessionCookie()
++    {
++        return ($this->expires === null);
++    }
++
++    public function isValidForRequest($requestDomain, $path, $isSecure = false)
++    {
++        if ($this->getDomain() && (strrpos($requestDomain, $this->getDomain()) !== false)) {
++            return false;
++        }
++        
++        if ($this->getPath() && (strpos($path, $this->getPath()) !== 0)) {
++            return false;
++        }
++        
++        if ($this->secure && $this->isSecure()!==$isSecure) {
++            return false;
++        }
++        
++        return true;
++
++    }
++
++    public function toString()
++    {
++        return 'Set-Cookie: ' . $this->getFieldValue();
++    }
++    
++    public function __toString()
++    {
++        return $this->getFieldValue();
++    }
++
++    public function toStringMultipleHeaders(array $headers)
++    {
++        $headerLine = $this->toString();
++        /* @var $header SetCookie */
++        foreach ($headers as $header) {
++            if (!$header instanceof SetCookie) {
++                throw new Zend_Http_Header_Exception_RuntimeException(
++                    'The SetCookie multiple header implementation can only accept an array of SetCookie headers'
++                );
++            }
++            $headerLine .= ', ' . $header->getFieldValue();
++        }
++        return $headerLine;
++    }
++
++    
++}
+\ No newline at end of file
+
+Property changes on: library/Zend/Http/Header/SetCookie.php
+___________________________________________________________________
+Added: svn:keywords
+   + Id
+
+Index: library/Zend/Http/Header/Exception/RuntimeException.php
+===================================================================
+--- library/Zend/Http/Header/Exception/RuntimeException.php	(revision 0)
++++ library/Zend/Http/Header/Exception/RuntimeException.php	(revision 0)
+@@ -0,0 +1,36 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Header_Exception
++ * @version    $Id$
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Http_Exception
++ */
++require_once 'Zend/Http/Exception.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Header_Exception
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Http_Header_Exception_RuntimeException extends Zend_Http_Exception
++{}
+
+Property changes on: library/Zend/Http/Header/Exception/RuntimeException.php
+___________________________________________________________________
+Added: svn:keywords
+   + Id
+
+Index: library/Zend/Http/Header/Exception/InvalidArgumentException.php
+===================================================================
+--- library/Zend/Http/Header/Exception/InvalidArgumentException.php	(revision 0)
++++ library/Zend/Http/Header/Exception/InvalidArgumentException.php	(revision 0)
+@@ -0,0 +1,36 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Header_Exception
++ * @version    $Id$
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Http_Exception
++ */
++require_once 'Zend/Http/Exception.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Header_Exception
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Http_Header_Exception_InvalidArgumentException extends Zend_Http_Exception
++{}
+
+Property changes on: library/Zend/Http/Header/Exception/InvalidArgumentException.php
+___________________________________________________________________
+Added: svn:keywords
+   + Id
+
+Index: tests/Zend/Http/Header/AllTests.php
+===================================================================
+--- tests/Zend/Http/Header/AllTests.php	(revision 0)
++++ tests/Zend/Http/Header/AllTests.php	(revision 0)
+@@ -0,0 +1,60 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++if (!defined('PHPUnit_MAIN_METHOD')) {
++    define('PHPUnit_MAIN_METHOD', 'Zend_Http_Header_AllTests::main');
++}
++
++/**
++ * @see Zend_Http_Header_SetCookie
++ */
++require_once 'Zend/Http/Header/SetCookieTest.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Http
++ * @group      Zend_Http_Header
++ */
++class Zend_Http_Header_AllTests
++{
++    public static function main()
++    {
++        PHPUnit_TextUI_TestRunner::run(self::suite());
++    }
++
++    public static function suite()
++    {
++        $suite = new PHPUnit_Framework_TestSuite('Zend Framework - Zend_Http - Header');
++
++        $suite->addTestSuite('Zend_Http_Header_SetCookieTest');
++
++        return $suite;
++    }
++}
++
++if (PHPUnit_MAIN_METHOD == 'Zend_Http_Header_AllTests::main') {
++    Zend_Http_Header_AllTests::main();
++}
+
+Property changes on: tests/Zend/Http/Header/AllTests.php
+___________________________________________________________________
+Added: svn:keywords
+   + Id
+
+Index: tests/Zend/Http/Header/SetCookieTest.php
+===================================================================
+--- tests/Zend/Http/Header/SetCookieTest.php	(revision 0)
++++ tests/Zend/Http/Header/SetCookieTest.php	(revision 0)
+@@ -0,0 +1,172 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Http_Header
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @group Zend_Http_Header_SetCookie
++ */
++require_once 'Zend/Http/Header/SetCookie.php';
++
++/**
++ * Zend_Http_Cookie unit tests
++ *
++ * @category   Zend
++ * @package    Zend_Http_Cookie
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Http
++ * @group      Zend_Http_Header
++ */
++class Zend_Http_Header_SetCookieTest extends PHPUnit_Framework_TestCase
++{
++
++    public function testGetFieldName()
++    {
++        $c = new Zend_Http_Header_SetCookie('test', 'foo', 'example.com');
++        $this->assertEquals('Set-Cookie', $c->getFieldName());
++    }
++    
++    /**
++     * @dataProvider validCookieWithInfoProvider
++     */
++    public function testGetFieldValue($cStr, $info, $expected)
++    {
++        $cookie = Zend_Http_Header_SetCookie::fromString($cStr);
++        if (! $cookie instanceof Zend_Http_Header_SetCookie) {
++            $this->fail("Failed creating a cookie object from '$cStr'");
++        }        
++        $this->assertEquals($expected, $cookie->getFieldValue());
++        $this->assertEquals($expected, (string)$cookie);  // __toString proxies to getFieldValue
++    }
++    
++    /**
++     * @dataProvider validCookieWithInfoProvider
++     */
++    public function testToString($cStr, $info, $expected)
++    {
++        $cookie = Zend_Http_Header_SetCookie::fromString($cStr);
++        if (! $cookie instanceof Zend_Http_Header_SetCookie) {
++            $this->fail("Failed creating a cookie object from '$cStr'");
++        }        
++        $this->assertEquals($cookie->getFieldName() . ': ' . $expected, $cookie->toString());
++    }
++    
++    /**
++     * Provide valid cookie strings with information about them
++     *
++     * @return array
++     */
++    static public function validCookieWithInfoProvider()
++    {
++        $now = time();
++        $yesterday = $now - (3600 * 24);
++
++        return array(
++            array(
++                'justacookie=foo; domain=example.com',
++                array(
++                    'name'    => 'justacookie',
++                    'domain'  => 'example.com',
++                    'path'    => '/',
++                    'expires' => null,
++                    'secure'  => false,
++                    'httponly'=> false
++                ),
++                'justacookie=foo; Domain=example.com'
++            ),
++            array(
++                'expires=tomorrow; secure; path=/Space Out/; expires=Tue, 21-Nov-2006 08:33:44 GMT; domain=.example.com',
++                array(
++                    'name'    => 'expires',
++                    'domain'  => '.example.com',
++                    'path'    => '/Space Out/',
++                    'expires' => strtotime('Tue, 21-Nov-2006 08:33:44 GMT'),
++                    'secure'  => true,
++                    'httponly'=> false
++                ),
++                'expires=tomorrow; Expires=Tue, 21-Nov-2006 08:33:44 GMT; Domain=.example.com; Secure'
++            ),
++            array(
++                'domain=unittests; expires=' . gmdate('D, d-M-Y H:i:s', $now) . ' GMT; domain=example.com; path=/some%20value/',
++                array(
++                    'name'    => 'domain',
++                    'domain'  => 'example.com',
++                    'path'    => '/some%20value/',
++                    'expires' => $now,
++                    'secure'  => false,
++                    'httponly'=> false
++                ),
++                'domain=unittests; Expires=' . gmdate('D, d-M-Y H:i:s', $now) . ' GMT; Domain=example.com'
++            ),
++            array(
++                'path=indexAction; path=/; domain=.foo.com; expires=' . gmdate('D, d-M-Y H:i:s', $yesterday) . ' GMT',
++                array(
++                    'name'    => 'path',
++                    'domain'  => '.foo.com',
++                    'path'    => '/',
++                    'expires' => $yesterday,
++                    'secure'  => false,
++                    'httponly'=> false
++                ),
++                'path=indexAction; Expires=' . gmdate('D, d-M-Y H:i:s', $yesterday) . ' GMT; Domain=.foo.com'
++            ),
++
++            array(
++                'secure=sha1; secure; SECURE; domain=some.really.deep.domain.com',
++                array(
++                    'name'    => 'secure',
++                    'domain'  => 'some.really.deep.domain.com',
++                    'path'    => '/',
++                    'expires' => null,
++                    'secure'  => true,
++                    'httponly'=> false
++                ),
++                'secure=sha1; Domain=some.really.deep.domain.com; Secure'
++            ),
++            array(
++                'justacookie=foo; domain=example.com; httpOnly',
++                array(
++                    'name'    => 'justacookie',
++                    'domain'  => 'example.com',
++                    'path'    => '/',
++                    'expires' => null,
++                    'secure'  => false,
++                    'httponly'=> true
++                ),
++                'justacookie=foo; Domain=example.com; HttpOnly'
++            ),
++            array(
++                'PHPSESSID=123456789+abcd%2Cef; secure; domain=.localdomain; path=/foo/baz; expires=Tue, 21-Nov-2006 08:33:44 GMT;',
++                array(
++                    'name'    => 'PHPSESSID',
++                    'domain'  => '.localdomain',
++                    'path'    => '/foo/baz',
++                    'expires' => 'Tue, 21-Nov-2006 08:33:44 GMT',
++                    'secure'  => true,
++                    'httponly'=> false
++                ),
++                'PHPSESSID=123456789+abcd%2Cef; Expires=Tue, 21-Nov-2006 08:33:44 GMT; Domain=.localdomain; Secure'
++            ),
++        );
++    }
++}
++
+
+Property changes on: tests/Zend/Http/Header/SetCookieTest.php
+___________________________________________________________________
+Added: svn:keywords
+   + Id
+
+Index: tests/Zend/Http/AllTests.php
+===================================================================
+--- tests/Zend/Http/AllTests.php	(revision 24549)
++++ tests/Zend/Http/AllTests.php	(working copy)
+@@ -29,6 +29,7 @@
+ require_once 'Zend/Http/CookieJarTest.php';
+ require_once 'Zend/Http/Client/AllTests.php';
+ require_once 'Zend/Http/UserAgent/AllTests.php';
++require_once 'Zend/Http/Header/AllTests.php';
+ 
+ /**
+  * @category   Zend
+@@ -54,6 +55,7 @@
+         $suite->addTestSuite('Zend_Http_CookieJarTest');
+         $suite->addTest(Zend_Http_Client_AllTests::suite());
+         $suite->addTest(Zend_Http_UserAgent_AllTests::suite());
++        $suite->addTest(Zend_Http_Header_AllTests::suite());
+ 
+         return $suite;
+     }

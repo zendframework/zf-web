@@ -1,0 +1,402 @@
+Index: Zend/Mail/Protocol/Smtp.php
+===================================================================
+--- Zend/Mail/Protocol/Smtp.php	(revision 19584)
++++ Zend/Mail/Protocol/Smtp.php	(working copy)
+@@ -96,14 +96,22 @@
+ 
+ 
+     /**
+-     * Indicates one or more RCTP commands have been issued
++     * Indicates number of RCPT commands issued
+      *
+-     * @var unknown_type
++     * @var int
+      */
+-    protected $_rcpt = false;
++    protected $_rcpt = 0;
+ 
+ 
+     /**
++     * Queued RCPT exceptions in current MAIL session
++     *
++     * @var array
++     */
++    protected $_rcptExceptions = array();
++
++
++    /**
+      * Indicates that DATA has been issued and sent
+      *
+      * @var unknown_type
+@@ -112,6 +120,56 @@
+ 
+ 
+     /**
++     * Indicates whether server supports enhanced SMTP
++     *
++     * @var bool
++     */
++    protected $_esmtp = false;
++
++
++    /**
++     * Contains enhanced SMTP keywords and values supported by server
++     *
++     * @var array
++     */
++    protected $_capabilities = array();
++
++
++    /**
++     * Indicates that PIPELINING should be used if available
++     *
++     * @var bool
++     */
++    protected $_pipeline = false;
++
++
++    /**
++     * Expected responses deferred due to pipelining
++     *
++     * @var array
++     */
++    protected $_expect = array();
++
++
++    /**
++     * SMTP verbs supported by PIPELINING
++     *
++     * @var array
++     */
++    protected $_pipelineVerbs = array('RSET', 'MAIL FROM', 'SEND FROM',
++                                      'SOML FROM', 'SAML FROM', 'RCPT TO');
++
++
++    /**
++     * Indicates that rejected RCPT commands should not throw exceptions
++     * unless all have failed when DATA command is called
++     *
++     * @var bool
++     */
++    protected $_throwRcptExceptions;
++
++
++    /**
+      * Constructor.
+      *
+      * @param  string  $host
+@@ -146,6 +204,14 @@
+             }
+         }
+ 
++        if (isset($config['pipelining'])) {
++            $this->setUsePipelining($config['pipelining']);
++        }
++        
++        if (isset($config['throwRcptExceptions'])) {
++            $this->setThrowRcptExceptions($config['throwRcptExceptions']);
++        }
++
+         // If no port has been specified then check the master PHP ini file. Defaults to 25 if the ini setting is null.
+         if ($port == null) {
+             if (($port = ini_get('smtp_port')) == '') {
+@@ -158,6 +224,49 @@
+ 
+ 
+     /**
++     * Enable or disable command pipelining (RFC 2920)
++     *
++     * Pipelining speeds up delivery as the client can send certain commands
++     * without waiting for server response.  It is especially effective
++     * on high latency connections or high volume mailing.
++     *
++     * @param bool $pipelining
++     * @return void
++     */
++    public function setUsePipelining($pipeline)
++    {
++        $this->_pipeline = (bool)$pipeline;
++    }
++
++
++    /**
++     * Indicates whether exceptions should be trown upon SMTP RCPT commands
++     *
++     * When turned off, failed SMTP RCPT commands will queue the server message
++     * and failed recipient email address and make them accessible for the
++     * current message via getRcptExceptions()
++     *
++     * @param bool $throw
++     * @return void
++     */
++    public function setThrowRcptExceptions($throw)
++    {
++        $this->_throwRcptExceptions = (bool)$throw;
++    }
++
++
++    /**
++     * Get list of failed RCPT commands
++     *
++     * @return array Suppressed extensions from failed RCPT commands.  Keys are recipient addresses.
++     */
++    public function getRcptExceptions()
++    {
++        return $this->_rcptExceptions;
++    }
++
++
++    /**
+      * Connect to the server with the parameters given in the constructor.
+      *
+      * @return boolean
+@@ -231,6 +340,8 @@
+         try {
+             $this->_send('EHLO ' . $host);
+             $this->_expect(250, 300); // Timeout set for 5 minutes as per RFC 2821 4.5.3.2
++            $this->_esmtp = true;
++            $this->_parseEhloResponse($this->_response);
+         } catch (Zend_Mail_Protocol_Exception $e) {
+             $this->_send('HELO ' . $host);
+             $this->_expect(250, 300); // Timeout set for 5 minutes as per RFC 2821 4.5.3.2
+@@ -241,6 +352,60 @@
+ 
+ 
+     /**
++     * Parse EHLO response to determine which SMTP extensions are supported
++     *
++     * @param string $ehloResponse
++     * @return void
++     */
++    protected function _parseEhloResponse($ehloResponse)
++    {
++        $lines = array_slice($ehloResponse, 1); // first line is not a keyword
++
++        foreach ($lines as $line) {
++            // split SMTP code, keyword and params
++            sscanf($line, $this->_template, $code, $keyword);
++            $keyword = strtoupper(ltrim($keyword, '-'));
++            $params = substr($line, strlen($code) + strlen($keyword) + 2);
++            
++            $this->_capabilities[$keyword] = $params;
++        }
++    }
++
++
++    /**
++     * Check if server supports a SMTP extension
++     *
++     * @param string $esmptKeyword
++     * @return bool
++     */
++    protected function _supports($esmtpKeyword)
++    {
++        return array_key_exists(strtoupper($esmtpKeyword), $this->_capabilities);
++    }
++
++
++    /**
++     * Get SMTP extension keyword parameters provided by server in response to EHLO command
++     *
++     * Useful to get the maximum message size specified by SIZE, for example.
++     *
++     * @param string $esmtpKeyword
++     * @return string
++     */
++    protected function _getExtensionParams($esmtpKeyword)
++    {
++        if (!$this->_supports($esmtpKeyword)) {
++            /**
++             * @see Zend_Mail_Protocol_Exception
++             */
++            require_once 'Zend/Mail/Protocol/Exception.php';
++            throw new Zend_Mail_Protocol_Exception('Server does not support ' . $esmtpKeyword);
++        }
++        return $this->_capabilities[strtoupper($esmtpKeyword)];
++    }
++
++
++    /**
+      * Issues MAIL command
+      *
+      * @param  string $from Sender mailbox
+@@ -258,16 +423,96 @@
+         }
+ 
+         $this->_send('MAIL FROM:<' . $from . '>');
+-        $this->_expect(250, 300); // Timeout set for 5 minutes as per RFC 2821 4.5.3.2
++        $this->_expect(250, 300, 'MAIL FROM', $from); // Timeout set for 5 minutes as per RFC 2821 4.5.3.2
+ 
+         // Set mail to true, clear recipients and any existing data flags as per 4.1.1.2 of RFC 2821
+         $this->_mail = true;
+-        $this->_rcpt = false;
++        $this->_rcpt = 0;
++        $this->_rcptExceptions = array();
+         $this->_data = false;
+     }
+ 
+ 
+     /**
++     * Parse server response for successful codes
++     *
++     * Read the response from the stream and check for expected return code.
++     * Throws a Zend_Mail_Protocol_Exception if an unexpected code is returned.
++     *
++     * If pipelining, defers parsing responses to pipelined commands until a
++     * non-pipelined command (such as DATA) has been sent, at which point it
++     * processes all previously deferred responses.
++     *
++     * @param  string|array $code One or more codes that indicate a successful response
++     * @param  int $timeout OPTIONAL timeout
++     * @param  string $verb OPTIONAL Last SMTP verb - required for pipelining
++     * @param  string $data OPTIONAL Additional data for last SMTP verb; used to match RCPT responses when piplining
++     * @throws Zend_Mail_Protocol_Exception
++     * @return string Last line of response string (or last line of group of responses if pipelining)
++     */
++    protected function _expect($code, $timeout = null, $verb = null, $data = null)
++    {
++        $exceptionStack = array();
++
++        $this->_expect[] = array('code'    => $code,
++                                 'timeout' => $timeout,
++                                 'verb'    => $verb,
++                                 'data'    => $data);
++
++        if ($this->_isPipelining() && in_array($verb, $this->_pipelineVerbs)) {
++            return; // pipelining; queue processing for later
++        }
++
++        // process expected server response(s)
++        while ($expected = array_shift($this->_expect)) {
++
++            try {
++                $last = parent::_expect($expected['code'], $expected['timeout']);
++            } catch (Zend_Mail_Protocol_Exception $e) {
++
++                // suppress exceptions to RCPT commands if configured
++                if ($expected['verb'] == 'RCPT TO' && $this->_throwRcptExceptions === false) {
++                    
++                    $this->_rcptExceptions[$expected['data']] = $e;
++                    $last = $e->getMessage();
++
++                } elseif ($this->_isPipelining() && $expected['verb'] == 'DATA' &&
++                          substr($e->getMessage(), 0, 3) === '503' && strstr($e->getMessage(), 'RCPT')) {
++
++                    // When pipelining and supressing RCPT exceptions, if all
++                    // recipients are rejected, server will respond to DATA with
++                    // 503 "Bad sequence", complaining about how RCPT must come
++                    // before DATA.
++                    //
++                    // As this is not a protocol error, abort throwing
++                    // the SMTP 503 exception and instead throw a more
++                    // descriptive error about no valid recipients
++
++                    /**
++                     * @see Zend_Mail_Protocol_Exception
++                     */
++                    require_once 'Zend/Mail/Protocol/Exception.php';
++                    throw new Zend_Mail_Protocol_Exception('All recipient forward paths were rejected by server.'
++                                                           . ' While pipelining, server responded to DATA command'
++                                                           . ' with: ' . $e->getMessage());
++
++                } else {
++                    // defer until all server responses have been processed
++                    $exceptionStack[] = $e;
++                }
++            }
++        }
++
++        // throw queued exception (if any)
++        if ($e = array_shift($exceptionStack)) {
++            throw $e;
++        }
++
++        return $last;
++    }
++
++
++    /**
+      * Issues RCPT command
+      *
+      * @param  string $to Receiver(s) mailbox
+@@ -286,12 +531,23 @@
+ 
+         // Set rcpt to true, as per 4.1.1.3 of RFC 2821
+         $this->_send('RCPT TO:<' . $to . '>');
+-        $this->_expect(array(250, 251), 300); // Timeout set for 5 minutes as per RFC 2821 4.5.3.2
+-        $this->_rcpt = true;
++        $this->_expect(array(250, 251), 300, 'RCPT TO', $to); // Timeout set for 5 minutes as per RFC 2821 4.5.3.2
++        $this->_rcpt++;
+     }
+ 
+ 
+     /**
++     * Indicates whether current session is pipelining
++     *
++     * @return bool
++     */
++    protected function _isPipelining()
++    {
++        return ($this->_pipeline && $this->_supports('PIPELINING'));
++    }
++    
++    
++    /**
+      * Issues DATA command
+      *
+      * @param  string $data
+@@ -300,17 +556,28 @@
+      */
+     public function data($data)
+     {
+-        // Ensure recipients have been set
+-        if ($this->_rcpt !== true) {
++        // Ensure at least one recipient has been set
++        if ($this->_rcpt === 0) {
+             /**
+              * @see Zend_Mail_Protocol_Exception
+              */
+             require_once 'Zend/Mail/Protocol/Exception.php';
+             throw new Zend_Mail_Protocol_Exception('No recipient forward path has been supplied');
+         }
++        
++        // Ensure at least one recipient has been accepted when supressing rcpt exceptions
++        if ($this->_rcpt <= count($this->_rcptExceptions) && !$this->_isPipelining()) {
++            /**
++             * @see Zend_Mail_Protocol_Exception
++             */
++            require_once 'Zend/Mail/Protocol/Exception.php';
++            throw new Zend_Mail_Protocol_Exception('Server rejected all recipient forward paths; '
++                                                   . ' use getRcptExceptions() for details.'
++                                                   . ' Aborting DATA command.');
++        }
+ 
+-        $this->_send('DATA');
+-        $this->_expect(354, 120); // Timeout set for 2 minutes as per RFC 2821 4.5.3.2
++        $this->_send('DATA');    
++        $this->_expect(354, 120, 'DATA'); // Timeout set for 2 minutes as per RFC 2821 4.5.3.2
+ 
+         foreach (explode(Zend_Mime::LINEEND, $data) as $line) {
+             if (strpos($line, '.') === 0) {
+@@ -337,10 +604,11 @@
+     {
+         $this->_send('RSET');
+         // MS ESMTP doesn't follow RFC, see [ZF-1377]
+-        $this->_expect(array(250, 220));
++        $this->_expect(array(250, 220), null, 'RSET');
+ 
+         $this->_mail = false;
+-        $this->_rcpt = false;
++        $this->_rcpt = 0;
++        $this->_rcptExceptions = array();
+         $this->_data = false;
+     }
+ 
+@@ -439,5 +707,7 @@
+     protected function _stopSession()
+     {
+         $this->_sess = false;
++        $this->_capabilities = array();
++        $this->_esmtp = false;
+     }
+ }

@@ -1,0 +1,150 @@
+Index: Xml.php
+===================================================================
+--- Xml.php	(revision 13750)
++++ Xml.php	(working copy)
+@@ -59,80 +59,96 @@
+             require_once 'Zend/Config/Exception.php';
+             throw new Zend_Config_Exception('Filename is not set');
+         }
+-
++        
+         set_error_handler(array($this, '_loadFileErrorHandler'));
+         $config = simplexml_load_file($filename); // Warnings and errors are suppressed
+         restore_error_handler();
++        
+         // Check if there was a error while loading file
+         if ($this->_loadFileErrorStr !== null) {
+             require_once 'Zend/Config/Exception.php';
+             throw new Zend_Config_Exception($this->_loadFileErrorStr);
+         }
+-
+-        if ($section === null) {
+-            $dataArray = array();
+-            foreach ($config as $sectionName => $sectionData) {
+-                $dataArray[$sectionName] = $this->_processExtends($config, $sectionName);
+-            }
+-
+-            parent::__construct($dataArray, $allowModifications);
+-        } else if (is_array($section)) {
+-            $dataArray = array();
+-            foreach ($section as $sectionName) {
+-                if (!isset($config->$sectionName)) {
+-                    require_once 'Zend/Config/Exception.php';
+-                    throw new Zend_Config_Exception("Section '$sectionName' cannot be found in $filename");
+-                }
+-
+-                $dataArray = array_merge($this->_processExtends($config, $sectionName), $dataArray);
+-            }
+-
+-            parent::__construct($dataArray, $allowModifications);
+-        } else {
++        
++        $sections = array();
++        if (is_array($section)) {
++            $sections = $section;
++        } elseif ($section !== null) {
+             if (!isset($config->$section)) {
+                 require_once 'Zend/Config/Exception.php';
+                 throw new Zend_Config_Exception("Section '$section' cannot be found in $filename");
+             }
+-
+-            $dataArray = $this->_processExtends($config, $section);
+-            if (!is_array($dataArray)) {
+-                // Section in the XML file contains just one top level string
+-                $dataArray = array($section => $dataArray);
+-            }
+-
+-            parent::__construct($dataArray, $allowModifications);
++            $sections = array($section);
+         }
++        
++        parent::__construct(
++            $this->_processExtendsRecursive($config, $sections),
++            $allowModifications
++        );
+ 
+         $this->_loadedSection = $section;
+     }
+ 
+     /**
+-     * Helper function to process each element in the section and handle
++     * Helper function to process all elements in this xml document and handle
+      * the "extends" inheritance attribute.
+      *
+      * @param  SimpleXMLElement $element XML Element to process
+-     * @param  string           $section Section to process
+-     * @param  array            $config  Configuration which was parsed yet
+-     * @throws Zend_Config_Exception When $section cannot be found
+-     * @return array
++     * @param  integer          $depth   XML structure depth
++     * @throws Zend_Config_Exception When $extendedSection cannot be found.
++     * @return array|string
+      */
+-    protected function _processExtends(SimpleXMLElement $element, $section, array $config = array())
++    protected function _processExtendsRecursive(SimpleXMLElement $element,
++                                                array $sections = array(),
++                                                $depth = 0)
+     {
+-        if (!isset($element->$section)) {
+-            require_once 'Zend/Config/Exception.php';
+-            throw new Zend_Config_Exception("Section '$section' cannot be found");
++        $config = array();
++        foreach ($element->children() as $children)
++        {
++            $childs = $children->children();
++            $config[$elementName = $children->getName()] = empty($childs)
++                ? $this->_toArray($children)
++                : $this->_processExtendsRecursive($children, array(), $depth+1);
++            
++            $attributes = $children->attributes();
++            foreach ($attributes as $attribute => $value)
++            {
++                if ($attribute !== 'extends') {
++                    continue;
++                }
++                
++                $extendedSection = (string)$value;
++                if (!array_key_exists($extendedSection, $config)) {
++                    require_once 'Zend/Config/Exception.php';
++                    throw new Zend_Config_Exception("Section '$extendedSection' cannot be found");
++                }
++                
++                $data = $config[$extendedSection];
++                if (is_array($data) && is_array($config[$elementName])) {
++                    $config[$elementName] = $this->_arrayMergeRecursive(
++                        $data, $config[$elementName]
++                    );
++                } elseif (is_array($data)) {
++                    $config[$children->getName()] = $data;
++                }
++                
++                if ($depth == 0) {
++                    $this->_assertValidExtend($elementName, $extendedSection);
++                }
++            }
+         }
+-
+-        $thisSection = $element->$section;
+-
+-        if (isset($thisSection['extends'])) {
+-            $extendedSection = (string) $thisSection['extends'];
+-            $this->_assertValidExtend($section, $extendedSection);
+-            $config = $this->_processExtends($element, $extendedSection, $config);
++        
++        if (!empty($sections)) {
++            foreach ($config as $key => $value) {
++                if (!in_array($key, $sections)) {
++                    unset($config[$key]);
++                }
++            }
+         }
+-
+-        $config = $this->_arrayMergeRecursive($config, $this->_toArray($thisSection));
+-
++        
++        if (empty($config)) {
++            $config = (string)$element;
++        }
+         return $config;
+     }
+ 

@@ -1,0 +1,157 @@
+Index: Feed/Abstract.php
+===================================================================
+--- Feed/Abstract.php	(revision 9593)
++++ Feed/Abstract.php	(working copy)
+@@ -77,18 +77,22 @@
+             $client->setUri($uri);
+             $response = $client->request('GET');
+             if ($response->getStatus() !== 200) {
+-                /** 
++                /**
+                  * @see Zend_Feed_Exception
+                  */
+                 require_once 'Zend/Feed/Exception.php';
+-            	throw new Zend_Feed_Exception('Feed failed to load, got response code ' . $response->getStatus());
++                throw new Zend_Feed_Exception('Feed failed to load, got response code ' . $response->getStatus());
+             }
+             $this->_element = $response->getBody();
+             $this->__wakeup();
+         } elseif ($string !== null) {
+-            // Retrieve the feed from $string
+             $this->_element = $string;
+-            $this->__wakeup();
++            if (is_object($string)) {
++                $this->_buildEntryCache();
++            } else {
++                // Retrieve the feed from $string
++                $this->__wakeup();
++            }
+         } else {
+             // Generate the feed from the array
+             $header = $builder->getHeader();
+@@ -110,7 +114,8 @@
+     public function __wakeup()
+     {
+         @ini_set('track_errors', 1);
+-        $doc = @DOMDocument::loadXML($this->_element);
++        $doc = new DOMDocument();
++        @$doc->load($this->_element);
+         @ini_restore('track_errors');
+ 
+         if (!$doc) {
+@@ -122,8 +127,8 @@
+                     $php_errormsg = '(error message not available)';
+                 }
+             }
+-            
+-            /** 
++
++            /**
+              * @see Zend_Feed_Exception
+              */
+             require_once 'Zend/Feed/Exception.php';
+Index: Feed.php
+===================================================================
+--- Feed.php	(revision 9593)
++++ Feed.php	(working copy)
+@@ -156,7 +156,41 @@
+         self::$_namespaces[$prefix] = $namespaceURI;
+     }
+ 
++    /**
++     * Imports a feed located at $uri without using Zend_Http_Client.
++     *
++     * @param  string $uri
++     * @throws Zend_Feed_Exception
++     * @return Zend_Feed_Abstract
++     */
++    public static function importRaw($uri)
++    {
++        // Load the feed as an XML DOMDocument object
++        @ini_set('track_errors', 1);
++        $doc = new DOMDocument();
++        @$doc->load($uri);
++        @ini_restore('track_errors');
+ 
++        if (!$doc) {
++            // prevent the class to generate an undefined variable notice (ZF-2590)
++            if (!isset($php_errormsg)) {
++                if (function_exists('xdebug_is_enabled')) {
++                    $php_errormsg = '(error message not available, when XDebug is running)';
++                } else {
++                    $php_errormsg = '(error message not available)';
++                }
++            }
++
++            /**
++             * @see Zend_Feed_Exception
++             */
++            require_once 'Zend/Feed/Exception.php';
++            throw new Zend_Feed_Exception("DOMDocument cannot parse XML: $php_errormsg");
++        }
++
++        return self::createReaderInstance($doc);
++    }
++
+     /**
+      * Imports a feed located at $uri.
+      *
+@@ -192,7 +226,8 @@
+     {
+         // Load the feed as an XML DOMDocument object
+         @ini_set('track_errors', 1);
+-        $doc = @DOMDocument::loadXML($string);
++        $doc = new DOMDocument();
++        @$doc->loadXML($string);
+         @ini_restore('track_errors');
+ 
+         if (!$doc) {
+@@ -212,6 +247,18 @@
+             throw new Zend_Feed_Exception("DOMDocument cannot parse XML: $php_errormsg");
+         }
+ 
++        return self::createReaderInstance($doc);
++    }
++
++    /**
++     * Determines the feed reader class to instanciate
++     *
++     * @param  DOMDocument $doc
++     * @throws Zend_Feed_Exception
++     * @return Zend_Feed_Abstract
++     */
++    private static function createReaderInstance($doc)
++    {
+         // Try to find the base feed element or a single <entry> of an Atom feed
+         if ($doc->getElementsByTagName('feed')->item(0) ||
+             $doc->getElementsByTagName('entry')->item(0)) {
+@@ -220,7 +267,7 @@
+              */
+             require_once 'Zend/Feed/Atom.php';
+             // return a newly created Zend_Feed_Atom object
+-            return new Zend_Feed_Atom(null, $string);
++            return new Zend_Feed_Atom(null, $doc->getElementsByTagName('feed')->item(0));
+         }
+ 
+         // Try to find the base feed element of an RSS feed
+@@ -230,10 +277,10 @@
+              */
+             require_once 'Zend/Feed/Rss.php';
+             // return a newly created Zend_Feed_Rss object
+-            return new Zend_Feed_Rss(null, $string);
++            return new Zend_Feed_Rss(null, $doc->getElementsByTagName('channel')->item(0));
+         }
+ 
+-        // $string does not appear to be a valid feed of the supported types
++        // $doc does not appear to be a valid feed of the supported types
+         /**
+          * @see Zend_Feed_Exception
+          */
+@@ -241,7 +288,6 @@
+         throw new Zend_Feed_Exception('Invalid or unsupported feed format');
+     }
+ 
+-
+     /**
+      * Imports a feed from a file located at $filename.
+      *

@@ -1,0 +1,243 @@
+Index: library/Zend/Controller/Action/Helper/Json.php
+===================================================================
+--- library/Zend/Controller/Action/Helper/Json.php	(revision 24514)
++++ library/Zend/Controller/Action/Helper/Json.php	(working copy)
+@@ -53,23 +53,24 @@
+      * @param  mixed   $data
+      * @param  boolean $keepLayouts
+      * @param  boolean|array $keepLayouts
++     * @param  boolean $encodeData Provided data is already JSON
+      * NOTE:   if boolean, establish $keepLayouts to true|false
+      *         if array, admit params for Zend_Json::encode as enableJsonExprFinder=>true|false
+      *         if $keepLayouts and parmas for Zend_Json::encode are required
+-     *         then, the array can contains a 'keepLayout'=>true|false
++     *         then, the array can contains a 'keepLayout'=>true|false and/or 'encodeData'=>true|false
+      *         that will not be passed to Zend_Json::encode method but will be passed
+      *         to Zend_View_Helper_Json
+      * @throws Zend_Controller_Action_Helper_Json
+      * @return string
+      */
+-    public function encodeJson($data, $keepLayouts = false)
++    public function encodeJson($data, $keepLayouts = false, $encodeData = true)
+     {
+         /**
+          * @see Zend_View_Helper_Json
+          */
+         require_once 'Zend/View/Helper/Json.php';
+         $jsonHelper = new Zend_View_Helper_Json();
+-        $data = $jsonHelper->json($data, $keepLayouts);
++        $data = $jsonHelper->json($data, $keepLayouts, $encodeData);
+ 
+         if (!$keepLayouts) {
+             /**
+@@ -87,17 +88,18 @@
+      *
+      * @param  mixed   $data
+      * @param  boolean|array $keepLayouts
++     * @param  $encodeData Encode $data as JSON?
+      * NOTE:   if boolean, establish $keepLayouts to true|false
+      *         if array, admit params for Zend_Json::encode as enableJsonExprFinder=>true|false
+      *         if $keepLayouts and parmas for Zend_Json::encode are required
+-     *         then, the array can contains a 'keepLayout'=>true|false
++     *         then, the array can contains a 'keepLayout'=>true|false and/or 'encodeData'=>true|false
+      *         that will not be passed to Zend_Json::encode method but will be passed
+      *         to Zend_View_Helper_Json
+      * @return string|void
+      */
+-    public function sendJson($data, $keepLayouts = false)
++    public function sendJson($data, $keepLayouts = false, $encodeData = true)
+     {
+-        $data = $this->encodeJson($data, $keepLayouts);
++        $data = $this->encodeJson($data, $keepLayouts, $encodeData);
+         $response = $this->getResponse();
+         $response->setBody($data);
+ 
+@@ -118,13 +120,14 @@
+      * @param  mixed   $data
+      * @param  boolean $sendNow
+      * @param  boolean $keepLayouts
++     * @param  boolean $encodeData Encode $data as JSON?
+      * @return string|void
+      */
+-    public function direct($data, $sendNow = true, $keepLayouts = false)
++    public function direct($data, $sendNow = true, $keepLayouts = false, $encodeData = true)
+     {
+         if ($sendNow) {
+-            return $this->sendJson($data, $keepLayouts);
++            return $this->sendJson($data, $keepLayouts, $encodeData);
+         }
+-        return $this->encodeJson($data, $keepLayouts);
++        return $this->encodeJson($data, $keepLayouts, $encodeData);
+     }
+ }
+Index: library/Zend/View/Helper/Json.php
+===================================================================
+--- library/Zend/View/Helper/Json.php	(revision 24514)
++++ library/Zend/View/Helper/Json.php	(working copy)
+@@ -43,16 +43,18 @@
+      * Encode data as JSON, disable layouts, and set response header
+      *
+      * If $keepLayouts is true, does not disable layouts.
++     * If $encodeJson is false, does not JSON-encode $data
+      *
+      * @param  mixed $data
+      * @param  bool $keepLayouts
+      * NOTE:   if boolean, establish $keepLayouts to true|false
+      *         if array, admit params for Zend_Json::encode as enableJsonExprFinder=>true|false
+-     *         this array can contains a 'keepLayout'=>true|false
++     *         this array can contains a 'keepLayout'=>true|false and/or 'encodeData'=>true|false
+      *         that will not be passed to Zend_Json::encode method but will be used here
++     * @param  bool $encodeData
+      * @return string|void
+      */
+-    public function json($data, $keepLayouts = false)
++    public function json($data, $keepLayouts = false, $encodeData = true)
+     {
+         $options = array();
+         if (is_array($keepLayouts))
+@@ -62,9 +64,15 @@
+                             ? $keepLayouts['keepLayouts']
+                             : false;
+             unset($options['keepLayouts']);
++            $encodeData  = (array_key_exists('encodeData', $keepLayouts))
++                            ? $keepLayouts['encodeData']
++                            : $encodeData;
++            unset($options['encodeData']);
+         }
+ 
+-        $data = Zend_Json::encode($data, null, $options);
++        if ($encodeData) {
++            $data = Zend_Json::encode($data, null, $options);
++        }
+         if (!$keepLayouts) {
+             require_once 'Zend/Layout.php';
+             $layout = Zend_Layout::getMvcInstance();
+Index: tests/Zend/Controller/Action/Helper/JsonTest.php
+===================================================================
+--- tests/Zend/Controller/Action/Helper/JsonTest.php	(revision 24514)
++++ tests/Zend/Controller/Action/Helper/JsonTest.php	(working copy)
+@@ -174,6 +174,60 @@
+         $this->assertTrue($layout->isEnabled());
+         $this->assertFalse($this->viewRenderer->getNoRender());
+     }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testEncodeJsonWillAcceptPreencodedJson()
++    {
++        $data = $this->helper->encodeJson(Zend_Json::encode(array('f')), false, false);
++        $this->assertEquals('["f"]', $data);
++    }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testSendJsonWillAcceptPreencodedJson()
++    {
++        $data = $this->helper->sendJson(Zend_Json::encode(array('f')), false, false);
++        $this->assertEquals('["f"]', $data);
++    }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testDirectWillAcceptPreencodedJson()
++    {
++        $data = $this->helper->direct(Zend_Json::encode(array('f')), false, false, false);
++        $this->assertEquals('["f"]', $data);
++    }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testSendingPreencodedJsonViaDirectWillStillSendHeaders()
++    {
++        $data = $this->helper->direct(Zend_Json::encode(array('f')), false, false, false);
++        $this->verifyJsonHeader();
++    }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testSendingPreencodedJsonViaSendJsonWillStillSendHeaders()
++    {
++        $data = $this->helper->sendJson(Zend_Json::encode(array('f')), false, false);
++        $this->verifyJsonHeader();
++    }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testSendingPreencodedJsonViaEncodeJsonWillStillSendHeaders()
++    {
++        $data = $this->helper->encodeJson(Zend_Json::encode(array('f')), false, false);
++        $this->verifyJsonHeader();
++    }
+ }
+ 
+ /**
+Index: tests/Zend/View/Helper/JsonTest.php
+===================================================================
+--- tests/Zend/View/Helper/JsonTest.php	(revision 24514)
++++ tests/Zend/View/Helper/JsonTest.php	(working copy)
+@@ -143,6 +143,24 @@
+         $data = $this->helper->json(array('foobar'), true);
+         $this->assertTrue($layout->isEnabled());
+     }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testJsonHelperWillAcceptPreencodedJson()
++    {
++        $data = $this->helper->json(Zend_Json::encode(array('f')), false, false);
++        $this->assertEquals('["f"]', $data);
++    }
++    
++    /**
++     * @group ZF-10977
++     */
++    public function testJsonHelperWillSendHeadersWhenProvidedWithPreencodedJson()
++    {
++        $data = $this->helper->json(Zend_Json::encode(array('f')), false, false);
++        $this->verifyJsonHeader();
++    }
+ }
+ 
+ /**
+Index: documentation/manual/en/module_specs/Zend_View-Helpers-Json.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_View-Helpers-Json.xml	(revision 24514)
++++ documentation/manual/en/module_specs/Zend_View-Helpers-Json.xml	(working copy)
+@@ -71,6 +71,30 @@
+ )) ?>
+ ]]></programlisting>
+     </note>
++    
++    <note>
++        <title>Sending pre-encoded JSON</title>
++
++        <para>
++            By default, the <acronym>JSON</acronym> helper will JSON-encode the 
++            data provided to the helper's first parameter.  If you wish to pass 
++            in data which has already been encoded into <acronym>JSON</acronym>, 
++            the third parameter needs to be set to boolean <constant>FALSE</constant>.  
++            When the second parameter is an array, disabling <acronym>JSON</acronym> 
++            encoding can be achived by including a <property>encodeData</property> 
++            key with the value of boolean <constant>FALSE</constant>:
++        </para>
++
++        <programlisting language="php"><![CDATA[
++// Boolean false as third argument disables internal JSON encoding of data
++echo $this->json($this->data, false, false);
++
++// Or boolean false as "encodeData" key:
++echo $this->json($this->data, array('encodeData' => false));
++]]></programlisting>
++
++    </note>
++    
+ </sect3>
+ <!--
+ vim:se ts=4 sw=4 et:

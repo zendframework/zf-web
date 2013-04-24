@@ -1,0 +1,117 @@
+Index: tests/Zend/Db/Table/Rowset/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Table/Rowset/TestCommon.php	(revision 21764)
++++ tests/Zend/Db/Table/Rowset/TestCommon.php	(working copy)
+@@ -263,5 +263,37 @@
+         }
+         $this->assertFalse($connected);
+     }
++    
++    public function testRefresh()
++    {
++    	$table = $this->_table['bugs'];
++        $rowset = $table->fetchAll();
++        $total_old_rows = count($rowset);
++        
++        $row = array (
++            'bug_id'          => null,
++            'bug_description' => 'A brand new bug',
++            'bug_status'      => 'NEW',
++            'created_on'      => '2007-04-02',
++            'updated_on'      => '2007-04-02',
++            'reported_by'     => 'micky',
++            'assigned_to'     => 'goofy',
++            'verified_by'     => 'dduck'
++        );
++        
++        $insertResult = $table->insert($row);
++        $lastInsertId = $this->_db->lastInsertId();
++        
++        // Refresh rowset
++        $rowset->refresh();
++        
++        $this->assertEquals(($total_old_rows+1), count($rowset));
++        
++        $row = $rowset[count($rowset)-1];
++        $this->assertType('Zend_Db_Table_Row_Abstract', $row,
++            'Expecting object of type Zend_Db_Table_Row_Abstract, got '.get_class($row));
++        
++        $this->assertEquals($row->bug_description, 'A brand new bug');
++    }
+ 
+ }
+Index: library/Zend/Db/Table/Rowset/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Rowset/Abstract.php	(revision 21764)
++++ library/Zend/Db/Table/Rowset/Abstract.php	(working copy)
+@@ -44,6 +44,13 @@
+     protected $_table;
+ 
+     /**
++     * Zend_Db_Select object
++     * 
++     * @var Zend_Db_Select
++     */
++    protected $_select = null;
++    
++    /**
+      * Connected is true if we have a reference to a live
+      * Zend_Db_Table_Abstract object.
+      * This is false after the Rowset has been deserialized.
+@@ -124,6 +131,9 @@
+         if (isset($config['stored'])) {
+             $this->_stored     = $config['stored'];
+         }
++        if (isset($config['select'])) {
++            $this->_select     = $config['select'];
++        }
+ 
+         // set the count of rows
+         $this->_count = count($this->_data);
+@@ -415,5 +425,32 @@
+         }
+         return $this->_data;
+     }
++    
++    /**
++     * Refresh the rowset
++     * 
++     * Update the rowset with fresh data. It will executes the same query that was used to create the rowset.
++     * 
++     * @return void
++     */
++    public function refresh()
++    {
++        // If this rowset is not connected throw an exception
++        if (!$this->_connected) {
++            throw new Zend_Db_Table_Rowset_Exception('Rowset is not connected');
++        }
+ 
++        // If select object is not set then we can not refresh the rowset
++        if (!isset($this->_select) && !is_null($this->_select)) {
++            throw new Zend_Db_Table_Rowset_Exception('Select object is not set. Can not refesh rowset.');
++        }
++
++        $stmt = $this->_table->getAdapter()->query($this->_select);
++        $this->_data = $stmt->fetchAll(Zend_Db::FETCH_ASSOC);
++        $this->_rows = array();
++        $this->_count = count($this->_data);
++        $this->rewind();
++
++        return $this;
++    }
+ }
+Index: library/Zend/Db/Table/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Abstract.php	(revision 21764)
++++ library/Zend/Db/Table/Abstract.php	(working copy)
+@@ -1325,7 +1325,8 @@
+             'data'     => $rows,
+             'readOnly' => $select->isReadOnly(),
+             'rowClass' => $this->getRowClass(),
+-            'stored'   => true
++            'stored'   => true,
++            'select'   => $select
+         );
+ 
+         $rowsetClass = $this->getRowsetClass();

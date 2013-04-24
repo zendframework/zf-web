@@ -1,0 +1,172 @@
+--- tests/Zend/Loader/Autoloader/ResourceTest.php	(revision 19883)
++++ tests/Zend/Loader/Autoloader/ResourceTest.php	(working copy)
+@@ -424,6 +424,53 @@
+         $path = $this->loader->autoload('Something_Totally_Wrong');
+         $this->assertFalse($path);
+     }
++
++    /**
++     * 
++     */
++    public function testAutoloaderResourceCanSetNamespaceSeparator()
++    {
++        $this->loader->setNamespaceSeparator('\\');
++        $this->assertEquals('\\', $this->loader->getNamespaceSeparator());
++    }
++
++    /**
++     * @expectedException Zend_Loader_Exception
++     */
++    public function testAutoloaderResourceCanNotSetInvalidNamespaceSeparator()
++    {
++        $this->loader->setNamespaceSeparator('|');
++    }
++
++    public function testAutoloaderCanGet53ClassPath()
++    {
++        if (version_compare(PHP_VERSION, '5.3.0', '<')) {
++            $this->markTestSkipped();
++        }
++        $this->loader->setNamespaceSeparator('\\');
++        $this->loader->addResourceTypes(array(
++            'model' => array('path' => 'php53', 'namespace' => 'Model'),
++        ));
++        $this->assertEquals(
++            $this->loader->getBasePath() . '/php53/ZendLoaderAutoloaderResourceTest.php', 
++            $this->loader->getClassPath('\FooBar\Model\ZendLoaderAutoloaderResourceTest')
++        );
++    }
++
++    public function testAutoloaderCanLoadClassUsingNonDefaultNamespaceSeparator()
++    {
++        if (version_compare(PHP_VERSION, '5.3.0', '<')) {
++            $this->markTestSkipped();
++        }
++        require_once dirname(__FILE__) . '/_files/php53/ZendLoaderAutoloaderResourceTest.php';
++        $this->loader->setNamespaceSeparator('\\');
++
++        $this->loader->addResourceTypes(array(
++            'model' => array('path' => 'php53', 'namespace' => 'Model'),
++        ));
++        $object = $this->loader->load('ZendLoaderAutoloaderResourceTest', 'model');
++        $this->assertTrue($object instanceof \FooBar\Model\ZendLoaderAutoloaderResourceTest);
++    }
+ }
+ 
+ if (PHPUnit_MAIN_METHOD == 'Zend_Loader_Autoloader_ResourceTest::main') {
+Index: library/Zend/Loader/Autoloader/Resource.php
+===================================================================
+--- library/Zend/Loader/Autoloader/Resource.php	(revision 19883)
++++ library/Zend/Loader/Autoloader/Resource.php	(working copy)
+@@ -55,6 +55,11 @@
+     protected $_namespace;
+ 
+     /**
++     * @var string Namespace separator of class names (defaults to 5.2 standard)
++     */
++    protected $_namespaceSeparator = '_';
++
++    /**
+      * @var array Available resource types handled by this resource autoloader
+      */
+     protected $_resourceTypes = array();
+@@ -86,7 +91,7 @@
+         }
+ 
+         if (!empty($namespace)) {
+-            $namespace .= '_';
++            $namespace .= $this->getNamespaceSeparator();
+         }
+         Zend_Loader_Autoloader::getInstance()->unshiftAutoloader($this, $namespace);
+     }
+@@ -139,7 +144,8 @@
+      */
+     public function getClassPath($class)
+     {
+-        $segments          = explode('_', $class);
++        $class             = ltrim($class, '\\');
++        $segments          = explode($this->getNamespaceSeparator(), $class);
+         $namespaceTopLevel = $this->getNamespace();
+         $namespace         = '';
+ 
+@@ -161,7 +167,7 @@
+         $lastMatch = false;
+         do {
+             $segment    = array_shift($segments);
+-            $component .= empty($component) ? $segment : '_' . $segment;
++            $component .= empty($component) ? $segment : $this->getNamespaceSeparator() . $segment;
+             if (isset($this->_components[$component])) {
+                 $lastMatch = $component;
+             }
+@@ -173,7 +179,7 @@
+ 
+         $final = substr($class, strlen($lastMatch) + 1);
+         $path = $this->_components[$lastMatch];
+-        $classPath = $path . '/' . str_replace('_', '/', $final) . '.php';
++        $classPath = $path . '/' . str_replace($this->getNamespaceSeparator(), '/', $final) . '.php';
+ 
+         if (Zend_Loader::isReadable($classPath)) {
+             return $classPath;
+@@ -223,7 +229,7 @@
+      */
+     public function setNamespace($namespace)
+     {
+-        $this->_namespace = rtrim((string) $namespace, '_');
++        $this->_namespace = rtrim((string) $namespace, $this->getNamespaceSeparator());
+         return $this;
+     }
+ 
+@@ -276,9 +282,9 @@
+                 throw new Zend_Loader_Exception('Initial definition of a resource type must include a namespace');
+             }
+             $namespaceTopLevel = $this->getNamespace();
+-            $namespace = ucfirst(trim($namespace, '_'));
++            $namespace = ucfirst(trim($namespace, $this->getNamespaceSeparator()));
+             $this->_resourceTypes[$type] = array(
+-                'namespace' => empty($namespaceTopLevel) ? $namespace : $namespaceTopLevel . '_' . $namespace,
++                'namespace' => empty($namespaceTopLevel) ? $namespace : $namespaceTopLevel . $this->getNamespaceSeparator() . $namespace,
+             );
+         }
+         if (!is_string($path)) {
+@@ -451,10 +457,40 @@
+             throw new Zend_Loader_Exception('Invalid resource type specified');
+         }
+         $namespace = $this->_resourceTypes[$type]['namespace'];
+-        $class     = $namespace . '_' . ucfirst($resource);
++        $class     = $namespace . $this->getNamespaceSeparator() . ucfirst($resource);
++
++        // always load fully qualified namespace
++        if ('\\' === $this->getNamespaceSeparator()) {
++            $class = '\\' . ltrim($class, '\\');
++        }
+         if (!isset($this->_resources[$class])) {
+             $this->_resources[$class] = new $class;
+         }
+         return $this->_resources[$class];
+     }
++
++    /**
++     * Set the namespace separator
++     * 
++     * @param string $separator The namespace separator
++     */
++    public function setNamespaceSeparator($separator)
++    {
++        $acceptable = array('\\', '_');
++        if (!in_array($separator, $acceptable)) {
++            throw new Zend_Loader_Exception('Invalid namespace separator - must be \\ or _');
++        }
++
++        $this->_namespaceSeparator = $separator;
++    }
++
++    /**
++     * Get the namespace separator
++     *
++     * @return string
++     */
++    public function getNamespaceSeparator()
++    {
++        return $this->_namespaceSeparator;
++    }
+ }

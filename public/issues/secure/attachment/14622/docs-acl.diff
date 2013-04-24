@@ -1,0 +1,3848 @@
+Index: library/Zend/Gdata/App.php
+===================================================================
+--- library/Zend/Gdata/App.php	(revision 24410)
++++ library/Zend/Gdata/App.php	(working copy)
+@@ -929,7 +929,7 @@
+      * DELETE entry with client object
+      *
+      * @param mixed $data The Zend_Gdata_App_Entry or URL to delete
+-     * @return void
++     * @return Zend_Http_Response The response object
+      * @throws Zend_Gdata_App_Exception
+      * @throws Zend_Gdata_App_HttpException
+      * @throws Zend_Gdata_App_InvalidArgumentException
+Index: library/Zend/Gdata/Batch.php
+===================================================================
+--- library/Zend/Gdata/Batch.php	(revision 0)
++++ library/Zend/Gdata/Batch.php	(revision 0)
+@@ -0,0 +1,57 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Gdata
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_App_Extension
++ */
++require_once 'Zend/Gdata/App/Extension.php';
++
++/**
++ * Represents a Batch extension
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Gdata
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++abstract class Zend_Gdata_Batch extends Zend_Gdata_App_Extension
++{
++    /**
++     * Namespaces used for batch processing
++     * @var array
++     */
++    public static $namespaces = array(
++        array('batch', 'http://schemas.google.com/gdata/batch', 1, 0)
++    );
++
++    protected $_rootNamespace = 'batch';
++
++    public function __construct()
++    {
++        /* NOTE: namespaces must be registered before calling parent */
++        $this->registerAllNamespaces(self::$namespaces);
++
++        parent::__construct();
++    }
++
++}
+Index: library/Zend/Gdata/Docs.php
+===================================================================
+--- library/Zend/Gdata/Docs.php	(revision 24410)
++++ library/Zend/Gdata/Docs.php	(working copy)
+@@ -67,6 +67,19 @@
+ 
+     protected $_defaultPostUri = self::DOCUMENTS_LIST_FEED_URI;
+ 
++    /**
++     * Namespaces used for Gdata data
++     *
++     * @var array
++     */
++    public static $namespaces = array(
++        array('gd', 'http://schemas.google.com/g/2005', 1, 0),
++        array('openSearch', 'http://a9.com/-/spec/opensearchrss/1.0/', 1, 0),
++        array('openSearch', 'http://a9.com/-/spec/opensearch/1.1/', 2, 0),
++        array('rss', 'http://blogs.law.harvard.edu/tech/rss', 1, 0),
++        array('gAcl', 'http://schemas.google.com/acl/2007', 1, 0)
++    );
++
+     private static $SUPPORTED_FILETYPES = array(
+       'TXT'=>'text/plain',
+       'CSV'=>'text/csv',
+@@ -85,6 +98,12 @@
+       'PPS'=>'application/vnd.ms-powerpoint');
+ 
+     /**
++     * Holds the array of feed entries.
++     * @var array of Zend_Gdata_Docs_BatchAclEntry objects
++     */
++    private $_batchOperations = array();
++
++    /**
+      * Create Gdata_Docs object
+      *
+      * @param Zend_Http_Client $client (optional) The HTTP client to use when
+@@ -94,6 +113,7 @@
+     public function __construct($client = null, $applicationId = 'MyCompany-MyApp-1.0')
+     {
+         $this->registerPackage('Zend_Gdata_Docs');
++        $this->registerPackage('Zend_Gdata_Acl');
+         parent::__construct($client, $applicationId);
+         $this->_httpClient->setParameterPost('service', self::AUTH_SERVICE_NAME);
+     }
+@@ -162,7 +182,7 @@
+      * @return Zend_Gdata_Docs_DocumentListEntry
+      */
+     public function getDoc($docId, $docType) {
+-        $location = 'https://docs.google.com/feeds/documents/private/full/' .
++        $location = self::DOCUMENTS_LIST_FEED_URI . '/' .
+             $docType . '%3A' . $docId;
+         return $this->getDocumentListEntry($location);
+     }
+@@ -242,7 +262,8 @@
+ 
+         // Set the mime type of the data.
+         if ($mimeType === null) {
+-          $filenameParts = explode('.', $fileLocation);
++          $slugHeader =  $fs->getSlug();
++          $filenameParts = explode('.', $slugHeader);
+           $fileExtension = end($filenameParts);
+           $mimeType = self::lookupMimeType($fileExtension);
+         }
+@@ -300,4 +321,267 @@
+         return $this->insertEntry($data, $uri, $className);
+     }
+ 
++    /**
++     * Gets the feed for the document's ACL.
++     * @param Zend_Gdata_Docs_DocumentListEntry|string $document The document list
++     * entry instance or GET URL i.e. the document's ACL URL
++     * @return string|Zend_Gdata_App_Feed
++     * @throws Zend_Gdata_App_InvalidArgumentException if the $document
++     * parameter is not specified or if it does not yield a URL
++     */
++    public function getAclFeed($document)
++    {
++        $uri = '';
++        if ($document instanceof Zend_Gdata_Docs_DocumentListEntry) {
++            foreach ($document->extensionElements as $extensionElement) {
++                if ($extensionElement->rootElement == 'feedLink') {
++                    $attributes = $extensionElement->getExtensionAttributes();
++                    $uri = $attributes['href']['value'];
++                    break;
++                }
++            }
++        } elseif (is_string($document)) {
++            $uri = $document;
++        }
++        if ($document == null || empty($uri)) {
++            require_once('Zend/Gdata/App/InvalidArgumentException.php');
++            throw new Zend_Gdata_App_InvalidArgumentException('Query URL not specified');
++        }
++        return parent::getFeed($uri, 'Zend_Gdata_Docs_AclFeed');
++    }
++
++    /**
++     * Inserts an entry to the document's ACL.
++     * @param Zend_Gdata_Docs_AclEntry $data The entry to post to the ACL URL
++     * to add a new ACL entry
++     * @param Zend_Gdata_Docs_DocumentListEntry|string $document The document list
++     * entry instance or POST URI i.e. the document's ACL URL
++     * @return Zend_Gdata_Docs_AclEntry
++     * @throws Zend_Gdata_App_InvalidArgumentException if the $document
++     * parameter is not specified or if it does not yield a URL
++     */
++    public function insertAcl(Zend_Gdata_Docs_AclEntry $data, $document)
++    {
++        $uri = '';
++        if ($document instanceof Zend_Gdata_Docs_DocumentListEntry) {
++            foreach ($document->extensionElements as $extensionElement) {
++                if ($extensionElement->rootElement == 'feedLink') {
++                    $attributes = $extensionElement->getExtensionAttributes();
++                    $uri = $attributes['href']['value'];
++                    break;
++                }
++            }
++        } elseif (is_string($document)) {
++            $uri = $document;
++        }
++        if ($document == null || empty($uri)) {
++            require_once('Zend/Gdata/App/InvalidArgumentException.php');
++            throw new Zend_Gdata_App_InvalidArgumentException('Insert URL not specified');
++        }
++        return $this->insertEntry($data, $uri, 'Zend_Gdata_Docs_AclEntry');
++    }
++
++    /**
++     * Updates the ACL entries of a document.
++     * @param Zend_Gdata_Docs_DocumentListEntry|string $document The document list
++     * entry instance or PUT URI i.e. the document's ACL URL
++     * @param string $userId The user ID to modify.
++     * @param string $role The role of the user. Acceptable values are 'reader',
++     * 'writer' and 'owner'.
++     * @return Zend_Gdata_Docs_AclEntry
++     * @throws Zend_Gdata_App_InvalidArgumentException if the $document
++     * parameter is not specified or if it does not yield a URL
++     */
++    public function updateAcl($document, $userId, $role)
++    {
++        $uri = '';
++        if ($document instanceof Zend_Gdata_Docs_DocumentListEntry) {
++            foreach ($document->extensionElements as $extensionElement) {
++                if ($extensionElement->rootElement == 'feedLink') {
++                    $attributes = $extensionElement->getExtensionAttributes();
++                    $uri = $attributes['href']['value'];
++                    $query = new Zend_Gdata_Docs_AclQuery($uri);
++                    $query->setUserId($userId);
++                    $uri = $query->getQueryUrl();
++                    break;
++                }
++            }
++        } elseif (is_string($document)) {
++            $uri = $document;
++        }
++        if ($document == null || empty($uri)) {
++            require_once('Zend/Gdata/App/InvalidArgumentException.php');
++            throw new Zend_Gdata_App_InvalidArgumentException('Update URL not specified');
++        }
++
++        $aclEntry = new Zend_Gdata_Docs_AclEntry();
++        $aclEntry->setAclRole($this->newRole($role))
++                 ->setAclScope($this->newScope($userId));
++        $aclEntry->category = array(new Zend_Gdata_App_Extension_Category(
++            'http://schemas.google.com/acl/2007#accessRule', 'http://schemas.google.com/g/2005#kind'));
++        return $this->updateEntry($aclEntry, $uri, 'Zend_Gdata_Docs_AclEntry');
++    }
++
++    /**
++     * Removes an entry from the document's ACL.
++     * @param Zend_Gdata_Docs_DocumentListEntry|string $document The document list
++     * entry instance or DELETE URI i.e. the document's ACL URL
++     * @param string $userId The user ID to remove from the ACL.
++     * @return Zend_Http_Response The response object
++     * @throws Zend_Gdata_App_InvalidArgumentException if the $document
++     * parameter is not specified or if it does not yield a URL
++     */
++    public function deleteAcl($document, $userId)
++    {
++        $uri = '';
++        if ($document instanceof Zend_Gdata_Docs_DocumentListEntry) {
++            foreach ($document->extensionElements as $extensionElement) {
++                if ($extensionElement->rootElement == 'feedLink') {
++                    $attributes = $extensionElement->getExtensionAttributes();
++                    $uri = $attributes['href']['value'];
++                }
++            }
++        } elseif (is_string($document)) {
++            $uri = $document;
++        }
++        if ($document == null || empty($uri)) {
++            require_once('Zend/Gdata/App/InvalidArgumentException.php');
++            throw new Zend_Gdata_App_InvalidArgumentException('Delete URL not specified');
++        }
++        $query = new Zend_Gdata_Docs_AclQuery($uri);
++        $query->setUserId($userId);
++        return $this->delete($query->getQueryUrl());
++    }
++
++    /**
++     * Adds an operation to include for batch processing.
++     * This function does not invoke the actual batch processing.
++     * @param string $operation The operation type. Accepted values are 'query',
++     * 'insert', 'update' and 'delete'. Batch IDs for query operations are
++     * automatically generated starting from integer 1.
++     * @param string $docId The identifier of the document. This value must
++     * be omitted for 'insert' operations. This value should be the href value
++     * of the <gd:feedLink> element.
++     * @param string $role The role of the user with regards to the document.
++     * Accepted values are 'owner', 'writer' and 'reader'. This value must be
++     * omitted for 'query' operations.
++     * @param string $scopeValue The username of the user's privilege on the
++     * specified document. This value must be omitted for 'query' operations.
++     * @param string $scopeType The type of user account. By default the value
++     * is 'user'.
++     * @return Zend_Gdata_Docs Provides a fluent interface
++     * @throws Zend_Gdata_App_InvalidArgumentException If any of the parameters
++     * is specified wrongly, an exception will be thrown.
++     */
++    public function addBatchAclEntry($operation, $docId=null, $role=null,
++        $scopeValue=null, $scopeType='user')
++    {
++        switch ($operation) {
++            case 'query':
++                if ($role !== null || $scopeValue !== null) {
++                    throw new Zend_Gdata_App_InvalidArgumentException(
++                        "No role or scope should be specified for 'query' operations");
++                }
++                if ($docId === null) {
++                    throw new Zend_Gdata_App_InvalidArgumentException(
++                        "Document ACL URL must be specified for 'query' operations");
++                }
++
++                $entry = $this->newBatchAclEntry();
++                $entry->id = $this->newId($docId);
++                $entry->batchOperation = new Zend_Gdata_Batch_Operation('query');
++                $this->_batchOperations[] = $entry;
++
++                break;
++            case 'insert':
++                if ($docId !== null) {
++                    throw new Zend_Gdata_App_InvalidArgumentException(
++                        "No document ID should be specified for 'insert' operations");
++                }
++                if ($role === null || $scopeValue === null) {
++                    throw new Zend_Gdata_App_InvalidArgumentException(
++                        "'role' and 'scope' values must be specified for 'insert' operations");
++                }
++
++                $entry = $this->newBatchAclEntry();
++                $batchId = count($this->_batchOperations)+1;
++                $entry->batchId = new Zend_Gdata_Batch_Id($batchId);
++                $entry->batchOperation = new Zend_Gdata_Batch_Operation('insert');
++                $entry->aclRole = new Zend_Gdata_Acl_Role($role);
++                $entry->aclScope = new Zend_Gdata_Acl_Scope($scopeValue, $scopeType);
++                $this->_batchOperations[] = $entry;
++
++                break;
++            case 'update':
++                if ($docId === null || $role === null || $scopeValue === null) {
++                    throw new Zend_Gdata_App_InvalidArgumentException(
++                        "'docId', 'role' and 'scope' values must be specified for 'update' operations");
++                }
++
++                $entry = $this->newBatchAclEntry();
++                $entry->id = $this->newId($docId);
++                $entry->batchOperation = new Zend_Gdata_Batch_Operation('update');
++                $entry->aclRole = new Zend_Gdata_Acl_Role($role);
++                $entry->aclScope = new Zend_Gdata_Acl_Scope($scopeValue, $scopeType);
++                $this->_batchOperations[] = $entry;
++
++                break;
++            case 'delete':
++                if ($docId === null || $role === null || $scopeValue === null) {
++                    throw new Zend_Gdata_App_InvalidArgumentException(
++                        "'docId', role' and 'scope' values must be specified for 'delete' operations");
++                }
++
++                $entry = $this->newBatchAclEntry();
++                $entry->id = $this->newId($docId);
++                $entry->batchOperation = new Zend_Gdata_Batch_Operation('delete');
++                $entry->aclRole = new Zend_Gdata_Acl_Role($role);
++                $entry->aclScope = new Zend_Gdata_Acl_Scope($scopeValue, $scopeType);
++                $this->_batchOperations[] = $entry;
++
++                break;
++            default:
++                throw new Zend_Gdata_App_InvalidArgumentException(
++                    "Accepted operation types are 'query', 'insert', 'update' and 'delete'");
++                break;
++            return $this;
++        }
++    }
++
++    /**
++     * Clears all entries for batch processing.
++     * @return Zend_Gdata_Docs Provides a fluent interface
++     */
++    public function clearBatchAclEntries()
++    {
++        $this->_batchOperations = array();
++        return $this;
++    }
++
++    /**
++     * Performs the batch processing on the operations added to this instance.
++     * The batch operations are cleared after they are performed by this method.
++     * @param string $feedUrl The URL of the document's ACL API. Note that the
++     * URL has to end with '/batch'.
++     * @return Zend_Gdata_Docs_BatchAclFeed
++     * @see http://code.google.com/apis/documents/docs/2.0/developers_guide_protocol.html#ACLBatch
++     * @throws Zend_Gdata_App_InvalidArgumentException If the API URL does not
++     * end with '/batch', an exception will be thrown.
++     */
++    public function doBatchAcl($feedUrl)
++    {
++        if (!preg_match('/\/batch$/', $feedUrl)) {
++            throw new Zend_Gdata_App_InvalidArgumentException(
++                "The feed URL must contain '/batch' at the end");
++        }
++        $batchFeed = $this->newBatchAclFeed();
++        foreach ($this->_batchOperations as $entry) {
++            $batchFeed->addEntry($entry);
++        }
++
++        $this->clearBatchAclEntries();
++        $response = $this->post($batchFeed->saveXML(), $feedUrl, 'Zend_Gdata_Docs_BatchAclFeed');
++        $returnEntry = new Zend_Gdata_Docs_BatchAclFeed($response->getBody());
++        return $returnEntry;
++    }
+ }
+Index: library/Zend/Gdata/Acl/Role.php
+===================================================================
+--- library/Zend/Gdata/Acl/Role.php	(revision 0)
++++ library/Zend/Gdata/Acl/Role.php	(revision 0)
+@@ -0,0 +1,122 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Acl
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_App_Base
++ */
++require_once 'Zend/Gdata/App/Base.php';
++
++/**
++ * Data model class for a Google ACL Role entry.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Acl
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Acl_Role extends Zend_Gdata_App_Base
++{
++    /**
++     * The role for the user.
++     * @var string
++     */
++    protected $_value;
++
++    protected $_entryClassName = 'Zend_Gdata_Acl_Role';
++
++    protected $_rootNamespace = 'gAcl';
++
++    protected $_rootElement = 'role';
++
++    /**
++     * Creates an instance of Zend_Gdata_Acl_Role.
++     * @param string $roleValue The value of the role. Accepts 'owner',
++     * 'writer' and 'reader'.
++     * @return void
++     */
++    public function __construct($roleValue=null)
++    {
++        // NOTE: namespaces must be registered before calling parent
++        $this->registerNamespace('gAcl', 'http://schemas.google.com/acl/2007');
++        if ($roleValue !== null) {
++            $this->setValue($roleValue);
++        }
++        parent::__construct();
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null, $majorVersion = 1, $minorVersion = null)
++    {
++        $element = parent::getDOM($doc, $majorVersion, $minorVersion);
++        if ($this->_value !== null) {
++            $element->setAttribute('value', $this->_value);
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members. Here the mapping takes place on the 'value' attribute.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'value':
++                $this->_value = $attribute->nodeValue;
++                break;
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    /**
++     * Sets the value attribute.
++     * @param string $value The value of the role type. Accepts 'owner',
++     * 'writer' and 'reader'.
++     * @return Zend_Gdata_Acl_Role Provides a fluent interface.
++     */
++    public function setValue($value)
++    {
++        $this->_value = $value;
++        return $this;
++    }
++
++    /**
++     * Gets the value of the role.
++     * @return string
++     */
++    public function getValue()
++    {
++        return $this->_value;
++    }
++}
+Index: library/Zend/Gdata/Acl/Scope.php
+===================================================================
+--- library/Zend/Gdata/Acl/Scope.php	(revision 0)
++++ library/Zend/Gdata/Acl/Scope.php	(revision 0)
+@@ -0,0 +1,156 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Acl
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_App_Base
++ */
++require_once 'Zend/Gdata/App/Base.php';
++
++/**
++ * Data model class for a Google ACL Role entry.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Acl
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Acl_Scope extends Zend_Gdata_App_Base
++{
++    /**
++     * The username for the user.
++     * E.g. a.writer@example.com
++     * @var string
++     */
++    protected $_value;
++
++    /**
++     * The type of entity.
++     * @var string
++     */
++    protected $_type;
++
++    protected $_entryClassName = 'Zend_Gdata_Acl_Scope';
++
++    protected $_rootNamespace = 'gAcl';
++
++    protected $_rootElement = 'scope';
++
++    /**
++     * Creates an instance of Zend_Gdata_Acl_Scope.
++     * @param string $entityValue The value of the entity i.e. the username
++     * @param string @entityType The type of entitiy. Default 'user'.
++     * @return void
++     */
++    public function __construct($entityValue=null, $entityType='user')
++    {
++        // NOTE: namespaces must be registered before calling parent
++        $this->registerNamespace('gAcl', 'http://schemas.google.com/acl/2007');
++        if ($entityValue !== null) {
++            $this->setValue($entityValue);
++        }
++        $this->setType($entityType);
++        parent::__construct();
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null, $majorVersion = 1, $minorVersion = null)
++    {
++        $element = parent::getDOM($doc, $majorVersion, $minorVersion);
++        if ($this->_value !== null) {
++            $element->setAttribute('value', $this->_value);
++        }
++        if ($this->_type !== null) {
++            $element->setAttribute('type', $this->_type);
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members. Here the mapping takes place on the 'value' and
++     * 'type' attributes.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'value':
++                $this->_value = $attribute->nodeValue;
++                break;
++            case 'type':
++                $this->_type = $attribute->nodeValue;
++                break;
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    /**
++     * Sets the value attribute of the entity.
++     * @param string $value The username of the entity. e.g. a.writer@example.com
++     * @return Zend_Gdata_Acl_Role Provides a fluent interface.
++     */
++    public function setValue($value)
++    {
++        $this->_value = $value;
++        return $this;
++    }
++
++    /**
++     * Gets the value attribute of the entity.
++     * @return string
++     */
++    public function getValue()
++    {
++        return $this->_value;
++    }
++
++    /**
++     * Sets the type attribute of the entity.
++     * @param string $type
++     * @return Zend_Gdata_Acl_Scope Provides a fluent interface.
++     */
++    public function setType($type)
++    {
++        $this->_type = $type;
++        return $this;
++    }
++
++    /**
++     * Gets the type attribute of the entity.
++     * @return string
++     */
++    public function getType()
++    {
++        return $this->_type;
++    }
++}
+Index: library/Zend/Gdata/Batch/Id.php
+===================================================================
+--- library/Zend/Gdata/Batch/Id.php	(revision 0)
++++ library/Zend/Gdata/Batch/Id.php	(revision 0)
+@@ -0,0 +1,49 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage App
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Batch
++ */
++require_once 'Zend/Gdata/Batch.php';
++
++/**
++ * Represents the batch:id element
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Batch
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Batch_Id extends Zend_Gdata_Batch
++{
++
++    protected $_rootElement = 'id';
++
++    protected $_rootNamespace = 'batch';
++
++    public function __construct($text = null)
++    {
++        parent::__construct();
++        $this->_text = $text;
++    }
++}
+Index: library/Zend/Gdata/Batch/Operation.php
+===================================================================
+--- library/Zend/Gdata/Batch/Operation.php	(revision 0)
++++ library/Zend/Gdata/Batch/Operation.php	(revision 0)
+@@ -0,0 +1,113 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Batch
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Batch
++ */
++require_once 'Zend/Gdata/Batch.php';
++
++/**
++ * Represents the batch:operation element
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Batch
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Batch_Operation extends Zend_Gdata_Batch
++{
++
++    protected $_rootElement = 'operation';
++
++    /**
++     * The type of operation.
++     * Valid values are:
++     * - insert
++     * - update
++     * - delete
++     * - query
++     * @var string
++     */
++    protected $_type = null;
++
++    public function __construct($type = null)
++    {
++        parent::__construct();
++        $this->_type = $type;
++    }
++
++    public function getDOM($doc=null, $majorVersion=1, $minorVersion=null)
++    {
++        $element = parent::getDOM($doc, $majorVersion, $minorVersion);
++        if ($this->_type !== null) {
++            $element->setAttribute('type', $this->_type);
++        }
++        return $element;
++    }
++
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'type':
++                $this->_type = $attribute->nodeValue;
++                break;
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    public function __toString()
++    {
++        return 'operation type: ' . $this->getType();
++    }
++
++    public function getType()
++    {
++        return $this->_type;
++    }
++
++    public function setTypeToInsert()
++    {
++        $this->_type = 'insert';
++        return $this;
++    }
++
++    public function setTypeToUpdate()
++    {
++        $this->_type = 'update';
++        return $this;
++    }
++
++    public function setTypeToDelete()
++    {
++        $this->_type = 'delete';
++        return $this;
++    }
++
++    public function setTypeToQuery()
++    {
++        $this->_type = 'query';
++        return $this;
++    }
++
++}
+Index: library/Zend/Gdata/Batch/Status.php
+===================================================================
+--- library/Zend/Gdata/Batch/Status.php	(revision 0)
++++ library/Zend/Gdata/Batch/Status.php	(revision 0)
+@@ -0,0 +1,151 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Batch
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Batch
++ */
++require_once 'Zend/Gdata/Batch.php';
++
++/**
++ * Represents the batch:status element
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Batch
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Batch_Status extends Zend_Gdata_Batch
++{
++    /**
++     * This element is represented as <status> so need to override <entry>.
++     * @var string
++     */
++    protected $_rootElement = 'status';
++    /**
++     * The status code returned from the batch operation.
++     * @var string
++     */
++    protected $_code = null;
++    /**
++     * Explanation of the status code.
++     * @var string
++     */
++    protected $_reason = null;
++    /**
++     * The MIME type of the data contained in this <batch:status> element.
++     * @var string
++     */
++    protected $_contentType = null;
++
++    /**
++     * Constructor for Zend_Gdata_Batch_Status class.
++     * @param string $code The status code
++     * @param string $reason Explanation of the response.
++     * @param string $contentType The MIME type of the response
++     * @param string $body The contents of the response (only available if
++     * the MIME type is specified).
++     * @return void
++     */
++    public function __construct($code = null, $reason = null,
++        $contentType = null)
++    {
++        parent::__construct();
++        $this->_code = $code;
++        $this->_reason = $reason;
++        $this->_contentType = $contentType;
++    }
++
++    /**
++     * Needed for getXML() to transfer properties to XML.
++     * @see library/Zend/Gdata/App/Zend_Gdata_App_Base::getDOM()
++     */
++    public function getDOM($doc=null, $majorVersion=1, $minorVersion=null)
++    {
++        $element = parent::getDOM($doc, $majorVersion, $minorVersion);
++        if ($this->_code !== null) {
++            $element->setAttribute('code', $this->_code);
++        }
++        if ($this->_reason !== null) {
++            $element->setAttribute('reason', $this->_reason);
++        }
++        if ($this->_contentType !== null) {
++            $element->setAttribute('content-type', $this->_contentType);
++        }
++        return $element;
++    }
++
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'code':
++                $this->_code = $attribute->nodeValue;
++                break;
++            case 'reason':
++                $this->_reason = $attribute->nodeValue;
++                break;
++            case 'content-type':
++                $this->_contentType = $attribute->nodeValue;
++                break;
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    public function __toString()
++    {
++        return $this->getCode() . ': ' . $this->getReason();
++    }
++
++    public function getCode()
++    {
++        return $this->_code;
++    }
++
++    public function setCode($code)
++    {
++        $this->_code = $code;
++        return $this;
++    }
++
++    public function getReason()
++    {
++        return $this->_reason;
++    }
++
++    public function setReason($reason)
++    {
++        $this->_reason = $reason;
++        return $this;
++    }
++
++    public function getContentType()
++    {
++        return $this->_contentType;
++    }
++
++    public function setContentType($contentType)
++    {
++        $this->_contentType = $contentType;
++        return $this;
++    }
++}
+Index: library/Zend/Gdata/Docs/AclEntry.php
+===================================================================
+--- library/Zend/Gdata/Docs/AclEntry.php	(revision 0)
++++ library/Zend/Gdata/Docs/AclEntry.php	(revision 0)
+@@ -0,0 +1,147 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Entry
++ */
++require_once 'Zend/Gdata/Entry.php';
++
++/**
++ * @see Zend_Gdata_Acl_Role
++ */
++require_once 'Zend/Gdata/Acl/Role.php';
++
++/**
++ * @see Zend_Gdata_Acl_Scope
++ */
++require_once 'Zend/Gdata/Acl/Scope.php';
++
++/**
++ * Data model class for a Google Docs ACL entry
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Docs_AclEntry extends Zend_Gdata_Entry
++{
++    protected $_entryClassName = 'Zend_Gdata_Docs_AclEntry';
++
++    /**
++     * The role for the user
++     * @var Zend_Gdata_Acl_Role
++     */
++    protected $_aclRole;
++
++    /**
++     * The scope of the user role.
++     * @var Zend_Gdata_Acl_Scope
++     */
++    protected $_aclScope;
++
++    /**
++     * Create a new instance of an entry representing a document ACL.
++     *
++     * @param DOMElement $element (optional) DOMElement from which this
++     *          object should be constructed.
++     */
++    public function __construct($element = null)
++    {
++        $this->registerAllNamespaces(Zend_Gdata_Docs::$namespaces);
++        $this->registerNamespace('gAcl', 'http://schemas.google.com/acl/2007');
++        // NOTE: namespaces must be registered before calling parent
++        parent::__construct($element);
++    }
++
++    public function getDOM($doc=null, $majorVersion=1, $minorVersion=null)
++    {
++        $element = parent::getDOM($doc, $majorVersion, $minorVersion);
++        if ($this->_aclRole != null) {
++            $element->appendChild($this->_aclRole->getDOM($element->ownerDocument, $majorVersion, $minorVersion));
++        }
++        if ($this->_aclScope != null) {
++            $element->appendChild($this->_aclScope->getDOM($element->ownerDocument, $majorVersion, $minorVersion));
++        }
++        return $element;
++    }
++
++    protected function takeChildFromDOM($child)
++    {
++        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;
++        switch ($absoluteNodeName) {
++            case $this->lookupNamespace('gAcl') . ':role':
++                $aclRole = new Zend_Gdata_Acl_Role();
++                $aclRole->transferFromDOM($child);
++                $this->_aclRole = $aclRole;
++                break;
++            case $this->lookupNamespace('gAcl') . ':scope':
++                $aclScope = new Zend_Gdata_Acl_Scope();
++                $aclScope->transferFromDOM($child);
++                $this->_aclScope = $aclScope;
++                break;
++            default:
++                parent::takeChildFromDOM($child);
++                break;
++        }
++    }
++
++    /**
++     * Gets the role of this ACL entry.
++     * @return Zend_Gdata_Acl_Role
++     */
++    public function getAclRole()
++    {
++        return $this->_aclRole;
++    }
++
++    /**
++     * Sets the role of this ACL entry.
++     * @param Zend_Gdata_Acl_Role $aclRole
++     * @return Zend_Gdata_Docs_AclEntry Provides a fluent interface.
++     */
++    public function setAclRole($aclRole)
++    {
++        $this->_aclRole = $aclRole;
++        return $this;
++    }
++
++    /**
++     * Gets the scope of this ACL entry.
++     * @return Zend_Gdata_Acl_Scope
++     */
++    public function getAclScope()
++    {
++        return $this->_aclScope;
++    }
++
++    /**
++     * Sets the scope of this ACL entry.
++     * @param Zend_Gdata_Acl_Scope $aclScope
++     * @return Zend_Gdata_Docs_AclEntry Provides a fluent interface.
++     */
++    public function setAclScope($aclScope)
++    {
++        $this->_aclScope = $aclScope;
++        return $this;
++    }
++}
+Index: library/Zend/Gdata/Docs/AclFeed.php
+===================================================================
+--- library/Zend/Gdata/Docs/AclFeed.php	(revision 0)
++++ library/Zend/Gdata/Docs/AclFeed.php	(revision 0)
+@@ -0,0 +1,68 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Feed
++ */
++require_once 'Zend/Gdata/Feed.php';
++
++/**
++ * @see Zend_Gdata_Docs_AclEntry
++ */
++require_once 'Zend/Gdata/Docs/AclEntry.php';
++
++/**
++ * Data model class for a Google Docs ACL Feed
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Docs_AclFeed extends Zend_Gdata_Feed
++{
++    /**
++     * The classname for individual feed elements.
++     * @var string
++     */
++    protected $_entryClassName = 'Zend_Gdata_Docs_AclEntry';
++
++    /**
++     * The classname for the feed.
++     * @var string
++     */
++    protected $_feedClassName = 'Zend_Gdata_Docs_AclFeed';
++
++    /**
++     * Create a new instance of a feed representing a document ACL.
++     *
++     * @param DOMElement $element (optional) DOMElement from which this
++     *          object should be constructed.
++     */
++    public function __construct($element = null)
++    {
++        $this->registerAllNamespaces(Zend_Gdata_Docs::$namespaces);
++        $this->registerNamespace('gAcl', 'http://schemas.google.com/acl/2007');
++        // NOTE: namespaces must be registered before calling parent
++        parent::__construct($element);
++    }
++}
+Index: library/Zend/Gdata/Docs/AclQuery.php
+===================================================================
+--- library/Zend/Gdata/Docs/AclQuery.php	(revision 0)
++++ library/Zend/Gdata/Docs/AclQuery.php	(revision 0)
+@@ -0,0 +1,207 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * Zend_Gdata_Query
++ */
++require_once('Zend/Gdata/Query.php');
++
++/**
++ * Assists in constructing queries for Google Document List document ACL entries
++ *
++ * @link http://code.google.com/apis/documents/docs/2.0/developers_guide_protocol.html#AccessControlLists
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Docs_AclQuery extends Zend_Gdata_Query
++{
++
++    /**
++     * The base URL for retrieving a document ACL list
++     * @var string
++     */
++    const DOCUMENTS_LIST_ACL_FEED_URI = 'https://docs.google.com/feeds/acl/private/full';
++
++    /**
++     * The identifier for the user ID token.
++     * @var string
++     */
++    const BATCH_USER_IDENTIFIER = '/user%3A';
++
++    /**
++     * The document type for accessing the ACL.
++     * @var string
++     */
++    protected $_documentType = 'document';
++
++    /**
++     * The identifier for the document.
++     */
++    protected $_documentId;
++
++    /**
++     * The user identifier needed for ACL modification.
++     * @var string
++     */
++    protected $_userId;
++
++    /**
++     * Whether to process the ACL queries in batch mode.
++     * @var boolean
++     */
++    protected $_batch;
++
++    /**
++     * Sets the document type for accessing the ACL.
++     * This value is normally provided if a URL is specified in the constructor.
++     * @param string $docType
++     * @return Zend_Gdata_Docs_AclQuery Provides a fluent interface.
++     */
++    public function setDocumentType($docType)
++    {
++        $this->_documentType = $docType;
++        return $this;
++    }
++
++    /**
++     * Gets the document type of the ACL that is being queried.
++     * @return string
++     */
++    public function getDocumentType()
++    {
++        return $this->_documentType;
++    }
++
++    /**
++     * Sets the document ID of the document ACL being queried.
++     * @param string $value
++     * @return Zend_Gdata_Docs_Query Provides a fluent interface
++     */
++    public function setDocumentId($docId)
++    {
++        $this->_documentId = $docId;
++        return $this;
++    }
++
++    /**
++     * Gets the document ID of the document ACL being queried.
++     * @return string
++     */
++    public function getDocumentId()
++    {
++        return $this->_documentId;
++    }
++
++    /**
++     * Sets the identifier for the user for creating the query URL.
++     * This method checks for the existence of the '@' symbol and, if present,
++     * runs the value through urlencode().
++     * @param string $userId The identifier of the user, including domain name.
++     * If the parameter is empty, it acts as though it is clearing the user ID.
++     * If the internal storage of the URL already contains the GET parameters
++     * for the user ID, it is removed if this parameter is empty.
++     * @return Zend_Gdata_Docs_AclQuery Provides a fluent interface
++     */
++    public function setUserId($userId)
++    {
++        if (strpos($userId, '@')) {
++            $this->_userId = urlencode($userId);
++        } else {
++            $this->_userId = $userId;
++        }
++
++        return $this;
++    }
++
++    /**
++     * Gets the identifier of the user.
++     * @return string
++     */
++    public function getUserId()
++    {
++        return $this->_userId;
++    }
++
++    /**
++     * Sets whether the query should be processed in batch mode.
++     * @param boolean $value A true/false value stating whether to access
++     * the batch API
++     * @return Zend_Gdata_Docs_AclQuery Provides a fluent interface
++     */
++    public function setBatch($value)
++    {
++        $this->_batch = $value;
++        return $this;
++    }
++
++    /**
++     * Gets the batch mode boolean value.
++     * @return boolean
++     */
++    public function getBatch()
++    {
++        return $this->_batch;
++    }
++
++    /**
++     * Gets the full query URL for this query.
++     *
++     * @return string url
++     */
++    public function getQueryUrl()
++    {
++        if ($this->_url) {
++            $suffix = '';
++            if ($this->_batch) {
++                $suffix = '/batch';
++            } else {    //user ID should only be set if batch mode is false
++                if ($this->_userId) {
++                    $suffix = self::BATCH_USER_IDENTIFIER . $this->_userId;
++                }
++            }
++            return $this->_url . $suffix;
++        }
++
++        $uri = self::DOCUMENTS_LIST_ACL_FEED_URI;
++        $uri .= '/' . $this->_documentType;
++        if ($this->_documentId) {
++            $uri .= '%3A' . $this->_documentId;
++        } else {
++            require_once('Zend/Gdata/App/InvalidArgumentException.php');
++            throw new Zend_Gdata_App_InvalidArgumentException('No document identifier specified.');
++        }
++        if ($this->_batch) {
++            $uri .= '/batch';
++        } else {    //user ID should only be set if batch mode is false
++            if ($this->_userId) {
++                $uri .= self::BATCH_USER_IDENTIFIER . $this->_userId;
++            }
++        }
++        $uri .= $this->getQueryString();
++        return $uri;
++    }
++
++}
+Index: library/Zend/Gdata/Docs/BatchAclEntry.php
+===================================================================
+--- library/Zend/Gdata/Docs/BatchAclEntry.php	(revision 0)
++++ library/Zend/Gdata/Docs/BatchAclEntry.php	(revision 0)
+@@ -0,0 +1,200 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Entry
++ */
++require_once 'Zend/Gdata/Entry.php';
++
++/**
++ * @see Zend_Gdata_Acl_Role
++ */
++require_once 'Zend/Gdata/Acl/Role.php';
++
++/**
++ * @see Zend_Gdata_Acl_Scope
++ */
++require_once 'Zend/Gdata/Acl/Scope.php';
++
++/**
++ * @see Zend_Gdata_Batch_Id
++ */
++require_once 'Zend/Gdata/Batch/Id.php';
++
++/**
++ * @see Zend_Gdata_Batch_Operation
++ */
++require_once 'Zend/Gdata/Batch/Operation.php';
++
++/**
++ * @see Zend_Gdata_Batch_Status
++ */
++require_once 'Zend/Gdata/Batch/Status.php';
++
++/**
++ * Data model class for a Google Docs ACL entry for batch processing.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Docs_BatchAclEntry extends Zend_Gdata_Docs_AclEntry
++{
++    protected $_entryClassName = 'Zend_Gdata_Docs_BatchAclEntry';
++
++    /**
++     * The batch ID needed for insert operations during batch processing
++     * @var Zend_Gdata_Batch_Id
++     */
++    protected $_batchId;
++
++    /**
++     * The batch operation type.
++     * @var Zend_Gdata_Batch_Operation
++     */
++    protected $_batchOperation;
++
++    /**
++     * The batch response status
++     * @var Zend_Gdata_Batch_Status
++     */
++    protected $_batchStatus;
++
++    /**
++     * Create a new instance of an entry representing a document ACL.
++     *
++     * @param DOMElement $element (optional) DOMElement from which this
++     *          object should be constructed.
++     */
++    public function __construct($element = null)
++    {
++        $this->registerNamespace(
++            Zend_Gdata_Batch::$namespaces[0][0],
++            Zend_Gdata_Batch::$namespaces[0][1],
++            Zend_Gdata_Batch::$namespaces[0][2],
++            Zend_Gdata_Batch::$namespaces[0][3]
++        );
++        // NOTE: namespaces must be registered before calling parent
++        parent::__construct($element);
++    }
++
++    public function getDOM($doc=null, $majorVersion=1, $minorVersion=null)
++    {
++        $element = parent::getDOM($doc, $majorVersion, $minorVersion);
++        if ($this->_batchId !== null) {
++            $element->appendChild($this->_batchId->getDOM($element->ownerDocument, $majorVersion, $minorVersion));
++        }
++        if ($this->_batchOperation !== null) {
++            $element->appendChild($this->_batchOperation->getDOM($element->ownerDocument, $majorVersion, $minorVersion));
++        }
++        if ($this->_batchStatus !== null) {
++            $element->appendChild($this->_batchStatus->getDOM($element->ownerDocument, $majorVersion, $minorVersion));
++        }
++        return $element;
++    }
++
++    protected function takeChildFromDOM($child)
++    {
++        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;
++        switch ($absoluteNodeName) {
++            case $this->lookupNamespace('batch') . ':id':
++                $batchId = new Zend_Gdata_Batch_Id();
++                $batchId->transferFromDOM($child);
++                $this->_batchId = $batchId;
++                break;
++            case $this->lookupNamespace('batch') . ':operation':
++                $batchOperation = new Zend_Gdata_Batch_Operation();
++                $batchOperation->transferFromDOM($child);
++                $this->_batchOperation = $batchOperation;
++                break;
++            case $this->lookupNamespace('batch') . ':status':
++                $batchStatus = new Zend_Gdata_Batch_Status();
++                $batchStatus->transferFromDOM($child);
++                $this->_batchStatus = $batchStatus;
++                break;
++            default:
++                parent::takeChildFromDOM($child);
++                break;
++        }
++    }
++
++    /**
++     * Gets the batch ID of this batch processing entry.
++     * @return Zend_Gdata_Batch_Id
++     */
++    public function getBatchId()
++    {
++        return $this->_batchId;
++    }
++
++    /**
++     * Sets the batch ID of this batch processing entry.
++     * @param Zend_Gdata_Batch_Id $batchId
++     * @return Zend_Gdata_Docs_BatchAclEntry Provides a fluent interface.
++     */
++    public function setBatchId($batchId)
++    {
++        $this->_batchId = $batchId;
++        return $this;
++    }
++
++    /**
++     * Gets the batch operation instance of this entry.
++     * @return Zend_Gdata_Batch_Operation
++     */
++    public function getBatchOperation()
++    {
++        return $this->_batchOperation;
++    }
++
++    /**
++     * Sets the batch operation instance for this entry.
++     * @param Zend_Gdata_Batch_Operation $batchOperation
++     * @return Zend_Gdata_Docs_BatchAclEntry
++     */
++    public function setBatchOperation($batchOperation)
++    {
++        $this->_batchOperation = $batchOperation;
++        return $this;
++    }
++
++    /**
++     * Gets the batch status instance of this entry.
++     * @return Zend_Gdata_Batch_Status
++     */
++    public function getBatchStatus()
++    {
++        return $this->_batchStatus;
++    }
++
++    /**
++     * Sets the batch status instance for this entry.
++     * @param Zend_Gdata_Batch_Status $batchStatus
++     * @return Zend_Gdata_Docs_BatchAclEntry
++     */
++    public function setBatchStatus($batchStatus)
++    {
++        $this->_batchStatus = $batchStatus;
++        return $this;
++    }
++}
+Index: library/Zend/Gdata/Docs/BatchAclFeed.php
+===================================================================
+--- library/Zend/Gdata/Docs/BatchAclFeed.php	(revision 0)
++++ library/Zend/Gdata/Docs/BatchAclFeed.php	(revision 0)
+@@ -0,0 +1,72 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * @see Zend_Gdata_Feed
++ */
++require_once 'Zend/Gdata/Docs/AclFeed.php';
++
++/**
++ * @see Zend_Gdata_Docs_AclEntry
++ */
++require_once 'Zend/Gdata/Docs/BatchAclEntry.php';
++
++/**
++ * Data model class for a Google Docs ACL Feed for batch processing
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @subpackage Docs
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Docs_BatchAclFeed extends Zend_Gdata_Docs_AclFeed
++{
++    /**
++     * The classname for individual feed elements.
++     * @var string
++     */
++    protected $_entryClassName = 'Zend_Gdata_Docs_BatchAclEntry';
++
++    /**
++     * The classname for the feed.
++     * @var string
++     */
++    protected $_feedClassName = 'Zend_Gdata_Docs_BatchAclFeed';
++
++    /**
++     * Create a new instance of a feed representing a document ACL.
++     *
++     * @param DOMElement $element (optional) DOMElement from which this
++     *          object should be constructed.
++     */
++    public function __construct($element = null)
++    {
++        $this->registerNamespace(
++            Zend_Gdata_Batch::$namespaces[0][0],
++            Zend_Gdata_Batch::$namespaces[0][1],
++            Zend_Gdata_Batch::$namespaces[0][2],
++            Zend_Gdata_Batch::$namespaces[0][3]
++        );
++        // NOTE: namespaces must be registered before calling parent
++        parent::__construct($element);
++    }
++}
+Index: tests/TestConfiguration.php.dist
+===================================================================
+--- tests/TestConfiguration.php.dist	(revision 24410)
++++ tests/TestConfiguration.php.dist	(working copy)
+@@ -224,6 +224,8 @@
+  */
+ define('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL', 'example@example.com');
+ define('TESTS_ZEND_GDATA_CLIENTLOGIN_PASSWORD', 'password');
++define('TESTS_ZEND_GDATA_DOCS_DOCUMENTTITLE', 'sample document title');
++define('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE', 'sharinguser@example.com');
+ 
+ /*
+  * This is the ID of a blank blog.  There is no need to have
+Index: tests/Zend/Gdata/AllTests.php
+===================================================================
+--- tests/Zend/Gdata/AllTests.php	(revision 24410)
++++ tests/Zend/Gdata/AllTests.php	(working copy)
+@@ -32,6 +32,13 @@
+ /**
+  * Tests that do not require online access to servers
+  */
++require_once 'Zend/Gdata/Acl/RoleTest.php';
++require_once 'Zend/Gdata/Acl/ScopeTest.php';
++
++require_once 'Zend/Gdata/Batch/IdTest.php';
++require_once 'Zend/Gdata/Batch/OperationTest.php';
++require_once 'Zend/Gdata/Batch/StatusTest.php';
++
+ require_once 'Zend/Gdata/AppTest.php';
+ require_once 'Zend/Gdata/App/UtilTest.php';
+ require_once 'Zend/Gdata/App/BaseTest.php';
+@@ -111,6 +118,12 @@
+ require_once 'Zend/Gdata/Docs/DocumentListFeedTest.php';
+ require_once 'Zend/Gdata/Docs/DocumentListEntryTest.php';
+ require_once 'Zend/Gdata/Docs/QueryTest.php';
++require_once 'Zend/Gdata/Docs/AclQueryTest.php';
++require_once 'Zend/Gdata/Docs/AclEntryTest.php';
++require_once 'Zend/Gdata/Docs/AclFeedTest.php';
++require_once 'Zend/Gdata/Docs/BatchAclEntryTest.php';
++require_once 'Zend/Gdata/Docs/BatchAclFeedTest.php';
++require_once 'Zend/Gdata/DocsTest.php';
+ 
+ require_once 'Zend/Gdata/Photos/PhotosAlbumEntryTest.php';
+ require_once 'Zend/Gdata/Photos/PhotosAlbumFeedTest.php';
+@@ -226,6 +239,13 @@
+         /**
+          * Tests that do not require online access to servers
+          */
++        $suite->addTestSuite('Zend_Gdata_Acl_RoleTest');
++        $suite->addTestSuite('Zend_Gdata_Acl_ScopeTest');
++
++        $suite->addTestSuite('Zend_Gdata_Batch_IdTest');
++        $suite->addTestSuite('Zend_Gdata_Batch_OperationTest');
++        $suite->addTestSuite('Zend_Gdata_Batch_StatusTest');
++
+         $suite->addTestSuite('Zend_Gdata_AppTest');
+         $suite->addTestSuite('Zend_Gdata_App_UtilTest');
+         $suite->addTestSuite('Zend_Gdata_App_BaseTest');
+@@ -305,6 +325,12 @@
+         $suite->addTestSuite('Zend_Gdata_Docs_DocumentListFeedTest');
+         $suite->addTestSuite('Zend_Gdata_Docs_DocumentListEntryTest');
+         $suite->addTestSuite('Zend_Gdata_Docs_QueryTest');
++        $suite->addTestSuite('Zend_Gdata_Docs_AclQueryTest');
++        $suite->addTestSuite('Zend_Gdata_Docs_AclEntryTest');
++        $suite->addTestSuite('Zend_Gdata_Docs_AclFeedTest');
++        $suite->addTestSuite('Zend_Gdata_Docs_BatchAclEntryTest');
++        $suite->addTestSuite('Zend_Gdata_Docs_BatchAclFeedTest');
++        $suite->addTestSuite('Zend_Gdata_DocsTest');
+ 
+         $suite->addTestSuite('Zend_Gdata_Photos_PhotosAlbumEntryTest');
+         $suite->addTestSuite('Zend_Gdata_Photos_PhotosAlbumFeedTest');
+Index: tests/Zend/Gdata/DocsOnlineTest.php
+===================================================================
+--- tests/Zend/Gdata/DocsOnlineTest.php	(revision 24410)
++++ tests/Zend/Gdata/DocsOnlineTest.php	(working copy)
+@@ -23,6 +23,7 @@
+ require_once 'Zend/Gdata/Docs.php';
+ require_once 'Zend/Http/Client.php';
+ require_once 'Zend/Gdata/ClientLogin.php';
++require_once 'Zend/Gdata/Docs/AclQuery.php';
+ 
+ /**
+  * @category   Zend
+@@ -85,6 +86,15 @@
+         $query = new Zend_Gdata_Docs_Query();
+         $feed = $this->gdata->getDocumentListFeed($query);
+         $selfLinkHref = $feed->entries[0]->getSelfLink()->href;
++        //test invalid location
++        $expectedException = false;
++        try {
++            $this->gdata->getDocumentListEntry();
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedException = true;
++        }
++        $this->assertTrue($expectedException);
++
+         $entry = $this->gdata->getDocumentListEntry($selfLinkHref);
+         $this->assertTrue($entry instanceof Zend_Gdata_Docs_DocumentListEntry);
+     }
+@@ -96,6 +106,8 @@
+             'Zend/Gdata/_files/DocsTest.csv', $documentTitle,
+             $this->gdata->lookupMimeType('CSV'),
+             Zend_Gdata_Docs::DOCUMENTS_LIST_FEED_URI);
++        //need to remove the extension for asserting
++        $documentTitle = substr($documentTitle, 0, -4);
+         $this->assertTrue($newDocumentEntry->title->text === $documentTitle);
+ 
+         // Get the newly created document.
+@@ -126,4 +138,361 @@
+         $newDocumentEntry->delete();
+     }
+ 
++    /**
++     * The document used in this test case should have the same user as the owner
++     */
++    public function testAclFeed()
++    {
++        $query = new Zend_Gdata_Docs_Query();
++        $query->setTitle($this->docTitle)
++              ->setTitleExact('true');
++        $feed = $this->gdata->getDocumentListFeed($query);
++        $this->assertTrue(strpos($feed->entries[0]->title, $this->docTitle) !== false);
++        //test with instance
++        $aclFeed = $this->gdata->getAclFeed($feed->entries[0]);
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'), $aclFeed->entries[0]->getAclScope()->getValue());
++
++        $aclUrl = null;
++        foreach ($feed->entries[0]->extensionElements as $extensionElement) {
++            if ($extensionElement->rootElement == 'feedLink') {
++                $attributes = $extensionElement->getExtensionAttributes();
++                $aclUrl = $attributes['href']['value'];
++                break;
++            }
++        }
++        if ($aclUrl === null) {
++            $this->fail('The ACL URL cannot be retrieved from the document feed.');
++        }
++        //test with string
++        $aclFeed = $this->gdata->getAclFeed($aclUrl);
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'), $aclFeed->entries[0]->getAclScope()->getValue());
++
++        //test invalid document
++        $expectedException = false;
++        try {
++            $this->gdata->getAclFeed(null);
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedException = true;
++        }
++        $this->assertTrue($expectedException);
++    }
++
++    /**
++     * The document to which the ACL is inserting into should not be shared for the assertions to work.
++     */
++    public function testInsertAcl()
++    {
++        $query = new Zend_Gdata_Docs_Query();
++        $query->setTitle($this->docTitle)
++              ->setTitleExact('true');
++        $feed = $this->gdata->getDocumentListFeed($query);
++        $aclUrl = null;
++        foreach ($feed->entries[0]->extensionElements as $extensionElement) {
++            if ($extensionElement->rootElement == 'feedLink') {
++                $attributes = $extensionElement->getExtensionAttributes();
++                $aclUrl = $attributes['href']['value'];
++                break;
++            }
++        }
++        if ($aclUrl === null) {
++            $this->fail('The ACL URL cannot be retrieved from the document feed.');
++        }
++
++        $aclEntry = new Zend_Gdata_Docs_AclEntry();
++        $aclEntry->setAclRole($this->gdata->newRole('reader'));
++        $aclEntry->setAclScope($this->gdata->newScope(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1')));
++        $aclEntry->category = array(new Zend_Gdata_App_Extension_Category(
++            'http://schemas.google.com/acl/2007#accessRule', 'http://schemas.google.com/g/2005#kind'));
++
++        //test invalid document
++        $expectedException = false;
++        try {
++            $this->gdata->insertAcl($aclEntry, null);
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedException = true;
++        }
++        $this->assertTrue($expectedException);
++        //test with string
++        $entry = $this->gdata->insertAcl($aclEntry, $aclUrl);
++        $this->assertTrue($entry instanceof Zend_Gdata_Docs_AclEntry);
++        $this->assertEquals('reader', $entry->getAclRole()->getValue());
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1'),
++            $entry->getAclScope()->getValue());
++        //test with instance
++        $aclEntry->setAclScope($this->gdata->newScope(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE2')));
++        $entry = $this->gdata->insertAcl($aclEntry, $feed->entries[0]);
++        $this->assertTrue($entry instanceof Zend_Gdata_Docs_AclEntry);
++        $this->assertEquals('reader', $entry->getAclRole()->getValue());
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE2'),
++            $entry->getAclScope()->getValue());
++    }
++
++    /**
++     * This test is dependent on testInsertAcl
++     */
++    public function testUpdateAcl()
++    {
++        $query = new Zend_Gdata_Docs_Query();
++        $query->setTitle($this->docTitle)
++              ->setTitleExact('true');
++        $feed = $this->gdata->getDocumentListFeed($query);
++        $aclUrl = null;
++        foreach ($feed->entries[0]->extensionElements as $extensionElement) {
++            if ($extensionElement->rootElement == 'feedLink') {
++                $attributes = $extensionElement->getExtensionAttributes();
++                $aclUrl = $attributes['href']['value'];
++                break;
++            }
++        }
++        if ($aclUrl === null) {
++            $this->fail('The ACL URL cannot be retrieved from the document feed.');
++        }
++
++        $query = new Zend_Gdata_Docs_AclQuery($aclUrl);
++        $query->setUserId(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1'));
++        //test invalid document
++        $expectedException = false;
++        try {
++            $this->gdata->updateAcl(null, null, null);
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedException = true;
++        }
++        $this->assertTrue($expectedException);
++        //test with string
++        $entry = $this->gdata->updateAcl($query->getQueryUrl(), constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1'), 'writer');
++        $this->assertTrue($entry instanceof Zend_Gdata_Docs_AclEntry);
++        $this->assertEquals('writer', $entry->getAclRole()->getValue());
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1'),
++            $entry->getAclScope()->getValue());
++
++        //test with instance
++        $entry = $this->gdata->updateAcl($feed->entries[0], constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE2'), 'writer');
++        $this->assertTrue($entry instanceof Zend_Gdata_Docs_AclEntry);
++        $this->assertEquals('writer', $entry->getAclRole()->getValue());
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE2'),
++            $entry->getAclScope()->getValue());
++    }
++
++    /**
++     * This test is dependent on testInsertAcl
++     */
++    public function testDeleteAcl()
++    {
++        $query = new Zend_Gdata_Docs_Query();
++        $query->setTitle($this->docTitle)
++              ->setTitleExact('true');
++        $feed = $this->gdata->getDocumentListFeed($query);
++        $aclUrl = null;
++        foreach ($feed->entries[0]->extensionElements as $extensionElement) {
++            if ($extensionElement->rootElement == 'feedLink') {
++                $attributes = $extensionElement->getExtensionAttributes();
++                $aclUrl = $attributes['href']['value'];
++                break;
++            }
++        }
++        if ($aclUrl === null) {
++            $this->fail('The ACL URL cannot be retrieved from the document feed.');
++        }
++
++        //test invalid document
++        $expectedException = false;
++        try {
++            $this->gdata->deleteAcl(null, constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1'));
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedException = true;
++        }
++        $this->assertTrue($expectedException);
++        //test with string
++        $result = $this->gdata->deleteAcl($aclUrl, constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1'));
++        //test with instance
++        $result = $this->gdata->deleteAcl($feed->entries[0], constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE2'));
++        $aclFeed = $this->gdata->getAclFeed($feed->entries[0]);
++        //there should only be one owner after the collaborators are removed
++        foreach ($aclFeed as $aclEntry) {
++            $this->assertEquals(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'), $aclEntry->getAclScope()->getValue());
++            $this->assertEquals('owner', $aclEntry->getAclRole()->getValue());
++        }
++    }
++
++    public function testBatchAclExceptions()
++    {
++        //getting the document
++        $query = new Zend_Gdata_Docs_Query();
++        $query->setTitle($this->docTitle)
++              ->setTitleExact('true');
++        $feed = $this->gdata->getDocumentListFeed($query);
++        //getting the ACL feed for the document
++        $aclUrl = null;
++        foreach ($feed->entries[0]->extensionElements as $extensionElement) {
++            if ($extensionElement->rootElement == 'feedLink') {
++                $attributes = $extensionElement->getExtensionAttributes();
++                $aclUrl = $attributes['href']['value'];
++                break;
++            }
++        }
++        if ($aclUrl === null) {
++            $this->fail('The ACL URL cannot be retrieved from the document feed.');
++        }
++
++        //in the first batch operation, we do a query and an insert operation
++        $role1 = 'reader';
++        $user1 = constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1');
++        $query = new Zend_Gdata_Docs_AclQuery($aclUrl);
++        $query->setUserId(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++
++        $expectedExpection = false;
++        try {   //invalid query op
++            $this->gdata->addBatchAclEntry('query', $query->getQueryUrl(), 'invaliduser');
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++        $expectedExpection = false;
++        try {   //invalid query op
++            $this->gdata->addBatchAclEntry('query');
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++        $this->gdata->addBatchAclEntry('query', $query->getQueryUrl());
++
++        $expectedExpection = false;
++        try {   //invalid insert op
++            $this->gdata->addBatchAclEntry('insert', 'invalidurl', $role1, $user1);
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++        $expectedExpection = false;
++        try {   //invalid insert op
++            $this->gdata->addBatchAclEntry('insert');
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++        $this->gdata->addBatchAclEntry('insert', null, $role1, $user1);
++
++        $expectedExpection = false;
++        try {   //invalid update op
++            $this->gdata->addBatchAclEntry('update');
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++
++        $expectedExpection = false;
++        try {   //invalid update op
++            $this->gdata->addBatchAclEntry('delete');
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++
++        $expectedExpection = false;
++        try {   //invalid op
++            $this->gdata->addBatchAclEntry('invalid operation');
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++
++
++
++        //try doing batch without the suffix
++        $expectedExpection = false;
++        try {
++            $batchFeed = $this->gdata->doBatchAcl($aclUrl);
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaiae) {
++            $expectedExpection = true;
++        }
++        $this->assertTrue($expectedExpection);
++
++
++    }
++    public function testBatchAcl()
++    {
++        //getting the document
++        $query = new Zend_Gdata_Docs_Query();
++        $query->setTitle($this->docTitle)
++              ->setTitleExact('true');
++        $feed = $this->gdata->getDocumentListFeed($query);
++        //getting the ACL feed for the document
++        $aclUrl = null;
++        foreach ($feed->entries[0]->extensionElements as $extensionElement) {
++            if ($extensionElement->rootElement == 'feedLink') {
++                $attributes = $extensionElement->getExtensionAttributes();
++                $aclUrl = $attributes['href']['value'];
++                break;
++            }
++        }
++        if ($aclUrl === null) {
++            $this->fail('The ACL URL cannot be retrieved from the document feed.');
++        }
++
++        //in the first batch operation, we do a query and an insert operation
++        $role1 = 'reader';
++        $user1 = constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE1');
++        $query = new Zend_Gdata_Docs_AclQuery($aclUrl);
++        $query->setUserId(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++        $this->gdata->addBatchAclEntry('query', $query->getQueryUrl());
++        $this->gdata->addBatchAclEntry('insert', null, $role1, $user1);
++
++        $batchFeed = $this->gdata->doBatchAcl($aclUrl . '/batch');
++
++        $entry = $batchFeed->entries[0];
++        $this->assertTrue(strpos($query->getQueryUrl(), $entry->id->text) !== false);
++        $this->assertEquals('owner', $entry->getAclRole()->getValue());
++        $this->assertEquals(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'), $entry->getAclScope()->getValue());
++        //1st operation is a query
++        $this->assertEquals('query', $entry->getBatchOperation()->getType());
++        $this->assertEquals('200', $entry->getBatchStatus()->getCode());
++        $entry = $batchFeed->entries[1];
++        $this->assertEquals($role1, $entry->aclRole->value);
++        $this->assertEquals($user1, $entry->aclScope->value);
++        //2nd operation is an insert - and batch id is 2
++        $this->assertEquals('insert', $entry->batchOperation->type);
++        $this->assertEquals('201', $entry->batchStatus->code);
++        $this->assertEquals('2', $entry->batchId->text);
++
++        //get the document ID for updating the user
++        $insertDocId1 = $entry->id->text;
++
++        //in the second batch, we do another insert, an update to modify the first insert
++        //and a query
++        $role2 = 'writer';
++        //if a non-existent user is used below, it is not removed as a writer using batch delete
++        $user2 = constant('TESTS_ZEND_GDATA_DOCS_DOCUMENTSHARE2');
++        $this->gdata->addBatchAclEntry('insert', null, $role2, $user2);
++        $this->gdata->addBatchAclEntry('update', $insertDocId1, $role2, $user1);
++        $batchFeed = $this->gdata->doBatchAcl($aclUrl . '/batch');
++
++        $entry = $batchFeed->entries[0];
++        $this->assertEquals($role2, $entry->aclRole->value);
++        $this->assertEquals($user2, $entry->aclScope->value);
++        $this->assertEquals('insert', $entry->batchOperation->type);
++        $this->assertEquals('201', $entry->batchStatus->code);
++        $this->assertEquals('1', $entry->batchId->text);
++        //get the document ID for deleting the user
++        $insertDocId2 = $entry->id->text;
++
++        $entry = $batchFeed->entries[1];
++        $this->assertEquals($role2, $entry->aclRole->value);
++        $this->assertEquals($user1, $entry->aclScope->value);
++        $this->assertEquals('update', $entry->batchOperation->type);
++        $this->assertEquals('200', $entry->batchStatus->code);
++        $this->assertEquals($insertDocId1, $entry->id->text);
++
++        //in the third batch, we do 2 deletes to remove the 2 inserts
++        $this->gdata->addBatchAclEntry('delete', $insertDocId1, 'writer', $user1);
++        $this->gdata->addBatchAclEntry('delete', $insertDocId2, 'reader', $user2);
++        $batchFeed = $this->gdata->doBatchAcl($aclUrl . '/batch');
++        $entry = $batchFeed->entries[0];
++        $this->assertEquals($insertDocId1, $entry->id->text);
++        $this->assertEquals('delete', $entry->batchOperation->type);
++        $this->assertEquals('200', $entry->batchStatus->code);
++        $entry = $batchFeed->entries[1];
++        $this->assertEquals($insertDocId2, $entry->id->text);
++        $this->assertEquals('delete', $entry->batchOperation->type);
++        $this->assertEquals('200', $entry->batchStatus->code);
++    }
+ }
+Index: tests/Zend/Gdata/DocsTest.php
+===================================================================
+--- tests/Zend/Gdata/DocsTest.php	(revision 24410)
++++ tests/Zend/Gdata/DocsTest.php	(working copy)
+@@ -49,7 +49,7 @@
+         $this->adapter->setResponse(array('HTTP/1.1 200 OK\r\n\r\n'));
+         $this->gdata->createFolder("Test Folder");
+         $request = $this->adapter->popRequest();
+-        
++
+         // Check to make sure the correct URI is in use
+         $this->assertEquals(
+                 "docs.google.com",
+@@ -57,11 +57,11 @@
+         $this->assertEquals(
+                 "/feeds/documents/private/full",
+                 $request->uri->getPath());
+-        
++
+         // Check to make sure that this is a folder
+-        $this->assertNotEquals( false, strpos($request->body, 
+-                "<atom:category term=\"http://schemas.google.com/docs/2007#folder\" scheme=\"http://schemas.google.com/g/2005#kind\""));
+-        
++        $this->assertNotEquals( false, strpos($request->body,
++                "<atom:category term=\"https://schemas.google.com/docs/2007#folder\" scheme=\"https://schemas.google.com/g/2005#kind\""));
++
+         // Check to make sure the title is set
+         $this->assertNotEquals(false, strpos($request->body,
+                 "<atom:title type=\"text\">Test Folder</atom:title>"));
+@@ -73,7 +73,7 @@
+         $this->adapter->setResponse(array('HTTP/1.1 200 OK\r\n\r\n'));
+         $this->gdata->createFolder("Test Folder", $subfolderName);
+         $request = $this->adapter->popRequest();
+-        
++
+         // Check to make sure the correct URI is in use
+         $this->assertEquals(
+                 "docs.google.com",
+@@ -81,11 +81,11 @@
+         $this->assertEquals(
+                 "/feeds/folders/private/full/" . $subfolderName,
+                 $request->uri->getPath());
+-        
++
+         // Check to make sure that this is a folder
+-        $this->assertNotEquals( false, strpos($request->body, 
+-                "<atom:category term=\"http://schemas.google.com/docs/2007#folder\" scheme=\"http://schemas.google.com/g/2005#kind\""));
+-        
++        $this->assertNotEquals( false, strpos($request->body,
++                "<atom:category term=\"https://schemas.google.com/docs/2007#folder\" scheme=\"https://schemas.google.com/g/2005#kind\""));
++
+         // Check to make sure the title is set
+         $this->assertNotEquals(false, strpos($request->body,
+                 "<atom:title type=\"text\">Test Folder</atom:title>"));
+Index: tests/Zend/Gdata/Acl/RoleTest.php
+===================================================================
+--- tests/Zend/Gdata/Acl/RoleTest.php	(revision 0)
++++ tests/Zend/Gdata/Acl/RoleTest.php	(revision 0)
+@@ -0,0 +1,72 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Acl
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Acl/Role.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Acl
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Acl
++ */
++
++class Zend_Gdata_Acl_RoleTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleEntry1 = file_get_contents(
++            '_files/RoleElementSample1.xml',
++            true);
++        $this->roleValue1 = 'owner';
++    }
++
++    /**
++     * Test the getter and setter functions of the SiteName and Theme classes.
++     * @return void
++     */
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Acl_Role();
++        $entry->setValue($this->roleValue1);
++
++        $this->assertEquals($this->roleValue1, $entry->getValue());
++    }
++
++    public function testSampleEntry()
++    {
++        $entry = new Zend_Gdata_Acl_Role();
++        $entry->transferFromXML($this->sampleEntry1);
++        $this->assertEquals($this->roleValue1, $entry->value);
++    }
++
++    public function testCreate()
++    {
++        $entry1 = new Zend_Gdata_Acl_Role($this->roleValue1);
++        $entry2 = new Zend_Gdata_Acl_Role();
++        $entry2->transferFromXML($this->sampleEntry1);
++
++        $this->assertEquals($entry1->value, $entry2->value);
++    }
++}
+Index: tests/Zend/Gdata/Acl/ScopeTest.php
+===================================================================
+--- tests/Zend/Gdata/Acl/ScopeTest.php	(revision 0)
++++ tests/Zend/Gdata/Acl/ScopeTest.php	(revision 0)
+@@ -0,0 +1,77 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Acl
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Acl/Scope.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Acl
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Acl
++ */
++
++class Zend_Gdata_Acl_ScopeTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleEntry1 = file_get_contents(
++            '_files/ScopeElementSample1.xml',
++            true);
++        $this->scopeValue1 = 'new_writer@example.com';
++        $this->scopeType1 = 'user';
++    }
++
++    /**
++     * Test the getter and setter functions of the SiteName and Theme classes.
++     * @return void
++     */
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Acl_Scope();
++        $entry->setType($this->scopeType1)
++              ->setValue($this->scopeValue1);
++
++        $this->assertEquals($this->scopeValue1, $entry->getValue());
++        $this->assertEquals($this->scopeType1, $entry->getType());
++    }
++
++    public function testSampleEntry()
++    {
++        $entry = new Zend_Gdata_Acl_Scope();
++        $entry->transferFromXML($this->sampleEntry1);
++        $this->assertEquals($this->scopeValue1, $entry->value);
++        $this->assertEquals($this->scopeType1, $entry->type);
++    }
++
++    public function testCreate()
++    {
++        $entry1 = new Zend_Gdata_Acl_Scope($this->scopeValue1, $this->scopeType1);
++        $entry2 = new Zend_Gdata_Acl_Scope();
++        $entry2->transferFromXML($this->sampleEntry1);
++
++        $this->assertEquals($entry1->value, $entry2->value);
++        $this->assertEquals($entry1->type, $entry2->type);
++    }
++}
+Index: tests/Zend/Gdata/Acl/_files/RoleElementSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Acl/_files/RoleElementSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Acl/_files/RoleElementSample1.xml	(revision 0)
+@@ -0,0 +1,3 @@
++<?xml version="1.0" encoding="utf-8"?>
++<gAcl:role value='owner' type="placeholder" />
++
+Index: tests/Zend/Gdata/Acl/_files/ScopeElementSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Acl/_files/ScopeElementSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Acl/_files/ScopeElementSample1.xml	(revision 0)
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<gAcl:scope type="user" value="new_writer@example.com" place="holder"/>
+Index: tests/Zend/Gdata/Batch/IdTest.php
+===================================================================
+--- tests/Zend/Gdata/Batch/IdTest.php	(revision 0)
++++ tests/Zend/Gdata/Batch/IdTest.php	(revision 0)
+@@ -0,0 +1,68 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Batch
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Batch/Id.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Batch
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Batch
++ */
++
++class Zend_Gdata_Batch_IdTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleEntry1 = file_get_contents(
++            '_files/IdElementSample1.xml',
++            true);
++        $this->textValue = 'itemA';
++    }
++
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Batch_Id();
++        $entry->setText($this->textValue);
++
++        $this->assertEquals($this->textValue, $entry->getText());
++    }
++
++    public function testSampleEntry()
++    {
++        $entry = new Zend_Gdata_Batch_Id();
++        $entry->transferFromXML($this->sampleEntry1);
++        $this->assertEquals($this->textValue, $entry->text);
++    }
++
++    public function testCreate()
++    {
++        $entry1 = new Zend_Gdata_Batch_Id($this->textValue);
++        $entry2 = new Zend_Gdata_Batch_Id();
++        $entry2->transferFromXML($this->sampleEntry1);
++
++        $this->assertEquals($entry1->text, $entry2->text);
++    }
++}
+Index: tests/Zend/Gdata/Batch/OperationTest.php
+===================================================================
+--- tests/Zend/Gdata/Batch/OperationTest.php	(revision 0)
++++ tests/Zend/Gdata/Batch/OperationTest.php	(revision 0)
+@@ -0,0 +1,112 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Batch
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Batch/Operation.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Batch
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Batch
++ */
++
++class Zend_Gdata_Batch_OperationTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleEntry1 = file_get_contents(
++            '_files/OperationElementSample1.xml',
++            true);
++        $this->sampleEntry2 = file_get_contents(
++            '_files/OperationElementSample2.xml',
++            true);
++        $this->sampleEntry3 = file_get_contents(
++            '_files/OperationElementSample3.xml',
++            true);
++        $this->sampleEntry4 = file_get_contents(
++            '_files/OperationElementSample4.xml',
++            true);
++        $this->typeInsert = 'insert';
++        $this->typeUpdate = 'update';
++        $this->typeQuery = 'query';
++        $this->typeDelete = 'delete';
++    }
++
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Batch_Operation();
++
++        $entry->setTypeToInsert();
++        $this->assertEquals($this->typeInsert, $entry->getType());
++        $this->assertEquals('operation type: ' . $this->typeInsert, (string)$entry);
++
++        $entry->setTypeToUpdate();
++        $this->assertEquals($this->typeUpdate, $entry->getType());
++        $this->assertEquals('operation type: ' . $this->typeUpdate, (string)$entry);
++
++        $entry->setTypeToQuery();
++        $this->assertEquals($this->typeQuery, $entry->getType());
++        $this->assertEquals('operation type: ' . $this->typeQuery, (string)$entry);
++
++        $entry->setTypeToDelete();
++        $this->assertEquals($this->typeDelete, $entry->getType());
++        $this->assertEquals('operation type: ' . $this->typeDelete, (string)$entry);
++    }
++
++    public function testSampleEntry()
++    {
++        $entry = new Zend_Gdata_Batch_Operation();
++        $entry->transferFromXML($this->sampleEntry1);
++        $this->assertEquals($this->typeInsert, $entry->type);
++        $entry->transferFromXML($this->sampleEntry2);
++        $this->assertEquals($this->typeUpdate, $entry->type);
++        $entry->transferFromXML($this->sampleEntry3);
++        $this->assertEquals($this->typeQuery, $entry->type);
++        $entry->transferFromXML($this->sampleEntry4);
++        $this->assertEquals($this->typeDelete, $entry->type);
++    }
++
++    public function testCreate()
++    {
++        $entry1 = new Zend_Gdata_Batch_Operation($this->typeInsert);
++        $entry2 = new Zend_Gdata_Batch_Operation($this->typeUpdate);
++        $entry3 = new Zend_Gdata_Batch_Operation($this->typeQuery);
++        $entry4 = new Zend_Gdata_Batch_Operation($this->typeDelete);
++
++        $entry1a = new Zend_Gdata_Batch_Operation();
++        $entry1a->transferFromXML($this->sampleEntry1);
++        $entry2a = new Zend_Gdata_Batch_Operation();
++        $entry2a->transferFromXML($this->sampleEntry2);
++        $entry3a = new Zend_Gdata_Batch_Operation();
++        $entry3a->transferFromXML($this->sampleEntry3);
++        $entry4a = new Zend_Gdata_Batch_Operation();
++        $entry4a->transferFromXML($this->sampleEntry4);
++
++        $this->assertEquals($entry1->getType(), $entry1a->type);
++        $this->assertEquals($entry2->getType(), $entry2a->type);
++        $this->assertEquals($entry3->getType(), $entry3a->type);
++        $this->assertEquals($entry4->getType(), $entry4a->type);
++    }
++}
+Index: tests/Zend/Gdata/Batch/StatusTest.php
+===================================================================
+--- tests/Zend/Gdata/Batch/StatusTest.php	(revision 0)
++++ tests/Zend/Gdata/Batch/StatusTest.php	(revision 0)
+@@ -0,0 +1,81 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Batch
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Batch/Status.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Batch
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Batch
++ */
++
++class Zend_Gdata_Batch_StatusTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleEntry1 = file_get_contents(
++            '_files/StatusElementSample1.xml',
++            true);
++        $this->code = '200';
++        $this->reason = 'Success';
++        $this->content = 'application/atom+xml';
++    }
++
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Batch_Status();
++
++        $entry->setCode($this->code);
++        $this->assertEquals($this->code, $entry->getCode());
++
++        $entry->setReason($this->reason);
++        $this->assertEquals($this->reason, $entry->getReason());
++
++        $entry->setContentType($this->content);
++        $this->assertEquals($this->content, $entry->getContentType());
++
++        $this->assertEquals($this->code . ': ' . $this->reason, (string)$entry);
++    }
++
++    public function testSampleEntry()
++    {
++        $entry = new Zend_Gdata_Batch_Status();
++        $entry->transferFromXML($this->sampleEntry1);
++        $this->assertEquals($this->code, $entry->code);
++        $this->assertEquals($this->reason, $entry->reason);
++        $this->assertEquals($this->content, $entry->contentType);
++    }
++
++    public function testCreate()
++    {
++        $entry1 = new Zend_Gdata_Batch_Status($this->code, $this->reason, $this->content);
++        $entry2 = new Zend_Gdata_Batch_Status();
++        $entry2->transferFromXML($entry1->getXML());
++        $this->assertEquals($entry1->getCode(), $entry2->code);
++        $this->assertEquals($entry1->getReason(), $entry2->reason);
++        $this->assertEquals($entry1->getContentType(), $entry2->contentType);
++    }
++}
+Index: tests/Zend/Gdata/Batch/_files/IdElementSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Batch/_files/IdElementSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Batch/_files/IdElementSample1.xml	(revision 0)
+@@ -0,0 +1,3 @@
++<?xml version="1.0" encoding="utf-8"?>
++<batch:id>itemA</batch:id>
++
+Index: tests/Zend/Gdata/Batch/_files/OperationElementSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Batch/_files/OperationElementSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Batch/_files/OperationElementSample1.xml	(revision 0)
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<batch:operation type="insert" value="placeholder" />
+Index: tests/Zend/Gdata/Batch/_files/OperationElementSample2.xml
+===================================================================
+--- tests/Zend/Gdata/Batch/_files/OperationElementSample2.xml	(revision 0)
++++ tests/Zend/Gdata/Batch/_files/OperationElementSample2.xml	(revision 0)
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<batch:operation type="update"/>
+Index: tests/Zend/Gdata/Batch/_files/OperationElementSample3.xml
+===================================================================
+--- tests/Zend/Gdata/Batch/_files/OperationElementSample3.xml	(revision 0)
++++ tests/Zend/Gdata/Batch/_files/OperationElementSample3.xml	(revision 0)
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<batch:operation type="query"/>
+Index: tests/Zend/Gdata/Batch/_files/OperationElementSample4.xml
+===================================================================
+--- tests/Zend/Gdata/Batch/_files/OperationElementSample4.xml	(revision 0)
++++ tests/Zend/Gdata/Batch/_files/OperationElementSample4.xml	(revision 0)
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="utf-8"?>
++<batch:operation type="delete"/>
+Index: tests/Zend/Gdata/Batch/_files/StatusElementSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Batch/_files/StatusElementSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Batch/_files/StatusElementSample1.xml	(revision 0)
+@@ -0,0 +1,4 @@
++<?xml version="1.0" encoding="utf-8"?>
++<batch:status code="200" reason="Success" content-type="application/atom+xml"
++ value="placeholder" />
++
+Index: tests/Zend/Gdata/Docs/AclEntryTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/AclEntryTest.php	(revision 0)
++++ tests/Zend/Gdata/Docs/AclEntryTest.php	(revision 0)
+@@ -0,0 +1,89 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Docs/AclEntry.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Docs
++ */
++
++class Zend_Gdata_Docs_AclEntryTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleEntry1 = file_get_contents(
++            '_files/AclEntrySample1.xml',
++            true);
++        $this->id1 = 'http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com';
++        $this->roleValue1 = 'owner';
++        $this->roleScopeValue1 = 'document.owner@example.com';
++        $this->roleScopeType1 = 'user';
++    }
++
++    /**
++     * Test the getter and setter functions of the SiteName and Theme classes.
++     * @return void
++     */
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Docs_AclEntry();
++        $entry->id = new Zend_Gdata_App_Extension_Id($this->id1);
++        $entry->aclRole = new Zend_Gdata_Acl_Role($this->roleValue1);
++        $entry->aclScope = new Zend_Gdata_Acl_Scope($this->roleScopeValue1, $this->roleScopeType1);
++
++        $this->assertEquals($this->id1, $entry->id->text);
++        $this->assertEquals($this->roleValue1, $entry->aclRole->value);
++        $this->assertEquals($this->roleScopeValue1, $entry->aclScope->value);
++        $this->assertEquals($this->roleScopeType1, $entry->aclScope->type);
++    }
++
++    public function testSampleEntry1()
++    {
++        $entry = new Zend_Gdata_Docs_AclEntry();
++        $entry->transferFromXML($this->sampleEntry1);
++        $this->assertEquals($this->id1, $entry->id->text);
++        $this->assertEquals($this->roleValue1, $entry->aclRole->value);
++        $this->assertEquals($this->roleScopeValue1, $entry->aclScope->value);
++        $this->assertEquals($this->roleScopeType1, $entry->aclScope->type);
++    }
++
++    public function testCreate1()
++    {
++        $entry1 = new Zend_Gdata_Docs_AclEntry();
++        $entry1->id = new Zend_Gdata_App_Extension_Id($this->id1);
++        $entry1->aclRole = new Zend_Gdata_Acl_Role($this->roleValue1);
++        $entry1->aclScope = new Zend_Gdata_Acl_Scope($this->roleScopeValue1, $this->roleScopeType1);
++        $entry2 = new Zend_Gdata_Docs_AclEntry();
++        $entry2->transferFromXML($this->sampleEntry1);
++
++        $this->assertEquals($entry1->id->text, $entry2->id->text);
++        $this->assertEquals($entry1->aclRole->value, $entry2->aclRole->value);
++        $this->assertEquals($entry1->aclScope->value, $entry2->aclScope->value);
++        $this->assertEquals($entry1->aclScope->type, $entry2->aclScope->type);
++    }
++}
+Index: tests/Zend/Gdata/Docs/AclFeedTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/AclFeedTest.php	(revision 0)
++++ tests/Zend/Gdata/Docs/AclFeedTest.php	(revision 0)
+@@ -0,0 +1,137 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Docs/AclFeed.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata_Docs
++ * @group      Zend_Gdata_Docs_AclFeedTest
++ */
++
++class Zend_Gdata_Docs_AclFeedTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sampleFeed1 = file_get_contents(
++            '_files/AclFeedSample1.xml',
++            true);
++        $this->feedId1 =
++            'http://docs.google.com/feeds/acl/private/full/document%3AdocumentId';
++        $this->feedTitle1 = 'Document Permissions';
++        $this->feedUpdated1 = '2008-09-03T22:03:04.733Z';
++        $this->ids1 = array(
++            'http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com',
++            'http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.writer%40example.com',
++            'http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.reader%40example.com'
++        );
++        $this->roleValues1 = array(
++            'owner', 'writer', 'reader'
++        );
++        $this->roleScopeValues1 = array(
++            'document.owner@example.com',
++            'a.writer@example.com',
++            'a.reader@example.com'
++        );
++        $this->roleScopeTypes1 = array('user', 'user', 'user');
++    }
++
++    /**
++     * Test the getter and setter functions of the SiteName and Theme classes.
++     * @return void
++     */
++    public function testSetters()
++    {
++        $feed = new Zend_Gdata_Docs_AclFeed();
++        $feed->title = new Zend_Gdata_App_Extension_Title($this->feedTitle1);
++        $feed->id = new Zend_Gdata_App_Extension_id($this->feedId1);
++        $feed->setUpdated(new Zend_Gdata_App_Extension_Updated($this->feedUpdated1));
++
++        $this->assertEquals($this->feedId1, $feed->id->getText());
++        $this->assertEquals($this->feedUpdated1, $feed->updated->getText());
++        $this->assertEquals($this->feedTitle1, $feed->title->getText());
++    }
++
++    public function testSampleFeed1()
++    {
++        $feed = new Zend_Gdata_Docs_AclFeed();
++        $feed->transferFromXML($this->sampleFeed1);
++
++        $this->assertEquals($this->feedId1, $feed->id->getText());
++        $this->assertEquals($this->feedUpdated1, $feed->updated->getText());
++        $this->assertEquals($this->feedTitle1, $feed->title->getText());
++        foreach ($feed->getEntry() as $key=>$entry) {
++            $this->assertEquals(
++                $this->ids1[$key],
++                $entry->id->getText());
++            $this->assertEquals(
++                $this->roleValues1[$key],
++                $entry->aclRole->value);
++            $this->assertEquals(
++                $this->roleScopeValues1[$key],
++                $entry->aclScope->value);
++            $this->assertEquals(
++                $this->roleScopeTypes1[$key],
++                $entry->aclScope->type);
++        }
++    }
++
++    public function testCreate1()
++    {
++        $feed1 = new Zend_Gdata_Docs_AclFeed();
++        $feed1->id = new Zend_Gdata_App_Extension_Id($this->feedId1);
++        $feed1->title = new Zend_Gdata_App_Extension_Title($this->feedTitle1);
++        $feed1->updated = new Zend_Gdata_App_Extension_Updated($this->feedUpdated1);
++        for ($i=0; $i<sizeof($this->ids1); $i++) {
++            $entry = new Zend_Gdata_Docs_AclEntry();
++            $entry->id = new Zend_Gdata_App_Extension_Id($this->ids1[$i]);
++            $entry->aclRole = new Zend_Gdata_Acl_Role($this->roleValues1[$i]);
++            $entry->aclScope = new Zend_Gdata_Acl_Scope($this->roleScopeValues1[$i],
++                $this->roleScopeTypes1[$i]);
++            $feed1->addEntry($entry);
++        }
++        $feed2 = new Zend_Gdata_Docs_AclFeed();
++        $feed2->transferFromXML($feed1->getXML());
++
++        $this->assertEquals($this->feedId1, $feed2->id->getText());
++        $this->assertEquals($this->feedUpdated1, $feed2->updated->getText());
++        $this->assertEquals($this->feedTitle1, $feed2->title->getText());
++        foreach ($feed2->getEntry() as $key=>$entry) {
++            $this->assertEquals(
++                $this->ids1[$key],
++                $entry->id->getText());
++            $this->assertEquals(
++                $this->roleValues1[$key],
++                $entry->aclRole->value);
++            $this->assertEquals(
++                $this->roleScopeValues1[$key],
++                $entry->aclScope->value);
++            $this->assertEquals(
++                $this->roleScopeTypes1[$key],
++                $entry->aclScope->type);
++        }
++    }
++}
+Index: tests/Zend/Gdata/Docs/AclQueryTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/AclQueryTest.php	(revision 0)
++++ tests/Zend/Gdata/Docs/AclQueryTest.php	(revision 0)
+@@ -0,0 +1,110 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Docs/AclQuery.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Docs
++ */
++class Zend_Gdata_Docs_AclQueryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp()
++    {
++        $this->docQuery = new Zend_Gdata_Docs_AclQuery();
++        $this->expectedUrl = 'https://docs.google.com/feeds/acl/private/full/';
++        $this->documentType = 'spreadsheet';
++        $this->documentId = '1234567890';
++    }
++
++    public function testDocumentTypeAndDocumentId()
++    {
++        //default is document
++        $this->assertEquals('document', $this->docQuery->getDocumentType());
++        $this->docQuery->setDocumentType($this->documentType);
++        $this->assertEquals($this->documentType, $this->docQuery->getDocumentType());
++        $exceptionExpected = false;
++        try {   //no documentId so expects exception
++            $this->docQuery->getQueryUrl();
++        } catch (Zend_Gdata_App_InvalidArgumentException $zgaie) {
++            $exceptionExpected = true;
++        }
++        $this->assertTrue($exceptionExpected);
++        $this->docQuery->setDocumentId($this->documentId);
++        $this->assertEquals($this->documentId, $this->docQuery->getDocumentId());
++        $expectedUrl = $this->expectedUrl."{$this->documentType}%3A{$this->documentId}";
++        $this->assertEquals($expectedUrl, $this->docQuery->getQueryUrl());
++    }
++
++    public function testUserId()
++    {
++        $this->assertTrue($this->docQuery->getUserId() == null);
++        $userId = urlencode(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++
++        $this->docQuery->setUserId(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++        $this->assertEquals($userId, $this->docQuery->getUserId());
++        $this->docQuery->setUserId($userId);
++        $this->assertEquals($userId, $this->docQuery->getUserId());
++    }
++
++    public function testBatch()
++    {
++        $this->assertNull($this->docQuery->getBatch());
++        $this->docQuery->setBatch(true);
++        $this->assertTrue($this->docQuery->getBatch());
++    }
++
++    public function testGetQueryUrl()
++    {
++        $this->docQuery->setBatch(true);
++        $expectedUrl = $this->expectedUrl . $this->documentType . '%3A' . $this->documentId . '/batch';
++        $this->docQuery->setDocumentType($this->documentType);
++        $this->docQuery->setDocumentId($this->documentId);
++        $this->assertEquals($expectedUrl, $this->docQuery->getQueryUrl());
++
++        $this->docQuery->setBatch(false);
++        $this->docQuery->setUserId(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++        $expectedUrl = $this->expectedUrl . $this->documentType . '%3A' . $this->documentId
++            . '/user%3A' . urlencode(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++        $this->assertEquals($expectedUrl, $this->docQuery->getQueryUrl());
++    }
++
++    public function testGetQueryUrlWithPresetUrlAndBatch()
++    {
++        $expectedUrl = $this->expectedUrl . $this->documentType . '%3A' . $this->documentId;
++        $query = new Zend_Gdata_Docs_AclQuery($expectedUrl);
++        $this->assertEquals($expectedUrl, $query->getQueryUrl());
++
++        $query->setBatch(true)
++              ->setUserId(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL'));
++        $this->assertEquals($expectedUrl.'/batch', $query->getQueryUrl());
++        $query->setBatch(false);
++        $this->assertEquals($expectedUrl.'/user%3A'.urlencode(constant('TESTS_ZEND_GDATA_CLIENTLOGIN_EMAIL')),
++            $query->getQueryUrl());
++    }
++}
+Index: tests/Zend/Gdata/Docs/BatchAclEntryTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/BatchAclEntryTest.php	(revision 0)
++++ tests/Zend/Gdata/Docs/BatchAclEntryTest.php	(revision 0)
+@@ -0,0 +1,241 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++require_once 'Zend/Gdata/Docs/BatchAclEntry.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata_Docs
++ * @group      Zend_Gdata_Docs_BatchAclEntryTest
++ */
++
++class Zend_Gdata_Docs_BatchAclEntryTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sample1 = file_get_contents(
++            '_files/BatchAclEntrySample1.xml',
++            true);
++        $this->sample2 = file_get_contents(
++            '_files/BatchAclEntrySample2.xml',
++            true);
++        $this->sample3 = file_get_contents(
++            '_files/BatchAclEntrySample3.xml',
++            true);
++        $this->sample4 = file_get_contents(
++            '_files/BatchAclEntrySample4.xml',
++            true);
++        $this->sample5 = file_get_contents(
++            '_files/BatchAclEntrySample5.xml',
++            true);
++        $this->docId = 'http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3A';
++        $this->entry1 = array(
++            'id' => $this->docId . 'owner%40example.com',
++            'batchOperation' => 'query'
++        );
++        $this->entry2 = array(
++            'batchId' => '1',
++            'batchOperation' => 'insert',
++            'role' => 'writer',
++            'scopeType' => 'user',
++            'scopeValue' => 'new_writer@example.com'
++        );
++        $this->entry3 = array(
++            'id' => $this->docId . 'old_writer%40example.com',
++            'batchOperation' => 'update',
++            'role' => 'reader',
++            'scopeType' => 'user',
++            'scopeValue' => 'old_writer@example.com'
++        );
++        $this->entry4 = array(
++            'id' => $this->docId . 'deprecated_writer%40example.com',
++            'batchOperation' => 'delete',
++            'role' => 'writer',
++            'scopeType' => 'user',
++            'scopeValue' => 'deprecated_writer@example.com'
++        );
++        $this->entry5 = array(
++            'id' => 'https://docs.google.com/feeds/default/private/full/document%3Adocument_id/acl/user%3Anew_writer%40example.com',
++            'batchId' => '1',
++            'batchOperation' => 'insert',
++            'role' => 'writer',
++            'scopeType' => 'user',
++            'scopeValue' => 'new_writer@example.com',
++            'statusCode' => '201',
++            'statusReason' => 'Created'
++        );
++    }
++
++    public function testSetters()
++    {
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->id = new Zend_Gdata_App_Extension_Id($this->docId);
++        $entry->aclRole = new Zend_Gdata_Acl_Role($this->entry3['role']);
++        $entry->aclScope = new Zend_Gdata_Acl_Scope($this->entry3['scopeValue'], $this->entry3['scopeType']);
++        $entry->batchId = new Zend_Gdata_Batch_Id($this->entry2['batchId']);
++        $entry->batchOperation = new Zend_Gdata_Batch_Operation($this->entry2['batchOperation']);
++
++        $this->assertEquals($this->docId,                       $entry->id->text);
++        $this->assertEquals($this->entry3['role'],              $entry->aclRole->value);
++        $this->assertEquals($this->entry3['scopeValue'],        $entry->aclScope->value);
++        $this->assertEquals($this->entry3['scopeType'],         $entry->aclScope->type);
++        $this->assertEquals($this->entry2['batchId'],           $entry->batchId->text);
++        $this->assertEquals($this->entry2['batchOperation'],    $entry->batchOperation->type);
++    }
++
++    public function testSample1()
++    {
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($this->sample1);
++        $this->assertEquals($this->entry1['id'], $entry->id->text);
++        $this->assertEquals($this->entry1['batchOperation'], $entry->batchOperation->type);
++    }
++
++    public function testRecreateSample1()
++    {
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->id = new Zend_Gdata_App_Extension_Id($this->entry1['id']);
++        $entry1->batchOperation = new Zend_Gdata_Batch_Operation($this->entry1['batchOperation']);
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($entry1->getXML());
++        $this->assertEquals($this->entry1['id'], $entry->id->text);
++        $this->assertEquals($this->entry1['batchOperation'], $entry->batchOperation->type);
++    }
++
++    public function testSample2()
++    {
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($this->sample2);
++        $this->assertEquals($this->entry2['batchId'], $entry->batchId->text);
++        $this->assertEquals($this->entry2['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry2['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry2['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry2['scopeValue'], $entry->aclScope->value);
++    }
++
++    public function testRecreateSample2()
++    {
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->batchId = new Zend_Gdata_Batch_Id($this->entry2['batchId']);
++        $entry1->batchOperation = new Zend_Gdata_Batch_Operation($this->entry2['batchOperation']);
++        $entry1->aclRole = new Zend_Gdata_Acl_Role($this->entry2['role']);
++        $entry1->aclScope = new Zend_Gdata_Acl_Scope($this->entry2['scopeValue'], $this->entry2['scopeType']);
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($entry1->getXML());
++        $this->assertEquals($this->entry2['batchId'], $entry->batchId->text);
++        $this->assertEquals($this->entry2['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry2['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry2['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry2['scopeValue'], $entry->aclScope->value);
++    }
++
++    public function testSample3()
++    {
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($this->sample3);
++        $this->assertEquals($this->entry3['id'], $entry->id->text);
++        $this->assertEquals($this->entry3['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry3['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry3['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry3['scopeValue'], $entry->aclScope->value);
++    }
++
++    public function testRecreateSample3()
++    {
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->id = new Zend_Gdata_App_Extension_Id($this->entry3['id']);
++        $entry1->batchOperation = new Zend_Gdata_Batch_Operation($this->entry3['batchOperation']);
++        $entry1->aclRole = new Zend_Gdata_Acl_Role($this->entry3['role']);
++        $entry1->aclScope = new Zend_Gdata_Acl_Scope($this->entry3['scopeValue'], $this->entry3['scopeType']);
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($entry1->getXML());
++        $this->assertEquals($this->entry3['id'], $entry->id->text);
++        $this->assertEquals($this->entry3['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry3['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry3['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry3['scopeValue'], $entry->aclScope->value);
++    }
++
++    public function testSample4()
++    {
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($this->sample4);
++        $this->assertEquals($this->entry4['id'], $entry->id->text);
++        $this->assertEquals($this->entry4['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry4['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry4['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry4['scopeValue'], $entry->aclScope->value);
++    }
++
++    public function testRecreateSample4()
++    {
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->id = new Zend_Gdata_App_Extension_Id($this->entry4['id']);
++        $entry1->batchOperation = new Zend_Gdata_Batch_Operation($this->entry4['batchOperation']);
++        $entry1->aclRole = new Zend_Gdata_Acl_Role($this->entry4['role']);
++        $entry1->aclScope = new Zend_Gdata_Acl_Scope($this->entry4['scopeValue'], $this->entry4['scopeType']);
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($entry1->getXML());
++        $this->assertEquals($this->entry4['id'], $entry->id->text);
++        $this->assertEquals($this->entry4['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry4['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry4['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry4['scopeValue'], $entry->aclScope->value);
++    }
++
++    public function testSample5()
++    {
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($this->sample5);
++        $this->assertEquals($this->entry5['id'], $entry->id->text);
++        $this->assertEquals($this->entry5['batchId'], $entry->batchId->text);
++        $this->assertEquals($this->entry5['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry5['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry5['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry5['scopeValue'], $entry->aclScope->value);
++        $this->assertEquals($this->entry5['statusCode'], $entry->batchStatus->code);
++        $this->assertEquals($this->entry5['statusReason'], $entry->batchStatus->reason);
++    }
++
++    public function testRecreateSample5()
++    {
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->batchId = new Zend_Gdata_Batch_Id($this->entry5['batchId']);
++        $entry1->batchOperation = new Zend_Gdata_Batch_Operation($this->entry5['batchOperation']);
++        $entry1->aclRole = new Zend_Gdata_Acl_Role($this->entry5['role']);
++        $entry1->aclScope = new Zend_Gdata_Acl_Scope($this->entry5['scopeValue'], $this->entry5['scopeType']);
++        $entry1->batchStatus = new Zend_Gdata_Batch_Status($this->entry5['statusCode'], $this->entry5['statusReason']);
++        $entry = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry->transferFromXML($entry1->getXML());
++        $this->assertEquals($this->entry2['batchId'], $entry->batchId->text);
++        $this->assertEquals($this->entry2['batchOperation'], $entry->batchOperation->type);
++        $this->assertEquals($this->entry2['role'], $entry->aclRole->value);
++        $this->assertEquals($this->entry2['scopeType'], $entry->aclScope->type);
++        $this->assertEquals($this->entry2['scopeValue'], $entry->aclScope->value);
++        $this->assertEquals($this->entry5['statusCode'], $entry->batchStatus->code);
++        $this->assertEquals($this->entry5['statusReason'], $entry->batchStatus->reason);
++    }
++
++}
+Index: tests/Zend/Gdata/Docs/BatchAclFeedTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/BatchAclFeedTest.php	(revision 0)
++++ tests/Zend/Gdata/Docs/BatchAclFeedTest.php	(revision 0)
+@@ -0,0 +1,245 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++require_once 'Zend/Gdata/Docs/BatchAclFeed.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Docs
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata_Docs
++ * @group      Zend_Gdata_Docs_BatchAclFeedTest
++ */
++
++class Zend_Gdata_Docs_BatchAclFeedTest extends PHPUnit_Framework_TestCase
++{
++    public function setUp()
++    {
++        $this->sample1 = file_get_contents(
++            '_files/BatchAclFeedSample1.xml',
++            true);
++        $this->category = array(
++            'scheme'    => 'http://schemas.google.com/g/2005#kind',
++            'term'      => 'http://schemas.google.com/acl/2007#accessRule'
++        );
++        $this->docId = 'http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3A';
++        $this->entry1 = array(
++            'id' => $this->docId . 'owner%40example.com',
++            'batchOperation' => 'query'
++        );
++        $this->entry2 = array(
++            'batchId' => '1',
++            'batchOperation' => 'insert',
++            'role' => 'writer',
++            'scopeType' => 'user',
++            'scopeValue' => 'new_writer@example.com'
++        );
++        $this->entry3 = array(
++            'id' => $this->docId . 'old_writer%40example.com',
++            'batchOperation' => 'update',
++            'role' => 'reader',
++            'scopeType' => 'user',
++            'scopeValue' => 'old_writer@example.com'
++        );
++        $this->entry4 = array(
++            'id' => $this->docId . 'deprecated_writer%40example.com',
++            'batchOperation' => 'delete',
++            'role' => 'writer',
++            'scopeType' => 'user',
++            'scopeValue' => 'deprecated_writer@example.com'
++        );
++    }
++
++    public function testSampleFeed1()
++    {
++        $feed = new Zend_Gdata_Docs_BatchAclFeed();
++        $feed->transferFromXML($this->sample1);
++
++        $this->assertEquals($this->category['term'], $feed->category[0]->term);
++        $this->assertEquals($this->category['scheme'], $feed->category[0]->scheme);
++        foreach ($feed->getEntry() as $key=>$entry) {
++            switch ($key) {
++                case 0:
++                    $this->assertEquals($this->entry1['id'], $entry->id->text);
++                    $this->assertEquals($this->entry1['batchOperation'], $entry->batchOperation->type);
++                    break;
++                case 1:
++                    $this->assertEquals($this->entry2['batchId'], $entry->batchId->text);
++                    $this->assertEquals($this->entry2['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry2['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry2['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry2['scopeValue'], $entry->aclScope->value);
++                    break;
++                case 2:
++                    $this->assertEquals($this->entry3['id'], $entry->id->text);
++                    $this->assertEquals($this->entry3['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry3['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry3['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry3['scopeValue'], $entry->aclScope->value);
++                    break;
++                case 3:
++                    $this->assertEquals($this->entry4['id'], $entry->id->text);
++                    $this->assertEquals($this->entry4['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry4['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry4['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry4['scopeValue'], $entry->aclScope->value);
++                    break;
++            }
++        }
++    }
++
++    public function testCreate1()
++    {
++        $feed = new Zend_Gdata_Docs_BatchAclFeed();
++        $feed->category = array(new Zend_Gdata_App_Extension_Category(
++            $this->category['term'], $this->category['scheme']
++        ));
++
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->setId(new Zend_Gdata_App_Extension_Id($this->entry1['id']));
++        $entry1->setBatchOperation(new Zend_Gdata_Batch_Operation($this->entry1['batchOperation']));
++        $feed->addEntry($entry1);
++
++        $entry2 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry2->setBatchId(new Zend_Gdata_Batch_Id($this->entry2['batchId']));
++        $entry2->setBatchOperation(new Zend_Gdata_Batch_Operation($this->entry2['batchOperation']));
++        $entry2->setAclRole(new Zend_Gdata_Acl_Role($this->entry2['role']));
++        $entry2->setAclScope(new Zend_Gdata_Acl_Scope($this->entry2['scopeValue'], $this->entry2['scopeType']));
++        $feed->addEntry($entry2);
++
++        $entry3 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry3->setId(new Zend_Gdata_App_Extension_Id($this->entry3['id']));
++        $entry3->setBatchOperation(new Zend_Gdata_Batch_Operation($this->entry3['batchOperation']));
++        $entry3->setAclRole(new Zend_Gdata_Acl_Role($this->entry3['role']));
++        $entry3->setAclScope(new Zend_Gdata_Acl_Scope($this->entry3['scopeValue'], $this->entry3['scopeType']));
++        $feed->addEntry($entry3);
++
++        $entry4 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry4->id = new Zend_Gdata_App_Extension_Id($this->entry4['id']);
++        $entry4->batchOperation = new Zend_Gdata_Batch_Operation($this->entry4['batchOperation']);
++        $entry4->aclRole = new Zend_Gdata_Acl_Role($this->entry4['role']);
++        $entry4->aclScope = new Zend_Gdata_Acl_Scope($this->entry4['scopeValue'], $this->entry4['scopeType']);
++        $feed->addEntry($entry4);
++
++        $this->assertEquals($this->category['term'], $feed->category[0]->term);
++        $this->assertEquals($this->category['scheme'], $feed->category[0]->scheme);
++        foreach ($feed->getEntry() as $key=>$entry) {
++            switch ($key) {
++                case 0:
++                    $this->assertEquals($this->entry1['id'], $entry->id->text);
++                    $this->assertEquals($this->entry1['batchOperation'], $entry->batchOperation->type);
++                    break;
++                case 1:
++                    $this->assertEquals($this->entry2['batchId'], $entry->batchId->text);
++                    $this->assertEquals($this->entry2['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry2['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry2['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry2['scopeValue'], $entry->aclScope->value);
++                    break;
++                case 2:
++                    $this->assertEquals($this->entry3['id'], $entry->id->text);
++                    $this->assertEquals($this->entry3['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry3['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry3['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry3['scopeValue'], $entry->aclScope->value);
++                    break;
++                case 3:
++                    $this->assertEquals($this->entry4['id'], $entry->id->text);
++                    $this->assertEquals($this->entry4['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry4['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry4['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry4['scopeValue'], $entry->aclScope->value);
++                    break;
++            }
++        }
++    }
++
++    public function testCreate2()
++    {
++        $feed1 = new Zend_Gdata_Docs_BatchAclFeed();
++        $feed1->category = array(new Zend_Gdata_App_Extension_Category(
++            $this->category['term'], $this->category['scheme']
++        ));
++
++        $entry1 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry1->setId(new Zend_Gdata_App_Extension_Id($this->entry1['id']));
++        $entry1->setBatchOperation(new Zend_Gdata_Batch_Operation($this->entry1['batchOperation']));
++        $feed1->addEntry($entry1);
++
++        $entry2 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry2->setBatchId(new Zend_Gdata_Batch_Id($this->entry2['batchId']));
++        $entry2->setBatchOperation(new Zend_Gdata_Batch_Operation($this->entry2['batchOperation']));
++        $entry2->setAclRole(new Zend_Gdata_Acl_Role($this->entry2['role']));
++        $entry2->setAclScope(new Zend_Gdata_Acl_Scope($this->entry2['scopeValue'], $this->entry2['scopeType']));
++        $feed1->addEntry($entry2);
++
++        $entry3 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry3->setId(new Zend_Gdata_App_Extension_Id($this->entry3['id']));
++        $entry3->setBatchOperation(new Zend_Gdata_Batch_Operation($this->entry3['batchOperation']));
++        $entry3->setAclRole(new Zend_Gdata_Acl_Role($this->entry3['role']));
++        $entry3->setAclScope(new Zend_Gdata_Acl_Scope($this->entry3['scopeValue'], $this->entry3['scopeType']));
++        $feed1->addEntry($entry3);
++
++        $entry4 = new Zend_Gdata_Docs_BatchAclEntry();
++        $entry4->id = new Zend_Gdata_App_Extension_Id($this->entry4['id']);
++        $entry4->batchOperation = new Zend_Gdata_Batch_Operation($this->entry4['batchOperation']);
++        $entry4->aclRole = new Zend_Gdata_Acl_Role($this->entry4['role']);
++        $entry4->aclScope = new Zend_Gdata_Acl_Scope($this->entry4['scopeValue'], $this->entry4['scopeType']);
++        $feed1->addEntry($entry4);
++
++        $feed = new Zend_Gdata_Docs_BatchAclFeed();
++        $feed->transferFromXML($feed1->getXML());
++
++        $this->assertEquals($this->category['term'], $feed->category[0]->term);
++        $this->assertEquals($this->category['scheme'], $feed->category[0]->scheme);
++        foreach ($feed->getEntry() as $key=>$entry) {
++            switch ($key) {
++                case 0:
++                    $this->assertEquals($this->entry1['id'], $entry->id->text);
++                    $this->assertEquals($this->entry1['batchOperation'], $entry->batchOperation->type);
++                    break;
++                case 1:
++                    $this->assertEquals($this->entry2['batchId'], $entry->batchId->text);
++                    $this->assertEquals($this->entry2['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry2['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry2['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry2['scopeValue'], $entry->aclScope->value);
++                    break;
++                case 2:
++                    $this->assertEquals($this->entry3['id'], $entry->id->text);
++                    $this->assertEquals($this->entry3['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry3['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry3['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry3['scopeValue'], $entry->aclScope->value);
++                    break;
++                case 3:
++                    $this->assertEquals($this->entry4['id'], $entry->id->text);
++                    $this->assertEquals($this->entry4['batchOperation'], $entry->batchOperation->type);
++                    $this->assertEquals($this->entry4['role'], $entry->aclRole->value);
++                    $this->assertEquals($this->entry4['scopeType'], $entry->aclScope->type);
++                    $this->assertEquals($this->entry4['scopeValue'], $entry->aclScope->value);
++                    break;
++            }
++        }
++    }
++}
+Index: tests/Zend/Gdata/Docs/DocumentListEntryTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/DocumentListEntryTest.php	(revision 24410)
++++ tests/Zend/Gdata/Docs/DocumentListEntryTest.php	(working copy)
+@@ -26,12 +26,12 @@
+ 
+ /**
+  * @category   Zend
+- * @package    Zend_Gdata_Docsj
++ * @package    Zend_Gdata_Docs
+  * @subpackage UnitTests
+  * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  * @group      Zend_Gdata
+- * @group      Zend_Gdata_Docsj
++ * @group      Zend_Gdata_Docs
+  */
+ class Zend_Gdata_Docs_DocumentListEntryTest extends PHPUnit_Framework_TestCase
+ {
+Index: tests/Zend/Gdata/Docs/QueryTest.php
+===================================================================
+--- tests/Zend/Gdata/Docs/QueryTest.php	(revision 24410)
++++ tests/Zend/Gdata/Docs/QueryTest.php	(working copy)
+@@ -74,4 +74,33 @@
+         $this->docQuery->setVisibility('xyz');
+         $this->assertTrue($this->docQuery->getVisibility() == 'xyz');
+     }
++
++    public function testGetQueryUrlExceptions()
++    {
++        $visibility = $this->docQuery->getVisibility();
++        $projection = $this->docQuery->getProjection();
++
++        $expectedException = false;
++        $this->docQuery->setVisibility(null);
++        try {
++            $this->docQuery->getQueryUrl();
++        } catch (Zend_Gdata_App_Exception $zgae) {
++            $expectedException = true;
++            $this->docQuery->setVisibility($visibility);    //restore the value
++        }
++        $this->assertTrue($expectedException);
++
++        $expectedException = false;
++        $this->docQuery->setProjection(null);
++        try {
++            $this->docQuery->getQueryUrl();
++        } catch (Zend_Gdata_App_Exception $zgae) {
++            $expectedException = true;
++            $this->docQuery->setProjection($projection);    //restore the value
++        }
++        $this->assertTrue($expectedException);
++
++        $expectedDefaultUrl = 'https://docs.google.com/feeds/documents/private/full';
++        $this->assertEquals($expectedDefaultUrl, $this->docQuery->getQueryUrl());
++    }
+ }
+Index: tests/Zend/Gdata/Docs/_files/AclEntrySample1.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/AclEntrySample1.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/AclEntrySample1.xml	(revision 0)
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<entry xmlns='http://www.w3.org/2005/Atom' xmlns:openSearch='http://a9.com/-/spec/opensearchrss/1.0/'
++  xmlns:gAcl='http://schemas.google.com/acl/2007'>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com</id>
++    <updated>2008-09-03T22:03:04.756Z</updated>
++    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule' />
++    <title type='text'>Document Permission - document.owner@example.com</title>
++    <link rel='self' type='application/atom+xml'
++    href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com' />
++    <link rel='edit' type='application/atom+xml'
++    href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com' />
++    <gAcl:role value='owner' />
++    <gAcl:scope type='user' value='document.owner@example.com' />
++</entry>
+\ No newline at end of file
+Index: tests/Zend/Gdata/Docs/_files/AclFeedSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/AclFeedSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/AclFeedSample1.xml	(revision 0)
+@@ -0,0 +1,47 @@
++<?xml version='1.0' encoding='utf-8'?>
++<feed xmlns='http://www.w3.org/2005/Atom' xmlns:openSearch='http://a9.com/-/spec/opensearchrss/1.0/'
++  xmlns:gAcl='http://schemas.google.com/acl/2007'>
++  <id>http://docs.google.com/feeds/acl/private/full/document%3AdocumentId</id>
++  <updated>2008-09-03T22:03:04.733Z</updated>
++  <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule' />
++  <title type='text'>Document Permissions</title>
++  <link rel='http://schemas.google.com/g/2005#feed' type='application/atom+xml' 
++  href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId' />
++  <link rel='http://schemas.google.com/g/2005#post' type='application/atom+xml'
++  href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId' />
++  <link rel='self' type='application/atom+xml'
++  href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId' />
++  <openSearch:totalResults>3</openSearch:totalResults>
++  <openSearch:startIndex>1</openSearch:startIndex>
++
++  <entry>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com</id>
++    <updated>2008-09-03T22:03:04.756Z</updated>
++    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule' />
++    <title type='text'>Document Permission - document.owner@example.com</title>
++    <link rel='self' type='application/atom+xml' href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com' />
++    <link rel='edit' type='application/atom+xml' href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Adocument.owner%40example.com' />
++    <gAcl:role value='owner' />
++    <gAcl:scope type='user' value='document.owner@example.com' />
++  </entry>
++  <entry>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.writer%40example.com</id>
++    <updated>2008-09-03T22:03:04.762Z</updated>
++    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule' />
++    <title type='text'>Document Permission - a.writer@example.com</title>
++    <link rel='self' type='application/atom+xml' href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.writer%40example.com' />
++    <link rel='edit' type='application/atom+xml' href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.writer%40example.com' />
++    <gAcl:role value='writer' /> 
++    <gAcl:scope type='user' value='a.writer@example.com' />
++  </entry>
++  <entry>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.reader%40example.com</id>
++    <updated>2008-09-03T22:03:04.763Z</updated>
++    <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule' />
++    <title type='text'>Document Permission - a.reader@example.com</title>
++    <link rel='self' type='application/atom+xml' href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.reader%40example.com' />
++    <link rel='edit' type='application/atom+xml' href='http://docs.google.com/feeds/acl/private/full/document%3AdocumentId/user%3Aa.reader%40example.com' />
++    <gAcl:role value='reader'/> 
++    <gAcl:scope type='user' value='a.reader@example.com' />
++  </entry>
++</feed>
+Index: tests/Zend/Gdata/Docs/_files/BatchAclEntrySample1.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/BatchAclEntrySample1.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/BatchAclEntrySample1.xml	(revision 0)
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<entry xmlns="http://www.w3.org/2005/Atom"
++    xmlns:gAcl='http://schemas.google.com/acl/2007'
++    xmlns:batch='http://schemas.google.com/gdata/batch'>
++  <id>http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3Aowner%40example.com</id>
++  <batch:operation type="query"/>
++</entry>
++  
+\ No newline at end of file
+Index: tests/Zend/Gdata/Docs/_files/BatchAclEntrySample2.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/BatchAclEntrySample2.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/BatchAclEntrySample2.xml	(revision 0)
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<entry xmlns="http://www.w3.org/2005/Atom"
++    xmlns:gAcl='http://schemas.google.com/acl/2007'
++    xmlns:batch='http://schemas.google.com/gdata/batch'>
++  <batch:id>1</batch:id>
++  <batch:operation type='insert'/>
++  <gAcl:role value='writer'/>
++  <gAcl:scope type='user' value='new_writer@example.com'/>
++</entry>
+Index: tests/Zend/Gdata/Docs/_files/BatchAclEntrySample3.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/BatchAclEntrySample3.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/BatchAclEntrySample3.xml	(revision 0)
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<entry xmlns="http://www.w3.org/2005/Atom"
++    xmlns:gAcl='http://schemas.google.com/acl/2007'
++    xmlns:batch='http://schemas.google.com/gdata/batch'>
++  <id>http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3Aold_writer%40example.com</id>
++  <batch:operation type='update'/>
++  <gAcl:role value='reader'/>
++  <gAcl:scope type='user' value='old_writer@example.com'/>
++</entry>
+Index: tests/Zend/Gdata/Docs/_files/BatchAclEntrySample4.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/BatchAclEntrySample4.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/BatchAclEntrySample4.xml	(revision 0)
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<entry xmlns="http://www.w3.org/2005/Atom"
++    xmlns:gAcl='http://schemas.google.com/acl/2007'
++    xmlns:batch='http://schemas.google.com/gdata/batch'>
++  <id>http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3Adeprecated_writer%40example.com</id>
++  <batch:operation type='delete'/>
++  <gAcl:role value='writer' />
++  <gAcl:scope type='user' value='deprecated_writer@example.com' />
++</entry>
+Index: tests/Zend/Gdata/Docs/_files/BatchAclEntrySample5.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/BatchAclEntrySample5.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/BatchAclEntrySample5.xml	(revision 0)
+@@ -0,0 +1,18 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<entry xmlns="http://www.w3.org/2005/Atom"
++    xmlns:gAcl='http://schemas.google.com/acl/2007'
++    xmlns:batch='http://schemas.google.com/gdata/batch'>
++  <id>https://docs.google.com/feeds/default/private/full/document%3Adocument_id/acl/user%3Anew_writer%40example.com</id>
++  <updated>2009-03-06T09:13:25.381Z</updated>
++  <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule'/>
++  <title type='text'>Document Permission - new_writer@example.com</title>
++  <link rel='self' type='application/atom+xml'
++    href='https://docs.google.com/feeds/default/private/full/document%3Adocument_id/acl/user%3Anew_writer%40example.com'/>
++  <link rel='edit' type='application/atom+xml'
++    href='https://docs.google.com/feeds/default/private/full/document%3Adocument_id/acl/user%3Anew_writer%40example.com'/>
++  <gAcl:role value='writer'/>
++  <gAcl:scope type='user' value='new_writer@example.com'/>
++  <batch:id>1</batch:id>
++  <batch:status code='201' reason='Created'/>
++  <batch:operation type='insert'/>
++</entry>
+Index: tests/Zend/Gdata/Docs/_files/BatchAclFeedSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Docs/_files/BatchAclFeedSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Docs/_files/BatchAclFeedSample1.xml	(revision 0)
+@@ -0,0 +1,27 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<feed xmlns="http://www.w3.org/2005/Atom" xmlns:gAcl='http://schemas.google.com/acl/2007'
++      xmlns:batch='http://schemas.google.com/gdata/batch'>
++  <category scheme='http://schemas.google.com/g/2005#kind' term='http://schemas.google.com/acl/2007#accessRule'/>
++  <entry>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3Aowner%40example.com</id>
++    <batch:operation type="query"/>
++  </entry>
++  <entry>
++    <batch:id>1</batch:id>
++    <batch:operation type='insert'/>
++    <gAcl:role value='writer'/>
++    <gAcl:scope type='user' value='new_writer@example.com'/>
++  </entry>
++  <entry>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3Aold_writer%40example.com</id>
++    <batch:operation type='update'/>
++    <gAcl:role value='reader'/>
++    <gAcl:scope type='user' value='old_writer@example.com'/>
++  </entry>
++  <entry>
++    <id>http://docs.google.com/feeds/acl/private/full/document%3Adocument_id/user%3Adeprecated_writer%40example.com</id>
++    <batch:operation type='delete'/>
++    <gAcl:role value='writer' />
++    <gAcl:scope type='user' value='deprecated_writer@example.com' />
++  </entry>
++</feed>

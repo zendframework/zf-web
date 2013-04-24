@@ -1,0 +1,129 @@
+Index: Mail.php
+===================================================================
+--- Mail.php	(revision 10901)
++++ Mail.php	(working copy)
+@@ -395,9 +395,7 @@
+       if (Zend_Mime::isPrintable($value)) {
+           return $value;
+       } else {
+-          $quotedValue = Zend_Mime::encodeQuotedPrintable($value);
+-          $quotedValue = str_replace(array('?', ' ', '_'), array('=3F', '=20', '=5F'), $quotedValue);
+-          return '=?' . $this->_charset . '?Q?' . $quotedValue . '?=';
++          return Zend_Mime::encodeQuotedPrintableHeader($value, $this->_charset);
+       }
+     }
+ 
+@@ -613,7 +611,7 @@
+     {
+         return $this->_subject;
+     }
+-    
++
+     /**
+      * Sets Date-header
+      *
+Index: Mime.php
+===================================================================
+--- Mime.php	(revision 10901)
++++ Mime.php	(working copy)
+@@ -158,6 +158,100 @@
+         return $out;
+     }
+ 
++    public static function encodeQuotedPrintableHeader($str,
++        $charset,
++        $lineLength = self::LINELENGTH,
++        $lineEnd = self::LINEEND)
++    {
++        $out = '';
++        $str = str_replace('=', '=3D', $str);
++        $str = str_replace(self::$qpKeys, self::$qpReplaceValues, $str);
++        $str = rtrim($str);
++
++        // Our overriden Tend_Mail::_encodeHeader() method does not do this step
++        // anymore, so we do it here
++        $str = str_replace(array('?', ' ', '_'), array('=3F', '=20', '=5F'), $str);
++
++        // The RFC says that the whole encoded word must not be longer than 75
++        // characters and not only the encoded text. We substract the length
++        // of the charset etc. from the line length to find out, how long the
++        // encoded text can be.
++        $encodedTextLength = $lineLength - strlen('=?' . $charset . '?Q?' . '?=');
++
++        // Split encoded text into separate lines
++        while ($ptr = strlen($str))
++        {
++            // if the rest of $str is still longer than the allowed encoded text length
++            if ($ptr > $encodedTextLength)
++            {
++                $ptr = self::getSplittingOffsetForQuotedPrintableStrings($str, $charset, $encodedTextLength);
++            }
++
++            // Add string and continue
++            // RFC 1522 says, we need CRLF + SPACE between multiple encoded-words
++            $out .= '=?' . $charset . '?Q?' . substr($str, 0, $ptr) . '?=' . $lineEnd . ' ';
++            $str = substr($str, $ptr);
++        }
++
++        $out = rtrim($out, $lineEnd);
++
++        return $out;
++    }
++
++    public static function getSplittingOffsetForQuotedPrintableStrings($str, $charset, $maxLength)
++    {
++        if ($charset == 'utf-8')
++        {
++            $ptr = $maxLength;
++            $pos = strrpos(substr($str, 0, $ptr), '=');
++
++            if ($pos !== false && $pos >= $ptr - 2)
++            {
++                // $pos is at the beginning of an encoded byte.
++
++                // we need the next 2 characters after the '='
++                $ord = hexdec(substr($str, $pos + 1, 2));
++
++                if ($ord >= 192)
++                {
++                    // $pos is at the beginning of an encoded multibyte character
++                    return $pos;
++                }
++                else if ($ord >= 128)
++                {
++                    // $pos is between to bytes of a single multibyte character
++                    // we call this method with $maxLength reduced to $pos-3
++
++                    return self::getSplittingOffsetForQuotedPrintableStrings($str, $charset, $pos - 3);
++                }
++                else
++                {
++                    // This is just a not printable singlebyte character, we can split here
++                    return $pos;
++                }
++            }
++            else
++            {
++                // there are no encoded (multibyte) characters at $ptr
++                return $ptr;
++            }
++        }
++        else
++        {
++            // This works only for singlebyte character sets.
++
++            // Ensure we are not splitting across an encoded character
++            $pos = strrpos(substr($str, 0, $maxLength), '=');
++
++            if ($pos !== false && $pos >= $maxLength - 2)
++            {
++                return $pos;
++            }
++
++            return $maxLength;
++        }
++    }
++
+     /**
+      * Encode a given string in base64 encoding and break lines
+      * according to the maximum linelength.

@@ -1,0 +1,388 @@
+diff -Naur ZendFramework-1.0.1/library/Zend/Pdf/Cell.php ZendFramework/library/Zend/Pdf/Cell.php
+--- ZendFramework-1.0.1/library/Zend/Pdf/Cell.php	1969-12-31 19:00:00.000000000 -0500
++++ ZendFramework/library/Zend/Pdf/Cell.php	2007-09-25 12:45:11.608504827 -0400
+@@ -0,0 +1,384 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @package    Zend_Pdf
++ * @copyright  Copyright (c) 2005-2007 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/** Zend_Pdf_Exception */
++require_once 'Zend/Pdf/Exception.php';
++
++/** Zend_Pdf_Resource_Font */
++require_once 'Zend/Pdf/Resource/Font.php';
++
++/** Zend_Pdf_Page*/
++require_once 'Zend/Pdf/Page.php';
++
++class Zend_Pdf_Cell {
++	const ALIGN_LEFT=0;
++	const ALIGN_RIGHT=1;
++	const ALIGN_CENTER=2;
++	const ALIGN_JUSTIFY=3;
++	
++	
++	const POSITION_LEFT=0;
++	const POSITION_RIGHT=1;
++	const POSITION_CENTER_X=2;
++	const POSITION_CENTER_Y=4;
++	const POSITION_TOP=8;
++	const POSITION_BOTTOM=16;
++	
++	/**
++	 * Width of the cell
++	 */
++	private $_width;
++	/**
++	 * Height of the cell
++	 */
++	private $_height;
++	/**
++	 * Upper left X coordinate
++	 */
++	private $_x;
++	/**
++	 * Upper left Y coordinate
++	 */
++	private $_y;
++	/**
++	 * Current page for the cell to belong to.
++	 */
++	private $_page;
++	
++	/**
++	 * How the cell should be positioned on the page
++	 */
++	private $_position;
++
++	/**
++	 * 3 diminsional array that stores the text in the cell.
++	 * The first diminsion is for the line number.
++	 * The second diminsion is for the section number.
++	 * The third diminsion is the properties for that section.
++	 * 
++	 * The only properties (3rd diminsion) valid for a non-zero section (second diminsion)
++	 * are text, font and encoding.
++	 */
++	private $_text;
++	/**
++	 * Keeps track of the current line number
++	 */
++	private $_lineNumber;
++	/**
++	 * Keeps track of the current section
++	 */
++	private $_section;
++	
++	/**
++	 * Current font that is being used.
++	 */
++	private $_font;
++	
++	/**
++	 * Current font's height
++	 */
++	private $_fontSize;
++
++	/**
++	 * When we want to auto-calculate the height, this is the
++	 * height's current value.
++	 */
++	private $_autoHeight;
++	
++	/**
++	 * When we want to aut-calculate the width, this is the
++	 * width's current value.
++	 */
++	private $_autoWidth;
++	
++	/**
++	 * Creates a new cell.
++	 *
++	 * @param Zend_Pdf_Page $page Page for the cell to belong to.
++	 * @param constant $position What type of position to have
++	 * @param int $width Width of the cell.  Provide 0 for auto-width.
++	 * @param int $height Height of the cell.  Provide 0 for auto-height.
++	 */
++	public function __construct($page,$position=Zend_Pdf_Cell::POSITION_LEFT,$width=0,$height=0) {
++		$this->setPage($page);
++		$this->_lineNumber=0;
++		$this->_section=0;
++		$this->_font=$page->getFont();
++		$this->_fontSize=$page->getFontSize();
++		
++		$this->setPosition($position);
++		$this->setWidth($width);
++		$this->setHeight($height);
++	}
++
++	/**
++	 * Adds more text to the cell.  This will create a new section of text.  
++	 * 
++	 * If this section is not the first section, then the alignment, x and y variables are ignored.
++	 *
++	 * @param string $text Text to add to the section
++	 * @param mixed $alignment (Optional) How to align the text in the cell.
++	 * @param int $x (Optional) Offset of X from the relative position of this line in the cell.
++	 * 	Defaults to 0
++	 * @param string $charEncoding (Optional) Encoding of this particular section of text.
++	 *  Defaults to current locale.
++	 */
++	public function addText($text, $alignment=Zend_Pdf_Cell::ALIGN_LEFT, $offset=0, $charEncoding='') {
++
++		$this->_text[$this->_lineNumber][$this->_section]['text']=$text;
++		$this->_text[$this->_lineNumber][$this->_section]['encoding']=$charEncoding;
++		$this->_text[$this->_lineNumber][$this->_section]['font']=$this->_font;
++		$this->_text[$this->_lineNumber][$this->_section]['fontSize']=$this->_fontSize;
++		$this->_text[$this->_lineNumber][$this->_section]['width']=$this->_getTextWidth($this->_text[$this->_lineNumber][$this->_section]);
++		
++		if (isset($this->_text[$this->_lineNumber]['width'])) {
++			$this->_text[$this->_lineNumber]['width']+=$this->_text[$this->_lineNumber][$this->_section]['width'];
++		} else {
++			$this->_text[$this->_lineNumber]['width']=$this->_text[$this->_lineNumber][$this->_section]['width'];
++		}
++		$this->_text[$this->_lineNumber]['alignment']=$alignment;
++		$this->_text[$this->_lineNumber]['x']=$offset;
++		
++		//calculate the max width of the cell if we have an auto-size width cell
++		if ($this->_width==0) {
++			$this->_autoWidth = max($this->_text[$this->_lineNumber]['width'],$this->_autoWidth);
++		}
++		
++		//calculate the max height of this line if we have an auto-size height cell
++		if ($this->_height==0) {
++			if (isset($this->_text[$this->_lineNumber]['height'])) {
++				$this->_text[$this->_lineNumber]['height'] = max($this->_text[$this->_lineNumber]['height'], ($this->_font->getLineHeight()/$this->_font->getUnitsPerEm())*$this->_fontSize);
++				$this->_autoHeight=max($this->_autoHeight,$this->_text[$this->_lineNumber]['height']);
++			} else {
++				$this->_text[$this->_lineNumber]['height']=($this->_font->getLineHeight()/$this->_font->getUnitsPerEm())*$this->_fontSize;
++				$this->_autoHeight=($this->_font->getLineHeight()/$this->_font->getUnitsPerEm())*$this->_fontSize;
++			}
++		}
++		$this->_section++;
++	}
++	
++	/**
++	 * Adds a new line to the cell.
++	 */
++	public function newLine() {
++		$this->_section=0;
++		$this->_lineNumber++;
++		$this->_text[$this->_lineNumber]=array();
++		$this->_text[$this->_lineNumber][0]['text']='';
++		$this->_text[$this->_lineNumber][0]['encoding']='';
++		
++		$this->_text[$this->_lineNumber]['alignment']=Zend_Pdf_Cell::ALIGN_LEFT;
++		$this->_text[$this->_lineNumber]['x']=0;
++		$this->_text[$this->_lineNumber]['width']=0;
++		$this->_text[$this->_lineNumber]['height']=0;
++
++		//add the last cell's height to the auto height if we have an auto-height box.
++		if ($this->_height==0) {
++			$this->_autoHeight+=$this->_text[$this->_lineNumber-1]['height'];
++		}
++	}
++	
++	
++	public function getWidth() {
++		return $this->_width;
++	}
++	
++	public function getHeight() {
++		return $this->_height;
++	}
++	
++	public function getPosition() {
++		return $this->_position;
++	}
++			
++	public function getPage() {
++		return $this->_page;
++	}
++
++	/**
++	 * Sets the location of where the cell's upper left corner should be placed.
++	 * If the alignment is set, then x and y are offsets to the alignment.
++	 *
++	 * @param int $x X offset for the cell.
++	 * @param int $y Y offset for the cell.
++	 * @param mixed $alignment (Optional) How to align the cell with the X and Y as offsets.
++	 * 	Defaults to none.
++	 */
++	public function setLocation($x, $y, $alignment=Zend_Pdf_Cell::ALIGN_LEFT) {
++		$this->_position=$alignment;
++		$this->_x=$x;
++		$this->_y=$y;
++		
++	}
++
++	/**
++	 * Changes the current section's font to the one specified.
++	 *
++	 * @param Zend_Pdf_Font $font Font of the current section.
++	 */
++	public function setFont($font, $size) {
++		$this->_font=$font;
++		$this->_fontSize=$size;
++	}
++	
++	/**
++	 * Sets the current section's encoding to the encoding specified.
++	 *
++	 * @param string $encoding Character encoding of the text.
++	 */
++	public function setCharEncoding($encoding) {
++		$this->_text[$this->_lineNumber][$this->_section]['encoding']=$encoding;
++	}
++
++	public function setPage($page) {
++		$this->_page=$page;
++	}
++		
++	public function setHeight($height) {
++		$this->_height=$height;
++		$this->_autoHeight=$height;
++	}
++	
++	public function setWidth($width) {
++		$this->_width=$width;
++		$this->_autoWidth=$width;
++	}
++	
++	public function setPosition($position) {
++		$this->_position=$position;
++	}
++
++	
++	/**
++	 * Draws the cell to the PDF page.
++	 */
++	public function write() {
++		if (!is_a($this->_page,"Zend_Pdf_Page")) {
++			throw new Zend_Pdf_Exception("The PDF page that the cell is attempting to write to is not a valid page.");
++		}
++		if (!is_a($this->_font,"Zend_Pdf_Resource_Font")) {
++			throw new Zend_Pdf_Exception('No font has been set');
++		}
++		if ($this->_height==0) {
++			$this->_height=$this->_autoHeight;
++		}
++		if ($this->_width==0) {
++			$this->_width=$this->_autoWidth;
++		}
++		
++		//positions of the cell's box
++
++		//initalize the diminsions to defaults
++		$top=$this->_y;
++		$left=$this->_x;
++		$right=$left+$this->_width;
++		$bottom=$top+$this->_height;
++		
++		if ($this->_position & Zend_Pdf_Cell::POSITION_BOTTOM) {
++				$top=$this->_height;
++				$bottom=$top+$this->_height;
++		}
++		if ($this->_position & Zend_Pdf_Cell::POSITION_CENTER_X) {
++				$left=$this->_page->getWidth()/2 - $this->_width/2 + $this->_x;
++				$right=$left+$this->_width;
++		}
++		if ($this->_position & Zend_Pdf_Cell::POSITION_CENTER_Y) {
++			$top=$this->_page->getHeight()/2 + $this->_height/2 - $this->_y;			
++			$bottom=$top+$this->_height;		
++		}
++		if ($this->_position & Zend_Pdf_Cell::POSITION_TOP ) {
++				$top=$this->_page->getHeight();
++				$bottom=$top+$this->_height;
++		}
++		if ($this->_position & Zend_Pdf_Cell::POSITION_RIGHT) {
++			$left=$this->_page->getWidth() - $this->_width;
++			$right=$left+$this->_width;
++		}
++		/*
++		echo "Top: ".$top."<br/>";
++		echo "Left: ".$left."<br/>";
++		echo "Right: ".$right."<br/>";
++		echo "Bottom: ".$bottom."<br/>";
++		echo "---<br/>";*/
++		$currentY=$top;
++		//save the page's font so we can put it back after writing the cell
++		$pageFont=$this->_page->getFont();
++		$fontSize=$this->_page->getFontSize();
++		//var_dump($this->_text);
++		//draw every section of every page.
++		for ($i=0;$i<count($this->_text);$i++) {
++			$currentX=0;
++			switch ($this->_text[$i]['alignment']) {
++				case Zend_Pdf_Cell::ALIGN_RIGHT:
++					$currentX=$right - $this->_text[$i]['width'];
++					break;
++				case Zend_Pdf_Cell::ALIGN_CENTER:
++					$currentX=($right-$left)/2+$left-$this->_text[$i]['width']/2;
++					break;
++				case Zend_Pdf_Cell::ALIGN_JUSTIFY:
++					//@todo
++					break;
++				default:
++					$currentX=$left;
++					break;
++			}
++			/*
++			echo "cY: $currentY"."<br/>";
++			echo "Width: ".$this->_text[$i]['width']."<br/>";
++			*/
++			
++			//add the offset
++			$currentX+=$this->_text[$i]['x'];
++			$currentY-=$this->_text[$i]['height'];
++			//count() - 4 because of the 4 properties to this text.
++			for ($j=0;$j<count($this->_text[$i])-4;$j++) {
++				/*
++				echo "cX: $currentX"."<br/>";
++				echo "Text: ".$this->_text[$i][$j]['text']."<br/>----------<br/>";
++				*/
++				
++				$this->_page->setFont($this->_text[$i][$j]['font'],$this->_text[$i][$j]['fontSize']);
++				$this->_page->drawText($this->_text[$i][$j]['text'],$currentX,$currentY,$this->_text[$i][$j]['encoding']);
++				$currentX+=$this->_text[$i][$j]['width'];		
++			}
++		}		
++		//restore old size and font
++		$this->_page->setFont($pageFont,$fontSize);
++	}
++	
++	/**
++	 * Returns the width of the text
++	 *
++	 * @param array $textSection A section of text that has the font, character encoding and text.
++	 * @return Number of PDF units wide the text should be.
++	 * @todo Make work for non ASCII characters.
++	 */
++	private function _getTextWidth($textSection) {
++    	//make into a character array
++    	$charArray=array();
++    	for ($x=0;$x<strlen($textSection['text']);$x++) {
++    		$charArray[]=ord(substr($textSection['text'],$x,1));
++    	}
++    	//get the lengths
++		$lengths=$textSection['font']->widthsForGlyphs($charArray);
++		$fontGlyphWidth=array_sum($lengths);
++		
++       	return 	$fontGlyphWidth/$this->_font->getUnitsPerEm()*$this->_fontSize;
++    }
++}

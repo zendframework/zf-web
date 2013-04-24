@@ -1,0 +1,175 @@
+Index: library/Zend/Config/Ini.php
+===================================================================
+--- library/Zend/Config/Ini.php	(Revision 7119)
++++ library/Zend/Config/Ini.php	(Arbeitskopie)
+@@ -83,7 +83,7 @@
+      * @param  boolean|array $config
+      * @throws Zend_Config_Exception
+      */
+-    public function __construct($filename, $section = null, $config = false)
++    public function __construct($filename, $section = null, $config = false, $detectTypes = null)
+     {
+         if (empty($filename)) {
+             throw new Zend_Config_Exception('Filename is not set');
+@@ -100,6 +100,9 @@
+                 $this->_nestSeparator = (string) $config['nestSeparator'];
+             }
+         }
++		if (!is_bool($detectTypes)) {
++			$detectTypes = isset($config['detectTypes']) ? (bool) $config['detectTypes'] : false;
++		}
+ 
+         $iniArray = parse_ini_file($filename, true);
+         $preProcessedArray = array();
+@@ -128,7 +131,7 @@
+             foreach ($preProcessedArray as $sectionName => $sectionData) {
+                 $dataArray[$sectionName] = $this->_processExtends($preProcessedArray, $sectionName);
+             }
+-            parent::__construct($dataArray, $allowModifications);
++            parent::__construct($dataArray, $allowModifications, $detectTypes);
+         } elseif (is_array($section)) {
+             $dataArray = array();
+             foreach ($section as $sectionName) {
+@@ -138,12 +141,12 @@
+                 $dataArray = array_merge($this->_processExtends($preProcessedArray, $sectionName), $dataArray);
+ 
+             }
+-            parent::__construct($dataArray, $allowModifications);
++            parent::__construct($dataArray, $allowModifications, $detectTypes);
+         } else {
+             if (!isset($preProcessedArray[$section])) {
+                 throw new Zend_Config_Exception("Section '$section' cannot be found in $filename");
+             }
+-            parent::__construct($this->_processExtends($preProcessedArray, $section), $allowModifications);
++            parent::__construct($this->_processExtends($preProcessedArray, $section), $allowModifications, $detectTypes);
+         }
+ 
+         $this->_loadedSection = $section;
+Index: library/Zend/Config/Xml.php
+===================================================================
+--- library/Zend/Config/Xml.php	(Revision 7119)
++++ library/Zend/Config/Xml.php	(Arbeitskopie)
+@@ -52,7 +52,7 @@
+      * @param boolean $allowModifications
+      * @throws Zend_Config_Exception
+      */
+-    public function __construct($filename, $section = null, $allowModifications = false)
++    public function __construct($filename, $section = null, $allowModifications = false, $detectTypes = false)
+     {
+         if (empty($filename)) {
+             throw new Zend_Config_Exception('Filename is not set');
+@@ -65,7 +65,7 @@
+             foreach ($config as $sectionName => $sectionData) {
+                 $dataArray[$sectionName] = $this->_processExtends($config, $sectionName);
+             }
+-            parent::__construct($dataArray, $allowModifications);
++            parent::__construct($dataArray, $allowModifications, $detectTypes);
+         } elseif (is_array($section)) {
+             $dataArray = array();
+             foreach ($section as $sectionName) {
+@@ -74,7 +74,7 @@
+                 }
+                 $dataArray = array_merge($this->_processExtends($config, $sectionName), $dataArray);
+             }
+-            parent::__construct($dataArray, $allowModifications);
++            parent::__construct($dataArray, $allowModifications, $detectTypes);
+         } else {
+             if (!isset($config->$section)) {
+                 throw new Zend_Config_Exception("Section '$section' cannot be found in $filename");
+@@ -84,7 +84,7 @@
+                 // section in the XML file contains just one top level string
+                 $dataArray = array($section=>$dataArray);
+             }
+-            parent::__construct($dataArray, $allowModifications);
++            parent::__construct($dataArray, $allowModifications, $detectTypes);
+         }
+ 
+         $this->_loadedSection = $section;
+Index: library/Zend/Config.php
+===================================================================
+--- library/Zend/Config.php	(Revision 7119)
++++ library/Zend/Config.php	(Arbeitskopie)
+@@ -42,6 +42,13 @@
+     protected $_allowModifications;
+ 
+     /**
++     * Check and cast types, or not
++     *
++     * @var boolean
++     */
++    protected $_detectTypes;
++
++    /**
+      * Iteration index
+      *
+      * @var integer
+@@ -92,15 +99,16 @@
+      * @param boolean $allowModifications
+      * @throws Zend_Config_Exception
+      */
+-    public function __construct($array, $allowModifications = false)
++    public function __construct($array, $allowModifications = false, $detectTypes = false)
+     {
+         $this->_allowModifications = (boolean) $allowModifications;
++        $this->_detectTypes = (boolean) $detectTypes;
+         $this->_loadedSection = null;
+         $this->_index = 0;
+         $this->_data = array();
+         foreach ($array as $key => $value) {
+             if (is_array($value)) {
+-                $this->_data[$key] = new Zend_Config($value, $this->_allowModifications);
++                $this->_data[$key] = new Zend_Config($value, $this->_allowModifications, $this->_detectTypes);
+             } else {
+                 $this->_data[$key] = $value;
+             }
+@@ -120,6 +128,7 @@
+         $result = $default;
+         if (array_key_exists($name, $this->_data)) {
+             $result = $this->_data[$name];
++            $result = $this->_detectTypes($result);
+         }
+         return $result;
+     }
+@@ -169,7 +178,7 @@
+             if ($value instanceof Zend_Config) {
+                 $array[$key] = $value->toArray();
+             } else {
+-                $array[$key] = $value;
++                $array[$key] = $this->_detectTypes($value);
+             }
+         }
+         return $array;
+@@ -340,4 +349,33 @@
+         $this->_extends[$extendingSection] = $extendedSection;
+     }
+ 
++    /**
++     * Checks $value in being one of the elemental data types and casts it accordingly.
++     *
++     * @param string $value
++     * @return mixed
++     */
++    protected function _detectTypes($value)
++    {
++        if ($this->_detectTypes and !$value instanceof Zend_Config) {
++            switch(true) {
++                case strtolower($value) === "true":
++                    $value = (bool) true;
++                    break;
++
++                case strtolower($value) === "false":
++                    $value = (bool) false;
++                    break;
++
++                case $value === (string)(int) $value:
++                    $value = (int) $value;
++                    break;
++
++                case $value === (string)(float) $value:
++                    $value = (float) $value;
++                    break;
++            }
++        }
++        return $value;
++    }
+ }

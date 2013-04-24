@@ -1,0 +1,594 @@
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php	(revision 9624)
++++ library/Zend/Form.php	(working copy)
+@@ -1108,18 +1108,12 @@
+             }
+         }
+         foreach ($this->getSubForms() as $key => $subForm) {
+-            $array = $this->_getArrayName($subForm->getElementsBelongTo());
+-            if (empty($array)) {
+-                $values[$key] = $subForm->getValues(true);
+-            } else {
+-                $values[$array] = $subForm->getValues(true);
+-            }
++            $fValues = $this->_attachToArray($subForm->getValues(true), $subForm->getElementsBelongTo());
++            $values = array_merge($values, $fValues);
+         }
+ 
+         if (!$suppressArrayNotation && $this->isArray()) {
+-            $values = array(
+-                $this->getElementsBelongTo() => $values
+-            );
++            $values = $this->_attachToArray($values, $this->getElementsBelongTo());
+         }
+ 
+         return $values;
+@@ -1241,7 +1235,6 @@
+      * Set flag indicating elements belong to array
+      * 
+      * @param  bool $flag Value of flag
+-     * @param  bool $setName Whether or not to set the name the elements belong to
+      * @return Zend_Form
+      */
+     public function setIsArray($flag)
+@@ -1706,8 +1699,67 @@
+         $name = substr($value, $start, $endPos - $start);
+         return $name;
+     }
++    
++    /**
++     * Extract the value by walking the array using given array path.
++     *
++     * Given an array path such as foo[bar][baz], returns the value of the last
++     * element (in this case, 'baz').
++     * 
++     * @param  array $value Array to walk
++     * @param  string $arrayPath Array notation path of the part to extract
++     * @return string
++     */
++    protected function _dissolveArrayValue($value, $arrayPath)
++    {
++        // As long as we have more levels
++        while ($arrayPos = strpos($arrayPath, '[')) {
++            // Get the next key in the path
++            $arrayKey = trim(substr($arrayPath, 0, $arrayPos), ']');
+ 
++            // Set the potentially final value or the next search point in the array
++            if (isset($value[$arrayKey])) {
++                $value = $value[$arrayKey];
++            }
++            
++            // Set the next search point in the path
++            $arrayPath = trim(substr($arrayPath, $arrayPos + 1), ']');
++        }
++
++        if (isset($value[$arrayPath])) {
++            $value = $value[$arrayPath];
++        }
++
++        return $value;
++    }
++
+     /**
++     * Converts given arrayPath to an array and attaches given value at the end of it.
++     *
++     * @param  mixed $value The value to attach
++     * @param  string $arrayPath Given array path to convert and attach to.
++     * @return array 
++     */
++    protected function _attachToArray($value, $arrayPath)
++    {
++        // As long as we have more levels
++        while ($arrayPos = strrpos($arrayPath, '[')) {
++            // Get the next key in the path
++            $arrayKey = trim(substr($arrayPath, $arrayPos + 1), ']');
++
++            // Attach
++            $value = array($arrayKey => $value);
++            
++            // Set the next search point in the path
++            $arrayPath = trim(substr($arrayPath, 0, $arrayPos), ']');
++        }
++
++        $value = array($arrayPath => $value);
++
++        return $value;
++    }
++
++    /**
+      * Validate the form
+      * 
+      * @param  array $data 
+@@ -1723,10 +1775,7 @@
+         $valid      = true;
+ 
+         if ($this->isArray()) {
+-            $key = $this->_getArrayName($this->getElementsBelongTo());
+-            if (isset($data[$key])) {
+-                $data = $data[$key];
+-            }
++            $data = $this->_dissolveArrayValue($data, $this->getElementsBelongTo());
+         }
+ 
+         foreach ($this->getElements() as $key => $element) {
+@@ -1742,12 +1791,7 @@
+             if (isset($data[$key])) {
+                 $valid = $form->isValid($data[$key]) && $valid;
+             } else {
+-                $array = $this->_getArrayName($form->getElementsBelongTo());
+-                if (empty($array) || !isset($data[$array])) {
+-                    $valid = $form->isValid($data) && $valid;
+-                } else {
+-                    $valid = $form->isValid($data[$array]) && $valid;
+-                }
++                $valid = $form->isValid($data) && $valid;
+             }
+         }
+ 
+@@ -1766,10 +1810,7 @@
+     public function isValidPartial(array $data)
+     {
+         if ($this->isArray()) {
+-            $key = $this->_getArrayName($this->getElementsBelongTo());
+-            if (isset($data[$key])) {
+-                $data = $data[$key];
+-            }
++            $data = $this->_dissolveArrayValue($data, $this->getElementsBelongTo());
+         }
+ 
+         $translator        = $this->getTranslator();
+@@ -1795,12 +1836,8 @@
+                 if (null !== $translator) {
+                     $subForm->setTranslator($translator);
+                 }
+-                $array = $this->_getArrayName($subForm->getElementsBelongTo());
+-                if (empty($array) || !isset($data[$array])) {
+-                    $valid = $subForm->isValidPartial($data) && $valid;
+-                } else {
+-                    $valid = $subForm->isValidPartial($data[$array]) && $valid;
+-                }
++
++                $valid = $subForm->isValidPartial($data) && $valid;
+             }
+         }
+ 
+@@ -1860,12 +1897,8 @@
+                 $errors[$key] = $element->getErrors();
+             }
+             foreach ($this->getSubForms() as $key => $subForm) {
+-                $array = $this->_getArrayName($subForm->getElementsBelongTo());
+-                if (empty($array) || !isset($data[$array])) {
+-                    $errors[$key] = $subForm->getErrors();
+-                } else {
+-                    $errors[$array] = $subForm->getErrors();
+-                }
++                $fErrors = $this->_attachToArray($subForm->getErrors(), $subForm->getElementsBelongTo());
++                $errors = array_merge($errors, $fErrors);
+             }
+         }
+         return $errors;
+@@ -1895,7 +1928,7 @@
+                 if ($name == $array) {
+                     return $subForm->getMessages(null, true);
+                 }
+-                $arrayKeys[$key] = $array;
++                $arrayKeys[$key] = $subForm->getElementsBelongTo();
+             }
+         }
+ 
+@@ -1912,7 +1945,8 @@
+             $fMessages = $subForm->getMessages(null, true);
+             if (!empty($fMessages)) {
+                 if (array_key_exists($key, $arrayKeys)) {
+-                    $messages[$arrayKeys[$key]] = $fMessages;
++                    $fMessages = $this->_attachToArray($fMessages, $arrayKeys[$key]);
++                    $messages = array_merge($messages, $fMessages);
+                 } else {
+                     $messages[$key] = $fMessages;
+                 }
+@@ -1920,9 +1954,7 @@
+         }
+ 
+         if (!$suppressArrayNotation && $this->isArray()) {
+-            $messages = array(
+-                $this->getElementsBelongTo() => $messages
+-            );
++            $messages = $this->_attachToArray($messages, $this->getElementsBelongTo());
+         }
+ 
+         return $messages;
+Index: library/Zend/Form/Decorator/FormElements.php
+===================================================================
+--- library/Zend/Form/Decorator/FormElements.php	(revision 9624)
++++ library/Zend/Form/Decorator/FormElements.php	(working copy)
+@@ -42,6 +42,26 @@
+ class Zend_Form_Decorator_FormElements extends Zend_Form_Decorator_Abstract
+ {
+     /**
++     * Merges given two belongsTo (array notation) strings
++     *
++     * @param  string $baseBelongsTo
++     * @param  string $belongsTo
++     * @return string
++     */
++    protected function _mergeBelongsTo($baseBelongsTo, $belongsTo)
++    {
++        $endOfArrayName = strpos($belongsTo, '[');
++
++        if ($endOfArrayName === false) {
++            return $baseBelongsTo . '[' . $belongsTo . ']';
++        }
++
++        $arrayName = substr($belongsTo, 0, $endOfArrayName);
++
++        return $baseBelongsTo . '[' . $arrayName . ']' . substr($belongsTo, $endOfArrayName);
++    }
++
++    /**
+      * Render form elements
+      *
+      * @param  string $content 
+@@ -67,7 +87,7 @@
+                 $item->setBelongsTo($belongsTo);
+             } elseif (!empty($belongsTo) && ($item instanceof Zend_Form)) {
+                 if ($item->isArray()) {
+-                    $name = $belongsTo . '[' . $item->getName() . ']';
++                    $name = $this->_mergeBelongsTo($belongsTo, $item->getElementsBelongTo());
+                     $item->setElementsBelongTo($name, true);
+                 } else {
+                     $item->setElementsBelongTo($belongsTo, true);
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php	(revision 9624)
++++ tests/Zend/Form/FormTest.php	(working copy)
+@@ -19,6 +19,7 @@
+ require_once 'Zend/Loader/PluginLoader.php';
+ require_once 'Zend/Registry.php';
+ require_once 'Zend/Translate.php';
++require_once 'Zend/View.php';
+ 
+ class Zend_Form_FormTest extends PHPUnit_Framework_TestCase
+ {
+@@ -1053,6 +1054,40 @@
+         }
+     }
+ 
++    public function testIsValidWithOneLevelElementsBelongTo()
++    {
++        $this->form->addElement('text', 'test')->test
++            ->addValidator('Identical', false, array('Test Value'));
++        $this->form->setElementsBelongTo('foo');
++
++        $data = array(
++            'foo' => array(
++                'test' => 'Test Value',
++            ),
++        );
++
++        $this->assertTrue($this->form->isValid($data));
++    }
++
++    public function testIsValidWithMultiLevelElementsBelongTo()
++    {
++        $this->form->addElement('text', 'test')->test
++            ->addValidator('Identical', false, array('Test Value'));
++        $this->form->setElementsBelongTo('foo[bar][zot]');
++
++        $data = array(
++            'foo' => array(
++                'bar' => array(
++                    'zot' => array(
++                        'test' => 'Test Value',
++                    ),
++                ),
++            ),
++        );
++
++        $this->assertTrue($this->form->isValid($data));
++    }
++
+     // Sub forms
+ 
+     public function testCanAddAndRetrieveSingleSubForm()
+@@ -1218,12 +1253,12 @@
+              ->setRequired(true);
+ 
+         $subForm = new Zend_Form_SubForm();
+-        $subForm->setElementsBelongTo('foobar[baz]');
++        $subForm->setElementsBelongTo('baz[quux]');
+         $subForm->addElement('text', 'email')
+                 ->getElement('email')->setRequired(true);
+ 
+         $subSubForm = new Zend_Form_SubForm();
+-        $subSubForm->setElementsBelongTo('foobar[baz][bat]');
++        $subSubForm->setElementsBelongTo('bat');
+         $subSubForm->addElement('checkbox', 'home')
+                    ->getElement('home')->setRequired(true);
+ 
+@@ -1237,10 +1272,12 @@
+             'firstName' => 'Mabel',
+             'lastName'  => 'Cow',
+             'baz'    => array(
+-                'email' => 'mabel@cow.org',
+-                'bat'   => array(
+-                    'home' => 1,
+-                )
++                'quux' => array(
++                    'email' => 'mabel@cow.org',
++                    'bat'   => array(
++                        'home' => 1,
++                    )
++                ),
+             )
+         ));
+         $this->assertTrue($form->isValid($data));
+@@ -1280,7 +1317,67 @@
+         $this->assertEquals($subForm->bar->getValue(), $values['bar']);
+     }
+ 
++    public function testIsValidCanValidateSubFormsWithArbitraryElementsBelong()
++    {
++        $subForm = new Zend_Form_SubForm();
++        $subForm->addElement('text', 'test')->test
++            ->setRequired(true)->addValidator('Identical', false, array('Test Value'));
++        $this->form->addSubForm($subForm, 'sub');
++        
++        $this->form->setElementsBelongTo('foo[bar]');
++        $subForm->setElementsBelongTo('my[subform]');
+ 
++        $data = array(
++            'foo' => array(
++                'bar' => array(
++                    'my' => array(
++                        'subform' => array(
++                            'test' => 'Test Value',
++                        ),
++                    ),
++                ),
++            ),
++        );
++
++        $this->assertTrue($this->form->isValid($data));
++    }
++
++    public function testIsValidCanValidateNestedSubFormsWithArbitraryElementsBelong()
++    {
++        $subForm = new Zend_Form_SubForm();
++        $subForm->addElement('text', 'test1')->test1
++            ->setRequired(true)->addValidator('Identical', false, array('Test1 Value'));
++        $this->form->addSubForm($subForm, 'sub');
++
++        $subSubForm = new Zend_Form_SubForm();
++        $subSubForm->addElement('text', 'test2')->test2
++            ->setRequired(true)->addValidator('Identical', false, array('Test2 Value'));
++        $subForm->addSubForm($subSubForm, 'subSub');
++        
++        $this->form->setElementsBelongTo('form[first]');
++        // Notice we skipped subForm, to mix manual and auto elementsBelongTo.
++        $subSubForm->setElementsBelongTo('subsubform[first]');
++
++        $data = array(
++            'form' => array(
++                'first' => array(
++                    'sub' => array(
++                        'test1' => 'Test1 Value',
++
++                        'subsubform' => array(
++                            'first' => array(
++                                'test2' => 'Test2 Value',
++                            ),
++                        ),
++                    ),
++                ),
++            ),
++        );
++
++        $this->assertTrue($this->form->isValid($data));
++    }
++
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+@@ -1633,12 +1730,12 @@
+              ->setRequired(true);
+ 
+         $subForm = new Zend_Form_SubForm();
+-        $subForm->setElementsBelongTo('foobar[baz]');
++        $subForm->setElementsBelongTo('baz');
+         $subForm->addElement('text', 'email')
+                 ->getElement('email')->setRequired(true);
+ 
+         $subSubForm = new Zend_Form_SubForm();
+-        $subSubForm->setElementsBelongTo('foobar[baz][bat]');
++        $subSubForm->setElementsBelongTo('bat');
+         $subSubForm->addElement('checkbox', 'home')
+                    ->getElement('home')->setRequired(true);
+ 
+@@ -1714,14 +1811,14 @@
+              ->setRequired(true);
+ 
+         $subForm = new Zend_Form_SubForm();
+-        $subForm->setElementsBelongTo('foobar[baz]');
++        $subForm->setElementsBelongTo('baz');
+         $subForm->addElement('text', 'email')
+                 ->getElement('email')
+                 ->setRequired(true)
+                 ->addValidator('NotEmpty');
+ 
+         $subSubForm = new Zend_Form_SubForm();
+-        $subSubForm->setElementsBelongTo('foobar[baz][bat]');
++        $subSubForm->setElementsBelongTo('bat');
+         $subSubForm->addElement('checkbox', 'home')
+                    ->getElement('home')
+                    ->setRequired(true)
+@@ -1756,6 +1853,115 @@
+         $this->assertTrue(isset($messages['foobar']['baz']['bat']['home']['isEmpty']), var_export($messages, 1));
+     }
+ 
++    public function testCanValidatePartialNestedFormsWithMultiLevelElementsBelongingToArrays()
++    {
++        $this->_checkZf2794();
++
++        $form = new Zend_Form();
++        $form->setElementsBelongTo('foo[bar]');
++
++        $form->addElement('text', 'firstName')
++             ->getElement('firstName')
++             ->setRequired(false);
++
++        $form->addElement('text', 'lastName')
++             ->getElement('lastName')
++             ->setRequired(true);
++
++        $subForm = new Zend_Form_SubForm();
++        $subForm->setElementsBelongTo('baz');
++        $subForm->addElement('text', 'email')
++                ->getElement('email')
++                ->setRequired(true)
++                ->addValidator('NotEmpty');
++
++        $subSubForm = new Zend_Form_SubForm();
++        $subSubForm->setElementsBelongTo('bat[quux]');
++        $subSubForm->addElement('checkbox', 'home')
++                   ->getElement('home')
++                   ->setRequired(true)
++                   ->addValidator('InArray', false, array(array('1')));
++
++        $subForm->addSubForm($subSubForm, 'subSub');
++
++        $form->addSubForm($subForm, 'sub')
++             ->addElement('submit', 'save', array('value' => 'submit'));
++
++
++        $data = array('foo' => array(
++            'bar' => array(
++                'lastName'  => 'Cow',
++            ),
++        ));
++        $this->assertTrue($form->isValidPartial($data));
++        $this->assertEquals('Cow', $form->lastName->getValue());
++        $firstName = $form->firstName->getValue();
++        $email     = $form->sub->email->getValue();
++        $home      = $form->sub->subSub->home->getValue();
++        $this->assertTrue(empty($firstName));
++        $this->assertTrue(empty($email));
++        $this->assertTrue(empty($home));
++
++        $form->sub->subSub->home->addValidator('StringLength', false, array(4, 6));
++        $data['foo']['bar']['baz'] = array('bat' => array('quux' => array('home' => 'ab')));
++
++        $this->assertFalse($form->isValidPartial($data), var_export($data, 1));
++        $this->assertEquals('0', $form->sub->subSub->home->getValue());
++    }
++    
++    public function testCanGetMessagesOfNestedFormsWithMultiLevelElementsBelongingToArrays()
++    {
++        $this->_checkZf2794();
++
++        $form = new Zend_Form();
++        $form->setElementsBelongTo('foo[bar]');
++
++        $form->addElement('text', 'firstName')
++             ->getElement('firstName')
++             ->setRequired(false);
++
++        $form->addElement('text', 'lastName')
++             ->getElement('lastName')
++             ->setRequired(true);
++
++        $subForm = new Zend_Form_SubForm();
++        $subForm->setElementsBelongTo('baz');
++        $subForm->addElement('text', 'email')
++                ->getElement('email')
++                ->setRequired(true)
++                ->addValidator('NotEmpty');
++
++        $subSubForm = new Zend_Form_SubForm();
++        $subSubForm->setElementsBelongTo('bat[quux]');
++        $subSubForm->addElement('checkbox', 'home')
++                   ->getElement('home')
++                   ->setRequired(true)
++                   ->addValidator('InArray', false, array(array('1')));
++
++        $subForm->addSubForm($subSubForm, 'subSub');
++
++        $form->addSubForm($subForm, 'sub')
++             ->addElement('submit', 'save', array('value' => 'submit'));
++
++
++        $data = array('foo' => array(
++            'bar' => array(
++                'lastName'  => 'Cow',
++            ),
++        ));
++        
++
++        $form->sub->subSub->home->addValidator('StringLength', false, array(4, 6));
++        $data['foo']['bar']['baz'] = array('bat' => array('quux' => array('home' => 'ab')));
++
++        $form->isValidPartial($data);
++
++        $messages = $form->getMessages();
++        $this->assertFalse(empty($messages));
++        $this->assertTrue(isset($messages['foo']['bar']['baz']['bat']['quux']['home']), var_export($messages, 1));
++        $this->assertTrue(isset($messages['foo']['bar']['baz']['bat']['quux']['home']['isEmpty']), var_export($messages, 1));
++    }
++
+     public function testValidatingFormWithDisplayGroupsDoesSameAsWithout()
+     {
+         $this->setupElements();
+@@ -1895,6 +2101,28 @@
+         $this->assertEquals($keys, array_keys($codes));
+     }
+ 
++    public function testGetErrorsHonorsElementsBelongTo()
++    {
++        $this->_checkZf2794();
++
++        $subForm = new Zend_Form_SubForm();
++        $subForm->setElementsBelongTo('foo[bar]');
++        $subForm->addElement('text', 'test')->test
++            ->setRequired(true);
++
++        $this->form->addSubForm($subForm, 'sub');
++
++        $data = array('foo' => array(
++            'bar' => array(
++                'test' => '',
++            ),
++        ));
++
++        $this->form->isValid($data);
++        $codes = $this->form->getErrors();
++        $this->assertFalse(empty($codes['foo']['bar']['test']));
++    }
++
+     public function testErrorMessagesFromSubFormReturnedInSeparateArray()
+     {
+         $this->_checkZf2794();
+@@ -2392,6 +2620,23 @@
+         $this->assertContains('id="data-baz"', $html);
+     }
+ 
++    public function testElementsRenderAsMembersOfSubFormsWithElementsBelongTo()
++    {
++        $this->form->setName('data')
++            ->setIsArray(true);
++        $subForm = new Zend_Form_SubForm();
++        $subForm->setElementsBelongTo('billing[info]');
++        $subForm->addElement('text', 'name');
++        $subForm->addElement('text', 'number');
++        $this->form->addSubForm($subForm, 'sub');
++
++        $html = $this->form->render($this->getView());
++        $this->assertContains('name="data[billing][info][name]', $html);
++        $this->assertContains('name="data[billing][info][number]', $html);
++        $this->assertContains('id="data-billing-info-name"', $html);
++        $this->assertContains('id="data-billing-info-number"', $html);
++    }
++
+     public function testToStringProxiesToRender()
+     {
+         $this->setupElements();

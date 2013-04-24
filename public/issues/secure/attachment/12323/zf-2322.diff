@@ -1,0 +1,151 @@
+Index: Db/Adapter/Pdo/Mysql.php
+===================================================================
+--- Db/Adapter/Pdo/Mysql.php	(revision 18655)
++++ Db/Adapter/Pdo/Mysql.php	(working copy)
+@@ -253,5 +253,146 @@
+ 
+         return $sql;
+     }
++    
++    /**
++     * Inserts multiple rows into the table
++     *
++     * @param string $tableName
++     * @param array $data
++     * @return int affected rows
++     */
++    public function insertMultiple($tableName, array $data)
++    {
++        $allValues = array();
++        $columns = array();
++        $bind = array();
++        
++        // Extract and quote col names from the array keys
++        // of the first row
++        $first = current($data);
++        $columns = array();
++        foreach (array_keys($first) as $column) {
++            $columns[] = $this->quoteIdentifier($column, true);
++        }
++        
++        // Loop through data to extract values for binding
++        foreach ($data as $rowData) {
++            if (count($rowData) != count($columns)) {
++                /** @see Zend_Db_Adapter_Exception */
++                require_once 'Zend/Db/Adapter/Exception.php';
++                throw new Zend_Db_Adapter_Exception('Each row must'
++                    . ' have the same number of columns.');
++            }
++            
++            $values = array();
++            
++            foreach ($rowdata as $key => $value) {
++                if ($value instanceof Zend_Db_Expr) {
++                    $values[] = $val->__toString();
++                } else {
++                    $values[] = '?';
++                    $bind[] = $value;
++                }
++            }
++            
++            $allValues[] = "(" . implode(', ', $values) . ")";
++        }
+ 
++        // Build the insert statement
++        $sql = "INSERT INTO "
++            . $this->quoteIdentifier($tableName, true)
++             . "\n("
++             . implode(', ', $columns)
++             . ")\nVALUES\n"
++             . implode(', ', $allValues);
++
++        // Execute the statement and return the number of affected rows
++        $stmt = $this->query($sql, $bind);
++        $result = $stmt->rowCount();
++        
++        return $result;
++    }
++    
++    /**
++     * Inserts multiple rows into the table using MySQL's
++     * INSERT ... ON DUPLICATE KEY syntax
++     *
++     * @param string $tableName
++     * @param array $insertData
++     * @param array $updateData
++     * @return int affected rows
++     */
++    public function insertMultiple($tableName, array $insertData, 
++    array $updateData = null)
++    {
++        $insertKeys = null;
++        $insertValues = array();
++        $updates = array();
++        
++        // Insert data
++        foreach ($insertData as $data) {
++            if (null === $insertKeys) {
++                $insertKeys = array_keys($data);
++            } else {
++                // Validate keys match
++                $currentInsertKeys = array_keys($data);
++                $diff = array_diff($insertKeys, $currentInsertKeys);
++                if (!empty($diff)) {
++                    require_once 'Zend/Db/Adapter/Exception.php';
++                    throw new Zend_Db_Adapter_Exception('Insert fields'
++                        . ' do not match for multiple insert/update.');
++                }
++            }
++            $insertValues[] = "({$this->quote($data)})";
++            
++        }
++        
++        // Update data
++        if (empty($updateData)) {
++            // No update data specified, create update data based
++            // on insert data. This means the insert data will be
++            // used as the update data.
++            $updateData = $insertKeys;
++        }
++        
++        // Quote insert_key identifiers
++        foreach ($insertKeys as $i => $key) {
++            $insertKeys[$i] = $this->quoteIdentifier($key, true);
++        }
++        
++        // Create SQL strings for update data
++        foreach ($updateData as $key => $value) {
++            if (is_string($key)) {
++                // Specific update value was passed in for this column
++                $update = $this->quoteIdentifier($key, true)
++                    . ' = '
++                    . $this->quote($value);
++            } else {
++                // Column should use value from insert data
++                $update = $this->quoteIdentifier($key, true)
++                    . ' = VALUES('
++                    . $this->quoteIdentifier($value, true)
++                    . ')';
++            }
++            $updates[] = $update;
++        }
++        
++        // Build the insert statement
++        $sql = "INSERT INTO "
++            . $this->quoteIdentifier($tableName, true)
++            . "\n("
++            . implode(", ", $insertKeys)
++            . ")\nVALUES\n"
++            . implode(",\n", $insertValues)
++            . "\nON DUPLICATE KEY UPDATE\n"
++            . implode(', ', $updates)
++            ;
++        
++        // Execute the statement and return the number of affected rows
++        $stmt = $this->query($sql, $bind);
++        $result = $stmt->rowCount();
++        
++        return $result;
++    }
++
+ }

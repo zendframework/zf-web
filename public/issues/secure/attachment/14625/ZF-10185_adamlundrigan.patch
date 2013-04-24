@@ -1,0 +1,97 @@
+Index: library/Zend/Json.php
+===================================================================
+--- library/Zend/Json.php       (revision 24415)
++++ library/Zend/Json.php       (working copy)
+@@ -399,26 +399,34 @@
+             $ind = $options['indent'];
+         }
+
++        $inLiteral = false;
+         foreach($tokens as $token) {
+             if($token == '') {
+                 continue;
+             }
+
+             $prefix = str_repeat($ind, $indent);
+-            if ($token == '{' || $token == '[') {
++            if (!$inLiteral && ($token == '{' || $token == '[')) {
+                 $indent++;
+                 if (($result != '') && ($result[(strlen($result)-1)] == $lineBreak)) {
+                     $result .= $prefix;
+                 }
+                 $result .= $token . $lineBreak;
+-            } elseif ($token == '}' || $token == ']') {
++            } elseif (!$inLiteral && ($token == '}' || $token == ']')) {
+                 $indent--;
+                 $prefix = str_repeat($ind, $indent);
+                 $result .= $lineBreak . $prefix . $token;
+-            } elseif ($token == ',') {
++            } elseif (!$inLiteral && $token == ',') {
+                 $result .= $token . $lineBreak;
+             } else {
+-                $result .= $prefix . $token;
++                $result .= ( $inLiteral ? '' : $prefix ) . $token;
++
++                // Count # of unescaped double-quotes in token, subtract # of
++                // escaped double-quotes and if the result is odd then we are
++                // inside a string literal
++                if ((substr_count($token, "\"")-substr_count($token, "\\\"")) % 2 != 0) {
++                    $inLiteral = !$inLiteral;
++                }
+             }
+         }
+         return $result;
+Index: tests/Zend/JsonTest.php
+===================================================================
+--- tests/Zend/JsonTest.php     (revision 24415)
++++ tests/Zend/JsonTest.php     (working copy)
+@@ -811,6 +811,49 @@
+         $this->assertEquals($targetHtmlOutput, Zend_Json::prettyPrint($jsonstr, array('format' => 'html')));
+     }
+
++    /**
++     * @group ZF-10185
++     */
++    public function testJsonPrettyPrintWorksWithArrayNotationInStringLiteral()
++    {
++        $o = new stdClass();
++        $o->test = 1;
++        $o->faz = 'fubar';
++
++        // The escaped double-quote in item 'stringwithjsonchars' ensures that
++        // escaped double-quotes don't throw off prettyPrint's string literal detection
++        $test = array(
++            'simple'=>'simple test string',
++            'stringwithjsonchars'=>'\"[1,2]',
++            'complex'=>array(
++                'foo'=>'bar',
++                'far'=>'boo',
++                'faz'=>array(
++                    'obj'=>$o
++                )
++            )
++        );
++        print_r($test);
++        $pretty = Zend_Json::prettyPrint(Zend_Json::encode($test), array("indent"  => " "));
++        print_r($pretty);
++        $expected = <<<EOB
++{
++ "simple":"simple test string",
++ "stringwithjsonchars":"\\\\\\"[1,2]",
++ "complex":{
++  "foo":"bar",
++  "far":"boo",
++  "faz":{
++   "obj":{
++    "test":1,
++    "faz":"fubar"
++   }
++  }
++ }
++}
++EOB;
++        $this->assertSame($expected, $pretty);
++    }
+
+
+ }

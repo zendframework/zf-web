@@ -1,0 +1,90 @@
+Index: Zend/Db/Table/Row.php
+===================================================================
+--- Zend/Db/Table/Row.php	(revision 790)
++++ Zend/Db/Table/Row.php	(revision 792)
+@@ -136,8 +136,8 @@
+         if (empty($this->_data[$primary])) {
+         
+             // no primary key value, must be an insert.
+-            // make sure it's null.
+-            $this->_data[$primary] = null;
++            // make sure it's not set since it is generally auto-generated.
++            unset($this->_data[$primary]);
+             
+             // attempt the insert.
+             $result = $this->_table->insert($this->_data);
+Index: Zend/Db/Table.php
+===================================================================
+--- Zend/Db/Table.php	(revision 790)
++++ Zend/Db/Table.php	(revision 792)
+@@ -83,11 +83,20 @@
+     protected $_cols;
+ 
+     /**
++     * The table column names for which defaults have been set.
++     *
++     * Both the key and value are in the underscore format.
++     *
++     * @var array
++     */
++    protected $_colsWithDefaults;
++
++    /**
+      * The primary key column (underscore format).
+      *
+      * @var string
+      */
+-    protected $_primary = 'id';
++    protected $_primary;
+ 
+     /**
+      * Constructor.
+@@ -178,18 +187,24 @@
+ 
+         // get the table columns
+         if (! $this->_cols) {
+-            $tmp = array_keys($this->_db->describeTable($this->_name));
+-            foreach ($tmp as $native) {
++            $tableDetails = $this->_db->describeTable($this->_name);
++            foreach ($tableDetails as $native => $colDetails) {
+                 $this->_cols[$native] = self::$_inflector->camelize($native);
++                if ($colDetails['primary'] && ! $this->_primary) {
++                    $this->_primary = $native;
++                }
++                if ($colDetails['default'] !== null) {
++                    $this->_colsWithDefaults[$native] = $native;
++                }
+             }
+         }
+ 
+         // primary key
+         if (! $this->_primary) {
+-            // none specified
+-            $table = $this->_name;
+-            throw new Zend_Db_Table_Exception("primary key not specified for table '$table'");
+-        } elseif (! array_key_exists($this->_primary, $this->_cols)) {
++            // none specified, so use default of 'id'
++            $this->_primary = 'id';
++        }
++        if (! array_key_exists($this->_primary, $this->_cols)) {
+             // wrong name
+             $key = $this->_primary;
+             $table = $this->_name;
+@@ -208,6 +223,7 @@
+             'name' => $this->_name,
+             'cols' => $this->_cols,
+             'primary' => $this->_primary,
++            'defaults' => $this->_colsWithDefaults,
+         );
+     }
+ 
+@@ -344,7 +360,8 @@
+      */
+     public function fetchNew()
+     {
+-        $keys = array_keys($this->_cols);
++        $keys = array_keys(array_diff_key($this->_cols,
++                                          $this->_colsWithDefaults));
+         $vals = array_fill(0, count($keys), null);
+         return new Zend_Db_Table_Row(array(
+             'db'    => $this->_db,

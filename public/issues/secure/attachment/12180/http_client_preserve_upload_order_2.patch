@@ -1,0 +1,235 @@
+Index: Zend/Http/Client.php
+===================================================================
+--- Zend/Http/Client.php	(revision 17807)
++++ Zend/Http/Client.php	(working copy)
+@@ -34,6 +34,12 @@
+ 
+ 
+ /**
++ * @see Zend_Http_Client_Param
++ */
++require_once 'Zend/Http/Client/Param.php';
++
++
++/**
+  * @see Zend_Http_Client_Adapter_Interface
+  */
+ require_once 'Zend/Http/Client/Adapter/Interface.php';
+@@ -184,16 +190,6 @@
+     protected $auth;
+ 
+     /**
+-     * File upload arrays (used in POST requests)
+-     *
+-     * An associative array, where each element is of the format:
+-     *   'name' => array('filename.txt', 'text/plain', 'This is the actual file contents')
+-     *
+-     * @var array
+-     */
+-    protected $files = array();
+-
+-    /**
+      * The client's cookie jar
+      *
+      * @var Zend_Http_CookieJar
+@@ -493,7 +489,7 @@
+         if ($value === null) {
+             if (isset($parray[$name])) unset($parray[$name]);
+         } else {
+-            $parray[$name] = $value;
++            $parray[$name] = new Zend_Http_Client_Param($value);
+         }
+     }
+ 
+@@ -695,12 +691,10 @@
+         // Force enctype to multipart/form-data
+         $this->setEncType(self::ENC_FORMDATA);
+ 
+-        $this->files[] = array(
+-            'formname' => $formname,
+-            'filename' => basename($filename),
+-            'ctype'    => $ctype,
+-            'data'     => $data
+-        );
++        $this->paramsPost[$formname] = new Zend_Http_Client_Param($data,
++                                                                  Zend_Http_Client_Param::TYPE_FILE,
++                                                                  basename($filename),
++                                                                  $ctype);
+ 
+         return $this;
+     }
+@@ -751,7 +745,6 @@
+         // Reset parameter data
+         $this->paramsGet     = array();
+         $this->paramsPost    = array();
+-        $this->files         = array();
+         $this->raw_post_data = null;
+ 
+         // Clear outdated headers
+@@ -862,7 +855,9 @@
+                    if (! empty($query)) {
+                        $query .= '&';
+                    }
+-                $query .= http_build_query($this->paramsGet, null, '&');
++                $paramsGet = array_map(create_function('$param', 'return $param->data;'),
++                                       $this->paramsGet);
++                $query .= http_build_query($paramsGet, null, '&');
+ 
+                 $uri->setQuery($query);
+             }
+@@ -1060,13 +1055,16 @@
+ 
+         $body = '';
+ 
+-        // If we have files to upload, force enctype to multipart/form-data
+-        if (count ($this->files) > 0) {
+-            $this->setEncType(self::ENC_FORMDATA);
+-        }
++        // If we have POST parameters or files, encode and add them to the body
++        if (count($this->paramsPost) > 0) {
++            // If we have files to upload, force enctype to multipart/form-data
++            foreach ($this->paramsPost as $param) {
++                if ($param->type == Zend_Http_Client_Param::TYPE_FILE) {
++                    $this->enctype = self::ENC_FORMDATA;
++                    break;
++                }
++            }
+ 
+-        // If we have POST parameters or files, encode and add them to the body
+-        if (count($this->paramsPost) > 0 || count($this->files) > 0) {
+             switch($this->enctype) {
+                 case self::ENC_FORMDATA:
+                     // Encode body as multipart/form-data
+@@ -1076,22 +1074,29 @@
+                     // Get POST parameters and encode them
+                     $params = self::_flattenParametersArray($this->paramsPost);
+                     foreach ($params as $pp) {
+-                        $body .= self::encodeFormData($boundary, $pp[0], $pp[1]);
++                        list($name, $param) = $pp;
++                        $filename = null;
++                        $headers = array();
++                        if ($param->type == Zend_Http_Client_Param::TYPE_FILE) {
++                            $filename = $param->filename;
++                            $headers[self::CONTENT_TYPE] = $param->contentType;
++                        }
++                        $body .= self::encodeFormData($boundary,
++                                                      $name,
++                                                      $param->data,
++                                                      $filename,
++                                                      $headers);
+                     }
+ 
+-                    // Encode files
+-                    foreach ($this->files as $file) {
+-                        $fhead = array(self::CONTENT_TYPE => $file['ctype']);
+-                        $body .= self::encodeFormData($boundary, $file['formname'], $file['data'], $file['filename'], $fhead);
+-                    }
+-
+                     $body .= "--{$boundary}--\r\n";
+                     break;
+ 
+                 case self::ENC_URLENCODED:
+                     // Encode body as application/x-www-form-urlencoded
+                     $this->setHeaders(self::CONTENT_TYPE, self::ENC_URLENCODED);
+-                    $body = http_build_query($this->paramsPost, '', '&');
++                    $paramsPost = array_map(create_function('$param', 'return $param->data;'),
++                                            $this->paramsPost);
++                    $body = http_build_query($paramsPost, '', '&');
+                     break;
+ 
+                 default:
+Index: Zend/Http/Client/Param.php
+===================================================================
+--- Zend/Http/Client/Param.php	(revision 0)
++++ Zend/Http/Client/Param.php	(revision 0)
+@@ -0,0 +1,90 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Client
++ * @version    $Id: Client.php 17374 2009-08-04 12:43:04Z shahar $
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++/**
++ * Class used to encapsulate request parameters.
++ *
++ * @todo Implement proxy settings
++ * @category   Zend
++ * @package    Zend_Http
++ * @subpackage Client
++ * @throws     Zend_Http_Client_Exception
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Http_Client_Param
++{
++    /**
++     * Parameter types
++     */
++    const TYPE_VALUE = 'value';
++    const TYPE_FILE  = 'file';
++
++    /**
++     * Parameter data/value
++     *
++     * @var mixed
++     */
++    public $data;
++
++    /**
++     * Parameter type (TYPE_VALUE or TYPE_FILE)
++     *
++     * @var string
++     */
++    public $type;
++
++    /**
++     * File name
++     *
++     * @var string
++     */
++    public $filename;
++
++    /**
++     * File content type
++     *
++     * @var string
++     */
++    public $contentType;
++
++    /**
++     * Contructor method.  Will initialize the parameter value, type, and
++     * optional file-related variables.
++     *
++     * @param mixed $data
++     * @param string $type
++     * @param string $filename
++     * @param string $contentType
++     */
++    public function __construct($data,
++                                $type = self::TYPE_VALUE,
++                                $filename = null,
++                                $contentType = null)
++    {
++        $this->data = $data;
++        $this->type = $type;
++        $this->filename = $filename;
++        $this->contentType = $contentType;
++    }
++}

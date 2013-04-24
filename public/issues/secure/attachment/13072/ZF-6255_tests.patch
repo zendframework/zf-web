@@ -1,0 +1,1759 @@
+Index: tests/Zend/Gdata/GappsOnlineTest.php
+===================================================================
+--- tests/Zend/Gdata/GappsOnlineTest.php	(revision 22018)
++++ tests/Zend/Gdata/GappsOnlineTest.php	(working copy)
+@@ -313,6 +313,338 @@
+         $this->assertNull($rNick);
+     }
+ 
++    public function testGroupCRUDOperations() {
++        // Create group
++        $generatedGroupName = strtolower(uniqid('zf-group-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'zf-group-',
++                'testGroupCRUDOperations()');
++        $this->autoDelete($group);
++
++        $groupId = null;
++        $properties = $group->getProperty();
++        foreach ($properties as $property) {
++            if($property->name == 'groupId') {
++                $groupId = $property->value;
++            }
++        }
++
++        $this->assertEquals($generatedGroupName, $groupId);
++
++        // Retrieve group
++        $query = $this->gdata->newGroupQuery();
++        $groupFeed = $this->gdata->getGroupFeed($query);
++        $entryCount = count($groupFeed->entry);
++        $this->assertTrue($entryCount > 0);
++
++        // Delete group (uses builtin delete method, convenience delete
++        // method tested further down)
++        $group->delete();
++
++        // Ensure that group was deleted
++        $groupFeed = $this->gdata->getGroupFeed($query);
++        $this->assertEquals($entryCount - 1, count($groupFeed->entry));
++
++    }
++
++    public function testCanAssignMultipleGroupsToOneUser() {
++        // Create a user
++        $user = $this->gdata->createUser($this->id, self::GIVEN_NAME, self::FAMILY_NAME,
++            sha1(self::PASSWORD), self::PASSWORD_HASH);
++        $this->autoDelete($user);
++
++        // Create two groups
++        $groupCount = 2;
++
++        for ($i = 0; $i < $groupCount; $i++) {
++            $generatedGroupName = strtolower(uniqid('zf-group-'));
++            $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                    'testCanAssignMultipleGroupsToOneUser() ' . $i);
++            $this->autoDelete($group);
++            $this->gdata->addMemberToGroup($this->id, $generatedGroupName);
++        }
++
++        // Make sure that the user is subscribed to both groups
++        $subscriptions = $this->gdata->retrieveGroups($this->id);
++        $this->assertEquals($groupCount, count($subscriptions->entry));
++
++    }
++
++    public function testCanRetrievePageOfGroups() {
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-group-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanRetrievePageOfGroups()');
++        $this->autoDelete($group);
++
++        // Try retrieving the group feed
++        $feed = $this->gdata->retrievePageOfGroups();
++        $this->assertTrue(count($feed->entry) > 0);
++
++    }
++
++    public function testCanRetrieveAllGroups() {
++        // Create a couple of users to make sure we don't hit the limit
++        // on the max number of groups.
++        for ($i = 0; $i < 3; $i++) {
++            $user = $this->gdata->createUser(uniqid('ZF-'), self::GIVEN_NAME, self::FAMILY_NAME,
++                sha1(self::PASSWORD), self::PASSWORD_HASH);
++            $this->autoDelete($user);
++        }
++
++        // Create a whole bunch of groups to make sure we trigger
++        // paging.
++        for ($i = 0; $i < 30; $i++) {
++            $generatedGroupName = strtolower(uniqid('zf-group-'));
++            $group = $this->gdata->createGroup($generatedGroupName, 'Test Group ' . $i,
++                    'testCanRetrieveAllGroups()');
++            $this->autoDelete($group);
++        }
++
++        // Try retrieving the group feed
++        $feed = $this->gdata->retrieveAllGroups();
++        $this->assertTrue(count($feed->entry) >= 30);
++
++    }
++
++    // Test the convenience delete method for groups
++    public function testCanDeleteGroup() {  
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-group-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanDeleteGroup()');
++        $this->autoDelete($group);
++
++        // Assert that the group exists, just in case...
++        $query = $this->gdata->newGroupQuery();
++        $query->setGroupId($generatedGroupName);
++        $entry = $this->gdata->getGroupEntry($query);
++        $this->assertNotNull($entry);
++
++        // Delete group
++        $this->gdata->deleteGroup($generatedGroupName);
++
++        // Ensure that group was deleted
++        try {
++            $query = $this->gdata->newGroupQuery();
++            $query->setGroupId($generatedGroupName);
++            $entry = $this->gdata->getGroupEntry($query);
++            // This souldn't execute
++            $this->fail('Retrieving a non-existant group entry didn\'t' .
++                'raise exception.');
++        } catch (Zend_Gdata_Gapps_ServiceException $e) {
++            if ($e->hasError(Zend_Gdata_Gapps_Error::ENTITY_DOES_NOT_EXIST)) {
++                // Dummy assertion just to say we tested something here.
++                $this->assertTrue(true);
++            } else {
++                // Exception thrown for an unexpected reason
++                throw $e;
++            }
++        }
++
++    }
++
++    public function testCanRetrievePageOfMembers() {
++        // Create a new group
++        $generatedGroupName = strtolower(uniqid('zf-group-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanRetrievePageOfMembers()');
++        $this->autoDelete($group);
++
++        // Create two users and assign them to the group
++        $userCount = 2;
++        for ($i = 0; $i < $userCount; $i++) {
++            $generatedUsername = uniqid('ZF-');
++            $user = $this->gdata->createUser($generatedUsername,
++                self::GIVEN_NAME, self::FAMILY_NAME, sha1(self::PASSWORD),
++                self::PASSWORD_HASH);
++            $this->autoDelete($user);
++            $this->gdata->addMemberToGroup($generatedUsername,
++                $generatedGroupName);
++        }
++
++        // Retrieve members
++        $memberFeed = $this->gdata->retrievePageOfMembers($generatedGroupName);
++        $this->assertTrue(count($memberFeed->entry) == $userCount);
++
++    }
++
++    public function testCanRetrievAllMembers() {
++        // Create a new group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanRetrievAllMembers()');
++        $this->autoDelete($group);
++
++        // Create enough users to trigger paging and assign them to the group
++        $userCount = 30;
++        for ($i = 0; $i < $userCount; $i++) {
++            $generatedUsername = uniqid('ZF-');
++            $user = $this->gdata->createUser($generatedUsername,
++                self::GIVEN_NAME, self::FAMILY_NAME, sha1(self::PASSWORD),
++                self::PASSWORD_HASH);
++            $this->autoDelete($user);
++            $this->gdata->addMemberToGroup($generatedUsername, $generatedGroupName);
++        }
++
++        // Retrieve members
++        $memberFeed = $this->gdata->retrieveAllMembers($generatedGroupName);
++        $this->assertTrue(count($memberFeed->entry) == $userCount);
++
++    }
++
++    // Test the convenience removeMemberFromGroup method for group members
++    public function testCanRemoveMemberFromGroup() {
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanDeleteGroupMember()');
++        $this->autoDelete($group);
++
++        // Create a user for the group
++        $user = $this->gdata->createUser($this->id, self::GIVEN_NAME,
++            self::FAMILY_NAME, sha1(self::PASSWORD), self::PASSWORD_HASH);
++        $this->autoDelete($user);
++        $this->gdata->addMemberToGroup($this->id, $generatedGroupName);
++
++        // Assert that the member exists, just in case...
++        $members = $this->gdata->retrieveAllMembers($generatedGroupName);
++        $this->assertTrue(count($members->entry) == 1);
++
++        // Remove the member from the group
++        $this->gdata->removeMemberFromGroup($user->login->username,
++            $generatedGroupName);
++
++        // Ensure that user was deleted
++        $members =  $this->gdata->retrieveAllMembers($generatedGroupName);
++        $this->assertTrue(count($members->entry) == 0);
++
++    }
++
++    public function testCanRetrieveGroupOwners() {
++        // Create a new group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanRetrievAllOwners()');
++        $this->autoDelete($group);
++
++        $userCount = 3;
++        for ($i = 0; $i < $userCount; $i++) {
++            $generatedUsername = uniqid('ZF-');
++            $user = $this->gdata->createUser($generatedUsername,
++                self::GIVEN_NAME, self::FAMILY_NAME, sha1(self::PASSWORD),
++                self::PASSWORD_HASH);
++            $this->autoDelete($user);
++            $this->gdata->addOwnerToGroup($generatedUsername,
++                $generatedGroupName);
++        }
++
++        // Retrieve owners
++        $ownerFeed = $this->gdata->retrieveGroupOwners($generatedGroupName);
++        $this->assertTrue(count($ownerFeed->entry) == $userCount);
++
++    }
++
++    // Test the convenience removeOwnerFromGroup method for group owners
++    public function testCanRemoveOwnerFromGroup() {
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanDeleteGroupOwner()');
++        $this->autoDelete($group);
++
++        // Create a user for the group
++        $user = $this->gdata->createUser($this->id, self::GIVEN_NAME,
++            self::FAMILY_NAME, sha1(self::PASSWORD), self::PASSWORD_HASH);
++        $this->autoDelete($user);
++        $this->gdata->addOwnerToGroup($this->id, $generatedGroupName);
++
++        // Assert that the owner exists, just in case...
++        $owners = $this->gdata->retrieveGroupOwners($generatedGroupName);
++        $this->assertTrue(count($owners->entry) == 1);
++
++        // Remove the owner from the group
++        $this->gdata->removeOwnerFromGroup($user->login->username,
++            $generatedGroupName);
++
++        // Ensure that user was deleted
++        $owners = $this->gdata->retrieveGroupOwners($generatedGroupName);
++        $this->assertTrue(count($owners->entry) == 0);
++    }
++
++    // Test the convenience isMember method
++    public function testIsMember() {
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testIsMember()');
++        $this->autoDelete($group);
++
++        // Create a user for the group
++        $user = $this->gdata->createUser($this->id, self::GIVEN_NAME,
++            self::FAMILY_NAME, sha1(self::PASSWORD), self::PASSWORD_HASH);
++        $this->autoDelete($user);
++        $this->gdata->addMemberToGroup($this->id, $generatedGroupName);
++
++        $isMember = $this->gdata->isMember($this->id, $generatedGroupName);
++
++        $this->assertTrue($isMember);
++
++        $isMember = $this->gdata->isMember('foo_' . $this->id, $generatedGroupName);
++
++        $this->assertFalse($isMember);
++
++    }
++
++    // Test the convenience isOwner method
++    public function testIsOwner() {
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testIsMember()');
++        $this->autoDelete($group);
++
++        // Create a user for the group
++        $user = $this->gdata->createUser($this->id, self::GIVEN_NAME,
++            self::FAMILY_NAME, sha1(self::PASSWORD), self::PASSWORD_HASH);
++        $this->autoDelete($user);
++        $this->gdata->addOwnerToGroup($this->id, $generatedGroupName);
++
++        $isOwner = $this->gdata->isOwner($this->id, $generatedGroupName);
++
++        $this->assertTrue($isOwner);
++
++        $isOwner = $this->gdata->isOwner('foo_' . $this->id, $generatedGroupName);
++
++        $this->assertFalse($isOwner);
++
++    }
++
++    // Test the convenience updateGroup method
++    public function testCanUpdateGroup() {
++        // Create a group
++        $generatedGroupName = strtolower(uniqid('zf-list-'));
++        $group = $this->gdata->createGroup($generatedGroupName, 'Test Group',
++                'testCanUpdateGroup()');
++        $this->autoDelete($group);
++
++        //set new value and save it
++
++        $group = $this->gdata->updateGroup($generatedGroupName, null, 'new description here');
++
++        //verify new value
++        $description = null;
++
++        $properties = $group->getProperty();
++        foreach ($properties as $property) {
++            if($property->name == 'description') {
++                $description = $property->value;
++            }
++        }
++
++        $this->assertEquals('new description here', $description);
++
++    }
++    
+     public function testEmailListCRUDOperations() {
+         // Create email list
+         $generatedListName = strtolower(uniqid('zf-list-'));
+Index: tests/Zend/Gdata/Gapps/MemberEntryTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/MemberEntryTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/MemberEntryTest.php	(revision 0)
+@@ -0,0 +1,108 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++require_once 'Zend/Gdata/Gapps/MemberEntry.php';
++require_once 'Zend/Gdata/Gapps.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_MemberEntryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp() {
++        $this->entryText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/MemberEntryDataSample1.xml',
++                true);
++        $this->entry = new Zend_Gdata_Gapps_MemberEntry();
++    }
++
++    private function verifyAllSamplePropertiesAreCorrect ($memberEntry) {
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com',
++            $memberEntry->id->text);
++        $this->assertEquals('1970-01-01T00:00:00.000Z', $memberEntry->updated->text);
++        $this->assertEquals('self', $memberEntry->getLink('self')->rel);
++        $this->assertEquals('application/atom+xml', $memberEntry->getLink('self')->type);
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com', $memberEntry->getLink('self')->href);
++        $this->assertEquals('edit', $memberEntry->getLink('edit')->rel);
++        $this->assertEquals('application/atom+xml', $memberEntry->getLink('edit')->type);
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com', $memberEntry->getLink('edit')->href);
++        $this->assertEquals('memberId', $memberEntry->property[0]->name);
++        $this->assertEquals('suejones@example.com', $memberEntry->property[0]->value);
++        $this->assertEquals('memberType', $memberEntry->property[1]->name);
++        $this->assertEquals('User', $memberEntry->property[1]->value);
++        $this->assertEquals('directMember', $memberEntry->property[2]->name);
++        $this->assertEquals('true', $memberEntry->property[2]->value);
++    }
++
++    public function testEmptyEntryShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->entry->extensionElements));
++        $this->assertTrue(count($this->entry->extensionElements) == 0);
++    }
++
++    public function testEmptyEntryShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->entry->extensionAttributes));
++        $this->assertTrue(count($this->entry->extensionAttributes) == 0);
++    }
++
++    public function testSampleEntryShouldHaveNoExtensionElements() {
++        $this->entry->transferFromXML($this->entryText);
++        $this->assertTrue(is_array($this->entry->extensionElements));
++        $this->assertTrue(count($this->entry->extensionElements) == 0);
++    }
++
++    public function testSampleEntryShouldHaveNoExtensionAttributes() {
++        $this->entry->transferFromXML($this->entryText);
++        $this->assertTrue(is_array($this->entry->extensionAttributes));
++        $this->assertTrue(count($this->entry->extensionAttributes) == 0);
++    }
++
++    public function testEmptyMemberEntryToAndFromStringShouldMatch() {
++        $entryXml = $this->entry->saveXML();
++        $newMemberEntry = new Zend_Gdata_Gapps_MemberEntry();
++        $newMemberEntry->transferFromXML($entryXml);
++        $newMemberEntryXml = $newMemberEntry->saveXML();
++        $this->assertTrue($entryXml == $newMemberEntryXml);
++    }
++
++    public function testSamplePropertiesAreCorrect () {
++        $this->entry->transferFromXML($this->entryText);
++        $this->verifyAllSamplePropertiesAreCorrect($this->entry);
++    }
++
++    public function testConvertMemberEntryToAndFromString() {
++        $this->entry->transferFromXML($this->entryText);
++        $entryXml = $this->entry->saveXML();
++        $newMemberEntry = new Zend_Gdata_Gapps_MemberEntry();
++        $newMemberEntry->transferFromXML($entryXml);
++        $this->verifyAllSamplePropertiesAreCorrect($newMemberEntry);
++        $newMemberEntryXml = $newMemberEntry->saveXML();
++        $this->assertEquals($entryXml, $newMemberEntryXml);
++    }
++
++}
+Index: tests/Zend/Gdata/Gapps/MemberFeedTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/MemberFeedTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/MemberFeedTest.php	(revision 0)
+@@ -0,0 +1,109 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++require_once 'Zend/Gdata/Gapps.php';
++require_once 'Zend/Gdata/Gapps/MemberFeed.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_MemberFeedTest extends PHPUnit_Framework_TestCase
++{
++    protected $memberFeed = null;
++
++    /**
++      * Called before each test to setup any fixtures.
++      */
++    public function setUp()
++    {
++        $memberFeedText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/MemberFeedDataSample1.xml',
++                true);
++        $this->memberFeed = new Zend_Gdata_Gapps_MemberFeed($memberFeedText);
++        $this->emptyMemberFeed = new Zend_Gdata_Gapps_MemberFeed();
++    }
++
++    public function testEmptyFeedShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->emptyMemberFeed->extensionElements));
++        $this->assertTrue(count($this->emptyMemberFeed->extensionElements) == 0);
++    }
++
++    public function testEmptyFeedShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->emptyMemberFeed->extensionAttributes));
++        $this->assertTrue(count($this->emptyMemberFeed->extensionAttributes) == 0);
++    }
++
++    public function testSampleFeedShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->memberFeed->extensionElements));
++        $this->assertTrue(count($this->memberFeed->extensionElements) == 0);
++    }
++
++    public function testSampleFeedShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->memberFeed->extensionAttributes));
++        $this->assertTrue(count($this->memberFeed->extensionAttributes) == 0);
++    }
++
++    /**
++      * Convert sample feed to XML then back to objects. Ensure that
++      * all objects are instances of MemberEntry and object count matches.
++      */
++    public function testXmlImportAndOutputAreNonDestructive()
++    {
++        $entryCount = 0;
++        foreach ($this->memberFeed as $entry) {
++            $entryCount++;
++            $this->assertTrue($entry instanceof Zend_Gdata_Gapps_MemberEntry);
++        }
++        $this->assertTrue($entryCount > 0);
++
++        /* Grab XML from $this->memberFeed and convert back to objects */
++        $newMemberFeed = new Zend_Gdata_Gapps_MemberFeed(
++                $this->memberFeed->saveXML());
++        $newEntryCount = 0;
++        foreach ($newMemberFeed as $entry) {
++            $newEntryCount++;
++            $this->assertTrue($entry instanceof Zend_Gdata_Gapps_MemberEntry);
++        }
++        $this->assertEquals($entryCount, $newEntryCount);
++    }
++
++    /**
++      * Ensure that there number of member entries equals the number
++      * of members defined in the sample file.
++      */
++    public function testAllEntriesInFeedAreInstantiated()
++    {
++        //TODO feeds implementing ArrayAccess would be helpful here
++        $entryCount = 0;
++        foreach ($this->memberFeed as $entry) {
++            $entryCount++;
++        }
++        $this->assertEquals(2, $entryCount);
++    }
++
++}
+Index: tests/Zend/Gdata/Gapps/MemberQueryTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/MemberQueryTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/MemberQueryTest.php	(revision 0)
+@@ -0,0 +1,109 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Gapps.php';
++require_once 'Zend/Gdata/Gapps/MemberQuery.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_MemberQueryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp()
++    {
++        $this->query = new Zend_Gdata_Gapps_MemberQuery();
++    }
++
++    // Test to make sure that the domain accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetQueryDomain()
++    {
++        $this->query->setGroupId("something");
++        $this->query->setDomain("my.domain.com");
++        $this->assertEquals("my.domain.com", $this->query->getDomain());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/something/member",
++                $this->query->getQueryUrl());
++
++        $this->query->setDomain("hello.world.baz");
++        $this->assertEquals("hello.world.baz", $this->query->getDomain());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/hello.world.baz/something/member",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the groupId accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetGroupIdProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->assertEquals("foo", $this->query->getGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/member",
++                $this->query->getQueryUrl());
++
++        $this->query->setGroupId("bar");
++        $this->assertEquals("bar", $this->query->getGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/bar/member",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the memberId accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetMemberIdProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->query->setMemberId("bar");
++        $this->assertEquals("bar", $this->query->getMemberId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/member/bar",
++                $this->query->getQueryUrl());
++
++        $this->query->setGroupId("baz");
++        $this->query->setMemberId(null);
++        $this->assertEquals(null, $this->query->getMemberId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/baz/member",
++                $this->query->getQueryUrl());
++    }
++
++    public function testCanSetStartMemberIdProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->query->setStartMemberId("bar");
++        $this->assertEquals("bar", $this->query->getStartMemberId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/member?start=bar",
++                $this->query->getQueryUrl());
++
++        $this->query->setStartMemberId(null);
++        $this->assertEquals(null, $this->query->getStartMemberId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/member",
++                $this->query->getQueryUrl());
++    }
++
++}
++
+Index: tests/Zend/Gdata/Gapps/_files/PropertyElementSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/PropertyElementSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/PropertyElementSample1.xml	(revision 0)
+@@ -0,0 +1,2 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<apps:property xmlns:apps="http://schemas.google.com/apps/2006" name="Some Name" value="Some Value" />
+Index: tests/Zend/Gdata/Gapps/_files/OwnerEntryDataSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/OwnerEntryDataSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/OwnerEntryDataSample1.xml	(revision 0)
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<atom:entry xmlns:atom="http://www.w3.org/2005/Atom"
++    xmlns:apps="http://schemas.google.com/apps/2006"
++    xmlns:gd="http://schemas.google.com/g/2005" >
++    <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com</atom:id>
++    <atom:updated>1970-01-01T00:00:00.000Z</atom:updated>
++    <atom:link rel="self" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com"/>
++    <atom:link rel="edit" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com"/>
++    <apps:property name="email" value="joe@example.com"/>
++</atom:entry>
+Index: tests/Zend/Gdata/Gapps/_files/GroupEntryDataSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/GroupEntryDataSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/GroupEntryDataSample1.xml	(revision 0)
+@@ -0,0 +1,14 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<atom:entry xmlns:atom="http://www.w3.org/2005/Atom"
++  xmlns:apps="http://schemas.google.com/apps/2006"
++  xmlns:gd="http://schemas.google.com/g/2005">
++   <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales</atom:id>
++   <atom:updated>1970-01-01T00:00:00.000Z</atom:updated>
++   <atom:link rel="self" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales"/>
++   <atom:link rel="edit" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales"/>
++   <apps:property name="groupId" value="us-sales"></apps:property>
++   <apps:property name="groupName" value="us-sales"></apps:property>
++   <apps:property name="description" value="UnitedStatesSalesTeam"></apps:property>
++   <apps:property name="emailPermission" value="Domain"></apps:property>
++</atom:entry>
++
+Index: tests/Zend/Gdata/Gapps/_files/OwnerFeedDataSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/OwnerFeedDataSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/OwnerFeedDataSample1.xml	(revision 0)
+@@ -0,0 +1,30 @@
++<?xml version='1.0' encoding='UTF-8'?>
++<atom:feed xmlns:atom='http://www.w3.org/2005/Atom'
++  xmlns:openSearch='http://a9.com/-/spec/opensearchrss/1.0/'
++  xmlns:apps='http://schemas.google.com/apps/2006'>
++    <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner</atom:id>
++    <atom:updated>1970-01-01T00:00:00.000Z</atom:updated>
++    <atom:link rel='http://schemas.google.com/g/2005#feed'
++      type='application/atom+xml'
++      href='https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner'/>
++    <atom:link rel='http://schemas.google.com/g/2005#post'
++      type='application/atom+xml'
++      href='https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner'/>
++    <atom:link rel='self' type='application/atom+xml'
++      href='https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner'/>
++    <openSearch:startIndex>1</openSearch:startIndex>
++    <atom:entry>
++        <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com</atom:id>
++        <atom:updated>1970-01-01T00:00:00.000Z</atom:updated>
++        <atom:link rel="self" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com"/>
++        <atom:link rel="edit" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com"/>
++        <apps:property name="email" value="joe@example.com"/>
++    </atom:entry>
++    <atom:entry>
++        <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/suejones%40example.com</atom:id>
++        <atom:updated>1970-01-01T00:00:00.000Z</atom:updated>
++        <atom:link rel="self" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/suejones%40example.com"/>
++        <atom:link rel="edit" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/suejones%40example.com"/>
++        <apps:property name="email" value="suejones@example.com"/>
++    </atom:entry>
++</atom:feed>
+Index: tests/Zend/Gdata/Gapps/_files/GroupFeedDataSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/GroupFeedDataSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/GroupFeedDataSample1.xml	(revision 0)
+@@ -0,0 +1,31 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<atom:feed xmlns:atom="http://www.w3.org/2005/Atom"
++xmlns:apps="http://schemas.google.com/apps/2006"
++xmlns:openSearch="http://a9.com/-/spec/opensearchrss/1.0/">
++  <atom:id>https://www.google.com/a/feeds/group/2.0/example.com</atom:id>
++  <atom:updated>2008-12-03T16:33:05.260Z</atom:updated>
++  <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com" type="application/atom+xml" rel="http://schemas.google.com/g/2005#feed"></atom:link>
++  <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com" type="application/atom+xml" rel="http://schemas.google.com/g/2005#post"></atom:link>
++  <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com" type="application/atom+xml" rel="self"></atom:link>
++  <openSearch:startIndex>1</openSearch:startIndex>
++  <atom:entry>
++      <id>https://apps-apis.google.com/a/feeds/group/2.0/example.com/us-sales%40example.com</id>
++      <atom:updated>2008-12-03T16:33:05.261Z</atom:updated>
++      <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com/us-sales%40example.com" type="application/atom+xml" rel="self"></atom:link>
++      <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com/us-sales%40example.com" type="application/atom+xml" rel="edit"></atom:link>
++      <apps:property name="groupId" value="us-sales@example.com"></apps:property>
++      <apps:property name="groupName" value="US Sales"></apps:property>
++      <apps:property name="emailPermission" value="Anyone"></apps:property>
++      <apps:property name="description" value="United States Sales Team"></apps:property>
++  </atom:entry>
++  <atom:entry>
++    <atom:id>https://apps-apis.google.com/a/feeds/group/2.0/example.com/Staff-2435%40example.com</atom:id>
++    <atom:updated>2008-12-03T16:33:05.260Z</atom:updated>
++    <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com/Staff-2435%40example.com" type="application/atom+xml" rel="self"></atom:link>
++    <atom:link href="https://apps-apis.google.com/a/feeds/group/2.0/example.com/Staff-2435%40example.com" type="application/atom+xml" rel="edit"></atom:link>
++    <apps:property name="groupId" value="Staff-2435@example.com"></apps:property>
++    <apps:property name="groupName" value="Staff 2435"></apps:property>
++    <apps:property name="emailPermission" value="Anyone"></apps:property>
++    <apps:property name="description" value=""></apps:property>
++  </atom:entry>
++</atom:feed>
+\ No newline at end of file
+Index: tests/Zend/Gdata/Gapps/_files/MemberEntryDataSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/MemberEntryDataSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/MemberEntryDataSample1.xml	(revision 0)
+@@ -0,0 +1,13 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<atom:entry xmlns:atom="http://www.w3.org/2005/Atom"
++    xmlns:apps="http://schemas.google.com/apps/2006"
++    xmlns:gd="http://schemas.google.com/g/2005">
++  <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com</atom:id>
++  <atom:updated>1970-01-01T00:00:00.000Z</atom:updated>
++  <atom:link rel="self" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com"/>
++  <atom:link rel="edit" type="application/atom+xml" href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com"/>
++  <apps:property name="memberId" value="suejones@example.com"/>
++  <apps:property name="memberType" value="User"/>
++  <apps:property name="directMember" value="true"/>
++</atom:entry>
++
+Index: tests/Zend/Gdata/Gapps/_files/MemberFeedDataSample1.xml
+===================================================================
+--- tests/Zend/Gdata/Gapps/_files/MemberFeedDataSample1.xml	(revision 0)
++++ tests/Zend/Gdata/Gapps/_files/MemberFeedDataSample1.xml	(revision 0)
+@@ -0,0 +1,29 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<atom:feed xmlns:atom="http://www.w3.org/2005/Atom"
++  xmlns:apps="http://schemas.google.com/apps/2006"
++  xmlns:openSearch="http://a9.com/-/spec/opensearchrss/1.0/">
++ <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member</atom:id>
++ <atom:link rel="https://schemas.google.com/g/2005#feed" type="application/atom+xml"
++  href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member"/>
++ <openSearch:startIndex>1</openSearch:startIndex>
++ <atom:entry>
++    <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com</atom:id>
++    <atom:link rel="self" type="application/atom+xml"
++href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com"/>
++    <atom:link rel="edit" type="application/atom+xml"
++href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/suejones%40example.com"/>
++    <apps:property name="memberId" value="suejones@example.com"/>
++    <apps:property name="memberType" value="User"/>
++    <apps:property name="directMember" value="true"/>
++  </atom:entry>
++  <atom:entry>
++    <atom:id>https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/ca-sales%40example.com</atom:id>
++    <atom:link rel="self" type="application/atom+xml"
++href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/ca-sales%40example.com"/>
++    <atom:link rel="edit" type="application/atom+xml"
++href="https://www.google.com/a/feeds/group/2.0/example.com/us-sales/member/ca-sales%40example.com"/>
++    <apps:property name="memberId" value="ca-sales@example.com"/>
++    <apps:property name="memberType" value="Group"/>
++    <apps:property name="directMember" value="true"/>
++  </atom:entry>
++</atom:feed>
+\ No newline at end of file
+Index: tests/Zend/Gdata/Gapps/OwnerEntryTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/OwnerEntryTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/OwnerEntryTest.php	(revision 0)
+@@ -0,0 +1,104 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++require_once 'Zend/Gdata/Gapps/OwnerEntry.php';
++require_once 'Zend/Gdata/Gapps.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_OwnerEntryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp() {
++        $this->entryText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/OwnerEntryDataSample1.xml',
++                true);
++        $this->entry = new Zend_Gdata_Gapps_OwnerEntry();
++    }
++
++    private function verifyAllSamplePropertiesAreCorrect ($ownerEntry) {
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com',
++            $ownerEntry->id->text);
++        $this->assertEquals('1970-01-01T00:00:00.000Z', $ownerEntry->updated->text);
++        $this->assertEquals('self', $ownerEntry->getLink('self')->rel);
++        $this->assertEquals('application/atom+xml', $ownerEntry->getLink('self')->type);
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com', $ownerEntry->getLink('self')->href);
++        $this->assertEquals('edit', $ownerEntry->getLink('edit')->rel);
++        $this->assertEquals('application/atom+xml', $ownerEntry->getLink('edit')->type);
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales/owner/joe%40example.com', $ownerEntry->getLink('edit')->href);
++        $this->assertEquals('email', $ownerEntry->property[0]->name);
++        $this->assertEquals('joe@example.com', $ownerEntry->property[0]->value);
++    }
++
++    public function testEmptyEntryShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->entry->extensionElements));
++        $this->assertTrue(count($this->entry->extensionElements) == 0);
++    }
++
++    public function testEmptyEntryShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->entry->extensionAttributes));
++        $this->assertTrue(count($this->entry->extensionAttributes) == 0);
++    }
++
++    public function testSampleEntryShouldHaveNoExtensionElements() {
++        $this->entry->transferFromXML($this->entryText);
++        $this->assertTrue(is_array($this->entry->extensionElements));
++        $this->assertTrue(count($this->entry->extensionElements) == 0);
++    }
++
++    public function testSampleEntryShouldHaveNoExtensionAttributes() {
++        $this->entry->transferFromXML($this->entryText);
++        $this->assertTrue(is_array($this->entry->extensionAttributes));
++        $this->assertTrue(count($this->entry->extensionAttributes) == 0);
++    }
++
++    public function testEmptyOwnerEntryToAndFromStringShouldMatch() {
++        $entryXml = $this->entry->saveXML();
++        $newOwnerEntry = new Zend_Gdata_Gapps_OwnerEntry();
++        $newOwnerEntry->transferFromXML($entryXml);
++        $newOwnerEntryXml = $newOwnerEntry->saveXML();
++        $this->assertTrue($entryXml == $newOwnerEntryXml);
++    }
++
++    public function testSamplePropertiesAreCorrect () {
++        $this->entry->transferFromXML($this->entryText);
++        $this->verifyAllSamplePropertiesAreCorrect($this->entry);
++    }
++
++    public function testConvertOwnerEntryToAndFromString() {
++        $this->entry->transferFromXML($this->entryText);
++        $entryXml = $this->entry->saveXML();
++        $newOwnerEntry = new Zend_Gdata_Gapps_OwnerEntry();
++        $newOwnerEntry->transferFromXML($entryXml);
++        $this->verifyAllSamplePropertiesAreCorrect($newOwnerEntry);
++        $newOwnerEntryXml = $newOwnerEntry->saveXML();
++        $this->assertEquals($entryXml, $newOwnerEntryXml);
++    }
++
++}
+Index: tests/Zend/Gdata/Gapps/GroupEntryTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/GroupEntryTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/GroupEntryTest.php	(revision 0)
+@@ -0,0 +1,110 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++require_once 'Zend/Gdata/Gapps/GroupEntry.php';
++require_once 'Zend/Gdata/Gapps.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_GroupEntryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp() {
++        $this->entryText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/GroupEntryDataSample1.xml',
++                true);
++        $this->entry = new Zend_Gdata_Gapps_GroupEntry();
++    }
++
++    private function verifyAllSamplePropertiesAreCorrect ($groupEntry) {
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales',
++            $groupEntry->id->text);
++        $this->assertEquals('1970-01-01T00:00:00.000Z', $groupEntry->updated->text);
++        $this->assertEquals('self', $groupEntry->getLink('self')->rel);
++        $this->assertEquals('application/atom+xml', $groupEntry->getLink('self')->type);
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales', $groupEntry->getLink('self')->href);
++        $this->assertEquals('edit', $groupEntry->getLink('edit')->rel);
++        $this->assertEquals('application/atom+xml', $groupEntry->getLink('edit')->type);
++        $this->assertEquals('https://www.google.com/a/feeds/group/2.0/example.com/us-sales', $groupEntry->getLink('edit')->href);
++        $this->assertEquals('groupId', $groupEntry->property[0]->name);
++        $this->assertEquals('us-sales', $groupEntry->property[0]->value);
++        $this->assertEquals('groupName', $groupEntry->property[1]->name);
++        $this->assertEquals('us-sales', $groupEntry->property[1]->value);
++        $this->assertEquals('description', $groupEntry->property[2]->name);
++        $this->assertEquals('UnitedStatesSalesTeam', $groupEntry->property[2]->value);
++        $this->assertEquals('emailPermission', $groupEntry->property[3]->name);
++        $this->assertEquals('Domain', $groupEntry->property[3]->value);
++    }
++
++    public function testEmptyEntryShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->entry->extensionElements));
++        $this->assertTrue(count($this->entry->extensionElements) == 0);
++    }
++
++    public function testEmptyEntryShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->entry->extensionAttributes));
++        $this->assertTrue(count($this->entry->extensionAttributes) == 0);
++    }
++
++    public function testSampleEntryShouldHaveNoExtensionElements() {
++        $this->entry->transferFromXML($this->entryText);
++        $this->assertTrue(is_array($this->entry->extensionElements));
++        $this->assertTrue(count($this->entry->extensionElements) == 0);
++    }
++
++    public function testSampleEntryShouldHaveNoExtensionAttributes() {
++        $this->entry->transferFromXML($this->entryText);
++        $this->assertTrue(is_array($this->entry->extensionAttributes));
++        $this->assertTrue(count($this->entry->extensionAttributes) == 0);
++    }
++
++    public function testEmptyGroupEntryToAndFromStringShouldMatch() {
++        $entryXml = $this->entry->saveXML();
++        $newGroupEntry = new Zend_Gdata_Gapps_GroupEntry();
++        $newGroupEntry->transferFromXML($entryXml);
++        $newGroupEntryXml = $newGroupEntry->saveXML();
++        $this->assertTrue($entryXml == $newGroupEntryXml);
++    }
++
++    public function testSamplePropertiesAreCorrect () {
++        $this->entry->transferFromXML($this->entryText);
++        $this->verifyAllSamplePropertiesAreCorrect($this->entry);
++    }
++
++    public function testConvertGroupEntryToAndFromString() {
++        $this->entry->transferFromXML($this->entryText);
++        $entryXml = $this->entry->saveXML();
++        $newGroupEntry = new Zend_Gdata_Gapps_GroupEntry();
++        $newGroupEntry->transferFromXML($entryXml);
++        $this->verifyAllSamplePropertiesAreCorrect($newGroupEntry);
++        $newGroupEntryXml = $newGroupEntry->saveXML();
++        $this->assertEquals($entryXml, $newGroupEntryXml);
++    }
++
++}
+Index: tests/Zend/Gdata/Gapps/OwnerFeedTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/OwnerFeedTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/OwnerFeedTest.php	(revision 0)
+@@ -0,0 +1,109 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++require_once 'Zend/Gdata/Gapps.php';
++require_once 'Zend/Gdata/Gapps/OwnerFeed.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_OwnerFeedTest extends PHPUnit_Framework_TestCase
++{
++    protected $ownerFeed = null;
++
++    /**
++      * Called before each test to setup any fixtures.
++      */
++    public function setUp()
++    {
++        $ownerFeedText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/OwnerFeedDataSample1.xml',
++                true);
++        $this->ownerFeed = new Zend_Gdata_Gapps_OwnerFeed($ownerFeedText);
++        $this->emptyOwnerFeed = new Zend_Gdata_Gapps_OwnerFeed();
++    }
++
++    public function testEmptyFeedShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->emptyOwnerFeed->extensionElements));
++        $this->assertTrue(count($this->emptyOwnerFeed->extensionElements) == 0);
++    }
++
++    public function testEmptyFeedShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->emptyOwnerFeed->extensionAttributes));
++        $this->assertTrue(count($this->emptyOwnerFeed->extensionAttributes) == 0);
++    }
++
++    public function testSampleFeedShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->ownerFeed->extensionElements));
++        $this->assertTrue(count($this->ownerFeed->extensionElements) == 0);
++    }
++
++    public function testSampleFeedShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->ownerFeed->extensionAttributes));
++        $this->assertTrue(count($this->ownerFeed->extensionAttributes) == 0);
++    }
++
++    /**
++      * Convert sample feed to XML then back to objects. Ensure that
++      * all objects are instances of OwnerEntry and object count matches.
++      */
++    public function testXmlImportAndOutputAreNonDestructive()
++    {
++        $entryCount = 0;
++        foreach ($this->ownerFeed as $entry) {
++            $entryCount++;
++            $this->assertTrue($entry instanceof Zend_Gdata_Gapps_OwnerEntry);
++        }
++        $this->assertTrue($entryCount > 0);
++
++        /* Grab XML from $this->ownerFeed and convert back to objects */
++        $newOwnerFeed = new Zend_Gdata_Gapps_OwnerFeed(
++                $this->ownerFeed->saveXML());
++        $newEntryCount = 0;
++        foreach ($newOwnerFeed as $entry) {
++            $newEntryCount++;
++            $this->assertTrue($entry instanceof Zend_Gdata_Gapps_OwnerEntry);
++        }
++        $this->assertEquals($entryCount, $newEntryCount);
++    }
++
++    /**
++      * Ensure that there number of owner entries equals the number
++      * of owners defined in the sample file.
++      */
++    public function testAllEntriesInFeedAreInstantiated()
++    {
++        //TODO feeds implementing ArrayAccess would be helpful here
++        $entryCount = 0;
++        foreach ($this->ownerFeed as $entry) {
++            $entryCount++;
++        }
++        $this->assertEquals(2, $entryCount);
++    }
++
++}
+Index: tests/Zend/Gdata/Gapps/GroupFeedTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/GroupFeedTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/GroupFeedTest.php	(revision 0)
+@@ -0,0 +1,109 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++require_once 'Zend/Gdata/Gapps.php';
++require_once 'Zend/Gdata/Gapps/GroupFeed.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_GroupFeedTest extends PHPUnit_Framework_TestCase
++{
++    protected $groupFeed = null;
++
++    /**
++      * Called before each test to setup any fixtures.
++      */
++    public function setUp()
++    {
++        $groupFeedText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/GroupFeedDataSample1.xml',
++                true);
++        $this->groupFeed = new Zend_Gdata_Gapps_GroupFeed($groupFeedText);
++        $this->emptyGroupFeed = new Zend_Gdata_Gapps_GroupFeed();
++    }
++
++    public function testEmptyFeedShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->emptyGroupFeed->extensionElements));
++        $this->assertTrue(count($this->emptyGroupFeed->extensionElements) == 0);
++    }
++
++    public function testEmptyFeedShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->emptyGroupFeed->extensionAttributes));
++        $this->assertTrue(count($this->emptyGroupFeed->extensionAttributes) == 0);
++    }
++
++    public function testSampleFeedShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->groupFeed->extensionElements));
++        $this->assertTrue(count($this->groupFeed->extensionElements) == 0);
++    }
++
++    public function testSampleFeedShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->groupFeed->extensionAttributes));
++        $this->assertTrue(count($this->groupFeed->extensionAttributes) == 0);
++    }
++
++    /**
++      * Convert sample feed to XML then back to objects. Ensure that
++      * all objects are instances of GroupEntry and object count matches.
++      */
++    public function testXmlImportAndOutputAreNonDestructive()
++    {
++        $entryCount = 0;
++        foreach ($this->groupFeed as $entry) {
++            $entryCount++;
++            $this->assertTrue($entry instanceof Zend_Gdata_Gapps_GroupEntry);
++        }
++        $this->assertTrue($entryCount > 0);
++
++        /* Grab XML from $this->groupFeed and convert back to objects */
++        $newGroupFeed = new Zend_Gdata_Gapps_GroupFeed(
++                $this->groupFeed->saveXML());
++        $newEntryCount = 0;
++        foreach ($newGroupFeed as $entry) {
++            $newEntryCount++;
++            $this->assertTrue($entry instanceof Zend_Gdata_Gapps_GroupEntry);
++        }
++        $this->assertEquals($entryCount, $newEntryCount);
++    }
++
++    /**
++      * Ensure that there number of group entries equals the number
++      * of groups defined in the sample file.
++      */
++    public function testAllEntriesInFeedAreInstantiated()
++    {
++        //TODO feeds implementing ArrayAccess would be helpful here
++        $entryCount = 0;
++        foreach ($this->groupFeed as $entry) {
++            $entryCount++;
++        }
++        $this->assertEquals(2, $entryCount);
++    }
++
++}
+Index: tests/Zend/Gdata/Gapps/OwnerQueryTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/OwnerQueryTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/OwnerQueryTest.php	(revision 0)
+@@ -0,0 +1,91 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Gapps.php';
++require_once 'Zend/Gdata/Gapps/OwnerQuery.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_OwnerQueryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp()
++    {
++        $this->query = new Zend_Gdata_Gapps_OwnerQuery();
++    }
++
++    // Test to make sure that the domain accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetQueryDomain()
++    {
++        $this->query->setGroupId("something");
++        $this->query->setDomain("my.domain.com");
++        $this->assertEquals("my.domain.com", $this->query->getDomain());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/something/owner",
++                $this->query->getQueryUrl());
++
++        $this->query->setDomain("hello.world.baz");
++        $this->assertEquals("hello.world.baz", $this->query->getDomain());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/hello.world.baz/something/owner",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the groupId accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetGroupIdProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->assertEquals("foo", $this->query->getGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/owner",
++                $this->query->getQueryUrl());
++
++        $this->query->setGroupId("bar");
++        $this->assertEquals("bar", $this->query->getGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/bar/owner",
++                $this->query->getQueryUrl());
++    }
++
++    public function testCanSetOwnerEmailProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->query->setOwnerEmail("bar@blah.com");
++        $this->assertEquals("bar@blah.com", $this->query->getOwnerEmail());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/owner/bar@blah.com",
++                $this->query->getQueryUrl());
++
++        $this->query->setOwnerEmail('baz@blah.com');
++        $this->assertEquals('baz@blah.com', $this->query->getOwnerEmail());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo/owner/baz@blah.com",
++                $this->query->getQueryUrl());
++    }
++
++}
++
+Index: tests/Zend/Gdata/Gapps/GroupQueryTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/GroupQueryTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/GroupQueryTest.php	(revision 0)
+@@ -0,0 +1,168 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Gapps.php';
++require_once 'Zend/Gdata/Gapps/GroupQuery.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_GroupQueryTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp()
++    {
++        $this->query = new Zend_Gdata_Gapps_GroupQuery();
++    }
++
++    // Test to make sure that URI generation works
++    public function testDefaultQueryURIGeneration()
++    {
++        $this->query->setDomain("foo.bar.invalid");
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/foo.bar.invalid",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the domain accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetQueryDomain()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->assertEquals("my.domain.com", $this->query->getDomain());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com",
++                $this->query->getQueryUrl());
++
++        $this->query->setDomain("hello.world.baz");
++        $this->assertEquals("hello.world.baz", $this->query->getDomain());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/hello.world.baz",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the groupId accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetGroupIdProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->assertEquals("foo", $this->query->getGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/foo",
++                $this->query->getQueryUrl());
++
++        $this->query->setGroupId("bar");
++        $this->assertEquals("bar", $this->query->getGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/bar",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the member accessor methods work and propagate
++    // to the query URI.
++    public function testCanSetMemberProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setMember("bar@qux.com");
++        $this->assertEquals("bar@qux.com", $this->query->getMember());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/?member=bar%40qux.com",
++                $this->query->getQueryUrl());
++
++        $this->query->setMember(null);
++        $this->assertEquals(null, $this->query->getMember());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com",
++                $this->query->getQueryUrl());
++    }
++
++    // Test to make sure that the startUsername accessor methods work and
++    // propagate to the query URI.
++    public function testCanSetStartGroupIdProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setStartGroupId("foo");
++        $this->assertEquals("foo", $this->query->getStartGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com?start=foo",
++                $this->query->getQueryUrl());
++
++        $this->query->setStartGroupId(null);
++        $this->assertEquals(null, $this->query->getStartGroupId());
++        $this->assertEquals("https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com",
++                $this->query->getQueryUrl());
++    }
++        
++    public function testCanSetDirectOnlyProperty()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setMember("bar@qux.com");
++        $this->query->setDirectOnly(true);
++        $this->assertEquals(true, $this->query->getDirectOnly());
++        $expected_url  = "https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/";
++        $expected_url .= "?member=bar%40qux.com&directOnly=true";
++        $this->assertEquals($expected_url, $this->query->getQueryUrl());
++        
++        $this->query->setDirectOnly(false);
++        $this->assertEquals(false, $this->query->getDirectOnly());
++        $expected_url  = "https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/";
++        $expected_url .= "?member=bar%40qux.com&directOnly=false";
++        $this->assertEquals($expected_url, $this->query->getQueryUrl());
++
++        $this->query->setDirectOnly(null);
++        $this->assertEquals(null, $this->query->getDirectOnly());
++        $expected_url  = "https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/";
++        $expected_url .= "?member=bar%40qux.com";
++        $this->assertEquals($expected_url, $this->query->getQueryUrl());        
++    }
++
++    // Test to make sure that all parameters can be set simultaneously with no
++    // ill effects.
++    public function testCanSetAllParameters()
++    {
++        $this->query->setDomain("my.domain.com");
++        $this->query->setGroupId("foo");
++        $this->query->setMember("bar@qux.com");
++        $this->query->setStartGroupId("wibble");
++        $this->query->setDirectOnly(true);
++        $this->assertEquals("foo", $this->query->getGroupId());
++        $this->assertEquals("bar@qux.com", $this->query->getMember());
++        $this->assertEquals("wibble", $this->query->getStartGroupId());
++        $this->assertEquals(true, $this->query->getDirectOnly());
++        $expected_url  = "https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/";
++        $expected_url .= "foo/?member=bar%40qux.com&start=wibble&directOnly=true";
++        $this->assertEquals($expected_url, $this->query->getQueryUrl());
++
++        $this->query->setMember("baz@blah.com");
++        $this->query->setGroupId("xyzzy");
++        $this->query->setStartGroupId("woof");
++        $this->query->setDirectOnly(false);
++        $this->assertEquals("xyzzy", $this->query->getGroupId());
++        $this->assertEquals("baz@blah.com", $this->query->getMember());
++        $this->assertEquals("woof", $this->query->getStartGroupId());
++        $this->assertEquals(false, $this->query->getDirectOnly());
++        $expected_url  = "https://apps-apis.google.com/a/feeds/group/2.0/my.domain.com/";
++        $expected_url .= "xyzzy/?member=baz%40blah.com&start=woof&directOnly=false";
++        $this->assertEquals($expected_url, $this->query->getQueryUrl());
++    }
++
++}
++
+Index: tests/Zend/Gdata/Gapps/PropertyTest.php
+===================================================================
+--- tests/Zend/Gdata/Gapps/PropertyTest.php	(revision 0)
++++ tests/Zend/Gdata/Gapps/PropertyTest.php	(revision 0)
+@@ -0,0 +1,133 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id $
++ */
++
++require_once 'Zend/Gdata/Gapps/Extension/Property.php';
++require_once 'Zend/Gdata.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Gdata_Gapps
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Gdata
++ * @group      Zend_Gdata_Gapps
++ */
++class Zend_Gdata_Gapps_PropertyTest extends PHPUnit_Framework_TestCase
++{
++
++    public function setUp() {
++        $this->thePropertyText = file_get_contents(
++                'Zend/Gdata/Gapps/_files/PropertyElementSample1.xml',
++                true);
++        $this->theProperty = new Zend_Gdata_Gapps_Extension_Property();
++    }
++
++    public function testEmptyPropertyShouldHaveNoExtensionElements() {
++        $this->assertTrue(is_array($this->theProperty->extensionElements));
++        $this->assertTrue(count($this->theProperty->extensionElements) == 0);
++    }
++
++    public function testEmptyPropertyShouldHaveNoExtensionAttributes() {
++        $this->assertTrue(is_array($this->theProperty->extensionAttributes));
++        $this->assertTrue(count($this->theProperty->extensionAttributes) == 0);
++    }
++
++    public function testSamplePropertyShouldHaveNoExtensionElements() {
++        $this->theProperty->transferFromXML($this->thePropertyText);
++        $this->assertTrue(is_array($this->theProperty->extensionElements));
++        $this->assertTrue(count($this->theProperty->extensionElements) == 0);
++    }
++
++    public function testSamplePropertyShouldHaveNoExtensionAttributes() {
++        $this->theProperty->transferFromXML($this->thePropertyText);
++        $this->assertTrue(is_array($this->theProperty->extensionAttributes));
++        $this->assertTrue(count($this->theProperty->extensionAttributes) == 0);
++    }
++
++    public function testNormalPropertyShouldHaveNoExtensionElements() {
++        $this->theProperty->name = "foo";
++        $this->theProperty->value = "bar";
++
++        $this->assertEquals("foo", $this->theProperty->name);
++        $this->assertEquals("bar", $this->theProperty->value);
++
++        $this->assertEquals(0, count($this->theProperty->extensionElements));
++        $newProperty = new Zend_Gdata_Gapps_Extension_Property();
++        $newProperty->transferFromXML($this->theProperty->saveXML());
++        $this->assertEquals(0, count($newProperty->extensionElements));
++        $newProperty->extensionElements = array(
++                new Zend_Gdata_App_Extension_Element('foo', 'atom', null, 'bar'));
++        $this->assertEquals(1, count($newProperty->extensionElements));
++        $this->assertEquals("foo", $newProperty->name);
++        $this->assertEquals("bar", $newProperty->value);
++
++        /* try constructing using magic factory */
++        $gdata = new Zend_Gdata_Gapps();
++        $newProperty2 = $gdata->newProperty();
++        $newProperty2->transferFromXML($newProperty->saveXML());
++        $this->assertEquals(1, count($newProperty2->extensionElements));
++        $this->assertEquals("foo", $newProperty2->name);
++        $this->assertEquals("bar", $newProperty2->value);
++    }
++
++    public function testEmptyPropertyToAndFromStringShouldMatch() {
++        $propertyXml = $this->theProperty->saveXML();
++        $newProperty = new Zend_Gdata_Gapps_Extension_Property();
++        $newProperty->transferFromXML($propertyXml);
++        $newPropertyXml = $newProperty->saveXML();
++        $this->assertTrue($propertyXml == $newPropertyXml);
++    }
++
++    public function testPropertyWithValueToAndFromStringShouldMatch() {
++        $this->theProperty->name = "foo2";
++        $this->theProperty->value = "bar2";
++        $propertyXml = $this->theProperty->saveXML();
++        $newProperty = new Zend_Gdata_Gapps_Extension_Property();
++        $newProperty->transferFromXML($propertyXml);
++        $newPropertyXml = $newProperty->saveXML();
++        $this->assertTrue($propertyXml == $newPropertyXml);
++        $this->assertEquals("foo2", $this->theProperty->name);
++        $this->assertEquals("bar2", $this->theProperty->value);
++    }
++
++    public function testExtensionAttributes() {
++        $extensionAttributes = $this->theProperty->extensionAttributes;
++        $extensionAttributes['foo1'] = array('name'=>'foo1', 'value'=>'bar');
++        $extensionAttributes['foo2'] = array('name'=>'foo2', 'value'=>'rab');
++        $this->theProperty->extensionAttributes = $extensionAttributes;
++        $this->assertEquals('bar', $this->theProperty->extensionAttributes['foo1']['value']);
++        $this->assertEquals('rab', $this->theProperty->extensionAttributes['foo2']['value']);
++        $propertyXml = $this->theProperty->saveXML();
++        $newProperty = new Zend_Gdata_Gapps_Extension_Property();
++        $newProperty->transferFromXML($propertyXml);
++        $this->assertEquals('bar', $newProperty->extensionAttributes['foo1']['value']);
++        $this->assertEquals('rab', $newProperty->extensionAttributes['foo2']['value']);
++    }
++
++    public function testConvertFullNameToAndFromString() {
++        $this->theProperty->transferFromXML($this->thePropertyText);
++        $this->assertEquals("Some Name", $this->theProperty->name);
++        $this->assertEquals("Some Value", $this->theProperty->value);
++    }
++
++}
+Index: tests/Zend/Gdata/AllTests.php
+===================================================================
+--- tests/Zend/Gdata/AllTests.php	(revision 22018)
++++ tests/Zend/Gdata/AllTests.php	(working copy)
+@@ -135,12 +135,22 @@
+ require_once 'Zend/Gdata/Gapps/EmailListRecipientQueryTest.php';
+ require_once 'Zend/Gdata/Gapps/EmailListTest.php';
+ require_once 'Zend/Gdata/Gapps/ErrorTest.php';
++require_once 'Zend/Gdata/Gapps/GroupEntryTest.php';
++require_once 'Zend/Gdata/Gapps/GroupFeedTest.php';
++require_once 'Zend/Gdata/Gapps/GroupQueryTest.php';
+ require_once 'Zend/Gdata/Gapps/LoginTest.php';
++require_once 'Zend/Gdata/Gapps/MemberEntryTest.php';
++require_once 'Zend/Gdata/Gapps/MemberFeedTest.php';
++require_once 'Zend/Gdata/Gapps/MemberQueryTest.php';
+ require_once 'Zend/Gdata/Gapps/NameTest.php';
+ require_once 'Zend/Gdata/Gapps/NicknameEntryTest.php';
+ require_once 'Zend/Gdata/Gapps/NicknameFeedTest.php';
+ require_once 'Zend/Gdata/Gapps/NicknameQueryTest.php';
+ require_once 'Zend/Gdata/Gapps/NicknameTest.php';
++require_once 'Zend/Gdata/Gapps/OwnerEntryTest.php';
++require_once 'Zend/Gdata/Gapps/OwnerFeedTest.php';
++require_once 'Zend/Gdata/Gapps/OwnerQueryTest.php';
++require_once 'Zend/Gdata/Gapps/PropertyTest.php';
+ require_once 'Zend/Gdata/Gapps/QuotaTest.php';
+ require_once 'Zend/Gdata/Gapps/ServiceExceptionTest.php';
+ require_once 'Zend/Gdata/Gapps/UserEntryTest.php';
+@@ -319,12 +329,22 @@
+         $suite->addTestSuite('Zend_Gdata_Gapps_EmailListRecipientQueryTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_EmailListTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_ErrorTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_GroupEntryTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_GroupFeedTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_GroupQueryTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_LoginTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_MemberEntryTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_MemberFeedTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_MemberQueryTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_NameTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_NicknameEntryTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_NicknameFeedTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_NicknameQueryTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_NicknameTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_OwnerEntryTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_OwnerFeedTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_OwnerQueryTest');
++        $suite->addTestSuite('Zend_Gdata_Gapps_PropertyTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_QuotaTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_ServiceExceptionTest');
+         $suite->addTestSuite('Zend_Gdata_Gapps_UserEntryTest');
