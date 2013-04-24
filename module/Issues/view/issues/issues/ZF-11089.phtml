@@ -1,0 +1,205 @@
+<h2>ZF-11089: Zend_Cache_Frontend_Page:  _makeId function should use only make_id_with_*  paramters.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-18T14:59:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-03-02T12:44:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Use case :</p>
+
+<pre class="highlight"><code>
+    {
+        $frontendOptions = array(
+            'lifetime' =&gt; 7200,
+            'automatic_serialization' =&gt; true,
+            'debug_header' =&gt; false,
+            'cache_with_get_variables' =&gt; true,
+            'cache_with_post_variables' =&gt; true,
+            'cache_with_files_variables' =&gt; true,
+            'cache_with_cookie_variables' =&gt; true,
+            'cache_with_session_variables' =&gt; false,
+            'make_id_with_session_variables' =&gt; false,
+            'make_id_with_get_variables' =&gt; true,
+            'make_id_with_post_variables' =&gt; true,
+            'make_id_with_files_variables' =&gt; true,
+            'make_id_with_cookie_variables' =&gt; true,
+            'regexps' =&gt; array(
+                '^/' =&gt; array('cache' =&gt; true),
+            )
+        );
+
+        $backendOptions = array(
+                'cache_dir' =&gt; '/tmp/cache/views/'
+        );
+
+        // getting a Zend_Cache_Frontend_Page object
+        $cache = Zend_Cache::factory('Page',
+                             'File',
+                             $frontendOptions,
+                             $backendOptions);
+ 
+        $cache-&gt;start();
+</code></pre>
+
+<p>When we use the variables :</p>
+
+<pre><code>        'cache_with_session_variables' =&gt; false,
+        'make_id_with_session_variables' =&gt; false,
+</code></pre>
+
+<p>The cache simply doesn't work because both conditions are false.</p>
+
+<p>Question :</p>
+
+<p>Why the <em>makeID function is using the cache_with</em>* and make_id_with_* parameters, if only we are using this function for Id generation ?</p>
+
+<p>Solution :</p>
+
+<p>Deprecate the use of cache_with_* if aren't being used, the control logic on the_makePartialId is bad for ( false - false test cases ). Use  make_id_with options only when they are set to true.</p>
+
+<p>Patch :</p>
+
+<pre class="highlight"><code>
+===================================================================
+--- library/Zend/Cache/Frontend/Page.php    (revision 8718)
++++ library/Zend/Cache/Frontend/Page.php    (working copy)
+@@ -333,32 +333,28 @@
+     /**
+      * Make an id depending on REQUEST_URI and superglobal arrays (depending on options)
+      *
+-     * @return mixed|false a cache id (string), false if the cache should have not to be used
++    * @return mixed|false a cache id (string),
+      */
+     protected function _makeId()
+     {
+-        $tmp = $_SERVER['REQUEST_URI'];
+-        $array = explode('?', $tmp, 2);
+-          $tmp = $array[0];
+-        foreach (array('Get', 'Post', 'Session', 'Files', 'Cookie') as $arrayName) {
+-            $tmp2 = $this-&gt;_makePartialId($arrayName, $this-&gt;_activeOptions['cache_with_' . strtolower($arrayName) . '_variables'], $this-&gt;_activeOptions['make_id_with_' . strtolower($arrayName) . '_variables']);
+-            if ($tmp2===false) {
+-                return false;
+-            }
+-            $tmp = $tmp . $tmp2;
+-        }
+-        return md5($tmp);
++
++       $array = explode('?', $_SERVER['REQUEST_URI'], 2);
++       $idString = $array[0];
++
++       foreach (array('Get', 'Post', 'Session', 'Files', 'Cookie') as $arrayName) {
++           if($this-&gt;_activeOptions['make_id_with_' . strtolower($arrayName) . '_variables']) 
++               $idString .= $this-&gt;_arraySerialize($arrayName);
++       }
++
++       return md5($idString);
+     }
+ 
+     /**
+-     * Make a partial id depending on options
++     * Serialize a Superglobal array 
+      *
+      * @param  string $arrayName Superglobal array name
+-     * @param  bool   $bool1     If true, cache is still on even if there are some variables in the superglobal array
+-     * @param  bool   $bool2     If true, we have to use the content of the superglobal array to make a partial id
+-     * @return mixed|false Partial id (string) or false if the cache should have not to be used
++     * @return mixed Partial id (string) or null if the cache should have not to be used
+      */
+-    protected function _makePartialId($arrayName, $bool1, $bool2)
++    protected function _arraySerialize($arrayName)
+     {
+         switch ($arrayName) {
+         case 'Get':
+@@ -385,18 +381,11 @@
+             $var = $_FILES;
+             break;
+         default:
+-            return false;
+-        }
+-        if ($bool1) {
+-            if ($bool2) {
+-                return serialize($var);
+-            }
+-            return '';
+-        }
+-        if (count($var) &gt; 0) {
+-            return false;
+-        }
+-        return '';
++   $var = null;
++   break;
++      }
++     return ( $var === null ) ? '' : serialize($var);
+     }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jorge Niedbalski (niedbalski) on 2011-02-23T05:33:32.000+0000</p> 
+        <div class="body">
+            <p>Any comments on this ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-03-02T12:44:22.000+0000</p> 
+        <div class="body">
+            <p>You misunderstand the logic of cache_with* and make_id_with* options:</p>
+
+<p><em>cache_with_xxxx_variables</em>:
+- If disabled don't cache pages if the request send one or more of this variables
+- the validation will be done on makeId and returns false</p>
+
+<p><em>make_id_with_xxxx_variables</em>:
+- If enabled generate a cache id in base of this variables
+- if it's option of cache_with_xxxx_variables is disabled
+  there is no need to make an id this it because caching will be disabled
+  or the variable is empty</p>
+
+        </div>
+    </div>
+    </div>
+

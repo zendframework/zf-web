@@ -1,0 +1,254 @@
+<h2>ZF-10725: ViewRenderer not normalizing action name before constructing view script name</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-22T03:10:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-11-04T15:40:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.9 (14/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10535">ZF-10535</a></li>
+            <li><a href="/issues/browse/ZF-11585">ZF-11585</a></li>
+            <li><a href="/issues/browse/ZF-11870">ZF-11870</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14529/ZF-10725_fix_for_1.11.9.patch">ZF-10725_fix_for_1.11.9.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend Framework uses a different action name than the view script when using some non-alphanumeric characters in a URL</p>
+
+<p>For example, requesting:
+{{/somemodule/somecontroller/someaction-}}
+will (arguably) incorrectly use the {{someactionAction}} method and will then try and use the view script {{someaction-.phtml}}, not find it, and throw a Zend_View_Exception</p>
+
+<p>Likewise with something like:
+{{/somemodule/somecontroller/someaction.$$$}}
+Will also fail with a Zend_View_Exception with the message {{script 'someaction-.phtml' not found in path}}</p>
+
+<p>This is due to the different ways that the action is resolved (remove all non-alpha characters) to the way the view script is resolved (replace all non-alpha characters with a '-')</p>
+
+<p>I believe the problem lies within {{Zend_Controller_Action_Helper_ViewRenderer-&gt;getViewScript()}} when {{$action = $request-&gt;getActionName();}} is called it should be getting the action name from the dispatcher rather than the request.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2010-12-19T19:05:34.000+0000</p> 
+        <div class="body">
+            <p>I agree that ViewRenderer should retrieve the action name from the dispatcher rather than the request.  However, this would mean view script naming convention would now match that of controller method names, a major bc break (existing sites would need to rename their view scripts).  Perhaps this modification could/should be pushed up to 2.x for consideration, if it hasn't already been resolved there?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-12-20T05:36:41.000+0000</p> 
+        <div class="body">
+            <p>Agreed -- grabbing the action name from the dispatcher is a bad idea in ZF1, as the action name there is (a) camelCased, and (b) suffixed with the word "Action" -- either one of which would alter how view scripts are resolved and represent a BC break.</p>
+
+<p>What I see here is, rather, a request for doing some normalization of action names to ensure they do not begin or end with non-alphanumerics. That could likely be supported in both ZF1 and ZF2, as clearly their inclusion is leading to buggy behavior.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2010-12-20T08:48:02.000+0000</p> 
+        <div class="body">
+            <p>@Matthew,
+Good point.  We can simply strip off the extraneous characters from within getViewScript:</p>
+
+<pre class="highlight"><code>
+// Remove non-alphanumeric characters from action name
+// see ZF-10725
+$vars['action'] = preg_replace(
+    array('/[^a-z0-9]+$/', '/^[^a-z0-9]+/'),
+    array('', ''),
+    $vars['action']
+);
+</code></pre>
+
+<p>My preg skills are a bit weak, so there is probably a tidier way of doing it, but that fixes the issue for me. I've attached a patch with this fix and a test case.</p>
+
+<p>Not sure if this is any consequence, but doing this does have some potential to create SEO problems, as these URIs will all point to the same "page":</p>
+
+<pre class="literal">
+/my/controller/action
+/my/controller/action-
+/my/controller/-action-
+...
+</pre>
+
+<p>But I digress, as I think that is more related to the dispatcher than to this particular bug.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-24T16:10:19.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24154</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-05T16:12:22.000+0000</p> 
+        <div class="body">
+            <p>Patch applied to 1.11 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brian Stebar II (brianstebar@sixthman.net) on 2011-07-06T21:41:56.000+0000</p> 
+        <div class="body">
+            <p>@Adam and @Matthew,</p>
+
+<p>Unfortunately, this change causes requests to with actions containing capital letters to break.  For example, requests to {{<a href="http://www.site.com/Controller/Action">http://www.site.com/Controller/Action</a>}} results in the following error:</p>
+
+<p>{{script 'controller/ction.phtml' not found in path (/path/to/application/views/scripts/)}}</p>
+
+<p>All leading capital letters in the action name are stripped with the current regexes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-09T12:38:46.000+0000</p> 
+        <div class="body">
+            <p>Crap crap crap.  Forgot to make the regex case-insensitive.  It's fixed and unit test updated.</p>
+
+<p>Merged to trunk in r24216</p>
+
+<p>Matthew, could you merge this change into release for me?  It appears the fix in the release branch isn't the same as what was committed to trunk, and I don't feel comfortable enough with the merge process yet to do conflict resolution. Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-12T19:23:48.000+0000</p> 
+        <div class="body">
+            <p>Re-opened due to comments</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-12T19:24:37.000+0000</p> 
+        <div class="body">
+            <p>Merged r24216 to 1.11 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brian Stebar II (brianstebar@sixthman.net) on 2011-07-14T16:05:28.000+0000</p> 
+        <div class="body">
+            <p>@Adam,</p>
+
+<p>The bug still remains.  Take, for example, a request to {{/Controller/Action/}}.  The patched code executes two regexes to scrub the action name:</p>
+
+<pre class="highlight"><code>
+$replacePattern = array('/[^a-z0-9]+$/i', '/^[^a-z0-9]+/i');
+$vars['action'] = preg_replace($replacePattern, '', $vars['action']);
+
+// Remove non-alphanumeric characters from action name
+// see ZF-10725
+$vars['action'] = preg_replace(
+    array('/[^a-z0-9]+$/', '/^[^a-z0-9]+/'),
+    array('', ''),
+    $vars['action']
+);
+</code></pre>
+
+<p>Before the first {{preg_replace()}} executes, the {{$var['action']}} has the value {{'Action'}}.  After the first {{preg_replace()}}, {{$var['action']}} still has the value {{'Action'}} (though all non-alphanumeric characters would have been removed had there been any).  When the second {{preg_replace()}} executes, {{$var['action']}} is reassigned the value {{'ction'}} (where capital 'A' has been stripped).</p>
+
+<p>It seems as if the second {{preg_replace()}} statement is redundant in its current form.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andreas de Pretis (adp) on 2011-07-15T19:51:51.000+0000</p> 
+        <div class="body">
+            <p>the second regexp is really bad because it's case sensitive, applications that use capitalized action names totally break down - still there in 1.11.9</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-21T13:34:22.000+0000</p> 
+        <div class="body">
+            <p>Oh dear.  The patch was double-introduced.  I initially committed a cleaned-up version of the patch in the file attached to this issue in r24154:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Controller/Action/Helper/ViewRenderer.php
+===================================================================
+--- library/Zend/Controller/Action/Helper/ViewRenderer.php      (revision 24153)
++++ library/Zend/Controller/Action/Helper/ViewRenderer.php      (revision 24154)
+@@ -626,6 +626,9 @@
+         } elseif (null !== $action) {
+             $vars['action'] = $action;
+         }
++
++        $replacePattern = array('/[^a-z0-9]+$/', '/^[^a-z0-9]+/');
++        $vars['action'] = preg_replace($replacePattern, '', $vars['action']);
+
+         $inflector = $this-&gt;getInflector();
+         if ($this-&gt;getNoController() || $this-&gt;getNeverController()) {
+</code></pre>
+
+<p>However Matthew committed the patch in the file attached to this issue on top of my commit, so we now have two blocks of code performing the same fix (as Brian shows in his comment above).  When I fixed the BC break, I must not have pulled down Matthew's commit, as I only saw the first regex and so only fixed that one.</p>
+
+<p>Commits r24199 &amp; r24200 need to be backed out, as they contain an old version of the patch.  I've tested this out from a freshly-checked-out trunk and it resolves the issue (./runtests.sh ZF-10725 now passes)</p>
+
+<p>@Matthew:  Could you back out those commits for me?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-21T13:45:19.000+0000</p> 
+        <div class="body">
+            <p>Attached a patch which will remove the duplicate code applied in r24199/r24200 from ZF 1.11.9.</p>
+
+<p>On *nix, you can run the following patch command from the root of your ZF 1.11.9 install:</p>
+
+<pre class="highlight"><code>
+patch -p0 -i /path/to/ZF-10725_fix_for_1.11.9.patch
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-28T19:05:03.000+0000</p> 
+        <div class="body">
+            <p>New patch applied, as well as a test for the route "Controller/Action" resolving to view script "controller/action.phtml" case presented in the comments. Patch is in trunk and 1.11 release branch; please test.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,175 @@
+<h2>ZF-8594: Zend_Controller_Router_Rewrite doesn't throw an exception when not route matches</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-21T06:58:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-31T04:17:40.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12528/ZF-8594.diff">ZF-8594.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In the interface definition of the router it is stated that an exception should be thrown when no route matches the request. Instead it is currently simply ignored, which leads the request to the default controller/action, instead of going to the error controller which could emit a 404 error then. This can surely only happen, when the default module route was removed, which is intendend when you only want your own routes to match to avoid duplicate content for search engines.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-12-21T07:15:49.000+0000</p> 
+        <div class="body">
+            <p>I've attached a patch for this issue, but there's a problem. By applying this patch, the following two tests in Zend_Controller_Router_RewriteTest are breaking:</p>
+
+<ol><li><p>testRouteNotMatches: Expects the route() method to return an unchanged request object, which has NULL as controller, action and module set. This will lead the front controller to dispatch the standard parameters (default/index/index), which is the actual issue we want to solve tho. So rewriting this test would actually be the test for the new (correct) behaviour.</p></li>
+<li><p>testRemoveDefaultRoutes: This one doesn't like that much like a problem, since the routing is not tested at all here, while there's still a not-tested call done to the route() method (which would usually add a default route if not disabled). This means we would just have to wrap a try {} around the route() call, and the test would suceed again. This shouldn't affect reallife applications, since there will never be no routes, and if, they should lead to the error controller.</p></li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-12-21T07:58:42.000+0000</p> 
+        <div class="body">
+            <p>Attached new patch which solves the problem with front controller and error handler plugin.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-12-21T08:00:16.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Matthew for review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-01-29T08:02:39.000+0000</p> 
+        <div class="body">
+            <p>Well, the assumption is incorrect.</p>
+
+<p>I've used the default route in a chain, and that stopped working now.</p>
+
+<p>Example.</p>
+
+<p>host/AppPath/MyOwnFirstRouteThing/the/default/routing/should/apply</p>
+
+<p>Either this fix is wrong, since the old behaviour was actually just like I expected it to work, or my approach is wrong and can be achieved otherwise. Maybe force default values to the <em>'default'</em> route.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2010-01-29T08:51:53.000+0000</p> 
+        <div class="body">
+            <p>Peter, can you please tell, how exacly your chain setup looked (code?). The changes of this issue should not have affected stuff like you show here.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-01-30T08:22:04.000+0000</p> 
+        <div class="body">
+            <p>Yeah, based on the initial 'bug' and fix I also thought this would not affect stuff. However (and my chain is rather simple) it appears to influence some behaviour (maybe the problem lies within the incorrect chaining of the 'default' route... either way, below the code that fails (two methods to create the default route chained behind my own initial route included, both fail)</p>
+
+<p>Maybe the matching algorithm of a default route doesn't return that it matched anything when chained this way??</p>
+
+<pre><code>    // START CREATION OF OUR OWN SPECIALIZED ROUTER
+    // *************
+
+    $router = Zend_Controller_Front::getInstance()-&gt;getRouter();
+
+    // Create a very simple DB route that just matches the first part
+    $route = new Zend_Controller_Router_Route(':db');
+
+    // Create the 'default' route, it needs the dispatcher to function
+    $default = new Zend_Controller_Router_Rewrite();
+    $default = $default-&gt;addDefaultRoutes()-&gt;getRoute('default');
+
+    //Other method to create the default route (neither works)
+    /*
+    $request = Zend_Controller_Front::getInstance()-&gt;getRequest();
+    $dispatcher = Zend_Controller_Front::getInstance()-&gt;getDispatcher();
+    //$dispatcher = null;
+    $default = new Zend_Controller_Router_Route_Module(array(), $dispatcher, $request);
+    */
+
+    // Create a chained route which should match &lt;a rel="nofollow" href="http://foo.bar/basePath/DBVARIABLE[/[module]/controller"&gt;http://foo.bar/basePath/DBVARIABLE[/&amp;hellip;&lt;/a&gt;....]
+    $chain = $route-&gt;chain($default);
+    $router-&gt;addRoute('default', $chain);
+    // *************
+    // THE CREATION OF THE ROUTE ENDS HERE, however we continue below with some other init stuff
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2010-01-30T09:36:23.000+0000</p> 
+        <div class="body">
+            <p>There already is a unittest covering exacly your example (tho using a static route, not a segment route):</p>
+
+<p>Zend_Controller_Router_Route_ChainTest::testChainingModule()</p>
+
+<p>Even modified to use a segment route instead it still passes, so it is most likely a problem with your setup. For further help, please ask in irc (freenode, #zftalk) or on the mailing list.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-01-30T12:49:29.000+0000</p> 
+        <div class="body">
+            <p>Ah, using Zend_Controller_Router_Route_Module() instead of extracting the 'default' works like it should. Next time I'll take a look at the unit tests first...</p>
+
+<p>Although I'd still call it an regression issue :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-01-30T14:35:34.000+0000</p> 
+        <div class="body">
+            <p>Hmm, I might have been a bit too optimistic about this... Still experiencing problems, I forgot to revert the quickfix I had done so it wouldn't throw the error.</p>
+
+<p>I'll get back on this one.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-01-31T04:17:40.000+0000</p> 
+        <div class="body">
+            <p>The problem already existed in Chain but surfaced due to this fix. I've created a new issue for this one; ZF-9030</p>
+
+        </div>
+    </div>
+    </div>
+

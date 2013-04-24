@@ -1,0 +1,181 @@
+<h2>ZF-5269: String conversion issues related to issues for ZF-5030/ZF-5077</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-15T13:30:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-03-31T02:29:29.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+            <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Reproducable on Zend Framework version 1.7.1 on PHP v5.1.6</p>
+
+<pre class="highlight"><code>
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+date_default_timezone_set('Europe/London');
+
+set_include_path('.'
+    . PATH_SEPARATOR . './library2/'
+    . PATH_SEPARATOR . get_include_path());
+
+require_once('Zend/Loader.php');
+Zend_Loader::registerAutoload();
+
+$locale = new Zend_Locale('en_GB');
+$date = new Zend_Date('11/12/2008', 'd/m/Y', $locale);
+echo $date;
+</code></pre>
+
+<p>Above code will produce the following:</p>
+
+<pre class="highlight"><code>
+Fatal error: Uncaught exception 'Zend_Date_Exception' with message ''Object id #1' is not a known locale.' in /home/vhost/www/library2/Zend/Date.php:2576 
+Stack trace: 
+#0 /home/vhost/www/library2/Zend/Date.php(1181): Zend_Date-&gt;_calculate('set', '11/12/2008', 'd/m/Y', 'Object id #1') 
+#1 /home/vhost/www/library2/Zend/Date.php(212): Zend_Date-&gt;set('11/12/2008', 'd/m/Y', 'Object id #1') 
+#2 /home/vhost/www/test.php(20): Zend_Date-&gt;__construct('11/12/2008', 'd/m/Y', Object(Zend_Locale)) 
+#3 {main} thrown in /home/vhost/www/library2/Zend/Date.php on line 2576
+</code></pre>
+
+<p>Appears to realted to issue ZF-5030 / ZF-5077, the toString() method for PHP version &lt; 5.2
+<a href="http://www.php.net/manual/en/language.oop5.magic.php">http://php.net/manual/en/…</a></p>
+
+<p>Currently with 1.7.1, we have in Zend/Date.php:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Sets a new standard locale for the date object.
+     * This locale will be used for all functions
+     * Returned is the really set locale.
+     * Example: 'de_XX' will be set to 'de' because 'de_XX' does not exist
+     * 'xx_YY' will be set to 'root' because 'xx' does not exist
+     *
+     * @param  string|Zend_Locale $locale (Optional) Locale for parsing input
+     * @throws Zend_Date_Exception When the given locale does not exist
+     * @return Zend_Date Provides fluent interface
+     */
+    public function setLocale($locale = null)
+    {
+        if (!Zend_Locale::isLocale($locale, true, false)) {
+            if (!Zend_Locale::isLocale($locale, false, false)) {
+                require_once 'Zend/Date/Exception.php';
+                throw new Zend_Date_Exception("Given locale ({$locale}) does not exist", (string) $locale);
+            }
+
+            $locale = new Zend_Locale($locale);
+        }
+
+        $this-&gt;_locale = (string) $locale;
+        return $this;
+    }
+</code></pre>
+
+<p>If I change to the following, using ($locale-&gt;toString()), everything appear to work then:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Sets a new standard locale for the date object.
+     * This locale will be used for all functions
+     * Returned is the really set locale.
+     * Example: 'de_XX' will be set to 'de' because 'de_XX' does not exist
+     * 'xx_YY' will be set to 'root' because 'xx' does not exist
+     *
+     * @param  string|Zend_Locale $locale (Optional) Locale for parsing input
+     * @throws Zend_Date_Exception When the given locale does not exist
+     * @return Zend_Date Provides fluent interface
+     */
+    public function setLocale($locale = null)
+    {
+        if (!Zend_Locale::isLocale($locale, true, false)) {
+            if (!Zend_Locale::isLocale($locale, false, false)) {
+                require_once 'Zend/Date/Exception.php';
+                throw new Zend_Date_Exception("Given locale ({$locale}) does not exist", (string) $locale);
+            }
+
+            $locale = new Zend_Locale($locale);
+        }
+
+        $this-&gt;_locale = $locale-&gt;toString();
+        return $this;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-16T11:36:40.000+0000</p> 
+        <div class="body">
+            <p>Your change forces object as you can not call toString on a string value.
+Also for ZF 1.7.1 the minimum supported PHP release is 5.2.4</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Miguel Manso (amumia) on 2009-03-31T02:29:26.000+0000</p> 
+        <div class="body">
+            <p>I made this chage to line 4537:</p>
+
+<p>if (gettype($locale) == 'object') {
+    $this-&gt;_locale = $locale-&gt;toString();
+} else {
+    $this-&gt;_locale = (string) $locale;
+}</p>
+
+<p>It worked on both cases.
+I have:
+php 5.2.8 (mac osx ports) - ZF 1.7.4
+and:
+php 5.1.6 (CentOS release 5  2.6.18-53.1.13.el5) - ZF 1.7.4</p>
+
+<p>On mac osx the 1.7.4 version worked like a charm, but when i moved to the linux machine it all went wrong.
+I tried to apply the fix suggested in this post and i inverted the results...</p>
+
+<p>So i did the fix above and it started working on both systems.</p>
+
+<p>Hope this helps.</p>
+
+        </div>
+    </div>
+    </div>
+

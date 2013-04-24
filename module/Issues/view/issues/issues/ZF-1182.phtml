@@ -1,0 +1,207 @@
+<h2>ZF-1182: Support order, count, offset in findDependentRowset()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-04-01T17:12:57.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-05-27T08:36:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.3 (05/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1674">ZF-1674</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Since Zend_Db_Table_Row_Abstract::findDependentRowset() uses Zend_Db_Table_Abstract::fetchAll() to return value, it could be a good idea to specify also $order, $count, $offset.</p>
+
+<pre class="highlight"><code>
+Zend_Db_Table_Row_Abstract::findDependentRowset(
+    $dependentTable, $ruleKey, 
+    $order, $count, $offset);
+</code></pre>
+
+<p>At this moment Zend_Db_Table_Row_Abstract::findDependentRowset() return all related records, but what if programmer needs only few?</p>
+
+<p>Lets take real life egzample. There's a table of galleries (id, title, description, created_at, updated_at) and related table of images (id, description, created_at, updated_at, gallery_id).</p>
+
+<p>On the main page of this gallery app I want to show galleries and 5 images for each of them. Using Zend_Db_Table_Row_Abstract::findDependentRowset() - without $count, $offset - makes impossible to achieve that. I mean there is no problem, but I do not need all related rows - it could be a reason. of unwanted database overheat (huge amount of related records?).</p>
+
+<p>And what about $order? Assume that each image has its own rate (another column) and images on mentioned main page are highest rated. Once again I am forced to "play" with plain PHP (own select statements/objects).</p>
+
+<p>Cheers, Alan "LBO" Bem.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-02T16:52:05.000+0000</p> 
+        <div class="body">
+            <p>Reformat summary, description.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-02T17:00:23.000+0000</p> 
+        <div class="body">
+            <p>This feature request does not fit easily with the current architecture of table-relationship query methods.  Adding these arguments would make the function more complex than it is now.</p>
+
+<p>There is a workaround:  use fetchAll() and specify the order, count, offset, or other arguments.  But one needs to get an instance of the Table object of the dependent table.</p>
+
+<p>So instead of adding arguments to the findDependentRowset() method, I would rather add a method to the Row class that returns an instance of a dependent table by its ref rule.  Then one could run fetchAll() on that table instance.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alan Gabriel Bem (alan.bem) on 2007-04-03T15:49:31.000+0000</p> 
+        <div class="body">
+            <p>Hi Bill.
+I traced how findDependentRowset() works (in context of improvements I suggested)...</p>
+
+<pre class="highlight"><code>
+Zend_Db_Table_Row::findDependentRowset() // then
+Zend_Db_Table_Abstract::fetchAll() // then
+Zend_Db_Table_Abstract::_fetch() // select [order(), limit()] object is used there. 
+</code></pre>
+
+<p>...and it's quite SAFE (and easy) to implement that functionality.</p>
+
+<pre class="highlight"><code>
+    public function findDependentRowset($dependentTable, $ruleKey = null,
++                                   $order = null,
++                                   $count = null,
++                                   $offset = null) 
+    { 
+        $db = $this-&gt;_getTable()-&gt;getAdapter();
+
+        if (is_string($dependentTable)) {
+            try {
+                Zend_Loader::loadClass($dependentTable);
+            } catch (Zend_Exception $e) {
+                require_once 'Zend/Db/Table/Row/Exception.php';
+                throw new Zend_Db_Table_Row_Exception($e-&gt;getMessage());
+            }
+            $dependentTable = new $dependentTable(array('db' =&gt; $db));
+        }
+        if (! $dependentTable instanceof Zend_Db_Table_Abstract) {
+            $type = gettype($dependentTable);
+            if ($type == 'object') {
+                $type = get_class($dependentTable);
+            }
+            require_once 'Zend/Db/Table/Row/Exception.php';
+            throw new Zend_Db_Table_Row_Exception("Dependent table must be a Zend_Db_Table_Abstract, but it is $type");
+        }
+        $dependentTableClass = get_class($dependentTable);
+
+        $map = $this-&gt;_prepareReference($dependentTable, $this-&gt;_tableClass, $ruleKey);
+
+        for ($i = 0; $i &lt; count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+            $cond = $db-&gt;quoteIdentifier($map[Zend_Db_Table_Abstract::COLUMNS][$i]) . ' = ?';
+            $where[$cond] = $this-&gt;_data[$map[Zend_Db_Table_Abstract::REF_COLUMNS][$i]];
+        }
+        return $dependentTable-&gt;fetchAll($where,
++                                        $order = null,
++                                        $count = null,
++                                        $offset = null) ;
+    } 
+</code></pre>
+
+<p>I think there is no need to sanitize $order, $count or $offset as it's carried out later in Zend_Db_Select object.</p>
+
+<p>P.S. findParentRow() could be improve as well - it is almost identicall [maybe new issue (DRY filosophy)] to findDependentRowset().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alan Gabriel Bem (alan.bem) on 2007-04-03T15:55:27.000+0000</p> 
+        <div class="body">
+            <p>Please, forget my Post Scriptum. I was hurry and not even think about this.</p>
+
+<p>Cheers.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-17T18:21:44.000+0000</p> 
+        <div class="body">
+            <p>This is not in the scope of the Table Data Gateway implementation of Zend_Db.</p>
+
+<p>The recommended solution is to use the Zend_Db_Select class:</p>
+
+<pre class="highlight"><code>
+$table = new MyTable();
+
+$select = $table-&gt;getAdapter()-&gt;select();
+</code></pre>
+
+<p>With the $select object, you can issue a query using joins, order, count, offset, where clause, etc.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-17T18:22:32.000+0000</p> 
+        <div class="body">
+            <p>Reopening so we can resolve it as Won't Fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-17T18:22:44.000+0000</p> 
+        <div class="body">
+            <p>Resolving as Won't Fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Struckmeier (tobmaster) on 2008-05-27T07:59:22.000+0000</p> 
+        <div class="body">
+            <p>I am missing here a bit an explanation why it is not in the scope? It would be usefull and not harming anything existing.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2008-05-27T08:36:48.000+0000</p> 
+        <div class="body">
+            <p>A solution has already been implemented to allow arbitrary SELECT objects to be passed to find() and fetch() methods of Zend_Db_Table and Zend_Db_Table_Row.</p>
+
+<p>See <a href="http://framework.zend.com/wiki/display/ZFPROP/Zend_Db_Table+Query+Enhancements+-+Simon+Mundy">http://framework.zend.com/wiki/display/…</a> for details.</p>
+
+        </div>
+    </div>
+    </div>
+

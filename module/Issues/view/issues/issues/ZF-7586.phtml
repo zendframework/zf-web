@@ -1,0 +1,180 @@
+<h2>ZF-7586: Zend_Json_Decoder emits fatal error when decoding JSON string with empty key</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-13T11:30:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-12T19:38:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+            <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Json</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14707/ZF-7586.patch">ZF-7586.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If I asked Zend JSON to decode a response as an object that includes a structure with a key that's an impty string, it causes a fatal error:</p>
+
+<p>Cannot access empty property in Zend/Json/Decoder.php on line 239</p>
+
+<p>In contrast, the PHP 5.2 built-in json_decode() will handle this gracefully  and assign the key '<em>empty</em>'.</p>
+
+<p>I think this can be handled easily by the following change:</p>
+
+<pre class="highlight"><code>Index: Json/Decoder.php
+===================================================================
+--- Json/Decoder.php (revision 5082)
++++ Json/Decoder.php (working copy)
+@@ -236,6 +236,10 @@
+                 // Create new StdClass and populate with $members
+                 $result = new StdClass();
+                 foreach ($members as $key =&gt; $value) {
++                    if ($key === '') {
++                      // Mimic PHP 5.2 behavior
++                      $key = '_empty_';
++                    }
+                     $result-&gt;$key = $value;
+                 }
+                 break;
+</code></pre>
+
+<p>There should be some sort of check, at least, here to insure that the $key is valid.</p>
+
+<p>see also:  <a href="http://drupal.org/node/465528">http://drupal.org/node/465528</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-31T01:47:29.000+0000</p> 
+        <div class="body">
+            <p>Could not reproduce against trunk with this unit test:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/JsonTest.php
+===================================================================
+--- tests/Zend/JsonTest.php (revision 24547)
++++ tests/Zend/JsonTest.php (working copy)
+@@ -887,6 +887,17 @@
+         $json = Zend_Json::encode($array);
+         $this-&gt;assertEquals($expected, $json);
+     }
++    
++    /**
++     * @group ZF-7586
++     */
++    public function testWillDecodeStructureWithEmptyKeyToObjectProperly()
++    {
++        $json = '{"":"test"}';
++        $object = Zend_Json::decode($json, Zend_Json::TYPE_OBJECT);
++        $this-&gt;assertTrue(isset($object-&gt;_empty_));
++        $this-&gt;assertEquals('test', $object-&gt;_empty_);
++    }
+ 
+ }
+ 
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-31T02:05:34.000+0000</p> 
+        <div class="body">
+            <p>Prematurely closed due to omission from unit test above.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-31T02:06:44.000+0000</p> 
+        <div class="body">
+            <p>This unit test reproduces the issue:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/JsonTest.php
+===================================================================
+--- tests/Zend/JsonTest.php (revision 24547)
++++ tests/Zend/JsonTest.php (working copy)
+@@ -887,6 +887,19 @@
+         $json = Zend_Json::encode($array);
+         $this-&gt;assertEquals($expected, $json);
+     }
++    
++    /**
++     * @group ZF-7586
++     */
++    public function testWillDecodeStructureWithEmptyKeyToObjectProperly()
++    {
++        Zend_Json::$useBuiltinEncoderDecoder = true;
++        
++        $json = '{"":"test"}';
++        $object = Zend_Json::decode($json, Zend_Json::TYPE_OBJECT);
++        $this-&gt;assertTrue(isset($object-&gt;_empty_));
++        $this-&gt;assertEquals('test', $object-&gt;_empty_);
++    }
+ 
+ }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-31T02:11:04.000+0000</p> 
+        <div class="body">
+            <p>Attached patch file with reproducing unit test + fix.</p>
+
+<p>Does changing this behavior of {{Zend_Json}} at this stage in ZFv1's lifecycle constitute a BC break?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-12T19:38:22.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24799
+ZF2 Pull Request: <a href="https://github.com/zendframework/zf2/pull/1217">https://github.com/zendframework/zf2/pull/1217</a></p>
+
+        </div>
+    </div>
+    </div>
+

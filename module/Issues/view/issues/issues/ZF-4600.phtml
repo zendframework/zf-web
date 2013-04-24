@@ -1,0 +1,207 @@
+<h2>ZF-4600: Allow Select to be serializable</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-15T01:48:24.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11602/Zend_Db_Adapter_Abstract.patch">Zend_Db_Adapter_Abstract.patch</a></li>
+            <li><a href="/issues/secure/attachment/11582/Zend_Db_Select.patch">Zend_Db_Select.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>It's not possible actually to serialize a Zend_Db_Select object, as it encapsulates the adapter instance which cannot be serialized.</p>
+
+<p>Selects should be serilizable as this could use caching queries creation.</p>
+
+<p>I'm working on a patch that acts the same way as Zend_Db_Table_Row : it uses __sleep() to disconnect the select object from the DB.
+__ wakeup() is used with the registry to look for a Zend_Db_Adapter instance into it to assign it back to the Select object.
+Additionnaly, a setAdapter() method is also provided.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-10-15T08:46:38.000+0000</p> 
+        <div class="body">
+            <p>Attached a patch that shows how it could work.</p>
+
+<p>Work to do : search for all $this-&gt;_adapter calls and throw an exception if not in connected mode.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-10-22T10:45:36.000+0000</p> 
+        <div class="body">
+            <p>After talking together with Ralph, here is a patch that is backported to the adapter.
+The select object then keeps its adapter, that's the adapter which drops its connection object.</p>
+
+<p>Simple managing options are also available, methods would follow and those options should get merged with constructor config optionnal options.
+protected $_allowSerialization
+protected $_autoReconnectOnUnserialize</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-11-10T08:46:55.000+0000</p> 
+        <div class="body">
+            <p>Use Cases :</p>
+
+<pre class="highlight"><code>
+// default behavior
+session_start();
+$options = array();
+
+$params = array(
+    'host'           =&gt; 'somehost',
+    'username'       =&gt; 'my-name',
+    'password'       =&gt; 'secret',
+    'dbname'         =&gt; 'dbname',
+    'options'        =&gt; $options
+);
+
+$db = Zend_Db::factory('Mysqli', $params);
+$_SESSION['dbInstance'] = $db;
+// ...later, on another page...
+$_SESSION['dbInstance']-&gt;fetchAll(); // OK
+</code></pre>
+
+<pre class="highlight"><code>
+// disallow serialization
+$options = array(Zend_Db::ALLOW_SERIALIZATION =&gt; false);
+$params = array(//.......);
+$db = Zend_Db::factory('Mysqli', $params);
+$_SESSION['dbInstance'] = $db; // exception
+</code></pre>
+
+<pre class="highlight"><code>
+// allow serialization, but do not reconnect SGBD on unserialization
+$options = array(Zend_Db::AUTO_RECONNECT_ON_UNSERIALIZE =&gt; false);
+$params = array(//.......);
+$db = Zend_Db::factory('Mysqli', $params);
+$_SESSION['dbInstance'] = $db; // OK
+// ...later, on another page...
+$_SESSION['dbInstance']-&gt;fetchAll(); // exception
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-12-10T10:37:48.000+0000</p> 
+        <div class="body">
+            <p>r13136 allows Adapter object to be serialized</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2009-08-17T12:28:52.000+0000</p> 
+        <div class="body">
+            <p>Allowing database adapters to be serialized is a security risk, because the username &amp; password are part of the object data in plain text.  If you aren't careful where you store the serialized object, you could expose these credentials.</p>
+
+<p>This is why the serialization of {{Zend_Db_Table_Row}} does not serialize the {{Adapter}} object.  The developer is required to establish the connection in a secure manner before a {{Row}} object can be used "live" again.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-17T13:02:49.000+0000</p> 
+        <div class="body">
+            <p>Zend_Db_Table_Row has the added benefit of being able to use the static Zend_Db_Table_Adatper::$_defaultDbAdapter, which allows the object to be serialized and unserialized without being injected to.</p>
+
+<p>I am still chewing on this as well as roping others into the discussion.  In general, if people are taking care of their security concerns as the Zend_Session layer, then presumably the username/password in the serialization container is as safe as it is inside the ini file it originated from.</p>
+
+<p>More comments to come I am sure. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-17T13:22:42.000+0000</p> 
+        <div class="body">
+            <p>Julien,</p>
+
+<p>The original patch suggested that it would consult the registry and also Zend_Db_Table_Abstract::getDefaultAdatper() before (i think) attempting to write to the session, was that the case? I did not see this inside Zend_Db_Select (didnt see any code for sleep and wakeup).</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-08-18T00:20:21.000+0000</p> 
+        <div class="body">
+            <p>The final patch doesn't include any serialization paradigm to the select object, but does to the adapter object.
+See my comment on 22/Oct/08 10:45 AM and <a href="http://framework.zend.com/code/changelog/Zend_Framework/?cs=13136">http://framework.zend.com/code/changelog/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-18T09:44:44.000+0000</p> 
+        <div class="body">
+            <p>What was the reasoning behind not including serialization to the select object? It seems like if the patch above were applied, it would (in most cases), not need the Zend_Db_Adapter to be serialized as well, right?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-08-18T11:42:07.000+0000</p> 
+        <div class="body">
+            <p>I dont remember the reason why we did not patch Select but Adapter instead.
+Affirmative : serializing the Select object would then not need the Adapter to be serialized, just detached.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-18T14:11:24.000+0000</p> 
+        <div class="body">
+            <p>I think we should probably include the bits of the original patch so that in most cases, the adapter and its credentials dont make their way into an insecure cache.  While I think this is probably an edge case, we should at least do our best to provide a solution for this potential information leak.</p>
+
+<p>I am reopening.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:24.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,95 @@
+Index: zend/library/Zend/Db/Adapter/Pdo/Abstract.php
+===================================================================
+--- zend/library/Zend/Db/Adapter/Pdo/Abstract.php	(revision 21071)
++++ zend/library/Zend/Db/Adapter/Pdo/Abstract.php	(working copy)
+@@ -187,6 +187,26 @@
+     }
+ 
+     /**
++     * Excecute an SQL statement and return a PDOStatement-like object
++     *
++     * @param string|Zend_Db_Select $sql SQL query
++     * @return Zend_Db_Statement|PDOStatement
++     */
++    protected function _query($sql)
++    {
++        $this->_connect();
++
++        $stmtClass = $this->_defaultStmtClass;
++        if (!class_exists($stmtClass)) {
++            require_once 'Zend/Loader.php';
++            Zend_Loader::loadClass($stmtClass);
++        }
++        $stmt = new $stmtClass($this, $sql, $this->getConnection()->query($sql));
++        $stmt->setFetchMode($this->_fetchMode);
++        return $stmt;
++    }
++
++    /**
+      * Gets the last ID generated automatically by an IDENTITY/AUTOINCREMENT column.
+      *
+      * As a convention, on RDBMS brands that support sequences
+Index: zend/library/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- zend/library/Zend/Db/Adapter/Abstract.php	(revision 21071)
++++ zend/library/Zend/Db/Adapter/Abstract.php	(working copy)
+@@ -463,9 +463,13 @@
+             $bind = array($bind);
+         }
+ 
+-        // prepare and execute the statement with profiling
+-        $stmt = $this->prepare($sql);
+-        $stmt->execute($bind);
++        if (empty($bind)) {
++            $stmt = $this->_query($sql);
++        } else {
++            // prepare and execute the statement with profiling
++            $stmt = $this->prepare($sql);
++            $stmt->execute($bind);
++        }
+ 
+         // return the results embedded in the prepared statement object
+         $stmt->setFetchMode($this->_fetchMode);
+@@ -1186,6 +1190,14 @@
+     abstract public function prepare($sql);
+ 
+     /**
++     * Excecute an SQL statement and return a PDOStatement-like object
++     *
++     * @param string|Zend_Db_Select $sql SQL query
++     * @return Zend_Db_Statement|PDOStatement
++     */
++    abstract protected function _query($sql);
++
++    /**
+      * Gets the last ID generated automatically by an IDENTITY/AUTOINCREMENT column.
+      *
+      * As a convention, on RDBMS brands that support sequences
+Index: zend/library/Zend/Db/Statement.php
+===================================================================
+--- zend/library/Zend/Db/Statement.php	(revision 21071)
++++ zend/library/Zend/Db/Statement.php	(working copy)
+@@ -105,15 +105,20 @@
+      * @param Zend_Db_Adapter_Abstract $adapter
+      * @param mixed $sql Either a string or Zend_Db_Select.
+      */
+-    public function __construct($adapter, $sql)
++    public function __construct($adapter, $sql, $stmt = null)
+     {
+         $this->_adapter = $adapter;
+         if ($sql instanceof Zend_Db_Select) {
+             $sql = $sql->assemble();
+         }
+-        $this->_parseParameters($sql);
+-        $this->_prepare($sql);
+ 
++        if (null !== $stmt) {
++            $this->_stmt = $stmt;
++        } else {
++            $this->_parseParameters($sql);
++            $this->_prepare($sql);
++        }
++
+         $this->_queryId = $this->_adapter->getProfiler()->queryStart($sql);
+     }
+ 

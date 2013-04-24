@@ -1,0 +1,159 @@
+<h2>ZF-11426: Improve PluginLoader performance when using FileCache</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-06-01T17:19:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-01T18:45:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>With plugin heavy applications Zend_Loader::isReadable is called a lot even when using FileCache. The cause can be found in the fact that the PluginLoader load function checks if a file is readable for every class that not exists even if the class file for the requested plugin has been loaded with the plugin FileCache.
+For example when requesting the HeadTitle plugin.
+Once the plugin file cache has been primed an include_once 'Zend/View/Helper/HeadTitle.php'; entry can be found. 
+But on the next requests the load function will first check if the class View_Helper_HeadTitle exists, it does not and the load function looks for a file in the application path, it can not be found. After that it checks for the class Zend_View_Helper_HeadTitle this one exists and the load function is left early.</p>
+
+<p>A possible solution is to check all the class prefixes for the requested plugin before checking the harddrive.
+Applying this solution I found a ~10% performance increase for a page with a lot of form elements and decorators.</p>
+
+<p>Here is the changed load function of Zend_Loader_PluginLoader</p>
+
+<pre class="highlight"><code>
+/**
+     * Load a plugin via the name provided
+     *
+     * @param  string $name
+     * @param  bool $throwExceptions Whether or not to throw exceptions if the
+     * class is not resolved
+     * @return string|false Class name of loaded class; false if $throwExceptions
+     * if false and no class found
+     * @throws Zend_Loader_Exception if class not found
+     */
+    public function load($name, $throwExceptions = true)
+    {
+        $name = $this-&gt;_formatName($name);
+        if ($this-&gt;isLoaded($name)) {       
+            return $this-&gt;getClassName($name);
+        }
+
+        if ($this-&gt;_useStaticRegistry) {
+            $registry = self::$_staticPrefixToPaths[$this-&gt;_useStaticRegistry];
+        } else {
+            $registry = $this-&gt;_prefixToPaths;
+        }
+
+        $registry  = array_reverse($registry, true);
+        $found     = false;
+        $classFile = str_replace('_', DIRECTORY_SEPARATOR, $name) . '.php';
+        $incFile   = self::getIncludeFileCache();
+        
+        foreach ($registry as $prefix =&gt; $paths) {
+            $className = $prefix . $name;        
+            if (class_exists($className, false)) {            
+                $found = true;
+                break;
+            }
+        }
+        
+        if(!$found) { 
+            foreach ($registry as $prefix =&gt; $paths) {
+                $className = $prefix . $name;           
+    
+                $paths     = array_reverse($paths, true);
+                
+                foreach ($paths as $path) {            
+                    $loadFile = $path . $classFile;                 
+                    if (Zend_Loader::isReadable($loadFile)) {                   
+                        include_once $loadFile;
+                        if (class_exists($className, false)) {
+                            if (null !== $incFile) {
+                                self::_appendIncFile($loadFile);
+                            }
+                            $found = true;
+                            break 2;
+                        }
+                    }
+                    
+                }
+            }
+        }
+
+        if (!$found) {
+            if (!$throwExceptions) {
+                return false;
+            }
+            $message = "Plugin by name '$name' was not found in the registry; used paths:";
+            foreach ($registry as $prefix =&gt; $paths) {
+                $message .= "\n$prefix: " . implode(PATH_SEPARATOR, $paths);
+            }
+            // require_once 'Zend/Loader/PluginLoader/Exception.php';
+            throw new Zend_Loader_PluginLoader_Exception($message);
+       }
+
+        if ($this-&gt;_useStaticRegistry) {
+            self::$_staticLoadedPlugins[$this-&gt;_useStaticRegistry][$name]     = $className;
+        } else {
+            $this-&gt;_loadedPlugins[$name]     = $className;
+        }       
+        return $className;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Aleksey 'Xerkus' Khudyakov (xerkus) on 2011-06-01T18:45:37.000+0000</p> 
+        <div class="body">
+            <p>Foo/Path/Plugin.php
+Bar/Path/Plugin.php</p>
+
+<pre class="highlight"><code>
+$loader-&gt;addPrefixPath('Foo_Path', 'Foo/Path/')
+       -&gt;addPrefixPath('Bar_Path','Bar/Path');
+include_once('Foo/Path/Plugin.php');
+$loader-&gt;load('Plugin'); //Foo_Path_Plugin while it should be Bar_Path_Plugin 
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

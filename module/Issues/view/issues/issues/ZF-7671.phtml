@@ -1,0 +1,239 @@
+<h2>ZF-7671: Add 'background posting' functionallity to Zend_Dojo_Form</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-24T05:17:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Dojo</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is a simple patch to allow background posting from dojo forms.
+Usage like this:</p>
+
+<p>{{$this-&gt;postOnBackground = true;
+$this-&gt;postOnBackgroundOptions['successHandler'] = "console.log(data);"; }}</p>
+
+<p>The patch can be found on <a href="http://dirkdokter.nl/ZF_Dojo_Form_patch1.txt">http://dirkdokter.nl/ZF_Dojo_Form_patch1.txt</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-08-24T06:56:30.000+0000</p> 
+        <div class="body">
+            <p>This would be better to do as a decorator, actually (and this is the approach I've taken in the past).</p>
+
+<p>Such a decorator looks like this:</p>
+
+<pre class="highlight"><code>
+class My_Dojo_Decorator_FormCallback extends Zend_Form_Decorator_Abstract
+{
+    public function render($content)
+    {
+        $form = $this-&gt;getElement();
+        if (!$form instanceof Zend_Dojo_Form) {
+            return $content;
+        }
+
+        $successHandler = $this-&gt;getOption('successHandler');
+        $errorHandler   = $this-&gt;getOption('errorHandler');
+
+        if (empty($successHandler)) {
+            return $content;
+        }
+
+        $script = $this-&gt;_renderHandler($successHandler, $errorHandler);
+
+        $separator = $this-&gt;getSeparator();
+        switch ($this-&gt;getPlacement()) {
+            case 'PREPEND':
+                return $script . $separator . $content;
+            case 'APPEND':
+            default:
+                return $content . $separator . $script;
+        }
+    }
+
+    protected function _renderHandler($successHandler, $errorHandler)
+    {
+        $args = array(
+            'form'     =&gt; 'this.domNode',
+            'handleAs' =&gt; 'text',
+            'load'     =&gt; $successHandler,
+        );
+        if (!empty($errorHandler)) {
+            $args['error'] = $errorHandler;
+        }
+        $xhrArgs = Zend_Json::encode($args);
+
+        $content =&lt;&lt;
+if (this.validate()) {
+    dojo.xhrPost($xhrArgs);
+}
+return false;
+
+EOQ;
+        return $content;
+    }
+}
+</code></pre>
+
+<p>Once in place, you would attach it to your form as follows:</p>
+
+<pre class="highlight"><code>
+$form-&gt;addPrefixPath('My_Dojo_Decorator', 'My/Dojo/Decorator', 'decorator');
+$form-&gt;setDecorators(array(
+    'FormElements',
+    array('HtmlTag', array('tag' =&gt; 'dl', 'class' =&gt; 'zend_form_dojo')),
+    array('FormCallback', array(
+        'successHandler' =&gt; 'formSuccess',
+        'errorHandler'   =&gt; 'my.formErrors',
+    ),
+    'DijitForm',
+));
+</code></pre>
+
+<p>This has the benefit of being use-at-will, as well as allowing developers to override it.</p>
+
+<p>I'd be happy to add a decorator like this to the standard library; any additional functionality you can think of that it might need?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dirk Dokter (dirkdokter) on 2009-08-24T10:04:27.000+0000</p> 
+        <div class="body">
+            <p>Thanks for your comments, your approach looks much better.
+I had a few more suggestions for the decorator:</p>
+
+<pre class="highlight"><code>
+class Zend_Dojo_AjaxForm extends Zend_Form_Decorator_Abstract
+{
+    private $possibleXhrArgs = array ('load','error','handle','headers','timeout','sync');
+    public function render($content)
+    {
+        $form = $this-&gt;getElement();
+        if (!$form instanceof Zend_Dojo_Form) {
+            return $content;
+        }
+
+        if (!$this-&gt;getOption('load')) {   /// why is this here? Just to make sure that one always specifies a 'successHandler'?
+            return $content;
+        }
+        
+        //xhrPost will fail if no action is set, so we set it to . if it is not specified
+        if (!$form-&gt;getAction()) {
+            $form-&gt;setAction('.');
+        } 
+
+        $xhrPostArgs = array ( );
+        // only keep valid xhrPost options
+        foreach($this-&gt;getOptions() as $key =&gt; $value) {
+            if (in_array($key,$this-&gt;possibleXhrArgs)) {
+                $xhrPostArgs[$key] = $value;
+            }
+        }
+        
+        $script = $this-&gt;_renderHandler($xhrPostArgs);
+
+        $separator = $this-&gt;getSeparator();
+        switch ($this-&gt;getPlacement()) {
+            case 'PREPEND':
+                return $script . $separator . $content;
+            case 'APPEND':
+            default:
+                return $content . $separator . $script;
+        }
+    }
+
+    protected function _renderHandler($userArgs)
+    {
+        $standardArgs = array(
+            'form'     =&gt; new Zend_Json_Expr('this.domNode'),
+            'handleAs' =&gt; 'text',
+        );
+        
+        if (is_array($userArgs))  {
+            $args = array_merge($standardArgs,$userArgs);
+        }
+        else {
+            $args = $standardArgs;
+        }
+        $xhrArgs = Zend_Json::encode($args,false,array('enableJsonExprFinder' =&gt; true));
+
+        $content =&lt;&lt;
+if (this.validate()) {
+    dojo.xhrPost($xhrArgs);
+}
+return false;
+
+EOQ;
+        return $content;
+    }
+}
+</code></pre>
+
+<p>When users specify a function (e.g. for 'load' or for 'error'), they have to use ??Zend_Json_Expr?? to prevent the quotes around the JS functions. So setting the ??load?? function would go like this:</p>
+
+<pre class="highlight"><code>
+$form-&gt;setDecorators(array(
+    'FormElements',
+    array('HtmlTag', array('tag' =&gt; 'dl', 'class' =&gt; 'zend_form_dojo')),
+    array('AjaxForm', array(
+        'load' =&gt; new Zend_Json_Expr('alert("form submitted!")')
+    )),
+    'DijitForm'
+));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:22.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

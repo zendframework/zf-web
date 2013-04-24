@@ -1,0 +1,176 @@
+<h2>ZF-7894: Installation of PHPUnit 3.4.0 makes the zf --help command exit with Fatal PHP errors</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-19T04:31:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-22T01:41:53.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.6 (24/Nov/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Tool</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12247/7894.diff">7894.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>After having installed the latest/new PHPUnit version 3.4.0 via Pear issuing the zf --help command exits with following PHP Fatal errors.</p>
+
+<p>$ zf --help
+PHP Fatal error:  Cannot redeclare class phpunit_framework_testsuite_dataprovider in /opt/local/lib/php/PHPUnit/Framework/TestSuite/DataProvider.php on line 65
+PHP Stack trace:
+PHP   1. {main}() /opt/local/bin/zf.php:0
+PHP   2. Zend_Tool_Framework_Client_Console::main() /opt/local/bin/zf.php:77
+PHP   3. Zend_Tool_Framework_Client_Abstract-&gt;dispatch() /opt/local/lib/php/Zend/Tool/Framework/Client/Console.php:96
+PHP   4. Zend_Tool_Framework_Client_Abstract-&gt;initialize() /opt/local/lib/php/Zend/Tool/Framework/Client/Abstract.php:209
+PHP   5. Zend_Tool_Framework_Loader_Abstract-&gt;load() /opt/local/lib/php/Zend/Tool/Framework/Client/Abstract.php:118
+PHP   6. include_once() /opt/local/lib/php/Zend/Tool/Framework/Loader/Abstract.php:90</p>
+
+<p>Fatal error: Cannot redeclare class phpunit_framework_testsuite_dataprovider in /opt/local/lib/php/PHPUnit/Framework/TestSuite/DataProvider.php on line 65</p>
+
+<p>Call Stack:
+    0.0005     643208   1. {main}() /opt/local/bin/zf.php:0
+    0.0071    1452848   2. Zend_Tool_Framework_Client_Console::main() /opt/local/bin/zf.php:77
+    0.0071    1454344   3. Zend_Tool_Framework_Client_Abstract-&gt;dispatch() /opt/local/lib/php/Zend/Tool/Framework/Client/Console.php:96
+    0.0071    1454344   4. Zend_Tool_Framework_Client_Abstract-&gt;initialize() /opt/local/lib/php/Zend/Tool/Framework/Client/Abstract.php:209
+    0.0102    1706760   5. Zend_Tool_Framework_Loader_Abstract-&gt;load() /opt/local/lib/php/Zend/Tool/Framework/Client/Abstract.php:118
+    0.3996    2317528   6. include_once('/opt/local/lib/php/PHPUnit/Framework/TestSuite/DataProvider.php') /opt/local/lib/php/Zend/Tool/Framework/Loader/Abstract.php:90</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-09-19T08:53:43.000+0000</p> 
+        <div class="body">
+            <p>this just means that you have phpunit in your include path twice.</p>
+
+<p>@ralph:</p>
+
+<p>wouldn't it make sense to extend the include loader to block equal paths relative from the different include paths?</p>
+
+<pre class="highlight"><code>
+/path/a/
+/path/b/
+</code></pre>
+
+<p>now:</p>
+
+<pre class="highlight"><code>
+/path/a/Foo/Bar/Baz.php
+</code></pre>
+
+<p>disallows the inclusion of another file:</p>
+
+<pre class="highlight"><code>
+/path/b/Foo/bar/Baz.php
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Raphael Stolt (raphael.stolt) on 2009-09-22T15:42:55.000+0000</p> 
+        <div class="body">
+            <p>The problem is that $filterAcceptFilePattern    = '.*(?:Manifest|Provider).php$'; on line 60 in Zend_Tool_Framework_Loader_IncludePathLoader lets slip the /opt/local/lib/php/PHPUnit/Framework/TestSuite/DataProvider.php through, as it has Provider in the class file name, and therefore adds it twice to the list of classes to include. I temporarly fixed it by filtering out the one item that has PHPUnit/Framework in it (see attached patch 7894.diff).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-09-23T00:24:48.000+0000</p> 
+        <div class="body">
+            <p>@Ralphschindler I may have a possible fix for the symlink || file in include path twice problem.</p>
+
+<p>How about the _getFiles() maintains an array of visited files in a reverse tree like schema relative to the include path:</p>
+
+<p>Zend/OpenId/Provider.php would become</p>
+
+<pre class="highlight"><code>
+$visited = array(
+    'Provider' =&gt; array('OpenId' =&gt; array('Zend')),
+);
+</code></pre>
+
+<p>when adding a potential new hit one could then do:</p>
+
+<pre class="highlight"><code>
+$fileParts = explode(DIRECTORY_SEPARATOR, str_replace($currentIncludePath, "", $file));
+$alreadyVisited = true;
+$currentLeaf = $visited;
+while(count($fileParts)) {
+    $item = array_pop($fileParts);
+    if(!isset($currentLeaf[$item]) || !is_array($currentLeaf[$item])) {
+       $alreadyVisited = false;
+       break;
+    } elseif(!in_array($item, $currentLeaf)) {
+        $alreadyVisited = false;
+    }
+    $currentLeaf = $currentLeaf[$item];
+}
+if($alreadyVisited == false) {
+   // add to $visited
+   // add to $files
+}
+</code></pre>
+
+<p>Edit: Fixed the code</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Goran Juric (gog) on 2009-10-11T02:17:24.000+0000</p> 
+        <div class="body">
+            <p>Just want to confirm that the patch provided by Raphael Stolt is working.</p>
+
+<p>I had the same issue trying to run "zf show version"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-11-20T14:09:40.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk and merged into 1.9 release branch, this hack will not be necessary for 1.10 anymore since the IncludePathLoader will be removed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-11-22T01:41:52.000+0000</p> 
+        <div class="body">
+            <p>I set fix version</p>
+
+        </div>
+    </div>
+    </div>
+

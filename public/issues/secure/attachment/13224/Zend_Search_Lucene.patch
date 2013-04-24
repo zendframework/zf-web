@@ -1,0 +1,879 @@
+### Eclipse Workspace Patch 1.0
+#P ZF-STD-TRUNK
+Index: library/Zend/Search/Lucene/Index/Term.php
+===================================================================
+--- library/Zend/Search/Lucene/Index/Term.php	(revision 22652)
++++ library/Zend/Search/Lucene/Index/Term.php	(working copy)
+@@ -69,7 +69,7 @@
+      */
+     public function key()
+     {
+-        return $this->field . chr(0) . $this->text;
++        return $this->field . "\0" . $this->text;
+     }
+ 
+     /**
+Index: library/Zend/Search/Lucene/Search/Query/Boolean.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/Query/Boolean.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/Query/Boolean.php	(working copy)
+@@ -168,11 +168,10 @@
+         foreach ($subqueries as $id => $subquery) {
+             if ($subquery instanceof Zend_Search_Lucene_Search_Query_Insignificant) {
+                 // Insignificant subquery has to be removed anyway
+-                unset($subqueries[$id]);
+-                unset($signs[$id]);
++                unset($subqueries[$id], $signs[$id]);
+             }
+         }
+-        if (count($subqueries) == 0) {
++        if (!$subqueries) {
+             // Boolean query doesn't has non-insignificant subqueries
+             require_once 'Zend/Search/Lucene/Search/Query/Insignificant.php';
+             return new Zend_Search_Lucene_Search_Query_Insignificant();
+@@ -201,14 +200,13 @@
+                 } else {
+                     // Matching is optional or prohibited, but is empty
+                     // Remove it from subqueries and signs list
+-                    unset($subqueries[$id]);
+-                    unset($signs[$id]);
++                    unset($subqueries[$id], $signs[$id]);
+                 }
+             }
+         }
+ 
+         // Check, if reduced subqueries list is empty
+-        if (count($subqueries) == 0) {
++        if (!$subqueries) {
+             require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
+             return new Zend_Search_Lucene_Search_Query_Empty();
+         }
+@@ -260,8 +258,7 @@
+                 $boostFactors[] = $subquery->getBoost();
+ 
+                 // remove subquery from a subqueries list
+-                unset($subqueries[$id]);
+-                unset($signs[$id]);
++                unset($subqueries[$id], $signs[$id]);
+            } else if ($subquery instanceof Zend_Search_Lucene_Search_Query_MultiTerm) {
+                 $subTerms = $subquery->getTerms();
+                 $subSigns = $subquery->getSigns();
+@@ -302,8 +299,7 @@
+                     }
+ 
+                     // remove subquery from a subqueries list
+-                    unset($subqueries[$id]);
+-                    unset($signs[$id]);
++                    unset($subqueries[$id], $signs[$id]);
+ 
+                 } else { // $signs[$id] === null  ||  $signs[$id] === false
+                     // It's an optional or prohibited multi-term subquery.
+@@ -341,22 +337,21 @@
+                     }
+ 
+                     // remove subquery from a subqueries list
+-                    unset($subqueries[$id]);
+-                    unset($signs[$id]);
++                    unset($subqueries[$id], $signs[$id]);
+                 }
+             }
+         }
+ 
+ 
+         // Check, if there are no decomposed subqueries
+-        if (count($terms) == 0 ) {
++        if (!$terms) {
+             // return prepared candidate
+             return $optimizedQuery;
+         }
+ 
+ 
+         // Check, if all subqueries have been decomposed and all terms has the same boost factor
+-        if (count($subqueries) == 0  &&  count(array_unique($boostFactors)) == 1) {
++        if (!$subqueries && count(array_unique($boostFactors)) == 1) {
+             require_once 'Zend/Search/Lucene/Search/Query/MultiTerm.php';
+             $optimizedQuery = new Zend_Search_Lucene_Search_Query_MultiTerm($terms, $tsigns);
+             $optimizedQuery->setBoost(reset($boostFactors)*$this->getBoost());
+@@ -369,14 +364,12 @@
+         // several subqueries
+ 
+         // Separate prohibited terms
+-        $prohibitedTerms        = array();
++        $prohibitedTerms = array();
+         foreach ($terms as $id => $term) {
+             if ($tsigns[$id] === false) {
+-                $prohibitedTerms[]        = $term;
++                $prohibitedTerms[] = $term;
+ 
+-                unset($terms[$id]);
+-                unset($tsigns[$id]);
+-                unset($boostFactors[$id]);
++                unset($terms[$id], $tsigns[$id], $boostFactors[$id]);
+             }
+         }
+ 
+@@ -433,7 +426,7 @@
+ 
+         // Check, that all terms are processed
+         // Replace candidate for optimized query
+-        if (count($terms) == 0  &&  count($prohibitedTerms) == 0) {
++        if (!$terms && !$prohibitedTerms) {
+             $optimizedQuery = new Zend_Search_Lucene_Search_Query_Boolean($subqueries, $signs);
+             $optimizedQuery->setBoost($this->getBoost());
+         }
+@@ -485,7 +478,7 @@
+     {
+         $this->_resVector = null;
+ 
+-        if (count($this->_subqueries) == 0) {
++        if (!$this->_subqueries) {
+             $this->_resVector = array();
+         }
+ 
+@@ -520,7 +513,7 @@
+                 $this->_resVector = $updatedVector;
+             }
+ 
+-            if (count($this->_resVector) == 0) {
++            if (!$this->_resVector) {
+                 // Empty result set, we don't need to check other terms
+                 break;
+             }
+@@ -547,7 +540,7 @@
+             if ($this->_signs[$subqueryId] === true) {
+                 // required
+                 $requiredVectors[]      = $subquery->matchedDocs();
+-                $requiredVectorsSizes[] = count(end($requiredVectors));
++                $requiredVectorsSizes[] = count($requiredVectors);
+                 $requiredVectorsIds[]   = $subqueryId;
+             } elseif ($this->_signs[$subqueryId] === false) {
+                 // prohibited
+@@ -585,7 +578,7 @@
+                 $required = $updatedVector;
+             }
+ 
+-            if (count($required) == 0) {
++            if (!$required) {
+                 // Empty result set, we don't need to check other terms
+                 break;
+             }
+@@ -661,17 +654,18 @@
+         foreach ($this->_subqueries as $subqueryId => $subquery) {
+             $subscore = $subquery->score($docId, $reader);
+ 
+-            // Prohibited
+-            if ($this->_signs[$subqueryId] === false && $subscore != 0) {
+-                return 0;
+-            }
++            if ($subscore != 0) {
+ 
+-            // is required, but doen't match
+-            if ($this->_signs[$subqueryId] === true &&  $subscore == 0) {
+-                return 0;
+-            }
++                // Prohibited
++                if ($this->_signs[$subqueryId] === false) {
++                    return 0;
++                }
+ 
+-            if ($subscore != 0) {
++                // is required, but doen't match
++                if ($this->_signs[$subqueryId] === true) {
++                    return 0;
++                }
++
+                 $matchedSubqueries++;
+                 $score += $subscore;
+             }
+Index: library/Zend/Search/Lucene/Search/Query/Preprocessing/Phrase.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/Query/Preprocessing/Phrase.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/Query/Preprocessing/Phrase.php	(working copy)
+@@ -173,7 +173,7 @@
+         require_once 'Zend/Search/Lucene/Analysis/Analyzer.php';
+         $tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($this->_phrase, $this->_phraseEncoding);
+ 
+-        if (count($tokens) == 0) {
++        if (!$tokens) {
+             $this->_matches = array();
+             require_once 'Zend/Search/Lucene/Search/Query/Insignificant.php';
+             return new Zend_Search_Lucene_Search_Query_Insignificant();
+@@ -223,7 +223,7 @@
+         require_once 'Zend/Search/Lucene/Analysis/Analyzer.php';
+         $tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($this->_phrase, $this->_phraseEncoding);
+ 
+-        if (count($tokens) == 0) {
++        if (!$tokens) {
+             // Do nothing
+             return;
+         }
+Index: library/Zend/Search/Lucene/FSM.php
+===================================================================
+--- library/Zend/Search/Lucene/FSM.php	(revision 22652)
++++ library/Zend/Search/Lucene/FSM.php	(working copy)
+@@ -432,7 +432,7 @@
+ 
+     public function reset()
+     {
+-        if (count($this->_states) == 0) {
++        if (!$this->_states) {
+             require_once 'Zend/Search/Exception.php';
+             throw new Zend_Search_Exception('There is no any state defined for FSM.');
+         }
+Index: library/Zend/Search/Lucene/Index/SegmentInfo.php
+===================================================================
+--- library/Zend/Search/Lucene/Index/SegmentInfo.php	(revision 22652)
++++ library/Zend/Search/Lucene/Index/SegmentInfo.php	(working copy)
+@@ -54,6 +54,13 @@
+     const FULL_SCAN_VS_FETCH_BOUNDARY = 5;
+ 
+     /**
++     * if the ext/bitset loaded
++     *
++     * @var null|boolean
++     */
++    private static $_extBitsetLoaded = null;
++
++    /**
+      * Number of docs in a segment
+      *
+      * @var integer
+@@ -222,6 +229,10 @@
+      */
+     public function __construct(Zend_Search_Lucene_Storage_Directory $directory, $name, $docCount, $delGen = 0, $docStoreOptions = null, $hasSingleNormFile = false, $isCompound = null)
+     {
++        if (self::$_extBitsetLoaded === null) {
++            self::$_extBitsetLoaded = extension_loaded('bitset');
++        }
++
+         $this->_directory = $directory;
+         $this->_name      = $name;
+         $this->_docCount  = $docCount;
+@@ -384,7 +395,7 @@
+                 $delBytes = $delFile->readBytes($byteCount);
+             }
+ 
+-            if (extension_loaded('bitset')) {
++            if (self::$_extBitsetLoaded) {
+                 return $delBytes;
+             } else {
+                 $deletions = array();
+@@ -424,7 +435,7 @@
+         $format = $delFile->readInt();
+ 
+         if ($format == (int)0xFFFFFFFF) {
+-            if (extension_loaded('bitset')) {
++            if (self::$_extBitsetLoaded) {
+                 $deletions = bitset_empty();
+             } else {
+                 $deletions = array();
+@@ -443,7 +454,7 @@
+                 $byteNum += $dgap;
+ 
+ 
+-                if (extension_loaded('bitset')) {
++                if (self::$_extBitsetLoaded) {
+                     for ($bit = 0; $bit < 8; $bit++) {
+                         if ($nonZeroByte & (1<<$bit)) {
+                             bitset_incl($deletions, $byteNum*8 + $bit);
+@@ -471,7 +482,7 @@
+                 $delBytes = $delFile->readBytes($byteCount);
+             }
+ 
+-            if (extension_loaded('bitset')) {
++            if (self::$_extBitsetLoaded) {
+                 return $delBytes;
+             } else {
+                 $deletions = array();
+@@ -700,7 +711,7 @@
+             return 0;
+         }
+ 
+-        if (extension_loaded('bitset')) {
++        if (self::$_extBitsetLoaded) {
+             return count(bitset_to_array($this->_deleted));
+         } else {
+             return count($this->_deleted);
+@@ -970,7 +981,7 @@
+                 $filter = &$docsFilter->segmentFilters[$this->_name];
+ 
+                 // Check if filter is not empty
+-                if (count($filter) == 0) {
++                if (!$filter) {
+                     return array();
+                 }
+ 
+@@ -1093,7 +1104,7 @@
+                 $filter = &$docsFilter->segmentFilters[$this->_name];
+ 
+                 // Check if filter is not empty
+-                if (count($filter) == 0) {
++                if (!$filter) {
+                     return array();
+                 }
+ 
+@@ -1218,7 +1229,7 @@
+                 $filter = &$docsFilter->segmentFilters[$this->_name];
+ 
+                 // Check if filter is not empty
+-                if (count($filter) == 0) {
++                if (!$filter) {
+                     return array();
+                 }
+ 
+@@ -1479,7 +1490,7 @@
+     {
+         $this->_deletedDirty = true;
+ 
+-        if (extension_loaded('bitset')) {
++        if (self::$_extBitsetLoaded) {
+             if ($this->_deleted === null) {
+                 $this->_deleted = bitset_empty($id);
+             }
+@@ -1505,7 +1516,7 @@
+             return false;
+         }
+ 
+-        if (extension_loaded('bitset')) {
++        if (self::$_extBitsetLoaded) {
+             return bitset_in($this->_deleted, $id);
+         } else {
+             return isset($this->_deleted[$id]);
+@@ -1534,7 +1545,7 @@
+             }
+         }
+ 
+-        if (count($delFileList) == 0) {
++        if (!$delFileList) {
+             // There is no deletions file for current segment in the directory
+             // Set deletions file generation number to 1
+             return -1;
+@@ -1584,19 +1595,19 @@
+ 
+             $latestDelete = $this->_loadDelFile();
+ 
+-            if (extension_loaded('bitset')) {
++            if (self::$_extBitsetLoaded) {
+                 $this->_deleted = bitset_union($this->_deleted, $latestDelete);
+             } else {
+                 $this->_deleted += $latestDelete;
+             }
+         }
+ 
+-        if (extension_loaded('bitset')) {
++        if (self::$_extBitsetLoaded) {
+             $delBytes = $this->_deleted;
+             $bitCount = count(bitset_to_array($delBytes));
+         } else {
+             $byteCount = floor($this->_docCount/8)+1;
+-            $delBytes = str_repeat(chr(0), $byteCount);
++            $delBytes = str_repeat("\0", $byteCount);
+             for ($count = 0; $count < $byteCount; $count++) {
+                 $byte = 0;
+                 for ($bit = 0; $bit < 8; $bit++) {
+@@ -1772,14 +1783,15 @@
+          *   $startId (default value is 0)
+          *   $mode (default value is self::SM_TERMS_ONLY)
+          */
+-        $argList = func_get_args();
+-        if (count($argList) > 2) {
++        $argList    = func_get_args();
++        $argListCnt = count($argList);
++        if ($argListCnt > 2) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Wrong number of arguments');
+-        } else if (count($argList) == 2) {
++        } else if ($argListCnt == 2) {
+             $startId = $argList[0];
+             $mode    = $argList[1];
+-        } else if (count($argList) == 1) {
++        } else if ($argListCnt == 1) {
+             $startId = $argList[0];
+             $mode    = self::SM_TERMS_ONLY;
+         } else {
+Index: library/Zend/Search/Lucene/Search/QueryToken.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/QueryToken.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/QueryToken.php	(working copy)
+@@ -129,16 +129,12 @@
+ 
+         switch ($tokenCategory) {
+             case self::TC_WORD:
+-                if (  strtolower($tokenText) == 'and') {
+-                    $this->type = self::TT_AND_LEXEME;
+-                } else if (strtolower($tokenText) == 'or') {
+-                    $this->type = self::TT_OR_LEXEME;
+-                } else if (strtolower($tokenText) == 'not') {
+-                    $this->type = self::TT_NOT_LEXEME;
+-                } else if (strtolower($tokenText) == 'to') {
+-                    $this->type = self::TT_TO_LEXEME;
+-                } else {
+-                    $this->type = self::TT_WORD;
++                switch ( strtolower($tokenText) ) {
++                    case 'and': $this->type = self::TT_AND_LEXEME; break;
++                    case 'or':  $this->type = self::TT_OR_LEXEME;  break;
++                    case 'not': $this->type = self::TT_NOT_LEXEME; break;
++                    case 'to':  $this->type = self::TT_TO_LEXEME;  break;
++                    default:    $this->type = self::TT_WORD;
+                 }
+                 break;
+ 
+Index: library/Zend/Search/Lucene/PriorityQueue.php
+===================================================================
+--- library/Zend/Search/Lucene/PriorityQueue.php	(revision 22652)
++++ library/Zend/Search/Lucene/PriorityQueue.php	(working copy)
+@@ -88,7 +88,7 @@
+      */
+     public function top()
+     {
+-        if (count($this->_heap) == 0) {
++        if (!$this->_heap) {
+             return null;
+         }
+ 
+@@ -105,7 +105,7 @@
+      */
+     public function pop()
+     {
+-        if (count($this->_heap) == 0) {
++        if (!$this->_heap) {
+             return null;
+         }
+ 
+Index: library/Zend/Search/Lucene/Index/SegmentMerger.php
+===================================================================
+--- library/Zend/Search/Lucene/Index/SegmentMerger.php	(revision 22652)
++++ library/Zend/Search/Lucene/Index/SegmentMerger.php	(working copy)
+@@ -180,7 +180,7 @@
+         foreach ($this->_segmentInfos as $segName => $segmentInfo) {
+             $fdtFile = $segmentInfo->openCompoundFile('.fdt');
+ 
+-            for ($count = 0; $count < $segmentInfo->count(); $count++) {
++            for ($count = 0, $max = $segmentInfo->count(); $count < $max; $count++) {
+                 $fieldCount = $fdtFile->readVInt();
+                 $storedFields = array();
+ 
+Index: library/Zend/Search/Lucene/Storage/File/Filesystem.php
+===================================================================
+--- library/Zend/Search/Lucene/Storage/File/Filesystem.php	(revision 22652)
++++ library/Zend/Search/Lucene/Storage/File/Filesystem.php	(working copy)
+@@ -48,26 +48,18 @@
+      */
+     public function __construct($filename, $mode='r+b')
+     {
+-        global $php_errormsg;
+-
+         if (strpos($mode, 'w') === false  &&  !is_readable($filename)) {
+             // opening for reading non-readable file
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('File \'' . $filename . '\' is not readable.');
+         }
+ 
+-        $trackErrors = ini_get('track_errors');
+-        ini_set('track_errors', '1');
+-
+         $this->_fileHandle = @fopen($filename, $mode);
+-
+         if ($this->_fileHandle === false) {
+-            ini_set('track_errors', $trackErrors);
++            $lastErr = error_get_last();
+             require_once 'Zend/Search/Lucene/Exception.php';
+-            throw new Zend_Search_Lucene_Exception($php_errormsg);
++            throw new Zend_Search_Lucene_Exception($lastErr['message']);
+         }
+-
+-        ini_set('track_errors', $trackErrors);
+     }
+ 
+     /**
+@@ -137,7 +129,7 @@
+         $position = ftell($this->_fileHandle);
+         fseek($this->_fileHandle, 0, SEEK_END);
+         $size = ftell($this->_fileHandle);
+-        fseek($this->_fileHandle,$position);
++        fseek($this->_fileHandle, $position);
+ 
+         return $size;
+     }
+Index: library/Zend/Search/Lucene/MultiSearcher.php
+===================================================================
+--- library/Zend/Search/Lucene/MultiSearcher.php	(revision 22652)
++++ library/Zend/Search/Lucene/MultiSearcher.php	(working copy)
+@@ -228,7 +228,7 @@
+      */
+     public static function getDefaultSearchField()
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Indices list is empty');
+         }
+@@ -269,7 +269,7 @@
+      */
+     public static function getResultSetLimit()
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Indices list is empty');
+         }
+@@ -299,7 +299,7 @@
+      */
+     public function getMaxBufferedDocs()
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Indices list is empty');
+         }
+@@ -348,7 +348,7 @@
+      */
+     public function getMaxMergeDocs()
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Indices list is empty');
+         }
+@@ -404,7 +404,7 @@
+      */
+     public function getMergeFactor()
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Indices list is empty');
+         }
+@@ -456,7 +456,7 @@
+      */
+     public function find($query)
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             return array();
+         }
+ 
+@@ -698,7 +698,7 @@
+      */
+     public function getSimilarity()
+     {
+-        if (count($this->_indices) == 0) {
++        if (!$this->_indices) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('Indices list is empty');
+         }
+Index: library/Zend/Search/Lucene/Search/Query/MultiTerm.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/Query/MultiTerm.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/Query/MultiTerm.php	(working copy)
+@@ -162,7 +162,7 @@
+      */
+     public function rewrite(Zend_Search_Lucene_Interface $index)
+     {
+-        if (count($this->_terms) == 0) {
++        if (!$this->_terms) {
+             require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
+             return new Zend_Search_Lucene_Search_Query_Empty();
+         }
+@@ -216,8 +216,7 @@
+                 } else {
+                     // Term is optional or prohibited
+                     // Remove it from terms and signs list
+-                    unset($terms[$id]);
+-                    unset($signs[$id]);
++                    unset($terms[$id], $signs[$id]);
+                 }
+             }
+         }
+@@ -239,6 +238,11 @@
+             return new Zend_Search_Lucene_Search_Query_Empty();
+         }
+ 
++        if (!$terms) {
++            require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
++            return new Zend_Search_Lucene_Search_Query_Empty();
++        }
++
+         /**
+          * @todo make an optimization for repeated terms
+          * (they may have different signs)
+@@ -255,11 +259,6 @@
+             return $optimizedQuery;
+         }
+ 
+-        if (count($terms) == 0) {
+-            require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
+-            return new Zend_Search_Lucene_Search_Query_Empty();
+-        }
+-
+         $optimizedQuery = new Zend_Search_Lucene_Search_Query_MultiTerm($terms, $signs);
+         $optimizedQuery->setBoost($this->getBoost());
+         return $optimizedQuery;
+@@ -324,7 +323,7 @@
+     {
+         $this->_resVector = null;
+ 
+-        if (count($this->_terms) == 0) {
++        if (!$this->_terms) {
+             $this->_resVector = array();
+         }
+ 
+@@ -417,7 +416,7 @@
+                 $required = $updatedVector;
+             }
+ 
+-            if (count($required) == 0) {
++            if (!$required) {
+                 // Empty result set, we don't need to check other terms
+                 break;
+             }
+@@ -429,7 +428,7 @@
+             $this->_resVector = $optional;
+         }
+ 
+-        if (count($prohibited) != 0) {
++        if ($prohibited) {
+             // $this->_resVector = array_diff_key($this->_resVector, $prohibited);
+ 
+             /**
+Index: library/Zend/Search/Lucene/Storage/Directory/Filesystem.php
+===================================================================
+--- library/Zend/Search/Lucene/Storage/Directory/Filesystem.php	(revision 22652)
++++ library/Zend/Search/Lucene/Storage/Directory/Filesystem.php	(working copy)
+@@ -80,32 +80,7 @@
+         self::$_defaultFilePermissions = $mode;
+     }
+ 
+-
+     /**
+-     * Utility function to recursive directory creation
+-     *
+-     * @param string $dir
+-     * @param integer $mode
+-     * @param boolean $recursive
+-     * @return boolean
+-     */
+-
+-    public static function mkdirs($dir, $mode = 0777, $recursive = true)
+-    {
+-        if (($dir === null) || $dir === '') {
+-            return false;
+-        }
+-        if (is_dir($dir) || $dir === '/') {
+-            return true;
+-        }
+-        if (self::mkdirs(dirname($dir), $mode, $recursive)) {
+-            return mkdir($dir, $mode);
+-        }
+-        return false;
+-    }
+-
+-
+-    /**
+      * Object constructor
+      * Checks if $path is a directory or tries to create it.
+      *
+@@ -119,9 +94,10 @@
+                 require_once 'Zend/Search/Lucene/Exception.php';
+                 throw new Zend_Search_Lucene_Exception('Path exists, but it\'s not a directory');
+             } else {
+-                if (!self::mkdirs($path)) {
++                if (!@mkdir($path, 0777, true)) {
++                    $lastErr = error_get_last();
+                     require_once 'Zend/Search/Lucene/Exception.php';
+-                    throw new Zend_Search_Lucene_Exception("Can't create directory '$path'.");
++                    throw new Zend_Search_Lucene_Exception("Can't create directory '$path': {$lastErr['message']}");
+                 }
+             }
+         }
+@@ -205,14 +181,11 @@
+         }
+         unset($this->_fileHandlers[$filename]);
+ 
+-        global $php_errormsg;
+-        $trackErrors = ini_get('track_errors'); ini_set('track_errors', '1');
+         if (!@unlink($this->_dirPath . '/' . $filename)) {
+-            ini_set('track_errors', $trackErrors);
++            $lastErr = error_get_last();
+             require_once 'Zend/Search/Lucene/Exception.php';
+-            throw new Zend_Search_Lucene_Exception('Can\'t delete file: ' . $php_errormsg);
++            throw new Zend_Search_Lucene_Exception('Can\'t delete file: ' . $lastErr['message']);
+         }
+-        ini_set('track_errors', $trackErrors);
+     }
+ 
+     /**
+@@ -282,8 +255,6 @@
+      */
+     public function renameFile($from, $to)
+     {
+-        global $php_errormsg;
+-
+         if (isset($this->_fileHandlers[$from])) {
+             $this->_fileHandlers[$from]->close();
+         }
+@@ -294,25 +265,21 @@
+         }
+         unset($this->_fileHandlers[$to]);
+ 
+-        if (file_exists($this->_dirPath . '/' . $to)) {
+-            if (!unlink($this->_dirPath . '/' . $to)) {
++        if (!@unlink($this->_dirPath . '/' . $to)) {
++            if (file_exists($this->_dirPath . '/' . $to)) {
++                $lastErr = error_get_last();
+                 require_once 'Zend/Search/Lucene/Exception.php';
+-                throw new Zend_Search_Lucene_Exception('Delete operation failed');
++                throw new Zend_Search_Lucene_Exception('Delete operation failed: ' . $lastErr['message']);
+             }
+         }
+ 
+-        $trackErrors = ini_get('track_errors');
+-        ini_set('track_errors', '1');
+-
+         $success = @rename($this->_dirPath . '/' . $from, $this->_dirPath . '/' . $to);
+         if (!$success) {
+-            ini_set('track_errors', $trackErrors);
++            $lastErr = error_get_last();
+             require_once 'Zend/Search/Lucene/Exception.php';
+-            throw new Zend_Search_Lucene_Exception($php_errormsg);
++            throw new Zend_Search_Lucene_Exception($lastErr['message']);
+         }
+ 
+-        ini_set('track_errors', $trackErrors);
+-
+         return $success;
+     }
+ 
+Index: library/Zend/Search/Lucene/Search/Query/Phrase.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/Query/Phrase.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/Query/Phrase.php	(working copy)
+@@ -163,7 +163,7 @@
+      * @param integer $position
+      */
+     public function addTerm(Zend_Search_Lucene_Index_Term $term, $position = null) {
+-        if ((count($this->_terms) != 0)&&(end($this->_terms)->field != $term->field)) {
++        if ($this->_terms && (end($this->_terms)->field != $term->field)) {
+             require_once 'Zend/Search/Lucene/Exception.php';
+             throw new Zend_Search_Lucene_Exception('All phrase terms must be in the same field: ' .
+                                                    $term->field . ':' . $term->text);
+@@ -188,7 +188,7 @@
+      */
+     public function rewrite(Zend_Search_Lucene_Interface $index)
+     {
+-        if (count($this->_terms) == 0) {
++        if (!$this->_terms) {
+             require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
+             return new Zend_Search_Lucene_Search_Query_Empty();
+         } else if ($this->_terms[0]->field !== null) {
+@@ -241,7 +241,7 @@
+             return $optimizedQuery;
+         }
+ 
+-        if (count($this->_terms) == 0) {
++        if (!$this->_terms) {
+             require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
+             return new Zend_Search_Lucene_Search_Query_Empty();
+         }
+@@ -419,7 +419,7 @@
+     {
+         $this->_resVector = null;
+ 
+-        if (count($this->_terms) == 0) {
++        if (!$this->_terms) {
+             $this->_resVector = array();
+         }
+ 
+@@ -428,7 +428,7 @@
+         $resVectorsIds   = array(); // is used to prevent arrays comparison
+         foreach ($this->_terms as $termId => $term) {
+             $resVectors[]      = array_flip($reader->termDocs($term));
+-            $resVectorsSizes[] = count(end($resVectors));
++            $resVectorsSizes[] = count($resVectors);
+             $resVectorsIds[]   = $termId;
+ 
+             $this->_termsPositions[$termId] = $reader->termPositions($term);
+@@ -456,7 +456,7 @@
+                 $this->_resVector = $updatedVector;
+             }
+ 
+-            if (count($this->_resVector) == 0) {
++            if (!$this->_resVector) {
+                 // Empty result set, we don't need to check other terms
+                 break;
+             }
+Index: library/Zend/Search/Lucene.php
+===================================================================
+--- library/Zend/Search/Lucene.php	(revision 22652)
++++ library/Zend/Search/Lucene.php	(working copy)
+@@ -966,7 +966,7 @@
+             }
+         }
+ 
+-        if (count($hits) == 0) {
++        if (!$hits) {
+             // skip sorting, which may cause a error on empty index
+             return array();
+         }
+@@ -1195,7 +1195,7 @@
+             $segmentStartDocId += $segmentInfo->count();
+         }
+ 
+-        if (count($subResults) == 0) {
++        if (!$subResults) {
+             return array();
+         } else if (count($subResults) == 1) {
+             // Index is optimized (only one segment)
+@@ -1229,7 +1229,7 @@
+             $segmentStartDocId += $segmentInfo->count();
+         }
+ 
+-        if (count($subResults) == 0) {
++        if (!$subResults) {
+             return array();
+         } else if (count($subResults) == 1) {
+             // Index is optimized (only one segment)
+Index: library/Zend/Search/Lucene/Search/Query/Fuzzy.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/Query/Fuzzy.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/Query/Fuzzy.php	(working copy)
+@@ -297,7 +297,7 @@
+             $index->closeTermsStream();
+         }
+ 
+-        if (count($this->_matches) == 0) {
++        if (!$this->_matches) {
+             require_once 'Zend/Search/Lucene/Search/Query/Empty.php';
+             return new Zend_Search_Lucene_Search_Query_Empty();
+         } else if (count($this->_matches) == 1) {
+Index: library/Zend/Search/Lucene/Search/Query/Preprocessing/Term.php
+===================================================================
+--- library/Zend/Search/Lucene/Search/Query/Preprocessing/Term.php	(revision 22652)
++++ library/Zend/Search/Lucene/Search/Query/Preprocessing/Term.php	(working copy)
+@@ -111,7 +111,7 @@
+                 }
+             }
+ 
+-            if (count($query->getTerms()) == 0) {
++            if (!$query->getTerms()) {
+                 $this->_matches = array();
+                 if ($hasInsignificantSubqueries) {
+                     require_once 'Zend/Search/Lucene/Search/Query/Insignificant.php';
+@@ -199,7 +199,7 @@
+         require_once 'Zend/Search/Lucene/Analysis/Analyzer.php';
+         $tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($this->_word, $this->_encoding);
+ 
+-        if (count($tokens) == 0) {
++        if (!$tokens) {
+             $this->_matches = array();
+             require_once 'Zend/Search/Lucene/Search/Query/Insignificant.php';
+             return new Zend_Search_Lucene_Search_Query_Insignificant();
+@@ -298,7 +298,7 @@
+         require_once 'Zend/Search/Lucene/Analysis/Analyzer.php';
+         $tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($this->_word, $this->_encoding);
+ 
+-        if (count($tokens) == 0) {
++        if (!$tokens) {
+             // Do nothing
+             return;
+         }

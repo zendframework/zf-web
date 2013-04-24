@@ -1,0 +1,162 @@
+<h2>ZF-3565: Zend_Cache_Backend_File fails to set directory permissions when hashed_directory_level &gt; 1</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-07-03T04:08:29.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:25.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Environment:</p>
+
+<p>OS: Fedora Core release 6 (Zod)
+PHP: 5.1.6</p>
+
+<p>Initial cache params:</p>
+
+<p>$backendOptions parameter hashed_directory_level is set to be grater than 1 and hashed_directory_umask is set to 0777 (so that every user can read/write to the cache structure)</p>
+
+<p>Problem:</p>
+
+<p>Because hash directory is created by giving mkdir and chmod the full path:</p>
+
+<pre><code>            mkdir($this-&gt;_path($id), $this-&gt;_options['hashed_directory_umask'], true);
+            chmod($this-&gt;_path($id), $this-&gt;_options['hashed_directory_umask']); // see #ZF-320 (this line is required in some configurations)      
+</code></pre>
+
+<p>sometimes only the last directory within the path has the permission set correctly - all directories "in between" may have incorrect permissions set.</p>
+
+<p>Example:</p>
+
+<pre><code>    $frontendOptions = array(
+       'lifetime' =&gt; 3600,
+       'automatic_serialization' =&gt; true,
+       'automatic_cleaning_factor' =&gt; 0
+    );
+
+    $backendOptions = array(
+        'cache_dir' =&gt; '/tmp/leksyka_cache/',
+        'read_control' =&gt; false,
+        'read_control_type' =&gt; 'adler32',
+        'hashed_directory_level' =&gt; 2,
+        'cache_file_umask' =&gt; 0666,
+        'hashed_directory_umask' =&gt; 0777,
+        'file_name_prefix' =&gt; 'leksyka',
+        'file_locking' =&gt; true
+    );
+
+    // getting a Zend_Cache_Core object
+    $this-&gt;_cache = Zend_Cache::factory('Core', 'File', $frontendOptions, $backendOptions);
+
+    $this-&gt;_cache-&gt;save($data, $id, array() , 1000);
+</code></pre>
+
+<p>this creates a file:</p>
+
+<p>/tmp/leksyka_cache/leksyka--f/leksyka--fa/leksyka---3f60fa1d8efca5d578a309a20999f1b6</p>
+
+<p>with /tmp/leksyka_cache/leksyka--f  permissions set to (0775/drwxrwxr-x)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by ChieftainY2k (chieftainy2k) on 2008-07-03T05:47:17.000+0000</p> 
+        <div class="body">
+            <p>Here is proposal for the patch:</p>
+
+<pre><code>    if ($this-&gt;_options['hashed_directory_level'] &gt; 0) {
+        if (!is_writable($path)) {
+            // maybe, we just have to build the directory structure
+
+            // commented out: $res = @mkdir($path, $this-&gt;_options['hashed_directory_umask'], true);
+            // commented out: @chmod($path, $this-&gt;_options['hashed_directory_umask']); // see #ZF-320 (this line is required in some configurations)      
+
+            //we crawl up the directory tree and check for missing directory nodes
+            $pathCrawl = ($path[0]==DIRECTORY_SEPARATOR) ? DIRECTORY_SEPARATOR : ".";
+            $pathParts = explode(DIRECTORY_SEPARATOR,trim($path,DIRECTORY_SEPARATOR));
+            foreach($pathParts as &amp;$part)
+            {
+                $pathCrawl .= ( $pathCrawl !=DIRECTORY_SEPARATOR ? DIRECTORY_SEPARATOR : "" ) . $part;
+                if (!is_dir($pathCrawl))
+                {
+                    $res = @mkdir($pathCrawl, $this-&gt;_options['hashed_directory_umask'], true);
+                    if ($res) @chmod($pathCrawl, $this-&gt;_options['hashed_directory_umask']);
+                };
+            };
+        }
+        if (!is_writable($path)) {
+            return false;    
+        }
+    }  
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-07-05T05:50:16.000+0000</p> 
+        <div class="body">
+            <p>you are right</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-07-28T13:08:17.000+0000</p> 
+        <div class="body">
+            <p>I just commited into SVN trunk a fix for this (in a different way), it seems to be ok for me</p>
+
+<p>please reopen this issue if there is still a problem</p>
+
+<p>thanks for the good report</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:25.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

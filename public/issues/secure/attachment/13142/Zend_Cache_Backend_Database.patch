@@ -1,0 +1,844 @@
+diff -u -rN ZendFramework-1.10.4/library/Zend/Cache/Backend/Database.php ZendFramework-1.10.4.mine/library/Zend/Cache/Backend/Database.php
+--- ZendFramework-1.10.4/library/Zend/Cache/Backend/Database.php	1970-01-01 01:00:00.000000000 +0100
++++ ZendFramework-1.10.4.mine/library/Zend/Cache/Backend/Database.php	2010-06-18 09:52:53.312018870 +0100
+@@ -0,0 +1,662 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Cache
++ * @subpackage Zend_Cache_Backend
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++
++/**
++ * @see Zend_Cache_Backend_Interface
++ */
++require_once 'Zend/Cache/Backend/ExtendedInterface.php';
++
++/**
++ * @see Zend_Cache_Backend
++ */
++require_once 'Zend/Cache/Backend.php';
++
++/**
++ * @package    Zend_Cache
++ * @subpackage Zend_Cache_Backend
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Cache_Backend_Database extends Zend_Cache_Backend implements Zend_Cache_Backend_ExtendedInterface
++{
++    const DB_SCHEMA_VERSION = 1;
++
++    /**
++     * Available options
++     *
++     * =====> (Zend_Db_Adapter_Abstract) adapter :
++     * - the database adapter
++     *
++     * @var array Available options
++     */
++    protected $_options = array(
++        'adapter' => null,
++    );
++
++    /**
++     * DB ressource
++     *
++     * @var Zend_Db_Adapter_Abstract
++     */
++    private $_db = null;
++
++    /**
++     * Boolean to store if the structure has benn checked or not
++     *
++     * @var boolean $_structureChecked
++     */
++    private $_structureChecked = false;
++
++    /**
++     * Various prepared statements for fast processing
++     *
++     * @var Zend_Db_Statement_Interface
++     */
++    private $_stmtLoadValidity = null;
++    private $_stmtLoadNoValidity = null;
++    private $_stmtTest = null;
++    private $_stmtRemove = null;
++    private $_stmtRemoveTags = null;
++    private $_stmtSave = null;
++    private $_stmtMatchingTag = null;
++    private $_stmtNotMatchingTag = null;
++    private $_stmtTagRemove = null;
++    private $_stmtTagAdd = null;
++
++    /**
++     * Constructor
++     *
++     * @param  array $options Associative array of options
++     * @throws Zend_cache_Exception
++     * @return void
++     */
++    public function __construct(array $options = array())
++    {
++        parent::__construct($options);
++        if ($this->_options['adapter'] === null || !($this->_options['adapter'] instanceof Zend_Db_Adapter_Abstract)) {
++            Zend_Cache::throwException('adapter option has to set and be a Zend_Db_Adapter_Abstract object');
++        }
++        $this->_db = $this->_options['adapter'];
++    }
++
++    /**
++     * Test if a cache is available for the given id and (if yes) return it (false else)
++     *
++     * @param  string  $id                     Cache id
++     * @param  boolean $doNotTestCacheValidity If set to true, the cache validity won't be tested
++     * @return string|false Cached datas
++     */
++    public function load($id, $doNotTestCacheValidity = false)
++    {
++        $this->_checkAndBuildStructure();
++        $stmt = null;
++        $params = array(':id' => $id);
++        if ($doNotTestCacheValidity) {
++            if (null === $this->_stmtLoadNoValidity)
++                $this->_stmtLoadNoValidity = $this->_db->prepare('SELECT content FROM cache WHERE id=:id');
++            $stmt =& $this->_stmtLoadNoValidity;
++        } else {
++            if (null === $this->_stmtLoadValidity)
++                $this->_stmtLoadValidity = $this->_db->prepare('SELECT content FROM cache WHERE id=:id AND (expire=0 OR expire>:now)');
++            $stmt =& $this->_stmtLoadValidity;
++            $params[':now'] = time();
++        }
++
++        if ($stmt->execute($params))
++            return $stmt->fetchColumn();
++
++        return false;
++    }
++
++    /**
++     * Test if a cache is available or not (for the given id)
++     *
++     * @param string $id Cache id
++     * @return mixed|false (a cache is not available) or "last modified" timestamp (int) of the available cache record
++     */
++    public function test($id)
++    {
++        $this->_checkAndBuildStructure();
++        if (null === $this->_stmtTest)
++            $this->_stmtTest = $this->_db->prepare('SELECT lastModified FROM cache WHERE id=:id AND (expire=0 OR expire>:now)');
++
++        if ($this->_stmtTest->execute(array(':id'=>$id, ':now'=>time()))) {
++            $rv = $this->_stmtTest->fetchColumn();
++            if (false !== $rv)
++                return (int)$rv;
++        }
++        return false;
++    }
++
++    /**
++     * Internal function to remove a cache item
++     *
++     * @param  string $id The id to remove
++     * @return boolean True if no problem and an item was deleted
++     */
++    protected function _remove($id)
++    {
++        if (null === $this->_stmtRemove)
++            $this->_stmtRemove = $this->_db->prepare('DELETE FROM cache WHERE id=:id');
++        if (null === $this->_stmtRemoveTags)
++            $this->_stmtRemoveTags = $this->_db->prepare('DELETE FROM tag WHERE id=:id');
++
++        $params = array(':id' => $id);
++        $rv1 = $this->_stmtRemove->execute($params);
++        $rv2 = $this->_stmtRemoveTags->execute($params);
++        return ($rv1 && $rv2 && $this->_stmtRemove->rowCount() > 0);
++    }
++
++    /**
++     * Save some string datas into a cache record
++     *
++     * Note : $data is always "string" (serialization is done by the
++     * core not by the backend)
++     *
++     * @param  string $data             Datas to cache
++     * @param  string $id               Cache id
++     * @param  array  $tags             Array of strings, the cache record will be tagged by each string entry
++     * @param  int    $specificLifetime If != false, set a specific lifetime for this cache record (null => infinite lifetime)
++     * @throws Zend_Cache_Exception
++     * @return boolean True if no problem
++     */
++    public function save($data, $id, $tags = array(), $specificLifetime = false)
++    {
++        $this->_checkAndBuildStructure();
++        if (null === $this->_stmtSave)
++            $this->_stmtSave = $this->_db->prepare('INSERT INTO cache (id, content, lastModified, expire) VALUES (:id, :content, :lastModified, :expire)');
++
++        $this->_remove($id);
++
++        $now = time();
++        $lifetime = $this->getLifetime($specificLifetime);
++        $params = array(
++            ':id' => $id,
++            ':content' => $data,
++            ':lastModified' => $now,
++            ':expire' => (null === $lifetime ? 0 : $now+$lifetime),
++        );
++
++        if (!$this->_stmtSave->execute($params)) {
++            $this->_log("Zend_Cache_Backend_Database::save() : impossible to store the cache id=$id");
++            return false;
++        }
++        $res = true;
++        foreach ($tags as $tag) {
++            $res = $this->_registerTag($id, $tag) && $res;
++        }
++        return $res;
++    }
++
++    /**
++     * Remove a cache record
++     *
++     * @param  string $id Cache id
++     * @return boolean True if no problem and an item was deleted
++     */
++    public function remove($id)
++    {
++        $this->_checkAndBuildStructure();
++        return $this->_remove($id);
++    }
++
++    /**
++     * Clean some cache records
++     *
++     * Available modes are :
++     * Zend_Cache::CLEANING_MODE_ALL (default)    => remove all cache entries ($tags is not used)
++     * Zend_Cache::CLEANING_MODE_OLD              => remove too old cache entries ($tags is not used)
++     * Zend_Cache::CLEANING_MODE_MATCHING_TAG     => remove cache entries matching all given tags
++     *                                               ($tags can be an array of strings or a single string)
++     * Zend_Cache::CLEANING_MODE_NOT_MATCHING_TAG => remove cache entries not {matching one of the given tags}
++     *                                               ($tags can be an array of strings or a single string)
++     * Zend_Cache::CLEANING_MODE_MATCHING_ANY_TAG => remove cache entries matching any given tags
++     *                                               ($tags can be an array of strings or a single string)
++     *
++     * @param  string $mode Clean mode
++     * @param  array  $tags Array of tags
++     * @return boolean True if no problem
++     */
++    public function clean($mode = Zend_Cache::CLEANING_MODE_ALL, $tags = array())
++    {
++        $this->_checkAndBuildStructure();
++        return $this->_clean($mode, $tags);
++    }
++
++    /**
++     * Return an array of stored cache ids
++     *
++     * @return array array of stored cache ids (string)
++     */
++    public function getIds()
++    {
++        $this->_checkAndBuildStructure();
++        return (array)$this->_db->fetchCol('SELECT id FROM cache WHERE (expire=0 OR expire>?)', time());
++    }
++
++    /**
++     * Return an array of stored tags
++     *
++     * @return array array of stored tags (string)
++     */
++    public function getTags()
++    {
++        $this->_checkAndBuildStructure();
++        return (array)$this->_db->fetchCol('SELECT DISTINCT(name) AS name FROM tag');
++    }
++
++    /**
++     * Return an array of stored cache ids which match given tags
++     *
++     * In case of multiple tags, a logical AND is made between tags
++     *
++     * @param array $tags array of tags
++     * @return array array of matching cache ids (string)
++     */
++    public function getIdsMatchingTags($tags = array())
++    {
++        if (empty($tags))
++            return array();
++
++        $this->_checkAndBuildStructure();
++        if (null === $this->_stmtMatchingTag)
++            $this->_stmtMatchingTag = $this->_db->prepare('SELECT DISTINCT(id) AS id FROM tag WHERE name=:tag');
++
++        $ids = array();
++        $first = true;
++        foreach ($tags as $tag) {
++            $ids2 = array();
++            if ($this->_stmtMatchingTag->execute(array(':tag' => $tag)))
++                $ids2 = $this->_stmtMatchingTag->fetchAll(Zend_Db::FETCH_COLUMN);
++
++            if (empty($ids2))
++                return array();
++
++            if ($first) {
++                $ids = $ids2;
++                $first = false;
++            } else {
++                $ids = array_intersect($ids, $ids2);
++            }
++        }
++        return $ids;
++    }
++
++    /**
++     * Return an array of stored cache ids which don't match given tags
++     *
++     * In case of multiple tags, a logical OR is made between tags
++     *
++     * @param array $tags array of tags
++     * @return array array of not matching cache ids (string)
++     */
++    public function getIdsNotMatchingTags($tags = array())
++    {
++        $this->_checkAndBuildStructure();
++
++        if (null === $this->_stmtNotMatchingTag)
++            $this->_stmtNotMatchingTag = $this->_db->prepare('SELECT COUNT(*) AS nbr FROM tag WHERE name=:tag AND id=:id');
++
++        $rows = (array)$this->_db->fetchCol('SELECT id FROM cache');
++        $ids = array();
++        foreach ($rows as $id) {
++            $matching = false;
++            foreach ($tags as $tag) {
++                $nbr = 0;
++                if ($this->_stmtNotMatchingTag->execute(array(':tag' => $tag, ':id' => $id)))
++                  $nbr = (int)$this->_stmtNotMatchingTag->fetchColumn();
++
++                if ($nbr > 0) {
++                    $matching = true;
++                    break;
++                }
++            }
++            if (!$matching) {
++                $ids[] = $id;
++            }
++        }
++        return $ids;
++    }
++
++    /**
++     * Return an array of stored cache ids which match any given tags
++     *
++     * In case of multiple tags, a logical AND is made between tags
++     *
++     * @param array $tags array of tags
++     * @return array array of any matching cache ids (string)
++     */
++    public function getIdsMatchingAnyTags($tags = array())
++    {
++        if (empty($tags))
++            return array();
++
++        $this->_checkAndBuildStructure();
++        if (null === $this->_stmtMatchingTag)
++            $this->_stmtMatchingTag = $this->_db->prepare('SELECT DISTINCT(id) AS id FROM tag WHERE name=:tag');
++
++        $ids = array();
++        $first = true;
++        foreach ($tags as $tag) {
++            $ids2 = array();
++            if ($this->_stmtMatchingTag->execute(array(':tag' => $tag)))
++                $ids2 = $this->_stmtMatchingTag->fetchAll(Zend_Db::FETCH_COLUMN);
++
++            if (empty($ids2))
++                continue;
++
++            if ($first) {
++                $ids = $ids2;
++                $first = false;
++            } else {
++                $ids = array_unique(array_merge($ids, $ids2));
++            }
++        }
++        return $ids;
++    }
++
++    /**
++     * Return the filling percentage of the backend storage
++     *
++     * @throws Zend_Cache_Exception
++     * @return int integer between 0 and 100
++     */
++    public function getFillingPercentage()
++    {
++        $dir = dirname(__FILE__); // FIX ME
++        $free = disk_free_space($dir);
++        $total = disk_total_space($dir);
++        if ($total == 0) {
++            Zend_Cache::throwException('can\'t get disk_total_space');
++        } else {
++            if ($free >= $total) {
++                return 100;
++            }
++            return ((int) (100. * ($total - $free) / $total));
++        }
++    }
++
++    /**
++     * Return an array of metadatas for the given cache id
++     *
++     * The array must include these keys :
++     * - expire : the expire timestamp
++     * - tags : a string array of tags
++     * - mtime : timestamp of last modification time
++     *
++     * @param string $id cache id
++     * @return array array of metadatas (false if the cache id is not found)
++     */
++    public function getMetadatas($id)
++    {
++        $this->_checkAndBuildStructure();
++        $row = $this->_db->fetchRow('SELECT lastModified, expire FROM cache WHERE id=?', $id);
++        if (empty($row))
++            return false;
++
++        return array(
++            'tags' => (array)$this->_db->fetchCol('SELECT name FROM tag WHERE id=?', $id),
++            'mtime' => (int)$row['lastModified'],
++            'expire' => (int)$row['expire']
++        );
++    }
++
++    /**
++     * Give (if possible) an extra lifetime to the given cache id
++     *
++     * @param string $id cache id
++     * @param int $extraLifetime
++     * @return boolean true if ok
++     */
++    public function touch($id, $extraLifetime)
++    {
++        $this->_checkAndBuildStructure();
++        $expire = $this->_db->fetchOne('SELECT expire FROM cache WHERE id=? AND (expire=0 OR expire>?)', array($id, time()));
++        if (false === $expire)
++            return false;
++
++        $updates = array('lastModified' => time());
++
++        // inf + anything = inf....
++        if (!empty($expire))
++          $updates['expire'] = (int)$expire + $extraLifetime;
++
++        $this->_db->update('cache', $updates, array('id='.$this->_db->quote($id)));
++        return true;
++    }
++
++    /**
++     * Return an associative array of capabilities (booleans) of the backend
++     *
++     * The array must include these keys :
++     * - automatic_cleaning (is automating cleaning necessary)
++     * - tags (are tags supported)
++     * - expired_read (is it possible to read expired cache records
++     *                 (for doNotTestCacheValidity option for example))
++     * - priority does the backend deal with priority when saving
++     * - infinite_lifetime (is infinite lifetime can work with this backend)
++     * - get_list (is it possible to get the list of cache ids and the complete list of tags)
++     *
++     * @return array associative of with capabilities
++     */
++    public function getCapabilities()
++    {
++        return array(
++            'automatic_cleaning' => true,
++            'tags' => true,
++            'expired_read' => true,
++            'priority' => false,
++            'infinite_lifetime' => true,
++            'get_list' => true
++        );
++    }
++
++    /**
++     * PUBLIC METHOD FOR UNIT TESTING ONLY !
++     *
++     * Force a cache record to expire
++     *
++     * @param string $id Cache id
++     */
++    public function ___expire($id)
++    {
++        $past = time() - 1;
++        $this->_db->update(
++            'cache',
++            array(
++                'lastModified' => $past,
++                'expire' => $past,
++            ),
++            array(
++              'id='.$this->_db->quote($id),
++            )
++        );
++    }
++
++    /**
++     * Register a cache id with the given tag
++     *
++     * @param  string $id  Cache id
++     * @param  string $tag Tag
++     * @return boolean True if no problem
++     */
++    private function _registerTag($id, $tag) {
++        if (null === $this->_stmtTagRemove)
++            $this->_stmtTagRemove = $this->_db->prepare('DELETE FROM tag WHERE name=:name AND id=:id');
++        if (null === $this->_stmtTagAdd)
++            $this->_stmtTagAdd = $this->_db->prepare('INSERT INTO tag (name, id) VALUES(:name, :id)');
++
++        $params = array('name' => $tag, 'id' => $id);
++        if (!$this->_stmtTagRemove->execute($params) || !$this->_stmtTagAdd->execute($params)) {
++            $this->_log("Zend_Cache_Backend_Database::_registerTag() : impossible to register tag='$tag' on id='$id'");
++            return false;
++        }
++        return true;
++    }
++
++
++    /**
++     * Internal helper function to try a query but ignore any errors
++     *
++     * @param  string $sql The query to run
++     */
++    private function _queryIgnore($sql)
++    {
++        try {
++            $this->_db->query($sql);
++        } catch (Zend_Db_Exception $e) {
++        } catch (PDOException $e) {
++            // PDOExceptions can leak here.... :s
++        }
++    }
++
++    /**
++     * Build the database structure
++     *
++     * @return false
++     */
++    private function _buildStructure()
++    {
++        $this->_queryIgnore('DROP INDEX tag_id_index');
++        $this->_queryIgnore('DROP INDEX tag_name_index');
++        $this->_queryIgnore('DROP INDEX cache_id_expire_index');
++        $this->_queryIgnore('DROP TABLE version');
++        $this->_queryIgnore('DROP TABLE cache');
++        $this->_queryIgnore('DROP TABLE tag');
++        $this->_db->query('CREATE TABLE version (num INTEGER PRIMARY KEY)');
++        $this->_db->query('CREATE TABLE cache (id TEXT PRIMARY KEY, content BLOB, lastModified INTEGER, expire INTEGER)');
++        $this->_db->query('CREATE TABLE tag (name TEXT, id TEXT)');
++        $this->_db->query('CREATE INDEX tag_id_index ON tag(id)');
++        $this->_db->query('CREATE INDEX tag_name_index ON tag(name)');
++        $this->_db->query('CREATE INDEX cache_id_expire_index ON cache(id, expire)');
++        $this->_db->query('INSERT INTO version (num) VALUES ('.$this->_db->quote(self::DB_SCHEMA_VERSION).')');
++    }
++
++    /**
++     * Check if the database structure is ok (with the good version)
++     *
++     * @return boolean True if ok
++     */
++    private function _checkStructureVersion()
++    {
++        $version = 0;
++        try {
++            $version = (int)$this->_db->fetchOne('SELECT num FROM version');
++        } catch (Zend_Db_Exception $e) {
++            return false;
++        }
++
++        if ($version != self::DB_SCHEMA_VERSION) {
++            // old cache structure
++            $this->_log('Zend_Cache_Backend_Database::_checkStructureVersion() : old cache structure version detected => the cache is going to be dropped');
++            return false;
++        }
++        return true;
++    }
++
++    /**
++     * Clean some cache records
++     *
++     * Available modes are :
++     * Zend_Cache::CLEANING_MODE_ALL (default)    => remove all cache entries ($tags is not used)
++     * Zend_Cache::CLEANING_MODE_OLD              => remove too old cache entries ($tags is not used)
++     * Zend_Cache::CLEANING_MODE_MATCHING_TAG     => remove cache entries matching all given tags
++     *                                               ($tags can be an array of strings or a single string)
++     * Zend_Cache::CLEANING_MODE_NOT_MATCHING_TAG => remove cache entries not {matching one of the given tags}
++     *                                               ($tags can be an array of strings or a single string)
++     * Zend_Cache::CLEANING_MODE_MATCHING_ANY_TAG => remove cache entries matching any given tags
++     *                                               ($tags can be an array of strings or a single string)
++     *
++     * @param  string $mode Clean mode
++     * @param  array  $tags Array of tags
++     * @return boolean True if no problem
++     */
++    private function _clean($mode = Zend_Cache::CLEANING_MODE_ALL, $tags = array())
++    {
++        switch ($mode) {
++            case Zend_Cache::CLEANING_MODE_ALL:
++                $res1 = $this->_db->delete('cache');
++                $res2 = $this->_db->delete('tag');
++                return $res1 && $res2;
++                break;
++            case Zend_Cache::CLEANING_MODE_OLD:
++                $now = time();
++                $res1 = $this->_db
++                    ->prepare('DELETE FROM tag WHERE id IN (SELECT id FROM cache WHERE expire>0 AND expire<=:now)')
++                    ->execute(array(':now'=>$now));
++                $res2 = $this->_db
++                    ->prepare('DELETE FROM cache WHERE expire>0 AND expire<=:now')
++                    ->execute(array(':now'=>$now));
++                return $res1 && $res2;
++                break;
++            case Zend_Cache::CLEANING_MODE_MATCHING_TAG:
++                $ids = $this->getIdsMatchingTags($tags);
++                $result = true;
++                foreach ($ids as $id) {
++                    $result = $this->remove($id) && $result;
++                }
++                return $result;
++                break;
++            case Zend_Cache::CLEANING_MODE_NOT_MATCHING_TAG:
++                $ids = $this->getIdsNotMatchingTags($tags);
++                $result = true;
++                foreach ($ids as $id) {
++                    $result = $this->remove($id) && $result;
++                }
++                return $result;
++                break;
++            case Zend_Cache::CLEANING_MODE_MATCHING_ANY_TAG:
++                $ids = $this->getIdsMatchingAnyTags($tags);
++                $result = true;
++                foreach ($ids as $id) {
++                    $result = $this->remove($id) && $result;
++                }
++                return $result;
++                break;
++            default:
++                break;
++        }
++        return false;
++    }
++
++    /**
++     * Check if the database structure is ok (with the good version), if no : build it
++     *
++     * @throws Zend_Cache_Exception
++     * @return boolean True if ok
++     */
++    private function _checkAndBuildStructure()
++    {
++        if (!($this->_structureChecked)) {
++            if (!$this->_checkStructureVersion()) {
++                $this->_buildStructure();
++                if (!$this->_checkStructureVersion()) {
++                    Zend_Cache::throwException("Impossible to build cache structure in with the " . get_class($this->_db) . " database adapter.");
++                }
++            }
++            $this->_structureChecked = true;
++        }
++        return true;
++    }
++
++}
+diff -u -rN ZendFramework-1.10.4/tests/TestConfiguration.php.dist ZendFramework-1.10.4.mine/tests/TestConfiguration.php.dist
+--- ZendFramework-1.10.4/tests/TestConfiguration.php.dist	2010-01-24 14:41:44.000000000 +0000
++++ ZendFramework-1.10.4.mine/tests/TestConfiguration.php.dist	2010-06-18 12:09:40.950018038 +0100
+@@ -57,12 +57,14 @@
+ /**
+  * Zend_Cache
+  *
++ * TESTS_ZEND_CACHE_DATABASE_ENABLED  => pdo-sqlite support has to be enabled
+  * TESTS_ZEND_CACHE_SQLITE_ENABLED    => sqlite extension has to be enabled
+  * TESTS_ZEND_CACHE_APC_ENABLED       => apc extension has to be enabled
+  * TESTS_ZEND_CACHE_MEMCACHED_ENABLED => memcache extension has to be enabled and
+  *                                       a memcached server has to be available
+  * TESTS_ZEND_CACHE_XCACHE_ENABLED    => xcache extension has to be enabled
+  */
++define('TESTS_ZEND_CACHE_DATABASE_ENABLED', true);
+ define('TESTS_ZEND_CACHE_SQLITE_ENABLED', false);
+ define('TESTS_ZEND_CACHE_APC_ENABLED', false);
+ define('TESTS_ZEND_CACHE_XCACHE_ENABLED', true);
+diff -u -rN ZendFramework-1.10.4/tests/Zend/Cache/AllTests.php ZendFramework-1.10.4.mine/tests/Zend/Cache/AllTests.php
+--- ZendFramework-1.10.4/tests/Zend/Cache/AllTests.php	2010-04-19 18:54:09.000000000 +0100
++++ ZendFramework-1.10.4.mine/tests/Zend/Cache/AllTests.php	2010-06-18 09:04:48.620267089 +0100
+@@ -29,6 +29,7 @@
+ require_once 'Zend/Cache/ApcBackendTest.php';
+ require_once 'Zend/Cache/ClassFrontendTest.php';
+ require_once 'Zend/Cache/CoreTest.php';
++require_once 'Zend/Cache/DatabaseBackendTest.php';
+ require_once 'Zend/Cache/FactoryTest.php';
+ require_once 'Zend/Cache/FileBackendTest.php';
+ require_once 'Zend/Cache/FileFrontendTest.php';
+@@ -76,6 +77,22 @@
+         $suite->addTestSuite('Zend_Cache_PageFrontendTest');
+ 
+         /*
++         * Check if Database tests are enabled, and if extension and driver are available.
++         */
++        if (!defined('TESTS_ZEND_CACHE_DATABASE_ENABLED') ||
++            constant('TESTS_ZEND_CACHE_DATABASE_ENABLED') === false) {
++            $skipTest = new Zend_Cache_DatabaseBackendTest_SkipTests();
++            $skipTest->message = 'Tests are not enabled in TestConfiguration.php';
++            $suite->addTest($skipTest);
++        } else if (!extension_loaded('pdo')) {
++            $skipTest = new Zend_Cache_DatabaseBackendTest_SkipTests();
++            $skipTest->message = "Extension 'pdo' is not loaded";
++            $suite->addTest($skipTest);
++        } else {
++            $suite->addTestSuite('Zend_Cache_DatabaseBackendTest');
++        }
++
++        /*
+          * Check if SQLite tests are enabled, and if extension and driver are available.
+          */
+         if (!defined('TESTS_ZEND_CACHE_SQLITE_ENABLED') ||
+diff -u -rN ZendFramework-1.10.4/tests/Zend/Cache/DatabaseBackendTest.php ZendFramework-1.10.4.mine/tests/Zend/Cache/DatabaseBackendTest.php
+--- ZendFramework-1.10.4/tests/Zend/Cache/DatabaseBackendTest.php	1970-01-01 01:00:00.000000000 +0100
++++ ZendFramework-1.10.4.mine/tests/Zend/Cache/DatabaseBackendTest.php	2010-06-18 09:43:06.478267718 +0100
+@@ -0,0 +1,100 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Cache
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * Zend_Cache
++ */
++require_once 'Zend/Cache.php';
++require_once 'Zend/Cache/Backend/Database.php';
++
++/**
++ * Common tests for backends
++ */
++require_once 'CommonExtendedBackendTest.php';
++
++/**
++ * PHPUnit test case
++ */
++require_once 'PHPUnit/Framework/TestCase.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Cache
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Cache
++ */
++class Zend_Cache_DatabaseBackendTest extends Zend_Cache_CommonExtendedBackendTest {
++
++    protected $_instance;
++    private $_cache_dir;
++    private $_db;
++
++    public function __construct($name = null, array $data = array(), $dataName = '')
++    {
++        parent::__construct('Zend_Cache_Backend_Database', $data, $dataName);
++    }
++
++    public function setUp($notag = false)
++    {
++        @mkdir($this->getTmpDir());
++
++        $this->_cache_dir = $this->getTmpDir() . DIRECTORY_SEPARATOR;
++        $params = array(
++          'dbname' => $this->_cache_dir . 'cache.db',
++        );
++        $this->_db = Zend_Db::factory('Pdo_Sqlite', $params);
++
++        $this->_instance = new Zend_Cache_Backend_Database(array(
++            'adapter' => $this->_db
++        ));
++        parent::setUp($notag);
++    }
++
++    public function tearDown()
++    {
++        parent::tearDown();
++        unset($this->_instance);
++        unset($this->_db);
++        @unlink($this->_cache_dir . 'cache.db');
++        $this->rmdir();
++    }
++
++    public function testConstructorCorrectCall()
++    {
++        $test = new Zend_Cache_Backend_Database(array('adapter' => $this->_db));
++    }
++
++    public function testConstructorWithABadDBAdapter()
++    {
++        try {
++            $db = new StdClass();
++            $test = new Zend_Cache_Backend_Database(array('adapter' => $db));
++        } catch (Zend_Cache_Exception $e) {
++            return;
++        }
++        $this->fail('Zend_Cache_Exception was expected but not thrown');
++    }
++}
++
++
+diff -u -rN ZendFramework-1.10.4/tests/Zend/Cache/SkipTests.php ZendFramework-1.10.4.mine/tests/Zend/Cache/SkipTests.php
+--- ZendFramework-1.10.4/tests/Zend/Cache/SkipTests.php	2010-01-06 02:05:09.000000000 +0000
++++ ZendFramework-1.10.4.mine/tests/Zend/Cache/SkipTests.php	2010-06-18 09:09:33.459266739 +0100
+@@ -98,6 +98,18 @@
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  * @group      Zend_Cache
+  */
++class Zend_Cache_DatabaseBackendTest_SkipTests extends Zend_Cache_BackendTest_SkipTests
++{
++}
++
++/**
++ * @category   Zend
++ * @package    Zend_Cache
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Cache
++ */
+ class Zend_Cache_SqliteBackendTest_SkipTests extends Zend_Cache_BackendTest_SkipTests
+ {
+ }

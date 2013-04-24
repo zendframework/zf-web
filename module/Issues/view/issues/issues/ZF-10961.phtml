@@ -1,0 +1,159 @@
+<h2>ZF-10961: Refractoring of Zend_Db_Table_Row_Abstract</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-18T06:19:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-22T08:43:29.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In Zend_Db_Table_Row_Abstract :</p>
+
+<p>If we want override the "update in cascade" behavior, we must actually override the _doUpdate() method.</p>
+
+<p>I propose to extract the concerned code</p>
+
+<pre class="highlight"><code>
+
+/**
+     * @return mixed The primary key value(s), as an associative array if the
+     *     key is compound, or a scalar if the key is single-column.
+     */
+    protected function _doUpdate() {
+        /**
+         * A read-only row cannot be saved.
+         */
+        if ($this-&gt;_readOnly === true) {
+            require_once 'Zend/Db/Table/Row/Exception.php';
+            throw new Zend_Db_Table_Row_Exception('This row has been marked read-only');
+        }
+
+        /**
+         * Get expressions for a WHERE clause
+         * based on the primary key value(s).
+         */
+        $where = $this-&gt;_getWhereQuery(false);
+
+        /**
+         * Run pre-UPDATE logic
+         */
+        $this-&gt;_update();
+
+        /**
+         * Compare the data to the modified fields array to discover
+         * which columns have been changed.
+         */
+        $diffData = array_intersect_key($this-&gt;_data, $this-&gt;_modifiedFields);
+
+        /**
+         * Were any of the changed columns part of the primary key?
+         */
+        $pkDiffData = array_intersect_key($diffData, array_flip((array) $this-&gt;_primary));
+
+        /**
+         * Execute cascading updates against dependent tables.
+         * Do this only if primary key value(s) were changed.
+         */
+        if (count($pkDiffData) &gt; 0) {
+            $this-&gt;_doCascadeUpdate();
+        }
+
+        /**
+         * Execute the UPDATE (this may throw an exception)
+         * Do this only if data values were changed.
+         * Use the $diffData variable, so the UPDATE statement
+         * includes SET terms only for data values that changed.
+         */
+        if (count($diffData) &gt; 0) {
+            $this-&gt;_getTable()-&gt;update($diffData, $where);
+        }
+
+        /**
+         * Run post-UPDATE logic.  Do this before the _refresh()
+         * so the _postUpdate() function can tell the difference
+         * between changed data and clean (pre-changed) data.
+         */
+        $this-&gt;_postUpdate();
+
+        /**
+         * Refresh the data just in case triggers in the RDBMS changed
+         * any columns.  Also this resets the _cleanData.
+         */
+        $this-&gt;_refresh();
+
+        /**
+         * Return the primary key value(s) as an array
+         * if the key is compound or a scalar if the key
+         * is a scalar.
+         */
+        $primaryKey = $this-&gt;_getPrimaryKey(true);
+        if (count($primaryKey) == 1) {
+            return current($primaryKey);
+        }
+
+        return $primaryKey;
+    }
+
+    /**
+     * Update the dependent tables
+     */
+    protected function _doCascadeUpdate() {
+        $depTables = $this-&gt;_getTable()-&gt;getDependentTables();
+        if (!empty($depTables)) {
+            $pkNew = $this-&gt;_getPrimaryKey(true);
+            $pkOld = $this-&gt;_getPrimaryKey(false);
+            foreach ($depTables as $tableClass) {
+                $t = $this-&gt;_getTableFromString($tableClass);
+                $t-&gt;_cascadeUpdate($this-&gt;getTableClass(), $pkOld, $pkNew);
+            }
+        }
+    }
+</code></pre>
+
+<p>PS: I'm sorry I can not put the code as it is</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

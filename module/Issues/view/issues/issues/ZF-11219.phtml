@@ -1,0 +1,146 @@
+<h2>ZF-11219: zend_loader_autoloader confuses chained namespaces</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-23T20:40:09.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-28T07:32:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.6 (05/May/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6484">ZF-6484</a></li>
+            <li><a href="/issues/browse/ZF-7815">ZF-7815</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><em>scenario</em></p>
+
+<p>i have chained namespaces in the following way:</p>
+
+<pre class="literal">
+Level1_
+Level1_Level2_
+Level1_Level2_Level3_
+...
+</pre>
+
+<p>all the namespaces are correctily registered at {{Zend_Loader_Autoloader}} with their respective paths.</p>
+
+<p><em>problem</em></p>
+
+<p>when i ask for the class {{Level1_Level2_Level3_Some}} the autoloader activates the namespace {{Level1_}} instead of {{Level1_Level2_Level3_}}</p>
+
+<p><em>possible solution</em></p>
+
+<p>the following sollution worked for me:</p>
+
+<ol><li>in file {{Zend/Loader/Autoloader.php}} replace the lines 338-340 with:</li>
+</ol><pre class="literal">
+if (false === $namespace
+    || (strlen($ns) &gt; strlen($namespace))
+) {
+    $namespace   = $ns;
+    $autoloaders = $this-&gt;getNamespaceAutoloaders($ns);
+}
+</pre>
+
+<ol><li>in file {{Zend/Loader/Autoloader/Resource.php}} replace the line 148 with:</li>
+</ol><pre class="literal">
+$namespace = array();
+$topLevelSegments = count(explode('_', $namespaceTopLevel));
+for ($i = 0; $i &lt; $topLevelSegments; $i++) {
+    $namespace[] = array_shift($segments);
+}
+$namespace = implode('_', $namespace);
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2011-03-23T20:47:11.000+0000</p> 
+        <div class="body">
+            <p>I don't get this, could you clarify why you'd need to add a namespace for Level1_ and Level1_Level2_?</p>
+
+<p>Zend_Loader_Autoloader does not have path mapping to namespaces, only the resource loader does this!</p>
+
+<p>As for the resource loader, that will work fine for such a situation (look at the models/mappers for Model_Mapper in the module resource loader)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Phellipe Kelbert (pkelbert) on 2011-03-24T12:01:28.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+I don't get this, could you clarify why you'd need to add a namespace for Level1_ and Level1_Level2_?
+{quote}</p>
+
+<p>i've implemented chained modules support on my application. for that, the submodules' identificator is a chain of their hierarchy. for example, the module HR (Human Resources) - Curricula - Admin has the key {{hr_curricula_admin}}.</p>
+
+<p>why does submodules is needed? 'cause inside human resources i have financial control, horary control, salary control. as each one has it's own permission control and controllers and views, it seems to me more likely a submodule than a parameter to a more-general-purpose module.</p>
+
+<p>{quote}
+Zend_Loader_Autoloader does not have path mapping to namespaces, only the resource loader does this!
+{quote}</p>
+
+<p>yep, but it do deals with namespaces -- even the mapping namespaces-paths residing at resource loaders -- and in a way wich does not support more than one level.</p>
+
+<p>{quote}
+As for the resource loader, that will work fine for such a situation (look at the models/mappers for Model_Mapper in the module resource loader)
+{quote}</p>
+
+<p>the fact is that {{Model_Mappers}} is not treated as a chained namespace, but as a component and resource type inside {{Zend_Loader_Autoloader_Resource}}.</p>
+
+<p>for default, Zend allows me to map {{Hr_Model_Mapper}} because {{Hr}} is the namespace and {{Model_Mapper}} a resource autoloader's component, such as {{Model_DbTable}}, {{Form}}, {{Model}}, {{Plugin}} and so on. if i need {{Hr_Curricula_Model_Mapper}} where {{Model_Mapper}} is still a component and {{Hr_Curricula}} the namespace, autoloader fails.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-04-14T17:03:30.000+0000</p> 
+        <div class="body">
+            <p>To fully understand this, I had to write unit tests - which is what was missing from your report. As such, I was able to understand the issues, which were:</p>
+
+<ul><li>The autoloader stops searching at the first namespace that matches a class, even if a more specific autoloader exists</li>
+<li>The resource autoloader assumes only a single segment namespace -- which means it will fail if the resource namespace is multi-segment.</li>
+</ul><p>I've added tests and patched the library files in trunk and the 1.11 release branch at this time.</p>
+
+        </div>
+    </div>
+    </div>
+

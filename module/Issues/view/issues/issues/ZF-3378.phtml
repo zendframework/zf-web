@@ -1,0 +1,294 @@
+<h2>ZF-3378: Zend_Session allow invalid session ids</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-04T00:57:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-28T19:25:18.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11420">ZF-11420</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14955/ZF-3378.patch">ZF-3378.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>this are my options (php.ini):</p>
+
+<pre class="highlight"><code>
+; Argument passed to save_handler.  In the case of files, this is the path
+; where data files are stored. Note: Windows users have to change this
+; variable in order to use PHP's session functions.
+;
+; As of PHP 4.0.1, you can define the path as:
+;
+;     session.save_path = "N;/path"
+;
+; where N is an integer.  Instead of storing all the session files in
+; /path, what this will do is use subdirectories N-levels deep, and
+; store the session data in those directories.  This is useful if you
+; or your OS have problems with lots of files in one directory, and is
+; a more efficient layout for servers that handle lots of sessions.
+;
+; NOTE 1: PHP will not create this directory structure automatically.
+;         You can use the script in the ext/session dir for that purpose.
+; NOTE 2: See the section on garbage collection below if you choose to
+;         use subdirectories for session storage
+;
+; The file storage module creates files using mode 600 by default.
+; You can change that by using
+;
+session.save_path = "2;666;/var/sessions/php"
+
+; Define how many bits are stored in each character when converting
+; the binary hash data to something readable.
+;
+; 4 bits: 0-9, a-f
+; 5 bits: 0-9, a-v
+; 6 bits: 0-9, a-z, A-Z, "-", ","
+session.hash_bits_per_character = 5
+</code></pre>
+
+<p>In the path "/var/sessions/php" all directories (0-9 + a-v) and are created</p>
+
+<p>The problem is - If the user set the session id like "?PHPSESSID=xxx" I can't regenerate the session id because session_start() was called before.</p>
+
+<pre class="highlight"><code>
+try {
+    Zend_Session::start();
+} catch (Exception $e) {
+    // echo $e-&gt;getMessage(); -&gt; Zend_Session::start() - session_start() [function.session-start]: open(/var/sessions/php/x/x/sess_xxx, O_RDWR) failed: No such file or directory (2)
+    Zend_Session::regenerateId();
+    // echo session_id(); // -&gt; xxx
+    Zend_Session::setId('test'); -&gt; Exception: The session has already been started. The session id must be set first.
+}
+</code></pre>
+
+<p>I think it is usefull to test the current given session id before session_start will call like:</p>
+
+<pre class="highlight"><code>
+$hashBitsPerChar = ini_get('session.hash_bits_per_character');
+if (!$hashBitsPerChar) {
+    $hashBitsPerChar = 5; // the default value
+}
+switch($hashBitsPerChar) {
+    case 4: $pattern = '^[0-9a-f]*$'; break;
+    case 5: $pattern = '^[0-9a-v]*$'; break;
+    case 6: $pattern = '^[0-9a-zA-Z-,]*$'; break;
+}
+if ( !preg_match('#'.$pattern.'#', session_id()) ) {
+    throw new Zend_Session_Exception('Invalid session id "'.session_id.'"');
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Are Pedersen (arep) on 2009-12-10T13:51:36.000+0000</p> 
+        <div class="body">
+            <p>Actually, it's much worse...actually a big security issue.</p>
+
+<p>If the session cookie is already set before a user has logged in, Zend_Session will use this value when creating a new session.
+The exploit scenario is:
+You have a public computer somewhere, and you know that a php application is used by alot of people.
+Using Firefox it's pretty easy to delete and set cookies.
+You set a PHPSESSID cookie, and note down the value you use. (using it later to do the exploit)</p>
+
+<p>Then, when someone comes and logs in to the php application, your already set cookie will be used.
+This only works of course if the browser isn't closed and restarted in the mean time.</p>
+
+<p>The solution is that Zend_Session always should check if the session referred to by the PHPSESSID actually exists, and if not always regenerate the sessionid before creating a new session.</p>
+
+<p>This isn't really a Zend_Session issue alone, since php native sessions are also affected.
+But Zend should have a workaround for this I think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-04T20:33:38.000+0000</p> 
+        <div class="body">
+            <p>If an invalid session ID is provided to PHP before {{Zend_Session::start()}} is run, then {{Zend_Session}} will continue to use it as it doesn't automatically regenerate session IDs on start.  So, this unit test fails against trunk:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Session/SessionTest.php
+===================================================================
+--- tests/Zend/Session/SessionTest.php  (revision 24490)
++++ tests/Zend/Session/SessionTest.php  (working copy)
+@@ -1062,4 +1062,51 @@
+         }
+     }
+
++    /**
++     * @group ZF-3378
++     */
++    public function testInvalidPreexistingSessionIdDoesNotPreventRegenerationOfSid()
++    {
++        // Pattern: [0-9a-v]*
++        ini_set('session.hash_bits_per_character', 5);
++
++        // Session store
++        $sessionCharSet = array_merge(range(0,9), range('a','v'));
++        $sessionStore = dirname(__FILE__)
++                      . DIRECTORY_SEPARATOR . "_files"
++                      . DIRECTORY_SEPARATOR . "ZF-3378";
++        if ( !is_dir($sessionStore) ) @mkdir($sessionStore, 0755, true);
++        ini_set('session.save_path', "1;666;" . $sessionStore);
++
++        // When using subdirs for session.save_path, the directory structure
++        // is your own responsibility...set it up, or else bad things happen
++        foreach ( $sessionCharSet as $subdir ) {
++            @mkdir($sessionStore . DIRECTORY_SEPARATOR . $subdir);
++        }
++
++        // Set session ID to invalid value
++        session_id('xxx');
++
++        // Attempt to start the session
++        try {
++            /** @see Zend_Session */
++            require_once "Zend/Session.php";
++            Zend_Session::start();
++        } catch (Zend_Session_Exception $e) {
++            Zend_Session::regenerateId();
++        }
++        // Get the current SID
++        $sid = Zend_Session::getId();
++
++        // We don't need the session any more, clean it up
++        Zend_Session::destroy();
++        foreach ( $sessionCharSet as $subdir ) {
++            @rmdir($sessionStore . DIRECTORY_SEPARATOR . $subdir);
++        }
++        @rmdir($sessionStore);
++
++        // Check the result
++        $this-&gt;assertRegExp('/^[0-9a-v]+$/', $sid);
++        $this-&gt;assertNotEquals('xxx', $sid);
++    }
+ }
+</code></pre>
+
+<p>When run like so:</p>
+
+<pre class="highlight"><code>
+(I can't get {{./runtests.sh}} to run the {{Zend_Session}} suite)
+
+Updating {{Zend_Session::start}} like this solves the issue:
+</code></pre>
+
+<h1>Index: library/Zend/Session.php</h1>
+
+<p>--- library/Zend/Session.php    (revision 24490)
++++ library/Zend/Session.php    (working copy)
+@@ -415,6 +415,14 @@
+      */
+     public static function start($options = false)
+     {
++        // Check to see if we've been passed an invalid session ID
++        if ( self::getId() &amp;&amp; !self::_checkId(self::getId()) ) {
++            // Generate a valid, temporary replacement
++            self::setId(md5(self::getId()));
++            // Force a regenerate after session is started
++            self::$_regenerateIdState = -1;
++        }
++
+         if (self::$_sessionStarted &amp;&amp; self::$_destroyed) {
+             require_once 'Zend/Session/Exception.php';
+             throw new Zend_Session_Exception('The session was explicitly destroyed during this request, attempting to re-start is not allowed.');
+@@ -498,6 +506,26 @@</p>
+
+<pre><code>     self::_processStartupMetadataGlobal();
+ }
+</code></pre>
+
+<p>+
++    /**
++     * Perform a hash-bits check on the session ID
++     *
++     * @param string $id Session ID
++     * @return bool
++     <em>/
++    protected static function _checkId($id)
++    {
++        $hashBitsPerChar = ini_get('session.hash_bits_per_character');
++        if (!$hashBitsPerChar) {
++            $hashBitsPerChar = 5; // the default value
++        }
++        switch($hashBitsPerChar) {
++            case 4: $pattern = '^[0-9a-f]</em>$'; break;
++            case 5: $pattern = '^[0-9a-v]<em>$'; break;
++            case 6: $pattern = '^[0-9a-zA-Z-,]</em>$'; break;
++        }
++        return preg_match('#'.$pattern.'#', $id);
++    }</p>
+
+<pre><code> /**
+</code></pre>
+
+<p>```</p>
+
+<p>This resets an invalid session ID to something that is valid (I chose to md5() the invalid one), and then forces {{Zend_Session}} to regenerate the session ID if it's invalid.</p>
+
+<p>I'm not able to confirm if this breaks anything in the existing {{Zend_Session}} test suite, as I can't get it to run. Using {{./runtests.sh}} always returns "0 tests", and running phpunit directly (ie: {{phpunit --verbose --debug Zend/Session/AllTests}}) ends in the process infinitely hanging with no output produced.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-10T01:03:07.000+0000</p> 
+        <div class="body">
+            <p>Attached patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-05-28T19:25:18.000+0000</p> 
+        <div class="body">
+            <p>Fixed in svn r24819.</p>
+
+        </div>
+    </div>
+    </div>
+

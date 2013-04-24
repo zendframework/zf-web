@@ -1,0 +1,170 @@
+<h2>ZF-5794: Zend_Feed_Rss Feedburner</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-16T02:31:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-20T05:55:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ryan Mauger (bittarman)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Feed</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi,</p>
+
+<p>I'm trying to import a feed from FeedBurner with Zend_Feed_Rss and i'm getting following error: Invalid chunk size "" unable to read chunked body</p>
+
+<p>Valid Feed: <a href="http://validator.w3.org/feed/check.cgi?url=http%3A%2F%2Ffeeds.feedburner.com%2Fdso-nieuws-binnenland">http://validator.w3.org/feed/check.cgi/…</a></p>
+
+<pre class="highlight"><code>
+$channel = new Zend_Feed_Rss('<a href="http://feeds.feedburner.com/dso-nieuws-binnenland">http://feeds.feedburner.com/dso-nieuws-binnenland</a>');
+</code></pre>
+
+<p>Error</p>
+
+<pre class="highlight"><code>
+Zend_Http_Client_Adapter_Exception Object
+(
+    [message:protected] =&gt; Invalid chunk size "" unable to read chunked body
+    [string:private] =&gt; 
+    [code:protected] =&gt; 0
+    [file:protected] =&gt; /home/httpd/XX/library/Zend-1.7.4/Http/Client/Adapter/Socket.php
+    [line:protected] =&gt; 257
+    [trace:private] =&gt; Array
+        (
+            [0] =&gt; Array
+                (
+                    [file] =&gt; /home/httpd/XX/library/Zend-1.7.4/Http/Client.php
+                    [line] =&gt; 845
+                    [function] =&gt; read
+                    [class] =&gt; Zend_Http_Client_Adapter_Socket
+                    [type] =&gt; -&gt;
+                    [args] =&gt; Array
+                        (
+                        )
+
+                )
+
+            [1] =&gt; Array
+                (
+                    [file] =&gt; /home/httpd/XX/library/Zend-1.7.4/Feed/Abstract.php
+                    [line] =&gt; 78
+                    [function] =&gt; request
+                    [class] =&gt; Zend_Http_Client
+                    [type] =&gt; -&gt;
+                    [args] =&gt; Array
+                        (
+                            [0] =&gt; GET
+                        )
+
+                )
+
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by yury krikun (yury krikun) on 2009-02-22T14:28:35.000+0000</p> 
+        <div class="body">
+            <p>Bug cause is incorrect string functions working on multibyte strings.
+In my case bug was reproduced on three conditions
+1. mbstring overloading parameter = 2
+2. importing rss feed have  "Transfer-Encoding: chunked" header.
+3 and encoding of importing rss feed is UTF-8</p>
+
+<p>Hotfix for this bug is using mb_ functions for parsing chunked content;
+That is in my case (im using ZF 1.7.0):</p>
+
+<p>file Zend/Http/Client/Adapter/Socket.php from line 266 and below</p>
+
+<pre class="highlight"><code>
+while ($left_to_read &gt; 0) {
+    $line = @fread($this-&gt;socket, $left_to_read);
+    $chunk .= $line;
+    
+    // + sx patch
+    if (extension_loaded('mbstring') &amp;&amp; (2 &amp; ini_get('mbstring.func_overload')))
+        $left_to_read -= mb_strlen($line, 'iso-8859-1'); 
+    else
+        $left_to_read -= strlen($line);
+    // - sx patch
+    
+    // Break if the connection ended prematurely
+    if (feof($this-&gt;socket)) break;
+}
+</code></pre>
+
+<p>file Zend/Http/Response.php from line 554 and below:</p>
+
+<pre class="highlight"><code>
+while (trim($body)) {
+    if (! preg_match("/^([\da-fA-F]+)[^\r\n]*\r\n/sm", $body, $m)) {
+        require_once 'Zend/Http/Exception.php';
+        throw new Zend_Http_Exception("Error parsing body - doesn't seem to be a chunked message");
+    }
+    
+    // + sx patch
+    $length = hexdec(trim($m[1]));
+    if (extension_loaded('mbstring') &amp;&amp; (2 &amp; ini_get('mbstring.func_overload'))){
+        $cut = mb_strlen($m[0], 'iso-8859-1');
+        $decBody .= mb_substr($body, $cut, $length, 'iso-8859-1');
+        $body = mb_substr($body, $cut + $length + 2, 'iso-8859-1');
+    }else{
+        $cut = strlen($m[0]);
+        $decBody .= substr($body, $cut, $length);
+        $body = substr($body, $cut + $length + 2);
+    }
+    // - sx patch
+}
+</code></pre>
+
+<p>enjoy it and good luck!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2010-11-20T05:55:41.000+0000</p> 
+        <div class="body">
+            <p>Tested with 1.11dev, and appears to no longer be an issue.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,305 @@
+<h2>ZF-3930: When using caching with zend_tanslate it appears that no translation at all is performed</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-12T08:35:12.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11473/default.mo">default.mo</a></li>
+            <li><a href="/issues/secure/attachment/11472/default.po">default.po</a></li>
+            <li><a href="/issues/secure/attachment/11470/translate.tar.gz">translate.tar.gz</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using caching with zend_tanslate it appears that no translation at all is performed</p>
+
+<pre class="highlight"><code>
+    function indexAction(){
+        require_once 'Zend/Locale.php';
+        require_once 'Zend/Translate.php';
+        $config = Zend_Registry::get('config');
+        $this-&gt;locale = new Zend_Locale($config-&gt;setup-&gt;defaultLocale);
+        Zend_Registry::set('locale', $this-&gt;locale);
+        Zend_Translate::setCache(Zend_Registry::get('cache'));
+        Zend_Registry::set('Zend_Translate', new Zend_Translate('gettext', './Application/Locale/pl/default.mo', 'pl'));
+    }
+</code></pre>
+
+<p>removing Zend_Translate::setCache(Zend_Registry::get('cache')); - makes app work fine</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marcin Lulek (ergo14) on 2008-08-12T08:35:35.000+0000</p> 
+        <div class="body">
+            <p>test case</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-12T10:15:52.000+0000</p> 
+        <div class="body">
+            <p>I tried to work this into a more succinct use case:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$translations = array(
+    'foo' =&gt; 'Foo Bar!',
+    'boo' =&gt; 'Boo Hoo!',
+);
+
+$cacheOptions = array(
+    'frontend' =&gt; array(
+        'automatic_serialization' =&gt; true,
+        'lifetime' =&gt; 3,
+    ),
+    'backend' =&gt; array(
+        'cache_db_complete_path' =&gt; dirname(__FILE__) . '/translate.db',
+    ),
+);
+$cache = Zend_Cache::factory('Core', 'Sqlite', $cacheOptions['frontend'], $cacheOptions['backend']);
+
+$local = new Zend_Locale('en_US');
+Zend_Translate::setCache($cache);
+$translate = new Zend_Translate('array', $translations, 'en_US');
+
+echo $translate-&gt;translate('foo');
+echo $translate-&gt;translate('foo');
+sleep(3);
+echo $translate-&gt;translate('foo');
+sleep(3);
+echo $translate-&gt;translate('foo');
+</code></pre>
+
+<p>However, this worked fine. It may be an issue with the gettext adapter specifically, and I'll try that next.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-12T10:23:56.000+0000</p> 
+        <div class="body">
+            <p>The adapter classes themself have no access to the cache.
+They only read the data and connect them to the abstract class.</p>
+
+<p>The behaviour of the cache is completly independent of the used adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-12T10:24:57.000+0000</p> 
+        <div class="body">
+            <p>Okay, I tried the following now:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$cacheOptions = array(
+    'frontend' =&gt; array(
+        'automatic_serialization' =&gt; true,
+        'lifetime' =&gt; 3,
+    ),
+    'backend' =&gt; array(
+        'cache_db_complete_path' =&gt; dirname(__FILE__) . '/translate.db',
+    ),
+);
+$cache = Zend_Cache::factory('Core', 'Sqlite', $cacheOptions['frontend'], $cacheOptions['backend']);
+
+$locale = new Zend_Locale('en');
+Zend_Translate::setCache($cache);
+$translate = new Zend_Translate('gettext', dirname(__FILE__) . '/testcase/translate/Application/Locale/pl.mo', 'pl');
+
+echo $translate-&gt;translate('o_object_added');
+sleep(3);
+echo $translate-&gt;translate('o_object_added');
+sleep(3);
+echo $translate-&gt;translate('o_object_added');
+sleep(3);
+echo $translate-&gt;translate('o_object_added');
+</code></pre>
+
+<p>I now get the following exception:</p>
+
+<pre class="highlight"><code>
+PHP Fatal error:  Uncaught exception 'Zend_Translate_Exception' with message 'Error opening translation file '/home/matthew/tmp/testcase/translate/Application/Locale/pl.mo'.' in /home/matthew/lib/framework-full/trunk/library/Zend/Translate/Adapter/Gettext.php:88
+</code></pre>
+
+<p>I get this error with or without caching. At this point, I cannot reproduce unless we get a valid translation file to test against.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Lulek (ergo14) on 2008-08-12T10:31:46.000+0000</p> 
+        <div class="body">
+            <p>default pl  po file</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-12T10:32:32.000+0000</p> 
+        <div class="body">
+            <p>Question:</p>
+
+<p>Are you changing the locale when using the same cache ?
+Because actually caching is only done for the complete adapter...</p>
+
+<p>When you set the cache and want to load another language afterwards it will not be recognised.
+Caching is only done for the complete adapter at initiation.</p>
+
+<p>You should add all languages/files once.</p>
+
+<p>There exists already an issue (ZF-3071) which will add this behaviour (caching on file-basis/adding translations afterwards to the cache). But it is not implemented for now.</p>
+
+<p>The actual solution is to use a locale-based cache.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Lulek (ergo14) on 2008-08-12T10:34:45.000+0000</p> 
+        <div class="body">
+            <p>polish mo file</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-12T10:35:11.000+0000</p> 
+        <div class="body">
+            <p>A po file will not be recognised by Zend_Translate... you should add the related binary gettext file (*.mo)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-12T10:38:36.000+0000</p> 
+        <div class="body">
+            <p>I've run the reproduce case I posted in an earlier comment against the .mo file linked in the issue, and it works both with and without caching.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-12T10:45:12.000+0000</p> 
+        <div class="body">
+            <p>Is the string you wanted to translate available in the mo file ?
+Try to use isTranslated() to verify.</p>
+
+<p>Is the right data loaded ?
+Try to use getList() and getMessages() to verify.</p>
+
+<p>Try the translation itself without application as showed by Matthew to verify if it works or not.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Lulek (ergo14) on 2008-08-12T10:48:54.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+&lt;?php
+set_include_path('.' . PATH_SEPARATOR . './Library/'
+. PATH_SEPARATOR . './Application/'
+. PATH_SEPARATOR . get_include_path());
+require 'Zend/Registry.php';
+require 'Zend/Cache.php';
+$cache = Zend_Cache::factory('Core', 'File' , array('automatic_serialization' =&gt; true, 'lifetime' =&gt; 3 ), array('cache_dir' =&gt;'./Cache'));
+Zend_Registry::set('cache',$cache);
+require 'Zend/Controller/Front.php';
+$frontController = Zend_Controller_Front::getInstance();
+require_once 'Zend/Locale.php';
+require_once 'Zend/Translate.php';
+$locale = new Zend_Locale('pl');
+Zend_Registry::set('locale', $locale);
+Zend_Translate::setCache(Zend_Registry::get('cache'));
+Zend_Registry::set('Zend_Translate', new Zend_Translate('gettext', './Application/Locale/pl/default.mo', 'pl'));
+echo Zend_Registry::get('Zend_Translate')-&gt;translate('mainOptions');
+?&gt;
+</code></pre>
+
+<p>simplified test case</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-12T11:08:11.000+0000</p> 
+        <div class="body">
+            <p>Running your testcode I get returned:</p>
+
+<p>Ustawienia główne</p>
+
+<p>Which seems to me like all is translated as required.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-12T11:16:32.000+0000</p> 
+        <div class="body">
+            <p>As noted on IRC, I've tried the above simplified test case, varying the cache lifetime as well as looping and setting random wait durations before translating -- in each case, I get the translated strings. This is looking like a caching issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Lulek (ergo14) on 2008-08-12T13:02:37.000+0000</p> 
+        <div class="body">
+            <p>the fix for the issue</p>
+
+<p>on translate/adapter.php  line 98:</p>
+
+<p>add:</p>
+
+<p>if($locale){$this-&gt;setLocale($locale); }</p>
+
+<p>fixes the issue for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-18T08:09:40.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r10915</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:45.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

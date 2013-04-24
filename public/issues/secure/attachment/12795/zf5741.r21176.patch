@@ -1,0 +1,237 @@
+Index: tests/Zend/Log/Writer/StreamTest.php
+===================================================================
+--- tests/Zend/Log/Writer/StreamTest.php	(revision 21176)
++++ tests/Zend/Log/Writer/StreamTest.php	(working copy)
+@@ -75,9 +75,13 @@
+     public function testConstructorThrowsWhenStreamCannotBeOpened()
+     {
+         try {
++            $orig = PHPUnit_Framework_Error_Notice::$enabled;
++            PHPUnit_Framework_Error_Notice::$enabled = false;
+             new Zend_Log_Writer_Stream('');
++            PHPUnit_Framework_Error_Notice::$enabled = $orig;
+             $this->fail();
+         } catch (Exception $e) {
++            PHPUnit_Framework_Error_Notice::$enabled = $orig;
+             $this->assertType('Zend_Log_Exception', $e);
+             $this->assertRegExp('/cannot be opened/i', $e->getMessage());
+         }
+@@ -173,4 +177,47 @@
+         $logger = Zend_Log::factory($cfg['log']);
+         $this->assertTrue($logger instanceof Zend_Log);
+     }
++    
++    /**
++     * @group ZF-5741
++     */
++    public function testConstructorLazyOpensLogWritter()
++    {
++        $orig = PHPUnit_Framework_Error_Notice::$enabled;
++        PHPUnit_Framework_Error_Notice::$enabled = false;
++        
++        // Using an invalid file name, because it should not throw
++        // till we attempt to open the file for writing writing
++        $writer = new Zend_Log_Writer_Stream('', null, true);
++        
++        try {
++            $writer->write(array('bar'=>'This will throw an exception'));
++            PHPUnit_Framework_Error_Notice::$enabled = $orig;
++            $this->fail();
++        } catch (Exception $e) {
++            PHPUnit_Framework_Error_Notice::$enabled = $orig;
++            $this->assertType('Zend_Log_Exception', $e);
++            $this->assertRegExp('/cannot be opened/i', $e->getMessage());
++        }
++    }
++    
++    /**
++     * @group ZF-5741
++     */
++    public function testLazyFactoryStream()
++    {
++        $cfg = array('log' => array('memory' => array(
++            'writerName'   => "Mock",
++            'writerParams' => array(
++                // Using an invalid file name, because it should not throw
++                // till we attempt to open the file for writing writing
++                'stream'  => '',
++                'mode' => 'a',
++                'lazy' => true
++            )
++        )));
++
++        $logger = Zend_Log::factory($cfg['log']);
++        $this->assertTrue($logger instanceof Zend_Log);
++    }
+ }
+Index: library/Zend/Log/Writer/Stream.php
+===================================================================
+--- library/Zend/Log/Writer/Stream.php	(revision 21176)
++++ library/Zend/Log/Writer/Stream.php	(working copy)
+@@ -41,14 +41,22 @@
+      * @var null|stream
+      */
+     protected $_stream = null;
++    
++    /**
++     * Hold the config for use with lazy loading
++     * @var array
++     */
++    protected $_config = null;
+ 
+     /**
+      * Class Constructor
+      *
+      * @param  streamOrUrl     Stream or URL to open as a stream
+      * @param  mode            Mode, only applicable if a URL is given
++     * @param  lazy            Lazy open
++     * @throws Zend_Log_Exception
+      */
+-    public function __construct($streamOrUrl, $mode = NULL)
++    public function __construct($streamOrUrl, $mode = NULL, $lazy = false)
+     {
+         // Setting the default
+         if ($mode === NULL) {
+@@ -71,11 +79,11 @@
+             if (is_array($streamOrUrl) && isset($streamOrUrl['stream'])) {
+                 $streamOrUrl = $streamOrUrl['stream'];
+             }
+-
+-            if (! $this->_stream = @fopen($streamOrUrl, $mode, false)) {
+-                require_once 'Zend/Log/Exception.php';
+-                $msg = "\"$streamOrUrl\" cannot be opened with mode \"$mode\"";
+-                throw new Zend_Log_Exception($msg);
++            
++            $this->_config = array('stream' => $streamOrUrl, 'mode' => $mode);
++            if (!$lazy) {
++                // non-Lazy opening requested.
++                $this->_getStream();
+             }
+         }
+ 
+@@ -84,7 +92,7 @@
+     
+     /**
+      * Create a new instance of Zend_Log_Writer_Mock
+-     * 
++     *
+      * @param  array|Zend_Config $config
+      * @return Zend_Log_Writer_Mock
+      * @throws Zend_Log_Exception
+@@ -93,15 +101,17 @@
+     {
+         $config = self::_parseConfig($config);
+         $config = array_merge(array(
+-            'stream' => null, 
++            'stream' => null,
+             'mode'   => null,
++            'lazy'   => false,
+         ), $config);
+ 
+-        $streamOrUrl = isset($config['url']) ? $config['url'] : $config['stream']; 
++        $streamOrUrl = isset($config['url']) ? $config['url'] : $config['stream'];
+         
+         return new self(
+-            $streamOrUrl, 
+-            $config['mode']
++            $streamOrUrl,
++            $config['mode'],
++            $config['lazy']
+         );
+     }
+     
+@@ -121,15 +131,41 @@
+      * Write a message to the log.
+      *
+      * @param  array  $event  event data
++     * @throws Zend_Log_Exception
+      * @return void
+      */
+     protected function _write($event)
+     {
+         $line = $this->_formatter->format($event);
+ 
+-        if (false === @fwrite($this->_stream, $line)) {
++        // Nothing said, nothing written
++        if (empty($line)) {
++            return;
++        }
++        $stream = $this->_getStream();
++        
++        if (false === @fwrite($stream, $line)) {
+             require_once 'Zend/Log/Exception.php';
+             throw new Zend_Log_Exception("Unable to write to stream");
+         }
+     }
++    
++    /**
++     * Returns the stream, handles lazy opening of the stream as well.
++     *
++     * @throws Zend_Log_Exception
++     * @return resource
++     */
++    protected function _getStream()
++    {
++        if ($this->_stream === null) {
++            $this->_stream = @fopen($this->_config['stream'], $this->_config['mode'], false);
++            if (!is_resource($this->_stream)) {
++                require_once 'Zend/Log/Exception.php';
++                $msg = "\"{$this->_config['stream']}\" cannot be opened with mode \"{$this->_config['mode']}\"";
++                throw new Zend_Log_Exception($msg);
++            }
++        }
++        return $this->_stream;
++    }
+ }
+Index: documentation/manual/en/module_specs/Zend_Log-Writers.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_Log-Writers.xml	(revision 21176)
++++ documentation/manual/en/module_specs/Zend_Log-Writers.xml	(working copy)
+@@ -65,6 +65,26 @@
+             You cannot specify the mode for existing stream resources. Doing so
+             causes a <classname>Zend_Log_Exception</classname> to be thrown.
+         </para>
++        
++        <para>
++            By default Zend_Log_Writer_Stream opens the stream at construction.  If you want to
++            supress this behavior, specify <code>true</code> for the third option for lazy opening.
++            Similar to Zend_Db's lazy opening.  Note that this also allows for creating a 
++            <classname>Zend_Log_Writer_Stream</classname> with an invalid url or path and will not
++            throw an error message till the first attempt to write to the log.
++
++            <programlisting language="php"><![CDATA[
++// stream to '/path/to/logfile' is not open yet.
++$writer = new Zend_Log_Writer_Stream('/path/to/logfile', null, true);
++$logger = new Zend_Log($writer);
++
++// stream to '/path/to/logfile' is now open.
++$logger->info('Informational message');
++]]></programlisting>
++            Note that this also allows for creating a  <classname>Zend_Log_Writer_Stream</classname>
++            with an invalid url or path and will not throw an error message till the first
++            attempt to write to the log.
++        </para>
+     </sect2>
+ 
+     <sect2 id="zend.log.writers.database">
+Index: documentation/manual/en/module_specs/Zend_Log-Factory.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_Log-Factory.xml	(revision 21176)
++++ documentation/manual/en/module_specs/Zend_Log-Factory.xml	(working copy)
+@@ -222,6 +222,16 @@
+                         </para>
+                     </listitem>
+                 </varlistentry>
++                
++                <varlistentry>
++                    <term>lazy</term>
++
++                    <listitem>
++                        <para>
++                            Delay opening the stream till first attempt to write
++                        </para>
++                    </listitem>
++                </varlistentry>
+             </variablelist>
+         </sect3>
+ 

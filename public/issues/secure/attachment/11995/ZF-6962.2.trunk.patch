@@ -1,0 +1,391 @@
+Index: library/Zend/Reflection/Docblock/Tag/Param.php
+===================================================================
+--- library/Zend/Reflection/Docblock/Tag/Param.php	(revision 15953)
++++ library/Zend/Reflection/Docblock/Tag/Param.php	(working copy)
+@@ -49,7 +49,7 @@
+     {
+         $matches = array();
+         
+-        if (!preg_match('#^@(\w+)\s(\w+)(?:\s(\$\S+))?(?:\s(.*))?#s', $tagDocblockLine, $matches)) {
++        if (!preg_match('#^@(\w+)\s+(\w+)(?:\s(\$\S+))?(?:\s(.*))?#s', $tagDocblockLine, $matches)) {
+             require_once 'Zend/Reflection/Exception.php';
+             throw new Zend_Reflection_Exception('Provided docblock line is does not contain a valid tag');
+         }
+Index: library/Zend/Reflection/Property.php
+===================================================================
+--- library/Zend/Reflection/Property.php	(revision 15953)
++++ library/Zend/Reflection/Property.php	(working copy)
+@@ -19,6 +19,10 @@
+  * @version    $Id$
+  */
+ 
++require_once 'Zend/Reflection/Class.php';
++require_once 'Zend/Reflection/Docblock.php';
++require_once 'Zend/Reflection/Exception.php';
++
+ /**
+  * @todo       implement line numbers
+  * @category   Zend
+@@ -38,7 +42,6 @@
+         $phpReflection  = parent::getDeclaringClass();
+         $zendReflection = new $reflectionClass($phpReflection->getName());
+         if (!$zendReflection instanceof Zend_Reflection_Class) {
+-            require_once 'Zend/Reflection/Exception.php';
+             throw new Zend_Reflection_Exception('Invalid reflection class provided; must extend Zend_Reflection_Class');
+         }
+         unset($phpReflection);
+Index: library/Zend/CodeGenerator/Php/Method.php
+===================================================================
+--- library/Zend/CodeGenerator/Php/Method.php	(revision 15953)
++++ library/Zend/CodeGenerator/Php/Method.php	(working copy)
+@@ -200,7 +200,7 @@
+             $output .= 'abstract ';
+         }
+                 
+-        $output .= $this->getVisibility() . ' function ' . $this->getName() . '(';
++        $output .= $this->getVisibility() . ($this->isStatic() ? ' static' : '') . ' function ' . $this->getName() . '(';
+ 
+         $parameters = $this->getParameters();
+         if (!empty($parameters)) {
+Index: library/Zend/CodeGenerator/Php/Property.php
+===================================================================
+--- library/Zend/CodeGenerator/Php/Property.php	(revision 15953)
++++ library/Zend/CodeGenerator/Php/Property.php	(working copy)
+@@ -26,6 +26,11 @@
+ require_once 'Zend/CodeGenerator/Php/Member/Abstract.php';
+ 
+ /**
++ * @see Zend_Reflection_Property
++ */
++require_once 'Zend/Reflection/Property.php';
++
++/**
+  * @category   Zend
+  * @package    Zend_CodeGenerator
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+@@ -42,7 +47,7 @@
+      * @var string
+      */
+     protected $_defaultValue = null;
+-
++    
+     /**
+      * fromReflection()
+      *
+@@ -51,6 +56,25 @@
+      */
+     public static function fromReflection(Zend_Reflection_Property $reflectionProperty) {
+         $property = new self();
++        
++        $property->setName($reflectionProperty->getName());
++        
++        $allDefaultProperties = $reflectionProperty->getDeclaringClass()->getDefaultProperties();
++        
++        $property->setDefaultValue($allDefaultProperties[$reflectionProperty->getName()]);
++        
++        if ($reflectionProperty->getDocComment()) {
++            $property->setDocblock(Zend_CodeGenerator_Php_Docblock::fromReflection($reflectionProperty->getDocComment()));
++        }
++        
++        if ($reflectionProperty->isPrivate()) {
++            $property->setVisibility(self::VISIBILITY_PRIVATE);
++        } elseif ($reflectionProperty->isProtected()) {
++            $property->setVisibility(self::VISIBILITY_PROTECTED);
++        } else {
++            $property->setVisibility(self::VISIBILITY_PUBLIC);
++        }
++        $property->setStatic($reflectionProperty->isStatic());
+         $property->setSourceDirty(false);
+         
+         return $property;
+@@ -112,7 +136,7 @@
+         if ($this->isConst()) {
+             $string = '    ' . 'const ' . $name . ' = \'' . $defaultValue . '\';';
+         } else {
+-            $string = '    ' . $this->getVisibility() . ' $' . $name . ' = ' . ((null !== $defaultValue) ? '\'' . $defaultValue . '\'' : 'null') . ';';
++            $string = '    ' . $this->getVisibility() . ($this->isStatic() ? ' static' : '') . ' $' . $name . ' = ' . ((null !== $defaultValue) ? '\'' . $defaultValue . '\'' : 'null') . ';';
+         }
+         return $string; 
+     }
+Index: library/Zend/CodeGenerator/Php/Parameter.php
+===================================================================
+--- library/Zend/CodeGenerator/Php/Parameter.php	(revision 15953)
++++ library/Zend/CodeGenerator/Php/Parameter.php	(working copy)
+@@ -54,6 +54,11 @@
+     protected $_position = null;
+     
+     /**
++     * @var bool
++     */
++    protected $_optional = false;
++    
++    /**
+      * fromReflection()
+      *
+      * @param Zend_Reflection_Parameter $reflectionParameter
+@@ -61,8 +66,20 @@
+      */
+     public static function fromReflection(Zend_Reflection_Parameter $reflectionParameter)
+     {
+-        // @todo Research this
+-        return new self();
++        $self = new self();
++        
++        $self->setName($reflectionParameter->getName());
++        $self->setOptional($reflectionParameter->isOptional());
++        
++        if($reflectionParameter->isOptional()) {
++            $self->setDefaultValue($reflectionParameter->getDefaultValue());
++        }
++        
++        $self->setPosition($reflectionParameter->getPosition());
++        $self->setType($reflectionParameter->getType());
++        $self->setSourceDirty(false);
++        
++        return $self;
+     }
+     
+     /**
+@@ -112,7 +129,7 @@
+     /**
+      * setDefaultValue()
+      *
+-     * @param string $defaultValue
++     * @param scalar $defaultValue
+      * @return Zend_CodeGenerator_Php_Parameter
+      */
+     public function setDefaultValue($defaultValue)
+@@ -118,6 +135,7 @@
+     public function setDefaultValue($defaultValue)
+     {
+         $this->_defaultValue = $defaultValue;
++        $this->setOptional();
+         return $this;
+     }
+     
+@@ -154,6 +172,28 @@
+     }
+     
+     /**
++     * setOptional()
++     *
++     * @param bool $bool
++     * @return Zend_CodeGenerator_Php_Parameter
++     */
++    public function setOptional($bool = true)
++    {
++        $this->_optional = $bool;
++        return $this;
++    }
++    
++    /**
++     * isOptional()
++     *
++     * @return bool
++     */
++    public function isOptional()
++    {
++        return $this->_optional;
++    }
++    
++    /**
+      * generate()
+      *
+      * @return string
+@@ -168,13 +208,8 @@
+         
+         $output .= '$' . $this->_name;
+         
+-        if ($this->_defaultValue) {
+-            $output .= ' = ';
+-            if (is_string($this->_defaultValue)) {
+-                $output .= '\'' . $this->_defaultValue . '\'';
+-            } else {
+-                $output .= $this->_defaultValue;
+-            }
++        if ($this->isOptional()) {
++            $output .= ' = ' . var_export($this->_defaultValue, true);
+         }
+ 
+         return $output;
+Index: tests/Zend/Reflection/DocblockTest.php
+===================================================================
+--- tests/Zend/Reflection/DocblockTest.php	(revision 15953)
++++ tests/Zend/Reflection/DocblockTest.php	(working copy)
+@@ -25,6 +25,7 @@
+ require_once dirname(__FILE__) . '/../../TestHelper.php';
+ 
+ /** requires */
++require_once dirname(__FILE__) . '/_files/TestZF6961Class.php';
+ require_once 'Zend/Reflection/File.php';
+ 
+ /**
+@@ -89,6 +90,16 @@
+         $this->assertEquals($returnTag->getType(), 'mixed');
+     }
+     
++    public function testZF6961()
++    {
++        /**
++         * This will trhow an exception unless ZF-6961 is fixed
++         */
++        $classReflection = new Zend_Reflection_Class('Zend_Reflection_TestZF6961Class');
++        
++        $classReflection->getMethod('doSomething')->getDocblock()->getTags();
++    }
++    
+     public function testDocblockLines()
+     {
+         $classReflection = new Zend_Reflection_Class('Zend_Reflection_TestSampleClass5');
+Index: tests/Zend/Reflection/_files/TestZF6961Class.php
+===================================================================
+--- tests/Zend/Reflection/_files/TestZF6961Class.php	(revision 0)
++++ tests/Zend/Reflection/_files/TestZF6961Class.php	(revision 0)
+@@ -0,0 +1,11 @@
++<?php
++class Zend_Reflection_TestZF6961Class
++{
++    /**
++     * @param    string $one
++     * @param   string $two
++     */
++    public function doSomething($one, $two)
++    {
++    }
++}
+\ No newline at end of file
+Index: tests/Zend/CodeGenerator/Php/ParameterTest.php
+===================================================================
+--- tests/Zend/CodeGenerator/Php/ParameterTest.php	(revision 15953)
++++ tests/Zend/CodeGenerator/Php/ParameterTest.php	(working copy)
+@@ -25,6 +25,7 @@
+ require_once dirname(__FILE__) . '/../../../TestHelper.php';
+ 
+ /** requires */
++require_once 'Zend/Reflection/Method.php';
+ require_once 'Zend/Reflection/Parameter.php';
+ require_once 'Zend/CodeGenerator/Php/Parameter.php';
+ 
+@@ -57,6 +58,28 @@
+         $this->_parameter = null;
+     }
+     
++    public function testCanCreateFromReflection()
++    {
++        $assertTrueMethod = new Zend_Reflection_Method('PHPUnit_Framework_TestCase', 'assertTrue');
++        
++        foreach ($assertTrueMethod->getParameters() as $parameter) {
++        	$cgParam = Zend_CodeGenerator_Php_Parameter::fromReflection($parameter);
++        	$this->assertSame($cgParam->getName(), $parameter->getName());
++        	$this->assertSame($cgParam->isOptional(), $parameter->isOptional());
++            $this->assertSame($cgParam->getDefaultValue(), $parameter->isOptional() ? $parameter->getDefaultValue() : null);
++            $this->assertSame($cgParam->getPosition(), $parameter->getPosition());
++        }
++    }
++    
++    public function testZF6722()
++    {
++        $this->_parameter->setName('Foo');
++        $this->_parameter->setDefaultValue(null);
++        $this->assertTrue($this->_parameter->isOptional());
++        $this->assertNull($this->_parameter->getDefaultValue());
++        $this->assertContains('Foo = NULL', $this->_parameter->generate());
++    }
++        
+     public function testTypeGetterAndSetterPersistValue()
+     {
+         $this->_parameter->setType('Foo');
+Index: tests/Zend/CodeGenerator/Php/MethodTest.php
+===================================================================
+--- tests/Zend/CodeGenerator/Php/MethodTest.php	(revision 15953)
++++ tests/Zend/CodeGenerator/Php/MethodTest.php	(working copy)
+@@ -110,4 +110,14 @@
+         $this->assertEquals($target, (string) $codeGenMethod);
+     }
+     
++    public function testZF6444 ()
++    {
++        $codeGenMethod = Zend_CodeGenerator_Php_Method::fromReflection(
++            new Zend_Reflection_Method('Zend_CodeGenerator_Php_Method', 'fromReflection')
++        );
++        
++        $this->assertTrue($codeGenMethod->isStatic());
++        
++        $this->assertContains('public static', $codeGenMethod->generate());
++    }
+ }
+Index: tests/Zend/CodeGenerator/Php/PropertyTest.php
+===================================================================
+--- tests/Zend/CodeGenerator/Php/PropertyTest.php	(revision 15953)
++++ tests/Zend/CodeGenerator/Php/PropertyTest.php	(working copy)
+@@ -18,7 +18,6 @@
+  * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+-
+ /**
+  * @see TestHelper
+  */
+@@ -24,6 +23,7 @@
+  */
+ require_once dirname(__FILE__) . '/../../../TestHelper.php';
+ 
++require_once 'Zend/Reflection/Property.php';
+ require_once 'Zend/CodeGenerator/Php/Property.php';
+ 
+ /**
+@@ -37,8 +37,11 @@
+  */
+ class Zend_CodeGenerator_Php_PropertyTest extends PHPUnit_Framework_TestCase
+ {
++    private $_dummyProperty = 'foo';
++    
++    protected static $_dummyStaticProperty = 'bar';
+     
+-    public function testConstructor()
++    public function testConstructor ()
+     {
+         $codeGenProperty = new Zend_CodeGenerator_Php_Property();
+         $this->isInstanceOf($codeGenProperty, 'Zend_CodeGenerator_Php_Property');
+@@ -44,6 +47,39 @@
+         $this->isInstanceOf($codeGenProperty, 'Zend_CodeGenerator_Php_Property');
+     }
+     
++    public function testWillLoadFromReflection ()
++    {
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this->assertSame($cgProp->getName(), '_dummyProperty');
++        $this->assertSame($cgProp->getDefaultValue(), 'foo');
++        $this->assertSame($cgProp->getVisibility(), 'private');
++        
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyStaticProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this->assertSame($cgProp->getName(), '_dummyStaticProperty');
++        $this->assertSame($cgProp->getDefaultValue(), 'bar');
++        $this->assertSame($cgProp->getVisibility(), 'protected');
++    }
+     
+-    
++    public function testZF6444 ()
++    {
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this->assertFalse($cgProp->isStatic());
++        
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyStaticProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this->assertTrue($cgProp->isStatic());
++        
++        $this->assertContains('protected static', $cgProp->generate());
++    }
+ }
+\ No newline at end of file

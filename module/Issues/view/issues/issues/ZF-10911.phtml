@@ -1,0 +1,174 @@
+<h2>ZF-10911: Add automatic routing based on browser settings</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-05T00:29:49.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-26T19:58:18.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Automatical handling of languages as described <a href="http://framework.zend.com/manual/1.11/en/zend.translate.additional.html#zend.translate.additional.languages.automatic">here</a> doesn't work. 
+First because if the context option is a filename not as a directory, the scan option isn't even read, so the translation data will be added as the default local (de_AT).
+And also because auto local detection does not work when adding a translation via the constructor.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mehdi Rande (mehdi.rande) on 2011-01-05T00:38:07.000+0000</p> 
+        <div class="body">
+            <p>When taking a look a the Adapter code, the last instruction of the Adapter constructor is to set the local, if the current local is different of the $options['locale']. But this is always true if $options['locale'] is set to 'auto'. This patch should fix the bug :</p>
+
+<pre class="highlight"><code>
+
+Index: Zend/Translate/Adapter.php
+===================================================================
+--- Zend/Translate/Adapter.php  (revision 23619)
++++ Zend/Translate/Adapter.php  (working copy)
+@@ -176,7 +176,7 @@
+             $this-&gt;addTranslation($options);
+         }
+ 
+-        if ($this-&gt;getLocale() !== (string) $options['locale']) {
++        if ($this-&gt;_automatic !== true &amp;&amp; $this-&gt;getLocale() !== (string) $options['locale']) {
+             $this-&gt;setLocale($options['locale']);
+         }
+     }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-01-05T05:52:42.000+0000</p> 
+        <div class="body">
+            <p>So you want to use directory options for a single filename. The 'scan' option defines how a directory structure is scanned. It will not be processed when a single file is given.</p>
+
+<p>This patch will not be added. Actually your code breaks translation in 40% of the cases. Please give an example what you want to archive and what the actual results are.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mehdi Rande (mehdi.rande) on 2011-01-05T09:15:35.000+0000</p> 
+        <div class="body">
+            <p>Well in fact the part with the scan option not being used when a single file is given is just an error in the documentation, the real problem is that auto local detection does not work when adding a translation via the constructor.
+For exemple :
+Create a file /tmp/locales/my_fr.php :</p>
+
+<pre class="highlight"><code>
+&lt;?php
+return array('MESSAGE_ID' =&gt; 'MESSAGE FR');
+</code></pre>
+
+<p>Then let's take the documentation exemple :</p>
+
+<pre class="highlight"><code>
+// 
+// Let's expect the browser returns these language settings:
+// HTTP_ACCEPT_LANGUAGE = "en-US,en;q=0.8,fr;q=0.6";
+// Example 2:
+// Best found fitting language is 'fr'
+$translate = new Zend_Translate(
+    array(
+        'adapter' =&gt; 'Array',
+        'content' =&gt; '/tmp/locales/',
+        'locale'  =&gt; 'auto',
+        'scan' =&gt; Zend_Translate::LOCALE_FILENAME
+    )
+);
+
+$local = $translate-&gt;getLocale();
+$translation = $translate-&gt;translate('MESSAGE_ID');
+var_dump($local, $translation);
+</code></pre>
+
+<p>Expected Result :</p>
+
+<pre class="highlight"><code>
+string(2) 'fr'
+string(10) 'MESSAGE FR'
+</code></pre>
+
+<p>Actual Result :</p>
+
+<pre class="highlight"><code>
+Notice: The language 'en_US' has to be added before it can be used. in /var/www/lib/Zend/Translate/Adapter.php on line 429
+
+Notice: No translation for the language 'en' available. in /var/www/lib/Zend/Translate/Adapter.php on line 442
+string(2) "en"
+string(10) "MESSAGE_ID"
+</code></pre>
+
+<p>In fact in Zend/Translate/Adapter.php the local is correctly setted to 'fr' at line 176 by $this-&gt;addTranslation($options); but it's overwritten at line 179. I don't think that the setLocale should be call when $options['locale'] == 'auto' and the local as been correctly detected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-01-05T10:34:10.000+0000</p> 
+        <div class="body">
+            <p>With 'scan' you said that the directory /tmp/locales/ should be searched and the language of found translation files can be found within the filename.</p>
+
+<p>So /tmp/locales/my_fr degrades to the language my and the language fr and will be added to both locales. Maybe not in older releases of CLDR as my has been added about 8 months ago.</p>
+
+<p>With 'locale' you said that the language 'auto' should be used. 'auto' degrades to the users browser. When the user sets 'ar' within his browser Zend_Translate will use the language 'ar'.</p>
+
+<p>As you don't have added a translation file for the language 'ar' (or in your case 'en_US') an NOTICE is given.
+Note that notices are no exceptions and also no errors.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mehdi Rande (mehdi.rande) on 2011-01-05T12:52:12.000+0000</p> 
+        <div class="body">
+            <p>Yes I understand all that, what I say it's that according to the documentation if the user sets 'en' and 'fr' in his browser (for exemple by setting his HTTP_ACCEPT_LANGUAGE to "en-US,en;q=0.8,fr;q=0.6"), Zend_Translate should use the best fitting language, so if there is no translation for 'en-US' or 'en', Zend_Translate should fall back on the 'fr' language if there is a translation available in 'fr'.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-08-26T19:58:18.000+0000</p> 
+        <div class="body">
+            <p>Added in ZF2 with <a href="https://github.com/zendframework/zf2/pull/315">GH-315</a></p>
+
+        </div>
+    </div>
+    </div>
+

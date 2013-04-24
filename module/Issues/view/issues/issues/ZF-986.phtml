@@ -1,0 +1,195 @@
+<h2>ZF-986: Zend_Date_DateObject and date_default_timezone_get/set()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-02-27T14:30:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.0 (17/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Problem:</p>
+
+<p>The function date_default_timezone_get()/set() functions invoke PHP's error handler if the input is invalid.
+Either Zend_Date* should behave "correctly" with invalid input, or an error should be thrown, per coding standards.</p>
+
+<p>Details:</p>
+
+<p>When working with Zend_Date objects, the date_default_timezone_get/set() is used to regulate the timezone used within other PHP functions used by Zend_Date*.  Both of those functions invoke PHP's error handler on invalid input.  However, use of '@' to suppress error handling does not work as expected, when the developer has installed their own error handler bypassing the error suppression feature in PHP's error handler.</p>
+
+<p><a href="http://php.net/date_default_timezone_get">http://php.net/date_default_timezone_get</a>
+<a href="http://php.net/date_default_timezone_set">http://php.net/date_default_timezone_set</a></p>
+
+<p>Use of 
+timezone_identifier_list() produces a 500+ element size array, which can be used to check input before invoking date_default_timezone_set().  In our minimum required version of PHP {{#ifdef EXPERIMENTAL_DATE_SUPPORT}} wraps the function {{timezone_identifier_list()}}.  Thus, we have no way of reliably predicting whether or not {{date_default_timezone_set()}} will invoke PHP's error handler for ZF's minimal supported version of PHP.</p>
+
+<p>Thus, using an older version of PHP without {{EXPERIMENTAL_DATE_SUPPORT}} enabled, and providing invalid timezones to Zend_Date will result in PHP notices, if the developer has installed their own error handler.</p>
+
+<p>In all other situations, Zend_Date* should be able to efficiently detect if  {{timezone_identifier_list()}} is available and then cache the list (return results).  Then Zend_Date* could throw informative errors on invalid input (when necessary and appropriate) for newer versions of PHP or older versions with {{EXPERIMENTAL_DATE_SUPPORT}} enabled.  For example, if {{date_default_timezone_get()}} fails (i.e. system is not configured with a working default timezone), then Zend_Date* uses its own default.  However, for {{date_default_timezone_set()}}, attempts to use an invalid timezone should throw an error, when possible (see exception above, where detection of the problem is not possible) instead of ignoring the problem, because the resulting Zend_Date object will behave contrary to the developer's expectations (i.e. has the wrong timezone).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-27T14:32:27.000+0000</p> 
+        <div class="body">
+            <p>Is a unit test needed to help clarify this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-27T14:41:18.000+0000</p> 
+        <div class="body">
+            <p>We already have a unit test for testing invalid timezone id.</p>
+
+<p>It is not practical to use PHPUnit to test what happens when timezone_identifier_list() is not available, because we can't trap a PHP error using PHPUnit.  So I would say don't bother to try to write a unit test for this case with our current tools.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-27T15:07:32.000+0000</p> 
+        <div class="body">
+            <p>This issue has already been fixed with SVN 3663 some hours ago.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-27T15:45:36.000+0000</p> 
+        <div class="body">
+            <p>For any who might search and find this issue, if you get the following error, then see "<a href="http://framework.zend.com/manual/en/zend.date.html#zend.date.setdefaulttimezone">Always Set a Default Timezone</a>."</p>
+
+<p>{quote}Warning: date_default_timezone_get() [function.date-default-timezone-get]: It is not safe to rely on the system's timezone settings. Please use the date.timezone setting, the TZ environment variable or the date_default_timezone_set() function. In case you used any of those methods and you are still getting this warning, you most likely misspelled the timezone identifier. We had to select 'UTC' because your platform doesn't provide functionality for the guessing algorithm in ...{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-27T16:05:12.000+0000</p> 
+        <div class="body">
+            <p>{quote}This issue has already been fixed with SVN 3663 some hours ago.{quote}</p>
+
+<p>Excellent!  .. except the result is not cached in a static class variable, and this code executes on the creation of every Zend_Date object.</p>
+
+<pre class="highlight"><code>
+if (function_exists('timezone_identifiers_list')) {
+       if (!in_array($zone, timezone_identifiers_list())) {
+             throw new Zend_Date_Exception("timezone ($zone) is not a known timezone");
+       }
+}
+$result = @date_default_timezone_set($zone);
+</code></pre>
+
+<p>Also, a very minor issue, in principle we should provide relevant data as arguments to the exception class constructor (see Zend/Date/Exception.php) so that the data can be examined algorithmically without need to parse the error string.  I've added the data as arguments to the construction of the exception object.</p>
+
+<p>Why are we using '@' with {{@date_default_timezone_set()}}?  If there is an error, when using {{date_default_timezone_set()}}, why should we suppress the error without throwing an exception?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-27T16:56:09.000+0000</p> 
+        <div class="body">
+            <p>{quote}Why are we using '@' with @date_default_timezone_set()? If there is an error, when using date_default_timezone_set(), why should we suppress the error without throwing an exception?{quote}</p>
+
+<p>Because WHEN timezone_identifier_list is not avaiable 
+then the error is suppressed if a user gives a false timezone.</p>
+
+<p>Only if identifier_list is not avaiable and the user overwrites the error handler we are no longer able to supress possible errorous inputs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-27T17:10:02.000+0000</p> 
+        <div class="body">
+            <p>Why are we suppressing the error, if a user gives an invalid timezone?</p>
+
+<p>Doesn't the resulting object behave contrary to the user's expectations, if the timezone was invalid (i.e. the developer made a typo in the name of the timezone)?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-27T20:00:25.000+0000</p> 
+        <div class="body">
+            <p>P.S. I updated the unit test to work with the new approach of throwing an error when we know that the requested timezone is not available.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-02T02:11:00.000+0000</p> 
+        <div class="body">
+            <p>We can not change the $_timezone to be static as proposed.</p>
+
+<p>This would lead to the problem that ALL Zend_Date objects are fix coupled to only ONE timezone.
+Now you can have a different timezone into each Zend_Date object as it can also be done within php's date extension.</p>
+
+<p>Now I can create a date object for europe and one for america... and both are calculating the offset seperatly.</p>
+
+<p>Data as argument was changed already by you... btw: I dont see the benefit because the I18N classes are almost the only one which have this behaviour. All other Zend classes have it not... shouldn't there be a coding standard for all or none classes supporting this behaviour ??? This is of course relevant for a new issue.</p>
+
+<p>A possible error will now not longer be suppressed if no date extension is installed.</p>
+
+<p>Btw: I also reworked the useage of timezone checking... we now try to create a timezone object instead of checking the complete list ourself... this is much faster.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-02T02:14:05.000+0000</p> 
+        <div class="body">
+            <p>Fixed with SVN 3689</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-05T21:15:40.000+0000</p> 
+        <div class="body">
+            <p>I only proposed caching the results of {{timezone_identifier_list()}}.  I did not suggest making $_timezone static.
+I think your alternative using <a href="http://php.net/timezone_open">http://php.net/timezone_open</a> is quite effective, better than the other alternatives above, and was reasonably fast in my simplistic benchmark test :)</p>
+
+<p>{quote}"Data as argument was changed already by you... btw: I dont see the benefit because the I18N classes are almost the only one which have this behaviour. All other Zend classes have it not... shouldn't there be a coding standard for all or none classes supporting this behaviour ??? This is of course relevant for a new issue."{quote}</p>
+
+<p>Some ZF classes do pass data as arguments when creating custom exceptions.  The ZF coding standard encourages this practice.  Debate over this practice should occur on the mailing list and in comments on the draft coding standards wiki page:  <a href="http://framework.zend.com/wiki/x/PQ">http://framework.zend.com/wiki/x/PQ</a></p>
+
+<p>{quote}"A possible error will now not longer be suppressed if no date extension is installed."{quote}
+Yes, and I like the comment that marks the line of code that might result in an error.  Since we can not detect or fix the error, and we can not throw an exception, it is better to allow the error to occur than hid the error from the developer, because the error is important and affects the behavior of the object in a bad way.  Thus, the error should not be suppressed, so that the developer can learn about the error and remedy the problem.</p>
+
+        </div>
+    </div>
+    </div>
+

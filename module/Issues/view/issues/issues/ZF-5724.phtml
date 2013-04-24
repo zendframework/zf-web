@@ -1,0 +1,155 @@
+<h2>ZF-5724: Security BUG - LFI is possible, with wrong configuration Zend_View</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Docs:  Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-10T06:05:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-02-11T12:07:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5748">ZF-5748</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've got something like this:
+Zend_Controller_Plugin for initialize view:</p>
+
+<pre class="highlight"><code>
+(...)
+$view = new Zend_View();
+$view-&gt;setScriptPath(APP_PATH . '/views/0');
+$view-&gt;addScriptPath(APP_PATH . '/views/modules/' . $this-&gt;_reguest-&gt;getModuleName() . '/0');
+(...)
+$helper_view = Zend_Controller_Action_HelperBroker::getExistingHelper('viewRenderer');
+$helper_view-&gt;setView($view);
+(...)
+</code></pre>
+
+<p>Zend_Router like:</p>
+
+<pre class="highlight"><code>
+
+LFI:
+</code></pre>
+
+<p><a href="/..%2F..%2F..%2F..%2F..%2F..%2Fetc..%2Fpasswd%00">http://my_website.com/..%2F..%2F..%2F..%2F..%2F..%…</a></p>
+
+<pre class="highlight"><code>
+
+LIF is possible, because scripts should not be loaded in this way:
+</code></pre>
+
+<p>Zend_View:
+   /**
+     * Includes the view script in a scope with only public $this variables.
+     *
+     * @param string The view script to execute.
+     */
+    protected function _run()
+    {
+        if ($this-&gt;_useViewStream &amp;&amp; $this-&gt;useStreamWrapper()) {
+            include 'zend.view://' . func_get_arg(0);
+        } else {
+            include func_get_arg(0);
+        }
+    }
+```</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-10T06:58:13.000+0000</p> 
+        <div class="body">
+            <p>I understand the ramifications of the local file include attack, and feel that we should definitely patch Zend_View to disallow using the '..' specification. That said, in most cases you should not be trusting user input in order to determine the view script to render; it should be based on very narrow criteria, and the path should be filtered prior to passing to Zend_View's render() method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Grzegorz Nowicki (gnowicki) on 2009-02-10T07:27:38.000+0000</p> 
+        <div class="body">
+            <p>Of course, filtering of the user input is an important thing, but this example shows that for specific cases (incorrectly) use, application becomes "open source".
+I think that loading scripts without filtering path is not a good solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-10T07:32:36.000+0000</p> 
+        <div class="body">
+            <p>Agreed, and I'm recommending we patch Zend_View to disallow such usage.</p>
+
+<p>However, the use case that exposes the issue is one that is limited primarily to userland code which does not properly filter the path passed to the render() method.</p>
+
+<p>We will issue a patch with our next mini release, which should be Monday.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-11T11:33:44.000+0000</p> 
+        <div class="body">
+            <p>I've been in discussion with other developers about this issue, and need to note two things:</p>
+
+<ul><li>While I understand the vulnerability as reported, you should never set script paths based on unfiltered user input. As it's actually common for the paths specified to include parent reference notation, even when hardcoded, there's not a good, clean way for us to address this reasonably (without a taint mode in PHP, that is) -- other than to note, "Don't do it."</li>
+<li>There <em>is</em>  a potential vulnerability in the render() method, as it currently allows parent reference notation. We feel there is distinct benefit to doing some automatic filtering here, as view scripts should only ever match <em>under</em> a view script path, not elsewhere in the filesystem.</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-11T11:41:04.000+0000</p> 
+        <div class="body">
+            <p>I've created a new issue, ZF-5748, to cover the render() LFI exploit, and am closing this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-11T11:42:38.000+0000</p> 
+        <div class="body">
+            <p>Marking as a documentation improvement, as the issue would be in userland code providing unfiltered input used to configure the view object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-11T12:06:18.000+0000</p> 
+        <div class="body">
+            <p>Documentation note added in r14050</p>
+
+        </div>
+    </div>
+    </div>
+

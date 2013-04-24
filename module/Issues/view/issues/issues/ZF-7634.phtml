@@ -1,0 +1,243 @@
+<h2>ZF-7634: multiple empty arrays in response not working correctly anymore</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-19T06:02:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-19T01:21:56.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stanislav Malyshev (stas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>UPDATE: the messy thing here is in Parse\Amf3\Serializer.php, line 323 ff. - do you really need those object references for arrays?</p>
+
+<p>If I return e.g. an object with three empty arrays to Flex (3.0.2) using Zend_Amf, there is only one Array-Object allocated and all the three arrays point to the same Array object. This is of course a very unexpected behaviour.</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+www.adobe.com/2006/mxml" layout="absolute"&gt;
+
+  
+
+  </code></pre>
+
+<pre class="highlight"><code>
+package vo
+{
+  [RemoteClass(alias="vo.ArrayHolder")]
+  public class ArrayHolder
+  {
+    public var _explicitType:String;
+
+    public var array1:Array = new Array();
+    public var array2:Array = new Array();
+    public var array3:Array = new Array();
+  }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+&lt;?php
+
+if(set_include_path('<a>c:/dev/server/vhosts/library/Zend/1_9_1/</a>') === false){
+die('Include path failed');
+}
+
+require_once 'Zend/Amf/Server.php';
+
+// simple class to be used for amf server
+class Foo
+{
+  public function getData()
+  {
+    return new ArrayHolder();
+  }
+}
+
+// simple vo object
+class ArrayHolder
+{
+    public $_explicitType = 'vo.ArrayHolder';
+
+    public $array1 = array();
+    public $array2 = array();
+    public $array3 = array();  
+}
+
+// Instantiate server
+$server = new Zend_Amf_Server();
+$server-&gt;setClass('Foo');
+$server-&gt;setClassMap('vo.ArrayHolder', 'ArrayHolder');
+
+echo $server-&gt;handle();
+?&gt;
+</code></pre>
+
+<p>This did NOT happen with Version 1.8.3 - it's broken since 1.8.4</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Klug (stefanklug) on 2009-09-22T14:11:59.000+0000</p> 
+        <div class="body">
+            <p>Phew, that's a nasty problem. 
+You're right, that this case didn't happen in version 1.8.3, but only because there was no referencing at all. The problem is that even a === comparison of a array compares the values.
+So array("foo") === array("foo") would return true even though the arrays should be seperate instances.</p>
+
+<p>Currently I see the following possible solution:
+We could disable referencing of arrays at all. This would solve this problem at the expense of no array referencing (lets hope nobody relies on that feature... ).
+Additionally we should add support and promote the use of ArrayObjects. Using ArrayObjects would solve the referencing problems, as they can be correctly compared using ===.</p>
+
+<p>Any opinions?</p>
+
+<p>Cheers
+Stefan Klug</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Arnold (wadearnold) on 2009-09-22T14:38:14.000+0000</p> 
+        <div class="body">
+            <p>I would second the ArrayObject suggestion. There are similar changes that I need to re-base and commit so that doctrine 2.0 works with zend amf</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brad Smith (smithxxl) on 2009-10-27T07:33:49.000+0000</p> 
+        <div class="body">
+            <p>Would this be the reason why arrays that equal the same value in php are removed?</p>
+
+<pre class="highlight"><code>
+
+class Foo
+{
+  public function getData()
+  {
+    return new array(
+      array('Test Key 1' =&gt; '', 'Test Key 2' = ''),
+      array('Test Key 1' =&gt; 'Hello', 'Test Key 2' = ''),
+      array('Test Key 1' =&gt; 'Hello', 'Test Key 2' = ''),
+      array('Test Key 1' =&gt; 'Hello', 'Test Key 2' = 'World') );
+  }
+}
+</code></pre>
+
+<p>This returns a blank array for [2] because it matches perfectly with [1].</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nigel Forward (nigelf) on 2009-11-12T03:40:59.000+0000</p> 
+        <div class="body">
+            <p>@Brad
+Yes, I've hit the same problem with array values being identical.</p>
+
+<p>My object had a number of array properties, each array had upto 20 integer elements.</p>
+
+<p>When two (or more) arrays had the same elements in the same order, they would be deserialised in Flex with the same memory reference.  As the data changed, different arrays would reference each other, causing some <em>very</em> weird behaviour on the client!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Erf (ferf) on 2010-01-12T15:51:31.000+0000</p> 
+        <div class="body">
+            <p>I can't believe this bug is still open without any indication of a work around.  The is a HUGE issue.  Has anyone found a way around this?  I am trying to get a product out the door and this one has me hamstrung.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Arnold (wadearnold) on 2010-01-15T14:51:46.000+0000</p> 
+        <div class="body">
+            <p>Unlike objects array's in PHP do not have identities. Talking with Stas if we were to cast the array into an arrayobject we would loose all reference anyway. We are just going to remove array references from the serialization process.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stanislav Malyshev (stas) on 2010-01-15T14:59:25.000+0000</p> 
+        <div class="body">
+            <p>Expanding on Wade's comment - basically there's no way in PHP to know one array from another (just as two strings saying "a" are the same, so are two arrays array("a")). Since this is not going to change anytime soon, and such behavior apparently leads to confusion (as in AMF/AS arrays are objects and in PHP they are primitive) I think removing array refs would be the best way to proceed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stanislav Malyshev (stas) on 2010-01-15T15:33:47.000+0000</p> 
+        <div class="body">
+            <p>fixed in trunk and 1.10 branch - no more refs for arrays</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikaël LABRUT (ml_kiiwy) on 2010-01-18T02:47:42.000+0000</p> 
+        <div class="body">
+            <p>hi,</p>
+
+<p>I have a little problem with your solution for this bug.
+Since your modifications on 'Serializer' returned array in my project are strange and didn't works (deserialization error).</p>
+
+<p>I think their is a link with cyclic reference : when i have cyclic references and array there is a bug.</p>
+
+<p>Maybe another solution can be found ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stanislav Malyshev (stas) on 2010-01-18T10:30:15.000+0000</p> 
+        <div class="body">
+            <p>Mikael, could you please have some reproducing code?</p>
+
+<p>P.S. looks like there was a bug in the fix, try the trunk now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikaël LABRUT (ml_kiiwy) on 2010-01-19T01:21:55.000+0000</p> 
+        <div class="body">
+            <p>Yeah, thanks the fix works fine :)</p>
+
+<p>I haven't a "simple" reproducing code sorry ...</p>
+
+<p>But the idea is to make a complex object with array/date/etc and manny array and cyclic reference and look at if it is correctly serialized/deserialized.</p>
+
+        </div>
+    </div>
+    </div>
+

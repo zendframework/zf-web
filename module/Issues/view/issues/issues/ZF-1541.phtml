@@ -1,0 +1,994 @@
+<h2>ZF-1541: Character set option for Db adapters</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-11T04:53:26.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-02-18T07:28:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1581">ZF-1581</a></li>
+            <li><a href="/issues/browse/ZF-4943">ZF-4943</a></li>
+            <li><a href="/issues/browse/ZF-2235">ZF-2235</a></li>
+            <li><a href="/issues/browse/ZF-6881">ZF-6881</a></li>
+            <li><a href="/issues/browse/ZF-3204">ZF-3204</a></li>
+            <li><a href="/issues/browse/ZF-7152">ZF-7152</a></li>
+            <li><a href="/issues/browse/ZF-3840">ZF-3840</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11545/charset.diff">charset.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Need a possibility to set character encoding for Mysqli / Pdo_Mysql adapter (in adapter's constructor)
+( sub-classing adapter makes impossible to use Zend_Db::factory() method )</p>
+
+<p>and then query like (for utf8): 'SET NAMES  utf8' on every connect()</p>
+
+<hr /><p>h3. Possible Solutions as recorded from comments below</p>
+
+<p>When the 'charset' option is available to the Zend_Db::Factory(), do the following in the adapters _connect method:
+||Adapter||Proposed Solution||
+|Mysqli|use mysqli_set_charset|
+|Oracle|use the charset option for oci_connect|
+|Db2|no solution|
+|Pdo_Ibm_Db2|no solution|
+|Pdo_Ibm_Ids|no solution|
+|Pdo_Mssql|no solution,depends on server configuration|
+|Pdo_Mysql|use PDO::MYSQL_ATTR_INIT_COMMAND =&gt; 'SET NAMES "utf8''|
+|Pdo_Oci|include charset in DSN|
+|Pdo_Pgsql|use SET NAMES|
+|Pdo_Sqlite|not needed|</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-14T18:34:20.000+0000</p> 
+        <div class="body">
+            <p>This is also relevant for OCI adapter and others, but the implementation varies.</p>
+
+<p>mikespook writes:</p>
+
+<p>I used utf8 for my charset with Oracle.</p>
+
+<p>But, there are no item can set the charset in the param of the Zend_Db::factory().
+And you konw, MS Windows  use GB18030 for the charset in China. 
+So when I send a SQL to the Oracle with charset utf8, I got a error.</p>
+
+<p>I make this patch for we can set charset to the Oracle.</p>
+
+<pre class="highlight"><code>
+Index: Oci.php
+===================================================================
+--- Oci.php    (revision 267)
++++ Oci.php    (working copy) 
+@@ -67,7 +67,12 @@
+             $tns .= '/';
+         }
+         $tns .= $dsn['dbname'];
+-
++   
++        if (isset($dsn['charset']))
++        {
++            $tns .= ';charset=' . $dsn['charset']; 
++        }
++   
+         return $this-&gt;_pdoType . ':' . $tns;
+     }
+</code></pre>
+
+<p>So, we could use:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+require_once 'Zend/Db.php';
+$db = Zend_Db::factory('Pdo_Oci', array(
+    'host'     =&gt; '127.0.0.1',
+    'username' =&gt; 'webuser',
+    'password' =&gt; 'xxxxxxxx',
+    'dbname'   =&gt; 'test',
+    'charset'  =&gt; 'utf8'
+));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2008-03-19T12:47:22.000+0000</p> 
+        <div class="body">
+            <p>In the Zend_Db_Adapter_Oracle we have</p>
+
+<pre class="literal">
+        if (isset($this-&gt;_config['dbname'])) {
+            $this-&gt;_connection = @oci_connect(
+                $this-&gt;_config['username'],
+                $this-&gt;_config['password'],
+                $this-&gt;_config['dbname']);
+        } else {
+            $this-&gt;_connection = oci_connect(
+                $this-&gt;_config['username'],
+                $this-&gt;_config['password']);
+        }
+</pre>
+
+<p>shouldn't it be something like</p>
+
+<pre class="literal">
+        $charset = (isset($this-&gt;_config['charset']))
+            ? $this-&gt;_config['charset']
+            : null;
+
+        $dbname = (isset($this-&gt;_config['dbname']))
+            ? $this-&gt;_config['dbname']
+            : null;
+
+        $this-&gt;_connection = oci_connect(
+            $this-&gt;_config['username'],
+            $this-&gt;_config['password'],
+            $dbname,
+            $charset
+        );
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:50.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T22:06:47.000+0000</p> 
+        <div class="body">
+            <p>Resetting 'fix version priority' and 'fix version' to be re-evaluated for next release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2008-04-01T14:53:50.000+0000</p> 
+        <div class="body">
+            <p>Here is a patch for it to work with Zend_Db_Adapter_Oracle</p>
+
+<pre class="literal">
+ Index: Zend/Db/Adapter/Oracle.php
+===================================================================
+--- Zend/Db/Adapter/Oracle.php  (revision 9107)
++++ Zend/Db/Adapter/Oracle.php  (working copy)
+@@ -102,17 +102,21 @@
+             throw new Zend_Db_Adapter_Oracle_Exception('The OCI8 extension is required for this adapter but the extension is not loaded');
+         }
+ 
+-        if (isset($this-&gt;_config['dbname'])) {
+-            $this-&gt;_connection = @oci_connect(
+-                $this-&gt;_config['username'],
+-                $this-&gt;_config['password'],
+-                $this-&gt;_config['dbname']);
+-        } else {
+-            $this-&gt;_connection = oci_connect(
+-                $this-&gt;_config['username'],
+-                $this-&gt;_config['password']);
+-        }
++        $charset = (isset($this-&gt;_config['charset']))
++            ? $this-&gt;_config['charset']
++            : null;
+ 
++        $dbname = (isset($this-&gt;_config['dbname']))
++            ? $this-&gt;_config['dbname']
++            : null;
++
++        $this-&gt;_connection = oci_connect(
++            $this-&gt;_config['username'],
++            $this-&gt;_config['password'],
++            $dbname,
++            $charset
++        );
++
+         // check the connection
+         if (!$this-&gt;_connection) {
+             /**
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Goran Juric (gog) on 2008-05-25T15:00:01.000+0000</p> 
+        <div class="body">
+            <p>Here are the patches for Mysqli:</p>
+
+<pre class="literal">
+Index: Zend/Db/Adapter/Mysqli.php
+===================================================================
+--- Mysqli.php  (revision 9527)
++++ Mysqli.php  (working copy)
+@@ -301,6 +301,9 @@
+             require_once 'Zend/Db/Adapter/Mysqli/Exception.php';
+             throw new Zend_Db_Adapter_Mysqli_Exception(mysqli_connect_error());
+         }
++        if (array_key_exists('charset', $this-&gt;_config)) {
++            $this-&gt;_connection-&gt;query('SET NAMES \'' . $this-&gt;_config['charset'] . '\'');
++        }
+     }
+ 
+     /**
+</pre>
+
+<p>and for Pdo_Mysl</p>
+
+<pre class="literal">
+Index: Zend/Db/Adapter/Pdo/Abstract.php
+===================================================================
+--- Abstract.php    (revision 9527)
++++ Abstract.php    (working copy)
+@@ -121,7 +121,11 @@
+ 
+             // always use exceptions.
+             $this-&gt;_connection-&gt;setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+-
++            
++            // if PDO type is MySQL, and $this-&gt;_config['charset'] exists, set names
++            if ( ('mysql' == $this-&gt;_pdoType) &amp;&amp; array_key_exists('charset', $this-&gt;_config) ) {
++                $this-&gt;_connection-&gt;query('SET NAMES \'' . $this-&gt;_config['charset'] . '\'');
++            }
+         } catch (PDOException $e) {
+             /**
+              * @see Zend_Db_Adapter_Exception
+</pre>
+
+<p>Since the PDO database adapters use base (abstract) method for creating a db connection I've added a check ('mysql' == $this-&gt;_pdoType) so the 'set names' query is issued only for PDO_Mysql adapter (I don't know how other databases handle this issue).</p>
+
+<p>I really hope this issue will be fixed in the next minor release, it has been long overdue.</p>
+
+<p>If there is something else I can do to help, please let me know.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Goran Juric (gog) on 2008-05-25T16:43:18.000+0000</p> 
+        <div class="body">
+            <p>Please disregard the patch for Pdo_Mysql, haven't really worked with Pdo till now. "SET NAMES" do work for Pdo_Mysql adapter!!! You just have to pass it as a driver option...</p>
+
+<p>The correct way to use it is:</p>
+
+<pre class="literal">
+&lt;?php
+
+$db = new Zend_Db_Adapter_Pdo_Mysql(array(
+    'host'     =&gt; 'your_host_or_ip',
+    'username' =&gt; 'your_myslq_username0,
+    'password' =&gt; 'mysql_pass',
+    'dbname'   =&gt; 'your_db_name',
+    'driver_options'  =&gt; array(PDO::MYSQL_ATTR_INIT_COMMAND =&gt; 'SET NAMES \'utf8\'')
+));
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Dempster (letssurf) on 2008-05-26T00:47:48.000+0000</p> 
+        <div class="body">
+            <p>On Pdo_Mysql I've always just used $db-&gt;query('SET NAMES UTF8'); without any problems.
+I tested it to make sure it works correctly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Goran Juric (gog) on 2008-05-26T03:05:04.000+0000</p> 
+        <div class="body">
+            <p>Ofcourse it does. But if you send a query you are forcing you app to connect to the database. There are times that you don't want to connect to the database if it isn't really needed, that's what lazy loading is for.</p>
+
+<p>This way, you can use Pdo_Mysql, utf8, and still have lazy loading of the db.</p>
+
+<p>But this issue is still unresolved because in Mysqli you do have to send "SET NAMES 'utf8'" after connecting to the database.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2008-05-26T13:36:21.000+0000</p> 
+        <div class="body">
+            <p>I would love to see this implemented. At the moment managing lazy loading is either something you get creative about, or with a light application simply ignore. Getting it internalised would make life that bit easier.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2008-06-03T02:11:37.000+0000</p> 
+        <div class="body">
+            <p>any way .. could this at least be fixed in the Oracle Adapter since oci_connect supports charset ? :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-06-09T17:34:38.000+0000</p> 
+        <div class="body">
+            <p>All right, this item officially has twice as many votes as the next popular item. If we don't implement it for 1.6 we risk user revolt. :0 Simon, is this something that you'll be able to do. If not, I'll troll for help from the rest of the community.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sorin Alin Stoiana (sorin) on 2008-08-13T05:49:53.000+0000</p> 
+        <div class="body">
+            <p>For mysqli the correct way is to use mysqli::set_charset ( see <a href="http://www.php.net/manual/en/mysqli.set-charset.php">http://php.net/manual/en/…</a> ).</p>
+
+<p>Here's the patch for it:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Db/Adapter/Mysqli.php
+===================================================================
+--- library/Zend/Db/Adapter/Mysqli.php  (revision 10900)
++++ library/Zend/Db/Adapter/Mysqli.php  (working copy)
+@@ -313,6 +313,16 @@
+             require_once 'Zend/Db/Adapter/Mysqli/Exception.php';
+             throw new Zend_Db_Adapter_Mysqli_Exception(mysqli_connect_error());
+         }
++        
++        if (array_key_exists('charset', $this-&gt;_config)) {
++           if(!$this-&gt;_connection-&gt;set_charset($this-&gt;_config['charset'])) {
++                /**
++                * @see Zend_Db_Adapter_Mysqli_Exception
++                */
++                require_once 'Zend/Db/Adapter/Mysqli/Exception.php';
++                throw new Zend_Db_Adapter_Mysqli_Exception('could not set charset');
++            }
++        }
+     }
+ 
+     /**
+</code></pre>
+
+<p>The charset issue is already resolved for Pdo_Oci as far as I see ( SVN trunk ):</p>
+
+<pre class="highlight"><code>
+    /**
+     * Creates a PDO DSN for the adapter from $this-&gt;_config settings.
+     *
+     * @return string
+     */
+    protected function _dsn()
+    {
+        // baseline of DSN parts
+        $dsn = $this-&gt;_config;
+
+        ...
+
+        if (isset($dsn['charset']))
+        {
+            $tns .= ';charset=' . $dsn['charset'];
+        }
+
+        return $this-&gt;_pdoType . ':' . $tns;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sorin Alin Stoiana (sorin) on 2008-08-15T03:43:54.000+0000</p> 
+        <div class="body">
+            <p>Here's the resulting patch. It implements charset support for Mysql, Oracle, Pdo_Mysql, Pdo_Oracle and Pdo_Pgsql, as well as unit tests for these.</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Db/Adapter/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Adapter/TestCommon.php    (revision 10902)
++++ tests/Zend/Db/Adapter/TestCommon.php    (working copy)
+@@ -45,6 +45,36 @@
+  */
+ abstract class Zend_Db_Adapter_TestCommon extends Zend_Db_TestSetup
+ {
++   /**
++    * Test set charset option for adapter
++    * CASE: utf8
++    */
++   public function testAdapterCharset()
++   {
++       $params = $this-&gt;_util-&gt;getParams();
++       
++       $params['charset'] = 'utf8';
++       
++       $db = Zend_Db::factory($this-&gt;getDriver(), $params);
++        $db-&gt;getConnection();
++   }
++   
++   /**
++    * Test set charset option for adapter
++    * CASE: bad charset
++    */
++   public function testAdapterCharsetBad()
++   {
++       $params = $this-&gt;_util-&gt;getParams();
++       
++       $params['charset'] = 'blahblahblah';
++       
++       $this-&gt;setExpectedException('Zend_Db_Adapter_Exception');
++
++       $db = Zend_Db::factory($this-&gt;getDriver(), $params);
++        $db-&gt;getConnection();
++   }
++   
+     /**
+      * Test AUTO_QUOTE_IDENTIFIERS option
+      * Case: Zend_Db::AUTO_QUOTE_IDENTIFIERS = true
+@@ -55,6 +85,7 @@
+         $params = new Zend_Config($this-&gt;_util-&gt;getParams());
+ 
+         $db = Zend_Db::factory($this-&gt;getDriver(), $params);
++        
+         $db-&gt;getConnection();
+     }
+ 
+Index: tests/Zend/Db/Adapter/Pdo/SqliteTest.php
+===================================================================
+--- tests/Zend/Db/Adapter/Pdo/SqliteTest.php    (revision 10902)
++++ tests/Zend/Db/Adapter/Pdo/SqliteTest.php    (working copy)
+@@ -48,6 +48,16 @@
+         'INTEGER'            =&gt; Zend_Db::BIGINT_TYPE,
+         'REAL'               =&gt; Zend_Db::FLOAT_TYPE
+     );
++    
++    public function testAdapterCharset()
++   {
++        $this-&gt;markTestSkipped($this-&gt;getDriver() . ' does not support charset');
++    }
++    
++    public function testAdapterCharsetBad()
++   {
++        $this-&gt;markTestSkipped($this-&gt;getDriver() . ' does not support charset');
++    }
+ 
+     /**
+      * Test AUTO_QUOTE_IDENTIFIERS option
+Index: tests/Zend/Db/Adapter/OracleTest.php
+===================================================================
+--- tests/Zend/Db/Adapter/OracleTest.php    (revision 10904)
++++ tests/Zend/Db/Adapter/OracleTest.php    (working copy)
+@@ -43,6 +43,41 @@
+         'NUMBER'             =&gt; Zend_Db::FLOAT_TYPE,
+     );
+ 
++    /**
++     * Test set charset option for adapter
++     * CASE: bad charset
++     */
++    public function testAdapterCharsetBad()
++    {
++        @trigger_error('clearing error buffer', E_USER_NOTICE);
++        
++        $params = $this-&gt;_util-&gt;getParams();
++        
++        $params['charset'] = 'blahblahblah';
++
++        $db = Zend_Db::factory($this-&gt;getDriver(), $params);
++        $db-&gt;getConnection();
++        
++        
++        // Since oci_connect throws a warning on a bad charset, we have no choice but to 
++        // use error_get_last()  to detect this warning. 
++        // 
++        // Due to the fact that error_get_last() cannot be reset, we also have to use
++        // @trigger_error() to "force" the reset of the last error message\
++        // 
++        // This is also the reason that this piece of code was not included in Zend_Db_Adapter_Oracle
++        // in order to throw an Exception when seting a bad charset
++        $last_error = error_get_last();
++        
++        if( is_array($last_error) &amp;&amp; 
++            $last_error['type'] == 2 &amp;&amp; 
++            strpos($last_error['message'], 'Invalid character set name') !== false ) {
++            
++        } else {
++            $this-&gt;fail( 'Invalid character set name' );
++        }
++    }
++    
+     public function testAdapterDescribeTablePrimaryAuto()
+     {
+         $this-&gt;markTestSkipped('Oracle does not support auto-increment');
+Index: library/Zend/Db/Adapter/Oracle.php
+===================================================================
+--- library/Zend/Db/Adapter/Oracle.php  (revision 10902)
++++ library/Zend/Db/Adapter/Oracle.php  (working copy)
+@@ -114,17 +114,21 @@
+             throw new Zend_Db_Adapter_Oracle_Exception('The OCI8 extension is required for this adapter but the extension is not loaded');
+         }
+ 
+-        if (isset($this-&gt;_config['dbname'])) {
+-            $this-&gt;_connection = @oci_connect(
+-                $this-&gt;_config['username'],
+-                $this-&gt;_config['password'],
+-                $this-&gt;_config['dbname']);
+-        } else {
+-            $this-&gt;_connection = oci_connect(
+-                $this-&gt;_config['username'],
+-                $this-&gt;_config['password']);
+-        }
++        $charset = (isset($this-&gt;_config['charset']))
++            ? $this-&gt;_config['charset']
++            : null;
++ 
++        $dbname = (isset($this-&gt;_config['dbname']))
++            ? $this-&gt;_config['dbname']
++            : null;
+ 
++        $this-&gt;_connection = oci_connect(
++            $this-&gt;_config['username'],
++            $this-&gt;_config['password'],
++            $dbname,
++            $charset
++        );
++        
+         // check the connection
+         if (!$this-&gt;_connection) {
+             /**
+Index: library/Zend/Db/Adapter/Pdo/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Pdo/Abstract.php    (revision 10902)
++++ library/Zend/Db/Adapter/Pdo/Abstract.php    (working copy)
+@@ -72,6 +72,7 @@
+         unset($dsn['username']);
+         unset($dsn['password']);
+         unset($dsn['options']);
++        unset($dsn['charset']);
+         unset($dsn['driver_options']);
+ 
+         // use all remaining parts in the DSN
+@@ -82,6 +83,12 @@
+         return $this-&gt;_pdoType . ':' . implode(';', $dsn);
+     }
+ 
++    protected function _setCharset( )
++    {
++        if ( array_key_exists('charset', $this-&gt;_config) ) {
++            $this-&gt;_connection-&gt;query('SET NAMES \'' . $this-&gt;_config['charset'] . '\'');
++        }
++    }
+     /**
+      * Creates a PDO object and connects to the database.
+      *
+@@ -134,6 +141,11 @@
+ 
+             // always use exceptions.
+             $this-&gt;_connection-&gt;setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
++            
++            if ( ('mysql' == $this-&gt;_pdoType) || ('pgsql' == $this-&gt;_pdoType))
++            {
++                $this-&gt;_setCharset();
++            }
+ 
+         } catch (PDOException $e) {
+             /**
+Index: library/Zend/Db/Adapter/Mysqli.php
+===================================================================
+--- library/Zend/Db/Adapter/Mysqli.php  (revision 10902)
++++ library/Zend/Db/Adapter/Mysqli.php  (working copy)
+@@ -313,6 +313,16 @@
+             require_once 'Zend/Db/Adapter/Mysqli/Exception.php';
+             throw new Zend_Db_Adapter_Mysqli_Exception(mysqli_connect_error());
+         }
++        
++        if (array_key_exists('charset', $this-&gt;_config)) {
++           if(!$this-&gt;_connection-&gt;set_charset($this-&gt;_config['charset'])) {
++                /**
++                * @see Zend_Db_Adapter_Mysqli_Exception
++                */
++                require_once 'Zend/Db/Adapter/Mysqli/Exception.php';
++                throw new Zend_Db_Adapter_Mysqli_Exception('could not set charset');
++            }
++        }
+     }
+ 
+     /**
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2008-08-19T10:03:46.000+0000</p> 
+        <div class="body">
+            <p>That's great to provide those patches, but I think the interface to supply character set to each respective brand of database is only half the problem.</p>
+
+<p>The other part of the problem is that a given character set may be known by a different name in each database.  For example, MySQL uses 'utf8' where Oracle uses 'AL32UTF8'.  Oracle even has a charset called 'utf8' but it's different.
+See <a href="http://decipherinfosys.wordpress.com/2007/01/28/difference-between-utf8-and-al32utf8-character-sets-in-oracle/">http://decipherinfosys.wordpress.com/2007/01/…</a></p>
+
+<p>This makes it hard to create a set of config parameters that can be used orthogonally for several brands of database.  You'd have to know the different names in each database for any given charset you want to use.</p>
+
+<p>How would I recommend solving this?  The {{Zend_Db_Adapter}} interface currently supports a config parameter 'driver_options', which is an associative array used for options that are specific to each brand of database.  I would suggest that {{Zend_Db_Adapter}} use 'driver_options'-&gt;'charset' for the name of the charset as it is known by the brand of database.</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('oracle', array('driver_options'=&gt;array('charset'=&gt;'AL32UTF8')));
+</code></pre>
+
+<p>Then you can implement a charset abstraction layer.   Decide on a set of core charsets that will be supported by {{Zend_Db}}, and define these as {{const}} strings.</p>
+
+<pre class="highlight"><code>
+class Zend_Db
+{
+  const CHARSET_UTF8 = utf8;
+  . . .
+}
+</code></pre>
+
+<p>Then in each {{Zend_Db_Adapter}} class, create a protected associative array mapping the abstract charset names to native charset names.  If the database doesn't support one, or if you simply don't know what it it's called, leave it out of the mapping array.</p>
+
+<pre class="highlight"><code>
+class Zend_Db_Adapter_Oracle extends Zend_Db_Adapter_Abstract
+{
+  protected $_charsetMap = array(
+    Zend_Db::CHARSET_UTF8 =&gt; 'AL32UTF8'
+  );
+  . . .
+}
+</code></pre>
+
+<p>Then if I pass a config parameter 'charset' =&gt; 'utf8' to my Db Adapter factory, it'll perform the mapping and add the entry to the driver_options, where it will get applied using code similar to your patch.</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('mysqli', array('charset'=&gt;Zend_Db::CHARSET_UTF8));
+</code></pre>
+
+<p>Developers can still use uncommon charsets that are not in the set of core abstract charsets supported by Zend_Db's mapping table.  They just need to specify it in the 'driver_options' array by its native name, instead of in the 'charset' parameter.</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('oracle', array('driver_options'=&gt;array('charset'=&gt;'BN8BSCII'))); // Bangladesh BSCII charset
+</code></pre>
+
+<p>You don't necessarily have to fill out the full set of core charsets in every adapter class.  But you do need to throw an exception if I pass an abstract charset name that isn't supported in the adapter I chose.</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('pdo_sqlite', array('charset' =&gt; Zend_Db::CHARSET_LATIN1));
+// may throw exception
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by C Snover (snover) on 2008-09-17T07:18:05.000+0000</p> 
+        <div class="body">
+            <p>Since this has been sitting open for so long, I went ahead and took a stab at making a patch. So here it is, against current SVN r11422. Adds charset support to Mysqli, PDO_Mysql, and PDO_Pgsql adapters. A new optional parameter 'charset' is passed to the adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by C Snover (snover) on 2008-09-17T07:22:53.000+0000</p> 
+        <div class="body">
+            <p>Whoops. And then there was JIRA not showing me the comment discussion. I feel extremely embarrassed and am going to crawl into a hole now. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Berlioz (quazardous) on 2008-12-03T00:33:50.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>do not forget Zend_Db_Adapter_Oracle : need charset support too !!!</p>
+
+<p>it's ok in PDO_OCI, but PDO_OCI is still unstable and chrashes very often  (try use clob :( u'll see ).</p>
+
+<p>current 1.7.0 code</p>
+
+<pre class="highlight"><code>
+protected function _connect()
+{
+...
+        if (isset($this-&gt;_config['dbname'])) {
+            $this-&gt;_connection = @oci_connect(
+                $this-&gt;_config['username'],
+                $this-&gt;_config['password'],
+                $this-&gt;_config['dbname']);
+        } else {
+            $this-&gt;_connection = oci_connect(
+                $this-&gt;_config['username'],
+                $this-&gt;_config['password']);
+        }
+...
+</code></pre>
+
+<p>could be</p>
+
+<pre class="highlight"><code>
+protected function _connect()
+{
+...
+            $this-&gt;_connection = @oci_connect(
+                $this-&gt;_config['username'],
+                $this-&gt;_config['password'],
+                isset($this-&gt;_config['dbname'])?$this-&gt;_config['dbname']:null,
+                isset($this-&gt;_config['charset'])?$this-&gt;_config['charset']:null,
+               );
+...
+</code></pre>
+
+<p>best regards</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2008-12-03T02:52:02.000+0000</p> 
+        <div class="body">
+            <p>I aggree .. dont forget :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-06T14:27:03.000+0000</p> 
+        <div class="body">
+            <p>This issue has gone unaddressed for too long. I'm re-assigning to Ralph for re-evaluation and categorization.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-01-21T15:39:15.000+0000</p> 
+        <div class="body">
+            <p>A quick solution for charset with Pdo_Mysql:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Db/Adapter/Pdo/Mysql.php';
+
+class Zend_Db_Adapter_Pdo_Mysql_Charset extends Zend_Db_Adapter_Pdo_Mysql
+{
+    protected function _connect(){
+        if ($this-&gt;_connection) {
+            return;
+        }
+        parent::_connect();
+        if(array_key_exists('charset',$this-&gt;_config) &amp;&amp; $this-&gt;_config['charset']){
+            global $logger;
+            $logger-&gt;debug('Setting db charset to '.$this-&gt;_config['charset']);
+            $this-&gt;_connection-&gt;exec('SET NAMES '.$this-&gt;_config['charset']);
+        }
+    }
+}
+
+</code></pre>
+
+<p>Then use something like this:</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory(Pdo_Mysql_Charset', array(
+        'host'     =&gt; '.....', 
+        'username' =&gt; '....' ,
+        'password' =&gt; '....',
+        'dbname'   =&gt; '....',
+        'charset'  =&gt; 'utf8',
+    ));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-01-21T15:41:13.000+0000</p> 
+        <div class="body">
+            <p>After cleanup:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Db/Adapter/Pdo/Mysql.php';
+
+class Zend_Db_Adapter_Pdo_Mysql_Charset extends Zend_Db_Adapter_Pdo_Mysql
+{
+    protected function _connect(){
+        if ($this-&gt;_connection) {
+            return;
+        }
+        parent::_connect();
+        if(array_key_exists('charset',$this-&gt;_config) &amp;&amp; !empty($this-&gt;_config['charset'])){
+            $this-&gt;_connection-&gt;exec('SET NAMES '.$this-&gt;_config['charset']);
+        }
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrey Hristov (andrey_mysql) on 2009-02-09T03:26:06.000+0000</p> 
+        <div class="body">
+            <p>Usage of SET NAMES for setting the charset of the connection, the result and the client for MySQL is WRONG, WRONG, WRONG! Opens the door for SQL Injections.
+SET NAMES exists only for the sake of the mysql command line client where there is no way to set the connection's character set when you connect, thus SET NAMES is used. mysql's API, libmysql, has means of setting the character set, for good reasons. Using SET NAMES can lead to security problems with specific character sets...Think - SQL Injection.
+Either use:
+<a href="http://bg.php.net/manual/en/function.mysql-set-charset.php">http://bg.php.net/manual/en/…</a>
+or
+mysqli_options() on a handle returned from mysqli_init() and this should be done before mysql_real_connect()</p>
+
+<p>$mysql = mysqli_init();
+mysqli_options($mysql, 7, "utf8"); //sorry for the magic number but ext/mysqli doesn't register the value of MYSQL_SET_CHARSET_NAME
+                                                    // coming from mysql.h as constant. In mysql.h it is 7 and won't change for the time being.
+mysqli_real_connect($mysql, ...);</p>
+
+<p>Andrey</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2009-02-25T08:00:01.000+0000</p> 
+        <div class="body">
+            <p>Andrey did not provide any information about the problem witht this type of sql injections and while it is hard to find anything on that i provide a source: <a href="http://ilia.ws/archives/103-mysql_real_escape_string-versus-Prepared-Statements.html">http://ilia.ws/archives/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Yanick Rochon (yanick) on 2009-03-03T11:24:55.000+0000</p> 
+        <div class="body">
+            <p>I needed to have UTF-8 encoding on MySQLi driver, here's a quick patch that I'm using to solve this problem. I would hope every implementation would support this option.</p>
+
+<pre class="literal">
+class Zend_Db_Adapter_Mysqli extends Zend_Db_Adapter_Abstract
+{
+
+    ...
+
+    protected function _connect()
+    {
+
+        ...
+
+        // line 342 using Zend 1.7.5
+        if (isset($this-&gt;_config['charset'])) {
+            mysqli_set_charset($this-&gt;_connection, $this-&gt;_config['charset']);
+        }
+    }
+
+    ...
+
+}
+</pre>
+
+<p>Sorry if I'm repeating code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Yanick Rochon (yanick) on 2009-03-03T11:34:02.000+0000</p> 
+        <div class="body">
+            <p>Well, I've re-read the entire thread, and Sorin Alin Stoiana's solution (13/Aug/08 05:49 AM) works great ! Why hasn't it been released with Zend 1.7.5 last feb 16th ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-03-04T09:43:06.000+0000</p> 
+        <div class="body">
+            <p>Collecting the proposed solutions inside the description of the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Micha? Zieli?ski (zielun) on 2009-03-25T04:46:00.000+0000</p> 
+        <div class="body">
+            <p>@Ralph: will Db2 adapter hold this issue or it is to be fixed for 1.8 release?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Micha? Zieli?ski (zielun) on 2009-03-25T04:50:48.000+0000</p> 
+        <div class="body">
+            <p>bleah... can`t edit my comment. I mean will lack of solution for Db2 adapters prevent this issue from fixing for other adapters?
+(please remove the above comment)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-05T15:36:21.000+0000</p> 
+        <div class="body">
+            <p>Bill: I like the idea of supporting charsets by using the constants. However, I feel like that's a different issue than this one. The focus of this issue should be on supporting setting the charset in the first place. Adding a layer of abstraction on top of that is pretty much a standalone task, even though its implementation would probably rework a part of the code that's being updated for the charset support. Seeing as a lot of people need this feature it might not be worth waiting for a full implementation of the charset abstraction proposal.</p>
+
+<p>Seeing as I need support for this in the Oci8 adapter, I'm going to write a patch for that today. If there's no solution for Db2 (Db2 experts, please comment!) I would like to suggest implementing the suggestions from the table to get this issue resolved.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sorin Alin Stoiana (sorin) on 2009-04-05T16:29:24.000+0000</p> 
+        <div class="body">
+            <p>@Jurrien FYI, the patch I submitted here [#action_23500 ] also provides support for Oci8</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-05T18:56:47.000+0000</p> 
+        <div class="body">
+            <p>This issue has been resolved for the Pdo_Mysql, Pdo_Pgsql, Mysqli and Oracle drivers in revision 14691 and 14692. At the moment I can only verify that this works on Oracle. Before closing this issue I would like to confirm there are no issues with the patch. Would everybody be so kind to verify that the patch works for Pdo_Mysql, Pdo_Pgsql and Mysqli? You can specify the charset in the adapter config using the 'charset' key.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sorin Alin Stoiana (sorin) on 2009-04-06T01:34:21.000+0000</p> 
+        <div class="body">
+            <p>A more complete patch is [here|#action23500] . It implements charset support for Mysql, Oracle, Pdo_Mysql, Pdo_Oracle and Pdo_Pgsql, as well as unit tests for these. It has been tested with Oracle XE, Oracle Real Application Cluster, Mysql, and Pgsql.</p>
+
+<p>Why was this patch disregarded? From what I read in the Contributor's Guide, all changes must come with unit tests.</p>
+
+<p>While I approve the kind of swift action Jurrien took in solving the issue at hand, I believe we shouldn't compromise when it comes to providing fixes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-16T17:17:39.000+0000</p> 
+        <div class="body">
+            <p>A test was available already, but was marked as skipped. It's enabled in revision 14952 and successfully passes on Mysqli, Pdo_Mysql, Pdo_Oci and Oracle.
+Still looking for someone to test on Pdo_Pgsql.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-16T17:58:52.000+0000</p> 
+        <div class="body">
+            <p>I've installed Postgres for myself and identified and fixed one last issue there. As of revision 14953 I can successfully run the test on Mysql, Pdo_Mysql, Oci8 and Pdo_Pgsql. Pdo_Oci already supported the charset option. Closing issue as "fixed". :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Paul Voss (chmuul) on 2010-01-06T06:48:49.000+0000</p> 
+        <div class="body">
+            <p>I'm working with Zend Framework Version 1.9.6 here and <em>cannot</em> confirm that this issue has been resolved (using pdo_mysql rev 16942).
+My html output is set to utf-8, the database runs on utf-8 as well (utf8_general_ci) but all special chars are messed up.</p>
+
+<p>Yanick Rochon's hotfix worked for me though. (<a href="http://framework.zend.com/issues/browse/ZF-1541?focusedCommentId=29251&amp;page=com.atlassian.jira.plugin.system.issuetabpanels%3Acomment-tabpanel#action_29251">http://framework.zend.com/issues/browse/…</a>)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-06T07:48:36.000+0000</p> 
+        <div class="body">
+            <p>what version on PHP? there was a regression in PHP 5.3.0 that would affect this from working.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Paul Voss (chmuul) on 2010-01-06T07:57:31.000+0000</p> 
+        <div class="body">
+            <p>I'm afraid it's 5.3.0... :(</p>
+
+<p>PHP 5.3.0 (cli) (built: Jul 19 2009 00:34:29) 
+Copyright (c) 1997-2009 The PHP Group
+Zend Engine v2.3.0, Copyright (c) 1998-2009 Zend Technologies</p>
+
+<p>In fact it's the apache/php combo that came with MacOS Snow Leopard (MySQL installed with MacPorts).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicola Alexander Schlup (nschlup) on 2010-02-18T07:28:27.000+0000</p> 
+        <div class="body">
+            <p>The problem is fixed with PHP 5.3.1.</p>
+
+        </div>
+    </div>
+    </div>
+

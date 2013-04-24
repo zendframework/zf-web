@@ -1,0 +1,163 @@
+<h2>ZF-3683: Performance improvement: reuse token object in lowercase filter</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-07-18T09:39:12.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-30T13:15:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+            <li>FixForZF1.12</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14953/ZF-3683.patch">ZF-3683.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There is a small performance improvement that could be made to the part of the code that creates indexes.
+In class Zend_Search_Lucene_Analysis_Analyzer_Common_Text in the nextToken() method the following line of code is executed:</p>
+
+<p>$token = $this-&gt;normalize(new Zend_Search_Lucene_Analysis_Token($str, $pos, $endpos));</p>
+
+<p>This calls the normalize() method of Zend_Search_Lucene_Analysis_TokenFilter_LowerCase. A Token object is created as part of the call to normalize(), inside normalize() a second Token object is created which is an exact copy of the first apart from the fact that the text is converted to lower case.</p>
+
+<p>This means that two Token objects are created for every token - this has some impact on performance (about 7% on the examples that I've looked at). One very simple fix would be to change normalize() so that it doesn't create a second object but just updates the text in the object that is passed to it. This would also require a change to Token.php to allow the text field to be set. I expect that there are more architecturally pleasing ways to fix.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-11-08T00:31:46.000+0000</p> 
+        <div class="body">
+            <p>Re-evaluated to major since Lucene already is very memory hungry 7% is quite a bit, and this can probably be fixed very easily (as reporter suggested).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-24T17:40:40.000+0000</p> 
+        <div class="body">
+            <p>Here is a patch implementing the issue submitter's suggestion:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Search/Lucene/Analysis/TokenFilter/LowerCase.php
+===================================================================
+--- library/Zend/Search/Lucene/Analysis/TokenFilter/LowerCase.php   (revision 24527)
++++ library/Zend/Search/Lucene/Analysis/TokenFilter/LowerCase.php   (working copy)
+@@ -45,14 +45,8 @@
+      */
+     public function normalize(Zend_Search_Lucene_Analysis_Token $srcToken)
+     {
+-        $newToken = new Zend_Search_Lucene_Analysis_Token(
+-                                     strtolower( $srcToken-&gt;getTermText() ),
+-                                     $srcToken-&gt;getStartOffset(),
+-                                     $srcToken-&gt;getEndOffset());
+-
+-        $newToken-&gt;setPositionIncrement($srcToken-&gt;getPositionIncrement());
+-
+-        return $newToken;
++        $srcToken-&gt;setTermText(strtolower($srcToken-&gt;getTermText()));
++        return $srcToken;
+     }
+ }
+ 
+Index: library/Zend/Search/Lucene/Analysis/TokenFilter/LowerCaseUtf8.php
+===================================================================
+--- library/Zend/Search/Lucene/Analysis/TokenFilter/LowerCaseUtf8.php   (revision 24527)
++++ library/Zend/Search/Lucene/Analysis/TokenFilter/LowerCaseUtf8.php   (working copy)
+@@ -57,14 +57,8 @@
+      */
+     public function normalize(Zend_Search_Lucene_Analysis_Token $srcToken)
+     {
+-        $newToken = new Zend_Search_Lucene_Analysis_Token(
+-                                     mb_strtolower($srcToken-&gt;getTermText(), 'UTF-8'),
+-                                     $srcToken-&gt;getStartOffset(),
+-                                     $srcToken-&gt;getEndOffset());
+-
+-        $newToken-&gt;setPositionIncrement($srcToken-&gt;getPositionIncrement());
+-
+-        return $newToken;
++        $srcToken-&gt;setTermText(mb_strtolower($srcToken-&gt;getTermText(), 'UTF-8'));
++        return $srcToken;
+     }
+ }
+ 
+Index: library/Zend/Search/Lucene/Analysis/Token.php
+===================================================================
+--- library/Zend/Search/Lucene/Analysis/Token.php   (revision 24527)
++++ library/Zend/Search/Lucene/Analysis/Token.php   (working copy)
+@@ -123,6 +123,18 @@
+     {
+         return $this-&gt;_termText;
+     }
++    
++    /**
++     * Sets the Token's term text.
++     * 
++     * @param string $text
++     * @return this
++     */
++    public function setTermText($text)
++    {
++        $this-&gt;_termText = $text;
++        return $this;
++    }
+ 
+     /**
+      * Returns this Token's starting offset, the position of the first character
+</code></pre>
+
+<p>The Zend_Search_Lucene test suite still passes after the above modifications are made, however the area of Zend_Search_Lucene in question is not unit tested.</p>
+
+<p>Are there any backwards-compatibility issues with changing this behavior now?  Previously, an entirely new token would come out of {{normalize()}}, but with the above modifications the provided token is modified in-place and returned.  Are there any situations where this would be inappropriate?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-30T13:15:07.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24832</p>
+
+        </div>
+    </div>
+    </div>
+

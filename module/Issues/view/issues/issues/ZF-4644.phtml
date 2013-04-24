@@ -1,0 +1,159 @@
+<h2>ZF-4644: Zend_File_Transfer getFilename should return null in cases where file is not uploaded</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-20T05:57:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-11-13T14:10:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.0 (17/Nov/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In the case when you are dealing with forms, there are times where a file input is optional and you want to be able to detect whether a file was uploaded or not prior to calling the receive method of the adapter to attempt to move it to it's final destination.</p>
+
+<p>The most appropriate method appears to be getFilename on the adapter itself to determine whether a file has been uploaded or not.  A current problem exists that getFilename returns the destination directory and an empty filename in the case where the file is never uploaded.</p>
+
+<p>Zend/File/Transfer/Adapter/Abstract.php</p>
+
+<pre class="highlight"><code>
+public function getFileName($file)
+{
+    $file = (string) $file;
+    if (!array_key_exists($file, $this-&gt;_files)) {
+         return null;
+    }
+
+    $directory = $this-&gt;getDestination($file);
+    return $directory . DIRECTORY_SEPARATOR . $this-&gt;_files[$file]['name'];
+}
+</code></pre>
+
+<p>In addition to the array_key_exists check, it should also check to see if $file is empty or not and return null if filename is empty.  Right now it always returns the final destination directory. So if you happen to call getFilename on an optional file input field that nothing is uploaded to, it will return the destination directory with a trailing slash with an empty filename.  Technically no filename exists when an optional file is never uploaded, so it should return null in this scenario.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-20T06:39:19.000+0000</p> 
+        <div class="body">
+            <p>This is wether a bug, nor the correct way to solve such a problem.</p>
+
+<p>getFileName does not only work on upload but also on download. It returns the actual set filename of the internal element. It could even change when you use filters.</p>
+
+<p>But, and this is emminent:
+IT IS NOT THE CORRECT METHOD FOR CHECKING IF A UPLOAD HAS OCCURED !!!!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by l c (cromulent) on 2008-10-20T07:12:08.000+0000</p> 
+        <div class="body">
+            <p>Thomas,</p>
+
+<p>I thought that may be the case, but what do you suggest for determining the filename in this use case?</p>
+
+<p>If the file is optional and ignoreNoFile is set to true, there's no way to guarantee that you can properly determine the final filename after calling receive because the return value of move_uploaded_file is skipped. In addition, with the checks done against move_uploaded_file the granularity of the error is never determined. For example, you can't tell if the file upload never existed in the first place or that  it was the subsequent move that failed. In this case, ZF-4386 may need to be revisited and additional validation/exceptions added.</p>
+
+<p>In addition, what happens when you need to store the final filename (minus it's directory path) inside of a database? From your statement, getFilename is not suitable in this case as well, but there's no clear alternative.</p>
+
+<p>The documentation is now out of date here and there is no specified alternative to calling getValue on the file element.  If we can't rely on getFilename, how can you accurately determine the name of a uploaded file?</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.form.standardElements.html#zend.form.standardElements.file">http://framework.zend.com/manual/en/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-20T10:13:58.000+0000</p> 
+        <div class="body">
+            <p>These are two different things.</p>
+
+<p>You can't determinate the filename while the file has not been received. Because the filename can change at this point.</p>
+
+<p>getValue() will return null when used with the file element, because files don't have a value in HTTP. This would be a security leak if we would provide this information to the user.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by l c (cromulent) on 2008-10-20T12:01:44.000+0000</p> 
+        <div class="body">
+            <p>Ok, I guess my question then is what is the suggested method of handling optional file uploads and properly detecting it has been uploaded?  I would imagine using isReceived, but it appear to always return false.</p>
+
+<p>I imagine you would propose calling receive each element, but this is problematic because if the file is optional, the current implementation of ignoreNoFile causes problems with detecting whether a file was successfully uploaded or not if there are errors in the destination directory such as write permissions or if for some reason the initial move_uploaded_file failed on a legitimate upload.</p>
+
+<p>Let's say I have a Zend_Form_Element_File with the name "upload" that is not required. As a result, ignoreNoFile is set to true when the field is not required.  The problem is though, since ignoreNoFile is set to true, you cannot rely on the value of receive to determine if the file has been uploaded properly.</p>
+
+<p>Based on your response, then this ticket could be closed or I may have additional suggestions for the receive method which might be better suited in a separate ticket.</p>
+
+<pre class="highlight"><code>
+$form-&gt;upload-&gt;setRequired(false);
+$upload = $form-&gt;upload-&gt;getTransferAdapter();
+$upload-&gt;setDestination('/directory/with/no/write/access');
+
+if ($upload-&gt;receive()) {
+      // this will return true despite the fact the file won't get moved into it's final destination as specified in setDestination
+
+      // this will point to the path of the file within the default temporary upload dir, but is unexpected as it should reside within the setDestination dir
+      $filename = $form-&gt;upload-&gt;getFileName();
+      
+} else {
+      // unreachable
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-22T12:38:35.000+0000</p> 
+        <div class="body">
+            <p>No, I would simply propose that you use the isUploaded() method.
+It returns exactly what you mentioned above... has a file been uploaded or not...  simply true or false.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:10:27.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

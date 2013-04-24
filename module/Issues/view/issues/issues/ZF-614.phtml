@@ -1,0 +1,284 @@
+<h2>ZF-614: Controllers in subdirectories (or any different directory) / Modules</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-12-03T05:55:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.6.0 (16/Dec/06)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I would like to touch this subject again. I think I have found a solution which 
+should suit everybody as it's very easy to manage from a user standpoint and 
+also easy to implement.</p>
+
+<p>===============================================================================
+Framework user standpoint</p>
+
+<p>It's a concept of named modules. Let's work on a use case first - let's 
+bootstrap our application with additional directories in the standard way:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Controller/Front.php';
+$controller = Zend_Controller_Front::getInstance();
+
+$dirs = array(
+    'default' =&gt; '/home/martel/WWW/test/controllers',
+    'forum'   =&gt; '/home/martel/WWW/test/controllers/forum',
+    'admin'   =&gt; '/home/martel/WWW/test/controllers/admin',
+    'other'   =&gt; '/var/www/even/outside/root/dir'
+);
+
+$controller-&gt;setControllerDirectory($dirs);
+echo $controller-&gt;dispatch();
+</code></pre>
+
+<p>As you see, it's an already working way of setting controller dirs. Nothing is
+or needs to be changed up to this point. We can access all the dirs with:</p>
+
+<p><a href="http://localhost/test/index.php?controller=news&amp;action=add">http://localhost/test/index.php/…</a></p>
+
+<p>But what happens when you want to use a NewsController in 'default' as well s 'admin' 
+directories? Former is used to display news to the users and latter to 
+administer the site.</p>
+
+<p>So let's assume we have an additional parameter named 'module'. And if 
+we would like to access the admin module specifically, we would use the 
+following URIs:</p>
+
+<p>With standard URL Scheme:
+<a href="http://localhost/test/index.php?module=admin&amp;controller=news&amp;action=add">http://localhost/test/index.php/…</a></p>
+
+<p>Or with RewriteRouter (route: ':module/:<a>controller:/:action</a>'):
+<a href="http://localhost/test/admin/news/add">http://localhost/test/admin/news/add</a></p>
+
+<p>This way we can access any directory structure by using named modules. And 
+moreover, we can have controllers named exactly the same in different 
+directiories - something that is not possible with current codebase.</p>
+
+<p>But it's still a backwards compatible solution - we can access the controllers 
+without relying on modules. In that case dispatcher would iterate through 
+all the defined controller dirs like it is being done right now.</p>
+
+<p>Now let's get to the implementation.</p>
+
+<p>===============================================================================
+Framework Code</p>
+
+<p>It's really easy thing to do as setControllerDir is already setting directories 
+by the key, so it's only a matter of modifying _getController() method of the 
+dispatcher to be aware of modules (new code is marked by pluses):</p>
+
+<pre class="highlight"><code>
+protected function _getController($request, $directories = null, $module = null)
+{
+     ...
+
+     $className = $this-&gt;formatControllerName($controllerName);
+
+     /**
+      * Determine if controller is dispatchable
+      */
+     $dispatchable = false;
+
++    if ($module !== null) {
++        $dispatchable = Zend::isReadable($directory[$module]);
++    } else {
+         foreach ($directories as $directory) {
+             $dispatchable = Zend::isReadable($directory ...);
+             if ($dispatchable) break;
+         }
++    }
+
+     return $dispatchable ? $className : false;
+}
+</code></pre>
+
+<p>And that's pretty much it. Of course we would still have to add 
+formatModuleName family of methods (similar to controller and action names), an 
+optional module parameter to addControllerDir to make it store directories 
+under specified key and finally a delegate methods in Front Controller.</p>
+
+<p>public function addControllerDirectory($path, $module = null)</p>
+
+<p>Finally it would probably be a good idea to move "Determine if controller is 
+dispatchable" block out to it's own method. It will allow for easier 
+subclassing and will meet Rob's request:</p>
+
+<p><a href="http://www.nabble.com/%24_GET%2C%24_POST-and-Zend_Controller_Request_Http-tf2710146s16154.html">http://nabble.com/%24_GET%2C%24_POST-and-Zend_Cont…</a></p>
+
+<p>===============================================================================
+Backwards compatibility</p>
+
+<p>This implementation is fully backwards compatible but maybe it would be better 
+to drop backwards compatibility in order to clean the code? I mean make one 
+default module instead of directory iteration, etc. And we're already shooting 
+our foots with parameter ordering (parameters renamed to better show what's on 
+my mind):</p>
+
+<pre class="highlight"><code>
+public function addControllerDirectory($dir, $name)
+public function addRoute($name, $route)
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-12-03T08:51:09.000+0000</p> 
+        <div class="body">
+            <p>I like this idea a lot -- goes in line somewhat with changes I've made to the Zend_View helper and filter paths recently.</p>
+
+<p>One note: you can actually reference controllers in subdirectories by using a hyphen or underscore: <a href="http://example.com/admin-news/edit">http://example.com/admin-news/edit</a> will use the Admin_NewsController found in Admin/NewsController.php. However, I like the idea of specifying a module instead of using the hyphen or underscore character.</p>
+
+<p>A few comments: I'd change your _getController() signature to read _getController($request, $directories = null, $module = 'default'), as I think it's more likely that there won't be a module and less likely that there won't be directories.</p>
+
+<p>Additionally, I'd like to propose that, for BC purposes, if the array passed to setControllerDirectory() is indexed and not associative, the string 'default' be used as the module for each.</p>
+
+<p>Otherwise, all of this makes sense to me, and gives some good flexibility.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-12-05T14:38:23.000+0000</p> 
+        <div class="body">
+            <p>This is actually a little more intrusive than it looks. The logic will have to account for multiple paths under the same module, and the ability to pass a module name to setControllerDirectory. Additionally, in looking through the code, I'm thinking that the paths need to be cached in the controller and passed to the dispatcher just prior to dispatching. I'm going to start re-factoring today.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2006-12-06T02:04:42.000+0000</p> 
+        <div class="body">
+            <p>Maybe it would be easier to make one directory per module?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-12-06T04:23:48.000+0000</p> 
+        <div class="body">
+            <p>The current code in the dispatcher loops through the array and simply normalizes the paths sent. The problem is: what if the array is non-associative?</p>
+
+<p>As I think about it, though, the logic remains the same: it's basically a FIFO array unless a module is requested, in which case that module gets precedence.</p>
+
+<p>I still want to do the caching in the front controller, so that the order in which items are set in the front controller doesn't become an issue (right now, if you call setControllerDirectory() prior to setting a custom dispatcher, the settings for the controller directory won't be pushed into the new dispatcher).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2006-12-06T11:02:04.000+0000</p> 
+        <div class="body">
+            <p>To answer your question (regarding non-associative array). With the current codebase the array is mixed, so you can have associative as well as numeric indexes on the directories:</p>
+
+<pre class="highlight"><code>
+$dirs = array(
+    'controllers',
+    'forum' =&gt; 'controllers/forum',
+    'admin' =&gt; 'controllers/admin'
+);
+
+$controller-&gt;setControllerDirectory($dirs);
+$controller-&gt;addControllerDirectory('controllers/default1');
+$controller-&gt;addControllerDirectory('controllers/default2');
+
+var_dump($controller-&gt;getControllerDirectory());
+</code></pre>
+
+<p>This code results in:</p>
+
+<pre class="highlight"><code>
+array(5) {
+  [0]=&gt;
+  string(11) "controllers"
+  ["forum"]=&gt;
+  string(17) "controllers/forum"
+  ["admin"]=&gt;
+  string(17) "controllers/admin"
+  [1]=&gt;
+  string(20) "controllers/default1"
+  [2]=&gt;
+  string(20) "controllers/default2"
+}
+</code></pre>
+
+<p>To keep backwards compatibility, I would scan all the dirs when module is not present and only one if programmer specifically and conciously chooses the module thru an URL. Alternatively, we can asume that all integer-indexed values would be in "default" module.</p>
+
+<p>Or we can break compatibility and REQUIRE an associative array.</p>
+
+<p>The call is yours :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-12-06T11:31:57.000+0000</p> 
+        <div class="body">
+            <p>I've been implementing and testing, and I'm beginning to wonder if the module (other than 'default' or numerical module names) should be used as a prefix for the class. The reason I mention it is that without this, we can start running into naming collisions, and it becomes difficult (actually, impossible) for a class in one module to extent that in another module if they have the same name.</p>
+
+<p>As it is, testing without the prefix means that I cannot reference the controller anywhere else in the test class prior to the modules tests.</p>
+
+<p>I'm going to sit on the changes a bit before committing them; anybody with feedback, please send it here!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-12-06T15:13:35.000+0000</p> 
+        <div class="body">
+            <p>I have code working now. However... one thing not discussed is how to specify the module in the URI. Right now, by default, you can only do it with:</p>
+
+<pre class="highlight"><code>
+<a href="http://localhost/controller/action/module/modulename">http://localhost/controller/action/…</a>
+</code></pre>
+
+<p>I could add another default route in the RewriteRouter to match something like <a href="http://localhost/module/controller/action">http://localhost/module/controller/action</a>, but that then conflicts with any other routes with three arguments (such as :controller/:action/:id) as well as the current default route.</p>
+
+<p>I'll commit the code for now (module support in dispatcher), but we'll need to figure out how and where to specify modules in the routing process. [ZF-617] addresses some of this, and I'll take the discussion to there.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2006-12-06T15:22:17.000+0000</p> 
+        <div class="body">
+            <p>Dispatcher changes (and front controller) are in subersoin as of revision 2172. There are still unanswered questions about how to handle routing, but those will be dealth with in ZF-617.</p>
+
+        </div>
+    </div>
+    </div>
+

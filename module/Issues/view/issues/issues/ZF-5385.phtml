@@ -1,0 +1,188 @@
+<h2>ZF-5385: Zend_Form_Decorators_FormErrors Doesnt Handle Manually Added Errors Properly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-30T16:44:59.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-05-29T03:11:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.5 (26/May/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12544/zend_form_custom_errors_decorator.patch">zend_form_custom_errors_decorator.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Form</p>
+
+<p>The addErrorMessage method on line #2075 adds an error message to the $_errorMessage array without a key value, hence automatically getting a numeric key.</p>
+
+<p>Zend_Form_Decorator_FormErrors</p>
+
+<p>The _recurseForm method on line #366 parses through a list of errors including the $_errorMessage array from the form to put together the errors. The error messages added through the addErrorMessage method will not get picked up through here as its $key =&gt; $value pairs will not meet any of the conditions within the loop.</p>
+
+<p>Solutions:</p>
+
+<ol><li><p>Modify the recurse form loop to handle elements with the numeric key.</p></li>
+<li><p>Specify a key in the addErrorMessage method and specifically handle that key within the _recurseForm method as well.</p></li>
+</ol>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Tuley (robtuley) on 2009-06-03T03:12:14.000+0000</p> 
+        <div class="body">
+            <p>I just encountered the same problem. My workaround looked something like adding a extra elseif clause to handle these errors within _recurseForm...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Reko Tiira (reko_t) on 2009-12-28T03:10:33.000+0000</p> 
+        <div class="body">
+            <p>Attached a patch that fixes the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Erwin Derksen (erwind) on 2010-03-31T05:33:14.000+0000</p> 
+        <div class="body">
+            <p>Imho, the patch has several drawbacks:</p>
+
+<ul><li>hasErrorMessages seems superfluous as the existing method isErrors seems more appropriate (in combination with using addError() instead of addErrorMessage())</li>
+<li>the FormError decorator should render all messages, either being related or unrelated to an element. It should do so, regardless of how the form handles this (see next point). The patch renders either the custom messages or the elements/subforsm messages (as previously).</li>
+<li>the Form itself also acts a bit strange in only returning either the custom messages or the element/subform related messages. This should be configurable.</li>
+</ul><p>So I changed the patch to</p>
+
+<pre class="highlight"><code>
+        foreach ($errors as $name =&gt; $list) {
+            if (is_int($name)) {
+                $content .= $this-&gt;getMarkupListStart()
+                         .  $view-&gt;formErrors($list, $this-&gt;getOptions())
+                         .  $this-&gt;getMarkupListEnd();
+                }
+            else if (null !== ($element = $form-&gt;getElement($name))) {
+                $element-&gt;setView($view);
+                $content .= $this-&gt;getMarkupListItemStart()
+                         .  $this-&gt;renderLabel($element, $view)
+                         .  $view-&gt;formErrors($list, $this-&gt;getOptions())
+                         .  $this-&gt;getMarkupListItemEnd();
+            } elseif (!$this-&gt;ignoreSubForms() &amp;&amp; nul !== ($subForm = $form-&gt;getSubForm($name))) {
+                $content .= $this-&gt;getMarkupListStart()
+                         .  $this-&gt;_recurseForm($subForm, $view)
+                         .  $this-&gt;getMarkupListEnd();
+            }
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Erwin Derksen (erwind) on 2010-03-31T06:12:39.000+0000</p> 
+        <div class="body">
+            <p>I'm sorry, but the code I posted half an hour ago does not render valid html (</p>
+
+<p>&lt;</p>
+
+<p>ul&gt; directly within</p>
+
+<p>&lt;</p>
+
+<p>ul&gt;). Better is to use the code below.</p>
+
+<p>note that the subform branch in the current version (1.10.2) contains the same error! (I'm not reporting that separately as this issue is open and major, so should receive enough attention). I changed it for the subform branch as well. However, I don't use subforms, so I'm not sure about that branch. If you want errors from a subform in their own list (to hide or expand them using javascript/css use the second code part.</p>
+
+<pre class="highlight"><code>
+        foreach ($errors as $name =&gt; $list) {
+            if (is_int($name)) {
+                $content .= $this-&gt;getMarkupListItemStart()
+                         .  $view-&gt;formErrors($list, $this-&gt;getOptions())
+                         .  $this-&gt;getMarkupListItemEnd();
+                }
+            else if (null !== ($element = $form-&gt;getElement($name))) {
+                $element-&gt;setView($view);
+                $content .= $this-&gt;getMarkupListItemStart()
+                         .  $this-&gt;renderLabel($element, $view)
+                         .  $view-&gt;formErrors($list, $this-&gt;getOptions())
+                         .  $this-&gt;getMarkupListItemEnd();
+            } else if (!$this-&gt;ignoreSubForms() &amp;&amp; nul !== ($subForm = $form-&gt;getSubForm($name))) {
+                $content .= $this-&gt;_recurseForm($subForm, $view);
+            }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+        foreach ($errors as $name =&gt; $list) {
+           if (is_int($name)) {
+                $content .= $this-&gt;getMarkupListItemStart()
+                         .  $view-&gt;formErrors($list, $this-&gt;getOptions())
+                         .  $this-&gt;getMarkupListItemEnd();
+                }
+            else if (null !== ($element = $form-&gt;getElement($name))) {
+                $element-&gt;setView($view);
+                $content .= $this-&gt;getMarkupListItemStart()
+                         .  $this-&gt;renderLabel($element, $view)
+                         .  $view-&gt;formErrors($list, $this-&gt;getOptions())
+                         .  $this-&gt;getMarkupListItemEnd();
+            } else if (!$this-&gt;ignoreSubForms() &amp;&amp; nul !== ($subForm = $form-&gt;getSubForm($name))) {
+                $content .= $this-&gt;getMarkupListItemStart()
+                         .  $this-&gt;getMarkupListStart()
+                         .  $this-&gt;_recurseForm($subForm, $view)
+                         .  $this-&gt;getMarkupListEnd()
+                         .  $this-&gt;getMarkupListItemEnd();
+            }
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-05-24T08:56:42.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r22272 and merged into 1.10 release branch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-05-29T03:11:20.000+0000</p> 
+        <div class="body">
+            <p>Fixed the fix in <a href="http://framework.zend.com/code/changelog/Standard_Library?cs=22316">r22316</a> and added UnitTests</p>
+
+        </div>
+    </div>
+    </div>
+

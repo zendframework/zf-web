@@ -1,0 +1,112 @@
+Index: library/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Abstract.php	(revision 3678)
++++ library/Zend/Db/Adapter/Abstract.php	(working copy)
+@@ -457,16 +457,25 @@
+      * Quotes an identifier.
+      *
+      * @param string|Zend_Db_Expr $ident The identifier.
++     * @param boolean $qualified Indicates the identifier is a qualified name, and each segment (separated by a dot) should quoted.
+      * @return string The quoted identifier.
+      */
+-    public function quoteIdentifier($ident)
++    public function quoteIdentifier($ident, $qualified = false)
+     {
+         if ($ident instanceof Zend_Db_Expr) {
+             return $ident->__toString();
+         }
+         $q = $this->getQuoteIdentifierSymbol();
+         $ident = str_replace("$q", "$q$q", $ident);
+-        return $q . $ident . $q;
++        if ($qualified) {
++            $segments = array();
++            foreach (explode('.', $ident) as $segment) {
++                $segments[] = $q . $segment . $q;
++            }
++            return implode('.', $segments);
++        } else {
++            return $q . $ident . $q;
++        }
+     }
+ 
+     /**
+Index: library/Zend/Db/Select.php
+===================================================================
+--- library/Zend/Db/Select.php	(revision 3678)
++++ library/Zend/Db/Select.php	(working copy)
+@@ -147,7 +147,7 @@
+                             $columns[] = $column->__toString();
+                         } else {
+                             if ($column != '*') {
+-                                $column = $this->_adapter->quoteIdentifier($column);
++                                $column = $this->_adapter->quoteIdentifier($column, true);
+                             }
+                             $columns[] = $correlationName . '.' . $column;
+                         }
+@@ -165,13 +165,13 @@
+                 $tmp = '';
+                 if (empty($from)) {
+                     // First table is named alone ignoring join information
+-                    $tmp .= $this->_adapter->quoteIdentifier($table['tableName']) . ' ' . $correlationName;
++                    $tmp .= $this->_adapter->quoteIdentifier($table['tableName'], true) . ' ' . $correlationName;
+                 } else {
+                     // Subsequent tables may have joins
+                     if (! empty($table['joinType'])) {
+                         $tmp .= ' ' . strtoupper($table['joinType']) . ' ';
+                     }
+-                    $tmp .= $this->_adapter->quoteIdentifier($table['tableName']) . ' ' . $correlationName;
++                    $tmp .= $this->_adapter->quoteIdentifier($table['tableName'], true) . ' ' . $correlationName;
+                     if (! empty($table['joinCondition'])) {
+                         $tmp .= ' ON ' . $table['joinCondition'];
+                     }
+@@ -199,7 +199,7 @@
+                     if ($term instanceof Zend_Db_Expr) {
+                         $l[] = $term->__toString();
+                     } else {
+-                        $l[] = $this->_adapter->quoteIdentifier($term);
++                        $l[] = $this->_adapter->quoteIdentifier($term, true);
+                     }
+                 }
+                 $sql .= implode(",\n\t", $l);
+@@ -221,7 +221,7 @@
+                 if ($term instanceof Zend_Db_Expr) {
+                     $l[] = $term->__toString();
+                 } else if (is_array($term)) {
+-                    $l[] = $this->_adapter->quoteIdentifier($term[0]) . ' ' . $term[1];
++                    $l[] = $this->_adapter->quoteIdentifier($term[0], true) . ' ' . $term[1];
+                 } else {
+                     // should never happen
+                     $l[] = $term;
+@@ -329,8 +329,8 @@
+         }
+ 
+         if (is_array($name)) {
+-            // Must be array($tableName => $correlationName)
+-            foreach ($name as $_tableName => $_correlationName) {
++            // Must be array($correlationName => $tableName)
++            foreach ($name as $_correlationName => $_tableName) {
+                 $tableName = $_tableName;
+                 $correlationName = $_correlationName;
+                 break;
+@@ -338,9 +338,18 @@
+         } else if (empty($name)) {
+             $correlationName = $tableName = '';
+         } else {
+-            // Generate a correlation name matching {$tableName},
+-            // {$tableName}_2, {$tableName}_3, etc.
+-            $correlationName = $tableName = $name;
++            if ($name instanceof Zend_Db_Expr) {
++                $tableName = $name;
++                // Use a default correlation name
++                $correlationName = 't';
++            } else {
++                $tableName = $name;
++                // Extract just the last name of a qualified table name
++                $dot = strrpos($name,'.');
++                $correlationName = ($dot === false) ? $name : substr($name, $dot+1);
++            }
++            // Generate a correlation name matching {$correlationName},
++            // {$correlationName}_2, {$correlationName}_3, etc.
+             $c = $correlationName;
+             for ($i = 2; array_key_exists($c, $this->_parts[self::FROM]); ++$i) {
+                 $c = $correlationName . '_' . (string) $i;

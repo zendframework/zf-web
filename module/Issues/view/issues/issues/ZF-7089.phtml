@@ -1,0 +1,182 @@
+<h2>ZF-7089: Zend_Application_Resource_Modules::init() bootstraps all existing module bootstrap classes regardless of request</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-22T16:34:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-30T05:22:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7095">ZF-7095</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>h4. Behaviour:
+In Zend_Application_Resource_Modules::init(), all Bootstrap classes for all modules are loaded, regardless of what module was requested.</p>
+
+<p>h4. Effect:
+This has the following side-effect: config ini keys that are set for each module are overwritten by each module when its bootstrap() method is called. The (unwanted) result is that the key is set for the last module encountered, not for the module requested.</p>
+
+<p>h4. Example: 
+setting layout resource in the config ini:</p>
+
+<pre class="literal">resources.layout.layout = "default"
+
+resources.modules[] =
+extranet.resources.layout.layout = "extranet"
+intranet.resources.layout.layout = "intranet"</pre>
+
+<p>Also the module paths are not set explicitly, but by only setting</p>
+
+<pre class="literal"> 
+That means modules are registered in the order they are encountered when iterating through the modules directory.
+
+h4. Result: 
+the layout is set to 'intranet', even if the default or extranet module were requested.
+
+h4. Suggested solution:
+Zend_Application_Resource_Modules::init() should check for the requested module and only instantiate that bootstrap class.
+
+The problem is that the request is not yet set in the frontcontroller when this is run. Is there a workaround?
+If the request was set, it could be something like this:
+
+the foreach starting on line 65:
+</pre>
+
+<p>foreach (array_keys($modules) as $module) {
+    if ($module === $default) {
+        continue;
+    }</p>
+
+<pre><code>...
+</code></pre>
+
+<p>}</p>
+
+<pre class="literal"> 
+
+should be changed to:
+</pre>
+
+<p>$current = $front-&gt;getRequest()-&gt;getModuleName();
+foreach (array_keys($modules) as $module) {
+    if ($module === $default) {
+        continue;
+    }
+    if ($module === $current) {
+        continue;
+    }</p>
+
+<pre><code>...
+</code></pre>
+
+<p>}````</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thierry Jossermoz (thierry@jossermoz.net) on 2009-06-22T20:38:10.000+0000</p> 
+        <div class="body">
+            <p>That's indeed a bit unclear how the modules resource is tied to the actual application modules.</p>
+
+<p>A solution could be to delegate the role of bootstrapping the modules to a plugin on routeShutdown.</p>
+
+<p>This can be done by replacing the following line in Zend_Application_Resource_Modules</p>
+
+<pre class="literal"> 
+
+by this one
+
+</pre>
+
+<p>and creating a Zend_Controller_Plugin_ModulesBootstrapper plugin as follows:</p>
+
+<pre class="literal"> class Zend_Controller_Plugin_ModulesBootstrapper extends Zend_Controller_Plugin_Abstract
+{
+    public function routeShutdown(Zend_Controller_Request_Abstract $request)
+    {
+
+        $bootstrap = Zend_Controller_Front::getInstance()-&gt;getParam('bootstrap');
+
+        $bootstraps = $bootstrap-&gt;getResource('modules');
+        $module = $request-&gt;getModuleName();
+        
+        if (isset($bootstraps[$module])) {
+            $bootstraps[$module]-&gt;bootstrap();
+        }
+
+    }
+}</pre>
+
+<p>Although the side effects of this method need to be evaluated.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thierry Jossermoz (thierry@jossermoz.net) on 2009-06-22T20:57:33.000+0000</p> 
+        <div class="body">
+            <p>Quick precision:
+````</p>
+
+<p>is actually to be added after the foreach.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-06-23T04:35:21.000+0000</p> 
+        <div class="body">
+            <p>There were some specific problems addressed in the design goals of Zend_Application:
+* Autoloading for all modules should be setup up-front. This way code may selectively use information from any module without needing to know where that module resides.
+* Modules may need to setup front controller plugins; in particular, any given module may need to setup routes appropriate to its own controllers. The appropriate time to do this is during bootstrapping, as new routeStartup() plugins may not be added <em>during</em> routeStartup().
+* Bootstrapping occurs <em>prior</em> to dispatch, and thus is request agnostic. This is to facilitate the re-use of bootstrapping in order to create service end points, one-off scripts, and to bootstrap tests. Thus, bootstrapping must occur outside of the front controller dispatch loop.</p>
+
+<p>What you are suggesting goes counter to these goals entirely, and is actually impossible in the current design. The module is not known until after routing -- and routing happens during the front controller dispatch sequence. Additionally, based on the sequence of actions triggered, the module selected may change (as an example, if an exception is thrown, the ErrorController in the default module will likely be selected). I'd recommend registering a postDispatch() plugin either from your individual modules or at the application level that selects the layout based on the module.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Diego Malatesta (diego.malatesta) on 2009-09-30T05:22:56.000+0000</p> 
+        <div class="body">
+            <p>As I've also made the same mistake as Matthijs, I think that the whole point of Zend_Application_Resource_Modules should be better clarified in the docs, as it's a bit confusing right now (in my opinion). Thanks.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,172 @@
+<h2>ZF-10207: Return full locale instead of language code when locale has one region only</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-22T10:00:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-07-27T13:18:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.7 (28/Jul/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've found one annoying thing, when using Zend_Currency, which requires whole language+region locale.</p>
+
+<p>In my situation, when trying:
+$currency = new Zend_Currency(array('value' =&gt; 12.34), new Zend_Locale());
+$currency = new Zend_Currency(array('value' =&gt; 12.34));</p>
+
+<p>...and using browser with:
+Accept-Language: pl,en-us;q=0.7,en;q=0.3
+pl has default 1.0 quality factor.</p>
+
+<p>...and having:
+Environment language pl_PL, pl
+Default language en_US</p>
+
+<p>I get that languages returned:</p>
+
+<p>browser array(3) {
+  ["pl"] =&gt; float(1)
+  ["en_US"] =&gt; float(0.7)
+  ["en"] =&gt; float(0.7)
+}</p>
+
+<p>environment array(2) {
+  ["pl_PL"] =&gt; int(1)
+  ["pl"] =&gt; int(1)
+}</p>
+
+<p>default array(1) {
+  ["en"] =&gt; bool(true)
+}</p>
+
+<p>auto array(4) {
+  ["pl"] =&gt; float(1)
+  ["en_US"] =&gt; float(0.7)
+  ["en"] =&gt; float(0.7)
+  ["pl_PL"] =&gt; int(1)
+}</p>
+
+<p>Issue: 
+When it comes to choose, 'pl' is returned as locale, which disallows directly using Zend_Currency().</p>
+
+<p>Solution (request):
+When there are two languages with the same, highest quality factor, return more detailed one.</p>
+
+<p>General idea: 
+When language has only one region (it's not only Poland, there are more countries/locales like this) there should be returned more detailed locale string ('pl_PL' instead of 'pl', 'lv_LV' &lt;= 'lv').</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-07-24T06:46:51.000+0000</p> 
+        <div class="body">
+            <p>Locale Upgrading is another issue which is already worked on.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Wójcik (zeulus) on 2010-07-24T07:12:49.000+0000</p> 
+        <div class="body">
+            <p>Great, thanks.</p>
+
+<p>Another thing that bothers me is when using Zend_Dojo_Form_Element_CurrencyTextBox with currency set to, let's say 'PLN', it's displaying well, with all advantages of dijit.form.currencytextbox, but this element actually returns not-localized, plain float to form field.</p>
+
+<p>What makes the problem is Zend_Validate_Float, which is using Zend_Locale. When it receives float string, not number, it does not recognize it as dotted float is not compliant with Polish locale.</p>
+
+<p>Reproduction: 
+1. Set Zend_Dojo_Form_Element_CurrencyTextBox 'value' to 12.34 and 'currency' to 'PLN'.
+2. While displaying dijit.form.currencytextbox it displays locale-aware value ('pl_PL' - 12,34), but imput holds '12.34'
+3. Zend_Validate_Float gets string '12.34' and does not recognizes it as float, and tries to use Zend_Locale_Format::isFloat($value, array('locale' =&gt; $this-&gt;_locale)) - but fails to recognize, because value returned from dijit has dot instead of comma.</p>
+
+<p>I had to create my custom float validator that is exact copy of Zend_Validate_Float but has one more check between is_float() and try{} section - if (is_string($value) &amp;&amp; is_numeric($value)) - but that is not elegant way, isn't it?</p>
+
+<p>Do I miss the way to force dijit to return localized float value?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-07-24T07:23:01.000+0000</p> 
+        <div class="body">
+            <p>Dojo uses it's own validation. It is not combined or related to Zend_Validate.</p>
+
+<p>The main problem is that Dojo converts all input values to english locale. But when your system uses polish locale you will have problems as you noted because polish is not compatible with english notation.</p>
+
+<p>To make this working you simply have to set english as locale to Zend_Validate_Float when you are using Zend_Dojo as input within your form.</p>
+
+<p>Something like</p>
+
+<pre class="highlight"><code>
+new Zend_Validate_Float(array('locale' =&gt; 'en'));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Wójcik (zeulus) on 2010-07-24T08:09:06.000+0000</p> 
+        <div class="body">
+            <p>It is good solution when you know that client browser has javascript enabled, but what if you/me/anyone need it working in both situations?</p>
+
+<p>If javascript is disabled, dijit won't convert it to English locale, and there will be message: '12,34' does not appear to be a float.</p>
+
+<p>So still, possible solutions are:</p>
+
+<ol><li><p>find out how to force dijit to return localized value and make Zend_Dojo_Form_Element_CurrencyTextBox to do that (if Zend_Locale is enabled, otherwise it will be ok)</p></li>
+<li><p>use is_numeric() in Zend_Validate_Float() after is_float() and before Zend_Locale_Format::isFloat() - not elegant way, might pass not only floats, but does not break app</p></li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-07-27T13:18:23.000+0000</p> 
+        <div class="body">
+            <p>Closing as duplicate of ZF-6862 for Zend_Locale (locale upgrading).</p>
+
+<p>For your reply which is not related to the issue:</p>
+
+<p>Please open a new issue when you have problems with Zend_Dojo  with code for reproduction. Same applies for Zend_Validate when you have problems with this component</p>
+
+<p>Thank you for your report</p>
+
+        </div>
+    </div>
+    </div>
+

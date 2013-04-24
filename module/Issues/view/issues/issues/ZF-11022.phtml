@@ -1,0 +1,143 @@
+<h2>ZF-11022: Setting resources.mail.transport.register = true causes an extra email to be sent to a bogus address.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-02T21:32:49.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-04T01:11:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.8 (07/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Dolf Schimmel (Freeaqingme) (freak)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application_Resource</li>
+            <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9011">ZF-9011</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13621/Zend_Application_Resource_Mail.diff">Zend_Application_Resource_Mail.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Mail_Transport_Sendmail via Zend_Application_Resouce_Mail and setting <em>resources.mail.transport.register = true</em>, I noticed a superfluous email being sent to a non-existent address in my mail logs:</p>
+
+<pre class="literal">Jan 30 04:30:14 myserver postfix/local[15519]: A97C84F52B: to=&lt;1@mydomain.com&gt;, orig_to=&lt;1&gt;, relay=local, 
+delay=0.08, delays=0.03/0.02/0/0.03, dsn=5.1.1, status=bounced (unknown user: "1")
+Jan 30 04:30:14 myserver postfix/local[15523]: B4DF24F547: to=&lt;1@mydomain.com&gt;, orig_to=&lt;1&gt;, relay=local, 
+delay=0.02, delays=0/0.01/0/0.01, dsn=5.1.1, status=bounced (unknown user: "1")
+</pre>
+
+<p>The problem is that the 'register' value gets passed into Zend_Mail_Transport_Sendmail-&gt;__construct() as part of the $parameters array.  For some reason, this causes an additional mail to be sent to <em>1@mydomain.com</em>.  This can be very costly when sending large amounts of email -- Postfix is having to work double for every email sent.</p>
+
+<p>Another side-effect of this bug is that it breaks the fix added by ZF-9011, so you are unable to pass in an actual $parameters option to change sender envelope.  Doing so results in the sending of yet another email to a bad address that looks like it comes from the specified envelope value, eg: -tcustomenvelope@mydomain.com.  So in this case, ZF is attempting to send <em>three</em> emails when it should only send one!</p>
+
+<p>I have a patch to fix this and will attach, but I'm not sure if this is the best way to fix it.</p>
+
+<p>For reference, here is my application.ini</p>
+
+<pre class="literal">
+resources.mail.transport.type       = Zend_Mail_Transport_Sendmail
+resources.mail.transport.register   = true
+resources.mail.defaultFrom.email    = from@mydomain.com
+resources.mail.defaultFrom.name     = "My Name"
+resources.mail.defaultReplyTo.email = from@mydomain.com
+resources.mail.defaultReplyTo.name  = "My Name"
+resources.mail.transport.envelope   = "-f from@mydomain.com"
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by jsnod (afx114) on 2011-02-02T21:40:19.000+0000</p> 
+        <div class="body">
+            <p>Can't for the life of me find out how to upload a patch as an attachment, so here it is:</p>
+
+<pre class="literal">
+Index: Zend/Application/Resource/Mail.php
+===================================================================
+--- Zend/Application/Resource/Mail.php  (revision 23688)
++++ Zend/Application/Resource/Mail.php  (working copy)
+@@ -124,6 +124,7 @@
+         }
+ 
+         unset($options['type']);
++        unset($options['register']);
+ 
+         switch($transportName) {
+             case 'Zend_Mail_Transport_Smtp':
+
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benoît Durand (intiilapa) on 2011-02-02T22:01:01.000+0000</p> 
+        <div class="body">
+            <p>To send a patch, you must sign the <a href="http://framework.zend.com/wiki/display/ZFPROP/Contributor+License+Agreement">CLA</a> before.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by jsnod (afx114) on 2011-02-03T14:21:18.000+0000</p> 
+        <div class="body">
+            <p>patch attached</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by jsnod (afx114) on 2011-02-03T18:25:55.000+0000</p> 
+        <div class="body">
+            <p>Whoops, ignore that last attachment, I accidentally uploaded the wrong one.  This is the proper patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by jsnod (afx114) on 2011-04-11T19:35:49.000+0000</p> 
+        <div class="body">
+            <p>How can I get my patch reviewed for inclusion?  I have to manually patch each point revision that comes out in order to fix this bug for my app.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2011-06-04T01:10:46.000+0000</p> 
+        <div class="body">
+            <p>Fix committed in r24109. Merged with branch 1.11 in r24110.</p>
+
+<p>Thanks for making ZF better.</p>
+
+        </div>
+    </div>
+    </div>
+

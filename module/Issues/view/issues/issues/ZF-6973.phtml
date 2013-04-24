@@ -1,0 +1,229 @@
+<h2>ZF-6973: Zend_CodeGenerator_Php_Property can't be an Array</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-10T01:17:59.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-29T06:46:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_CodeGenerator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Example:</p>
+
+<pre class="highlight"><code>
+new Zend_CodeGenerator_Php_Property
+(
+    array
+    (
+        'name'         =&gt; '_myProperty',
+        'visibility'   =&gt; 'protected',
+        'defaultValue' =&gt; array('value1', 'value2')
+    )
+)
+</code></pre>
+
+<h1>out in the class</h1>
+
+<p>protected $_myProperty = 'array('value1', 'value2')';</p>
+
+<p>So there is "extra" quotes</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2009-06-11T04:14:28.000+0000</p> 
+        <div class="body">
+            <p>It can not be used with an Array?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by MARTIN Nicolas (cocorambo) on 2009-06-11T04:42:09.000+0000</p> 
+        <div class="body">
+            <p>Add an example</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Søren Haagerup (shaagerup) on 2009-06-27T11:52:53.000+0000</p> 
+        <div class="body">
+            <p>I can confirm this</p>
+
+<p>When calling e.g.</p>
+
+<pre class="highlight"><code>
+$class-&gt;setProperties(array(
+        array(
+            'name'         =&gt; '_dependentTables',
+            'visibility'   =&gt; 'public',
+            'defaultValue' =&gt; array('Test'),
+        )));
+</code></pre>
+
+<p>the only thing that is generated is</p>
+
+<pre class="highlight"><code>
+    public $_dependentTables = 'Array';
+</code></pre>
+
+<p>When looking at the source code</p>
+
+<pre class="highlight"><code>
+    public function generate()
+    {
+        $name         = $this-&gt;getName();
+        $defaultValue = $this-&gt;getDefaultValue();
+        if ($this-&gt;isConst()) {
+            $string = '    ' . 'const ' . $name . ' = \'' . $defaultValue . '\';';
+        } else {
+            $string = '    ' . $this-&gt;getVisibility() . ($this-&gt;isStatic() ? ' static' : '') . ' $' . $name . ' = ' . ((null !== $defaultValue) ? '\'' . $defaultValue . '\'' : 'null') . ';';
+        }
+        return $string; 
+    }
+</code></pre>
+
+<p>it is obvious that it just casts the Array to a string, without doing anything sophisticated. I would expect it to "parse through" the array doing something like</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+$array = array("test", 'test' =&gt; "test", "test", array("lalaal", "1234"));
+echo parseValue($array) . "\n";
+
+function parseValue($val)
+{
+    if ($val == null)
+    {
+        return null;
+    }
+    else if (is_array($val))
+    {
+        $entries = array();
+        foreach ($val as $key =&gt; $entry)
+        {
+            $entries[] = '\''.$key.'\' =&gt; ' . parseValue($entry);
+        }
+        return 'array(' . implode(", ",$entries) . ')';
+    }
+    else
+    {
+        return '\''.$val.'\'';
+    }
+}
+?&gt;
+</code></pre>
+
+<p>I think I will implement it in my own ZF as a workaround for now. I don't know if there are any better (built-in?) solutions for this?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Søren Haagerup (shaagerup) on 2009-06-27T12:49:57.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+        return null;
+</code></pre>
+
+<p>should of course be</p>
+
+<pre class="highlight"><code>
+        return 'null';
+</code></pre>
+
+<p>Let me know if you consider implementing something like the above in the official ZF - by then, I have likely implemented "pretty indenting" in the function as well..</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-06-28T13:15:52.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r16344</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Søren Haagerup (shaagerup) on 2009-06-29T00:53:58.000+0000</p> 
+        <div class="body">
+            <p>Thanks a lot - from the code it looks like it became a little more complicated when pretty-printing etc. was needed :-)</p>
+
+<p>Do you have a recommended way of having objects as part of the default value?</p>
+
+<p>My workaround for now is something like:</p>
+
+<pre><code>$class-&gt;setProperties(array(
+        array(
+            'name'          =&gt; 'filters',
+            'visibility'    =&gt; 'public',
+            'defaultValue'  =&gt; array(
+                new Zend_CodeGenerator_Php_Property_DefaultValue(array(
+                    'value' =&gt; 'new Zend_Filter_BaseName()',
+                    'type'  =&gt; Zend_CodeGenerator_Php_Property_DefaultValue::TYPE_NULL
+                )),
+                new Zend_CodeGenerator_Php_Property_DefaultValue(array(
+                    'value' =&gt; 'new Zend_Filter_Int()',
+                    'type'  =&gt; Zend_CodeGenerator_Php_Property_DefaultValue::TYPE_NULL
+                ))
+        ))));
+</code></pre>
+
+<p>I am "misusing" the TYPE_NULL for getting it to render the value without quotes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Søren Haagerup (shaagerup) on 2009-06-29T01:52:34.000+0000</p> 
+        <div class="body">
+            <p>Dang, what I wanted is actually not supported by PHP. Ignore my comment above for now..</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-06-29T06:46:07.000+0000</p> 
+        <div class="body">
+            <p>Ha, yeah.  Property default values can only be scalar, constant and null.  You'd want to populate with real objects at construction time.  Rule of thumb is that CodeGenerator produces valid PHP code, so it attempts to play by all the rules of the language.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+    </div>
+

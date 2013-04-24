@@ -1,0 +1,209 @@
+<h2>ZF2-113: Uncaught ReflectionExcemption being thrown from within Zend\Loader\PluginBroker</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-12-06T05:47:09.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-02T15:21:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Filter</li>
+            <li>Zend\Loader</li>
+            <li>Zend</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Under the following conditions it is possible for \Zend\Filter\FilterChain to cause an Uncaught ReflectionExeption to be thrown from within \Zend\Loader\PluginBroker::load()</p>
+
+<p>Given the following code snippets:</p>
+
+<pre class="highlight"><code>
+class myFilter extends \Zend\Filter\AbstractFilter {
+    public function filter($text) {
+        return 'test';
+    }
+}
+
+
+$f = new \Zend\Filter\FilterChain(array(
+    'filters' =&gt; array(
+        'name' =&gt; 'myFilter'
+    ),
+));
+</code></pre>
+
+<p>Things seem to go awry within the \Zend\Filter\FilterChain::attachByName method when the $options array is empty.  This results in:
+1) an array with an empty array within it to (eventually) be sent to \Zend\Loader\Plugin::load() as the $options;
+2) the above results in the incorrect logic to be executed within the load() method.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shaun Bramley (shaunb) on 2011-12-06T17:48:28.000+0000</p> 
+        <div class="body">
+            <p>If no options (or an empty array) is passed to attachByName then the following conditional will evaluate true.</p>
+
+<pre class="highlight"><code>
+if(range(0, count($options) - 1) != array_keys($options))
+</code></pre>
+
+<p>I propose altering the function to the following:</p>
+
+<pre class="highlight"><code>
+public function attachByName($name, $options = array(), $priority = self::DEFAULT_PRIORITY)
+{
+    if (!is_array($options)) {
+        $options = (array) $options);
+    } else {
+        if ((count($options) &gt; 0) &amp;&amp; (range(0, count($options) - 1) != array_keys($options))) {
+            $options = array($options);
+        }
+    }
+    $filter = $this-&gt;broker($name, $options);
+    return $this-&gt;attach($filter, $priority);
+}
+</code></pre>
+
+<p>I will draw up a couple of tests when I get home tonight.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-12-08T22:30:37.000+0000</p> 
+        <div class="body">
+            <p>Based on your reproduce case, you've got incorrect structure in the array you're passing to the constructor of FilterChain. Each filter needs to be listed as an associative array itself:</p>
+
+<pre class="highlight"><code>
+$f = new \Zend\Filter\FilterChain(array(
+    'filters' =&gt; array(
+        array('name' =&gt; 'myFilter'),
+    ),
+));
+</code></pre>
+
+<p>When I do the above, I run into no issues whatsoever.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-12-08T22:31:47.000+0000</p> 
+        <div class="body">
+            <p>Cannot reproduce, and appears to be incorrect usage.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaun Bramley (shaunb) on 2011-12-08T23:34:11.000+0000</p> 
+        <div class="body">
+            <p>There's a typo within my original use case.  I feel like an idiot now.  :(</p>
+
+<pre class="highlight"><code>
+class myFilter extends \Zend\Filter\AbstractFilter {
+    public function filter($text) {
+        return 'test';
+    }
+}
+class myFilterB extends \Zend\Filter\AbstractFilter {
+    public function __construct() {}
+    public function filter($text) {
+        return 'filterB';
+    }
+}
+
+$f = new \Zend\Filter\FilterChain(array(
+        'filters' =&gt; array(
+            array('name' =&gt; 'myFilterB'),
+            array('name' =&gt; 'myFilter'),
+        ),
+));
+</code></pre>
+
+<p>results in the following stack trace:
+<b>Fatal error</b>:  Uncaught exception 'ReflectionException' with message 'Class myFilter does not have a constructor, so you cannot pass any constructor arguments' in /Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Loader/PluginBroker.php:191
+Stack trace:</p>
+
+<h1>0 /Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Loader/PluginBroker.php(191): ReflectionClass-&gt;newInstanceArgs(Array)</h1>
+
+<h1>1 /Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Loader/PluginSpecBroker.php(179): Zend\Loader\PluginBroker-&gt;load('myFilter', Array)</h1>
+
+<h1>2 /Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Filter/FilterChain.php(143): Zend\Loader\PluginSpecBroker-&gt;load('myFilter', Array)</h1>
+
+<h1>3 /Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Filter/FilterChain.php(188): Zend\Filter\FilterChain-&gt;broker('myFilter', Array)</h1>
+
+<h1>4 /Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Filter/FilterChain.php(97): Zend\Filter\FilterChain-&gt;attachByName('myFilter', Array, 1000)</h1>
+
+<h1>5 /Users/ in <b>/Users/shaunbramley/Downloads/ZendFramework-2.0.0dev3/library/Zend/Loader/PluginBroker.php</b> on line <b>191</b><br /></h1>
+
+<p>Is my use case not adhering to the intended usage?
+I see no difference in the the files between master and beta3.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jacek Karczmarczyk (gadjo) on 2012-01-17T05:21:26.000+0000</p> 
+        <div class="body">
+            <p>Confirming this with the standard "Int" filter (master branch)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Smith (darksmith) on 2012-04-24T00:05:36.000+0000</p> 
+        <div class="body">
+            <p>I'm able to reproduce this with the Int filter and the StripNewlines filter. The range function will generate an array with two empty value in it when the options variable is empty.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-05-02T15:08:33.000+0000</p> 
+        <div class="body">
+            <p>Reproduced.</p>
+
+<p>I've got a PR in for this now: <a href="https://github.com/zendframework/zf2/pull/1128">https://github.com/zendframework/zf2/pull/1128</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-05-02T15:21:13.000+0000</p> 
+        <div class="body">
+            <p>PR #1128 merged to master, fixing the issue.</p>
+
+        </div>
+    </div>
+    </div>
+

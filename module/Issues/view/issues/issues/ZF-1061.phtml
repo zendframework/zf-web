@@ -1,0 +1,249 @@
+<h2>ZF-1061: Use of PHP's setlocale() may break functionality in Zend_Locale_Format</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-15T19:27:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-11-15T14:00:00.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.3 (30/Nov/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1049">ZF-1049</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10331/Format.php.patch">Format.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Problems arise when PHP converts integers and floats to strings using decimal place characters other than a period ('.'), which is the only decimal place separater supported by BCMath functions and the Zend_Locale_Math "proxy" class.</p>
+
+<p>To reproduce the errors below on the <a href="http://framework.zend.com/wiki/display/ZFDEV/Sandbox">ZF Community Development Server</a>:
+1. Copy TestConfiguration.php.dist to TestConfiguration.php
+2. Comment the first line below in TestConfiguration.php, and comment out the second line below:</p>
+
+<pre class="highlight"><code>
+//define('TESTS_ZEND_LOCALE_FORMAT_SETLOCALE', 'fr_FR@euro');
+define('TESTS_ZEND_LOCALE_FORMAT_SETLOCALE', false);
+</code></pre>
+
+<ol><li>cd tests/Zend/Locale</li>
+<li>php AllTests.php</li>
+</ol><p>{quote}
+zfdev Locale 737$ pwd
+/home/gavin/www/zftrunk/tests/Zend/Locale</p>
+
+<p>zfdev Locale 738$ uname -a
+Linux <a href="www.zfdev.com">www.zfdev.com</a> 2.6.9-42.EL #1 Wed Jul 12 23:16:43 EDT 2006 i686 i686 i386 GNU/Linux</p>
+
+<p>zfdev Locale 739$ php -v
+PHP 5.1.6 (cgi-fcgi) (built: Oct 24 2006 19:38:28)
+Copyright (c) 1997-2006 The PHP Group
+Zend Engine v2.1.0, Copyright (c) 1998-2006 Zend Technologies</p>
+
+<p>zfdev Locale 740$ svn update
+At revision 3991.</p>
+
+<p>$ php AllTests.php
+X-Powered-By: PHP/5.1.6
+Content-type: text/html</p>
+
+<p>PHPUnit 3.0.0 by Sebastian Bergmann.</p>
+
+<p>.......F..F..F......F..FF</p>
+
+<p>Time: 00:06</p>
+
+<p>There were 6 failures:</p>
+
+<p>1) testToNumber(Zend_Locale_FormatTest)
+string 0,1234567 expected
+Failed asserting that &lt;string:0,1234567&gt; is equal to &lt;string:0,0000000&gt;.
+/var/www/html/zftrunk/tests/Zend/Locale/FormatTest.php:97
+/var/www/html/zftrunk/tests/Zend/Locale/AllTests.php:46
+/var/www/html/zftrunk/tests/Zend/Locale/AllTests.php:62</p>
+
+<p>2) testToFloat(Zend_Locale_FormatTest)
+string 0,1234567 expected
+Failed asserting that &lt;string:0,1234567&gt; is equal to &lt;string:0,0000000&gt;.
+/var/www/html/zftrunk/tests/Zend/Locale/FormatTest.php:177
+/var/www/html/zftrunk/tests/Zend/Locale/AllTests.php:46
+/var/www/html/zftrunk/tests/Zend/Locale/AllTests.php:62</p>
+
+<p>3) testtoInteger(Zend_Locale_FormatTest)
+value 1234567- expected
+Failed asserting that </p><p>&lt;&lt;</p><p>&lt;&lt;</p><p>&lt;&lt;</p><p></p>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-16T02:54:35.000+0000</p> 
+        <div class="body">
+            <p>So the original problem is that php's BCMath implementation is not setLocale aware...</p>
+
+<p>PHP converts the strings as demanded in setLocale and BCMath can only work with english locale.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-16T06:07:25.000+0000</p> 
+        <div class="body">
+            <p>Yes, BCMath functions are not locale-aware.  Allowing PHP to perform implicit conversions of integers and floats to strings before using BCMath (and Zend_Locale_Math) functions only works, if the currently setlocale(LC_NUMERIC, 'XYZ') yields strings following the "C" locale convention, where 'XYZ' is the locale currently in effect.  Explicit conversion using strval() does not bypass this issue, since strval() also localizes numbers converted to strings.</p>
+
+<p>Conversion of floats and integers to strings depends on the currently in-effect locale:
+<a href="http://www.php.net/setlocale">http://www.php.net/setlocale</a></p>
+
+<p>This locale setting is part of the standard C library.  However, there are variances between end-users systems' behaviors for setlocale(), and there is no guarantee the localization performed by PHP functions will be consistent with CLDR.  The locales deployed and supported by end-users systems for the setlocale() are not reliably predictable.</p>
+
+<p>However, the "C" locale ought to always be present, per the ISO C standard.  Thus, I propose a patch which essentially disables the user's current locale setting, according to PHP's setlocale(), for the duration of certain ZF i18n methods.  The patch enables the i18n components to pass the new unit tests I recently added on my test systems.</p>
+
+<p>More testing on other systems/platforms is needed, since the patch relies less on the behavior of PHP than on the behavior of the system's C library implementation of setlocale().  For example, should the patch also include testing if setlocale(LC_NUMERIC, 'POSIX') works, if setlocale(LC_NUMERIC, 'C') does not work?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-16T07:10:23.000+0000</p> 
+        <div class="body">
+            <p>There is a simple solution I just found:</p>
+
+<p>php's localeconv() gives you the values which are needed for knowing the decimal point and the seperator for a string converted number within the actual locale.</p>
+
+<p>A simple str_replace would then do the rest !!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-16T11:28:31.000+0000</p> 
+        <div class="body">
+            <p>Yes, I looked at that earlier, but then we are trusting ourselves to successfully convert numbers expressed in all locales supported by all versions of setlocale() for all platforms (C libraries), including number grouping, spacing, decimal place character, thousands separators, signs for negative or positive numbers, etc.  Using the "C" locale probably will produce more reliable results, because then we rely on the underlying platform to give us properly formatted results.</p>
+
+<p>I prefer if we didn't try to make our own "to 'C' locale" converter for use with setlocale().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-16T15:19:40.000+0000</p> 
+        <div class="body">
+            <p>I dont see the problem...</p>
+
+<p>localeconv() returns the internal settings for setLocale().
+All we have to do is 
+* trim the string
+* convert the negative sign if present
+* delete thousand seperators/nuber grouping and spaces
+* convert the decimal seperator</p>
+
+<p>And then we have a normalized english notation string...</p>
+
+<p>The problem is:
+Eigther we say that we relay on BCMath and this means we do not support setLocale(xxx) but only setLocale(C)
+Or we normalize the value ourself.</p>
+
+<p>We can not set a locale with setLocale ourself because this does not only effect the actual script but the whole process which could cause problems in other scripts !</p>
+
+<p>I would not want to say our users that they have to do setLocale(LC_ALL,'C'); within their bootstrap file. This would be a big big nono for the useage of the complete I18N core.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-16T16:06:46.000+0000</p> 
+        <div class="body">
+            <p>I believe the patch attached to this issue will prove more reliable than us creating our own normalization code to translate all known (and future) localized numbers to the "C" locale standard.  I do not believe the patch has the problems mentioned above.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-16T16:31:58.000+0000</p> 
+        <div class="body">
+            <p>From PHP's documentation:</p>
+
+<p>:::::::::::::::::::::::::
+Warning
+The locale information is maintained per process, not per thread. If you are running PHP on a multithreaded server api like IIS or Apache on Windows you may experience sudden changes of locale settings while a script is running although the script itself never called setlocale() itself. This happens due to other scripts running in different threads of the same process at the same time changing the processwide locale using setlocale(). 
+::::::::::::::::::::::::::</p>
+
+<p>This is why I would not want to have setLocale() changing the actual locale for this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-17T22:31:11.000+0000</p> 
+        <div class="body">
+            <p>Threaded PHP processes are very strongly discouraged,  especially with the extension needed by the ZF.  Some extensions are not thread-safe.</p>
+
+<p>Do you know anyone using a threaded installation of PHP?
+Do you know anyone credible recommending using PHP in a threaded installation?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-18T04:30:05.000+0000</p> 
+        <div class="body">
+            <p>In my opinion we should not include problems if we can prevent them easily.</p>
+
+<p>And just because some ZF components are using non-threadsave extensions does not mean that the I18N core should also not be thread save.
+I would like to have the I18N core being used also in non-threadsave environments by users without problems.</p>
+
+<p>The change I have in mind is very easy and works on all environments.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-21T14:31:42.000+0000</p> 
+        <div class="body">
+            <p>I disagree, but if you choose to implement your own "convert to 'C' locale", then include unit tests covering number conversion for all locales to show your function works.  Also include the ability to detect new locales that are not yet tested.  Different platforms have different mixes of locales installed and supported by setlocale().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-04-06T18:10:41.000+0000</p> 
+        <div class="body">
+            <p>Also, do not forget that different versions of different platforms may have different versions of locale data.  Therefore,  formatting differences may exist between these versions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-07-21T06:08:00.000+0000</p> 
+        <div class="body">
+            <p>Problems solved with SVN 5806.</p>
+
+<p>Have to wait until Community tests are approved to close this issue.
+Tests on community server have proved ok.</p>
+
+        </div>
+    </div>
+    </div>
+

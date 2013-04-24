@@ -1,0 +1,270 @@
+<h2>ZF-9583: Element_File gives error when loading from cache</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-31T13:44:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-05T06:48:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+            <li>Zend_Form</li>
+            <li>Zend_Validate_File</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've been encoutering some problems with the Zend_Form_Element_File while uploading. The error message</p>
+
+<p>File 'file' exceeds the defined ini size</p>
+
+<p>Keeps showing up at irregular moments. I cache my forms, so it doesn't have to be initialized every time. It seems that this doesn't work well with the File element.</p>
+
+<p>I've put a demo over here:
+<a href="http://gwsystems.nl/element_file_bug.php">http://gwsystems.nl/element_file_bug.php</a></p>
+
+<p>The php.ini say I've a limit of 100M and I can upload files to my server. It really is a Zend_Framework problem, not a server problem.</p>
+
+<p>The source is viewable at: 
+<a href="http://gwsystems.nl/element_file_bug.php?source=true">http://gwsystems.nl/element_file_bug.php/…</a></p>
+
+<p>However, I've never seen this error on my local system (windows).</p>
+
+<p>The error is added at the Zend_File_Transfer_Adapter_Http::isValid (118).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-31T14:01:56.000+0000</p> 
+        <div class="body">
+            <ul><li><p>One of your validators is used wrong</p></li>
+<li><p>Loading the form from cache something is wrong. The returned failure is from PHP. In detail $_FILES[xxx]['error'] is set to 1 instead of 0. ZF just returns a usefull description instead of an integer value.</p></li>
+</ul><p>Look what $_FILES does... this could help you to debug your code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Winkel (storeman) on 2010-03-31T14:54:29.000+0000</p> 
+        <div class="body">
+            <p>I've removed the validators. The error still occurs.</p>
+
+<p>Have you seen my demo? I've added the _FILES data, it seems ok. The errorcode is 4, which is valid, because I don't upload anything.</p>
+
+<p>Try uploading no file, this shouldn't give an error, unless required is set to true.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-03T17:11:02.000+0000</p> 
+        <div class="body">
+            <p>Tried your demo several (~40) times empty and ~10 times with Fileupload,
+there was no error for me, does this mean you found a solution for your problem,
+and this issue could be closed?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Winkel (storeman) on 2010-04-04T03:29:47.000+0000</p> 
+        <div class="body">
+            <p>You're right, the problem doesn't occur anymore. When I add the Size validator, it does. Can you verify this?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-04T04:08:15.000+0000</p> 
+        <div class="body">
+            <p>what happens if you do not clone $form, but save it directly to cache?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-04T05:09:27.000+0000</p> 
+        <div class="body">
+            <p>Answer to myself the same error, but the displayed message "File 'file' exceeds the defined ini size"
+is defined in Zend_Validate_File_Upload and not in Zend_Validate_File_Size.</p>
+
+<p>And it is displayed because the Transfer Adapter sets the error to int(1) in</p>
+
+<pre class="highlight"><code>
+    public function isValid($files = null)
+    {
+        // Workaround for WebServer not conforming HTTP and omitting CONTENT_LENGTH
+        $content = 0;
+        if (isset($_SERVER['CONTENT_LENGTH'])) {
+            $content = $_SERVER['CONTENT_LENGTH'];
+        } else if (!empty($_POST)) {
+            $content = serialize($_POST);
+        }
+
+        // Workaround for a PHP error returning empty $_FILES when form data exceeds php settings
+        if (empty($this-&gt;_files) &amp;&amp; ($content &gt; 0)) {
+            if (is_array($files)) {
+                $files = current($files);
+            }
+
+            $temp = array($files =&gt; array(
+                'name'  =&gt; $files,
+                'error' =&gt; 1));
+            $validator = $this-&gt;_validators['Zend_Validate_File_Upload'];
+            $validator-&gt;setFiles($temp)
+                      -&gt;isValid($files, null);
+            $this-&gt;_messages += $validator-&gt;getMessages();
+            return false;
+        }
+
+        return parent::isValid($files);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-04T05:17:29.000+0000</p> 
+        <div class="body">
+            <p>Added appropriate Components</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-04T05:58:11.000+0000</p> 
+        <div class="body">
+            <p>I think now this ones real issue is Zend_Form_Element_File not setting up 
+$adapter-&gt;_files when loading the Form from cache and that makes Adapters
+isValid method add the error 1 to the filename.</p>
+
+<p>When not loading from cache $adapter-&gt;_files is filled with array('file' =&gt; ...)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-04-04T09:16:28.000+0000</p> 
+        <div class="body">
+            <p>I never said that it's within the Size validator.
+I knew that it's the Upload validator. That's the reason why I asked you for the content of $_FILES.</p>
+
+<p>Looking at your online example there ARE differences.</p>
+
+<p>Why is $_FILES different when you send it and when you load it from cache?</p>
+
+<p>The code block you referred to prevents a PHP problem.
+The only way how it can run into this block is when $_FILES is empty and $_SERVER['CONTENT_LENGTH'] is not empty. PHP itself has a problem when one of it's settings is lower than the provided POST content.</p>
+
+<p>I don't think that it's a problem of the component because the component reacts only on the input from $_POST, $_FILES and some $_SERVER settings. When the cached data differs then also the output differs.</p>
+
+<p>Note that when you are caching the input, it's also possible that you get an "attacker" exception.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-04-04T09:23:19.000+0000</p> 
+        <div class="body">
+            <p>Note that the file element is not set to be optional.
+So raising an failure when no file is given is correct behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-04T09:32:32.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the journey into Zend_File ;P
+This can not work as you expect because Zend_File_Transfer_Adapter_Http
+_prepareFiles() within and only within __construct() from Global $_FILES.</p>
+
+<p>So you will always end up serializing the Adapter with $_FILES at time
+of saving to cache.</p>
+
+<p>Which is either empty and generates this messages in conclusion, or is
+filled with the at-save-time uploaded $_FILES metadata, and thus generates an 
+Attack Error because the actual file data for the saved $_FILES is missing.</p>
+
+<p>Workaround, add to your Form class:</p>
+
+<pre class="highlight"><code>
+public function __wakeup()
+{
+   $this-&gt;init();
+}
+</code></pre>
+
+<p>or call it after loading $form from cache with $form-&gt;init();</p>
+
+<p>Thomas, what do you think, could this be closed now?
+Or should we make a Feature Request for the ability to store
+Forms with File Elements in cache?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-04-04T10:01:08.000+0000</p> 
+        <div class="body">
+            <p>Closing as non-issue.</p>
+
+<p>$_FILES content is different before saving and after loading from cache.
+The file adapter is therefor not able to work.</p>
+
+<p>The only solution is to create a new instance of Zend_File_Transfer and add it to the element AFTER it has been loaded from cache and BEFORE running validation.</p>
+
+<p>Note that PHP itself does not allow to cache temporary uploaded files.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Winkel (storeman) on 2010-04-04T10:45:44.000+0000</p> 
+        <div class="body">
+            <p>I do not want to cache input or tempfiles, I want to cache the form structure as build in the init. I load the form form cache and use it to validate _POST or to set defaults and allow users to change it.</p>
+
+<p>I know understand the issue and can create a work-around for it. Isn't it possible to add a _wakeup method to the Zend_Form_Element_File and reinit only that element?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Winkel (storeman) on 2010-04-05T06:48:15.000+0000</p> 
+        <div class="body">
+            <p>The following solves my problem:</p>
+
+<p>[code]
+    public function __wakeup(){
+        $this-&gt;_adapter = null;
+    }
+[/code]</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,133 @@
+<h2>ZF-10489: Zend_Mail_Protocol_Imap : problem to get multiline response</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-09-23T01:37:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:38:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<p>I have a problem with multiline send by IMAP server. "_nextTaggedLine()" doesn't decode it correctly.</p>
+
+<p>Multiple lines are sent with something similar to that string "{123}\n". So, if a tagged line contains this at the end, get next lines and add them to current one, while there is a tagged line. Please find here a quick patch :</p>
+
+<pre class="highlight"><code>
+public function readLine(&amp;$tokens = array(), $wantedTag = '*', $dontParse = false)
+    {
+        $line = $this-&gt;_nextTaggedLine($tag); 
+
+        while (preg_match('/\{\d+\}\s*$/', $line))
+        {
+         $line = preg_replace('/\{\d+\}\s*$/', '', $line) . $this-&gt;_nextLine(); 
+        }
+        
+        if (!$dontParse) {
+            $tokens = $this-&gt;_decodeLine($line);
+        } else {
+            $tokens = $line;
+        }
+
+        // if tag is wanted tag we might be at the end of a multiline response
+        return $tag == $wantedTag;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Vincent Clair (vincentc) on 2010-09-23T04:16:57.000+0000</p> 
+        <div class="body">
+            <p>It seems the problem is more complex. The end "{123}\n" depends of some requests I think.</p>
+
+<p>When i use $imap-&gt;fetch('RFC822.HEADERS', 1), the response for the server look like this :</p>
+
+<pre class="highlight"><code>
+* 42 FETCH (RFC822.HEADER {1606}
+Return-Path: 
+X-Original-To: test@test.com
+Delivered-To: test@test.com
+Received: from xxx.ovh.net (localhost.localdomain [127.0.0.1])
+[...]
+</code></pre>
+
+<p>{1606} correspond to the number of bytes to get for the response.</p>
+
+<p>But when i use $imap-&gt;requestAndResponse('FETCH', array(1, 'BODYSTRUCTURE'), false), it fails. I expected to get one line, for all response. Following, as you can see, {9} and others are not the bytes of line length.</p>
+
+<pre class="highlight"><code>
+* 44 FETCH (FLAGS (\Seen) RFC822.SIZE 486546 UID 99 BODYSTRUCTURE (("application" "pdf" ("name" {9}
+16"35.pdf) NIL NIL "base64" 485408 NIL ("inline" ("filename" {9}
+16"35.pdf)) NIL NIL) "mixed" ("boundary" "Apple-Mail-1--762503508") NIL NIL NIL) ENVELOPE ("Thu, 16 Sep 2010 13:00:57 +0200" {36}
+test piece jointe avec " dans le nom (("Vincent Clair" NIL "test" "test.com")) (("Vincent Clair" NIL "test" "test.com")) (("Vincent Clair" NIL "test" "test.com")) ((NIL NIL "other" "test.com")) NIL NIL NIL ""))
+</code></pre>
+
+<p>Maybe the issue <a href="http://framework.zend.com/issues/browse/ZF-9714">http://framework.zend.com/issues/browse/ZF-9714</a> is linked to this.
+Please take this patch, but i'm not sure that is sufficient :</p>
+
+<pre class="highlight"><code>
+public function readLine(&amp;$tokens = array(), $wantedTag = '*', $dontParse = false)
+    {
+        $line = $this-&gt;_nextTaggedLine($tag); 
+
+        if (!$dontParse) {
+            $tokens = $this-&gt;_decodeLine($line);
+        } else {
+            while (preg_match('/\{\d+\}\s*$/', $line))
+            {
+             $line = preg_replace('/\{\d+\}\s*$/', '', $line) . $this-&gt;_nextLine(); 
+            }
+        
+            $tokens = $line;
+        }
+
+        // if tag is wanted tag we might be at the end of a multiline response
+        return $tag == $wantedTag;
+    }
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,234 @@
+<h2>ZF-11743: New Method: Zend_Db_Adapter_Abstract::refreshConnection()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-09-15T11:52:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-04-06T11:09:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>All of the <em>Zend_Db_Adapter</em> classes extend <em>Zend_Db_Adapter_Abstract</em>.</p>
+
+<p>When forking a process the db connection get's copied to the child processes. If a child exits before the parent, the current database connection is closed. Since the connection is shared between the child and the parent process, when the parent process tries to use the db resource, say to clean up after the child, it gets a "MySQL has gone away" error.</p>
+
+<p>I am proposing that a new method is added to the <em>Zend_Db_Adapter_Abstract</em> class that does two simple things.</p>
+
+<h1>Close any existing connections</h1>
+
+<h1>Open a new connection</h1>
+
+<pre class="highlight"><code>
+
+
+    /**
+     * Closes the connection and opens a new one.
+     *
+     * @return void
+     */
+    public function refreshConnection()
+    {
+        if ($this-&gt;isConnected()) {
+            $this-&gt;closeConnection();
+        }
+        $this-&gt;_connect();
+    }
+
+
+</code></pre>
+
+<p>This can be called from any parent process for the new child and in the parent process after the child is spawned.</p>
+
+<p><em>Example of scenario where an error would occur:</em></p>
+
+<pre class="highlight"><code>
+$this-&gt;_dbConnInfo = new Zend_Config_Array(/* db connection information file */);
+
+$db = Zend_Db::factory($this-&gt;_dbConnInfo);
+Zend_Db_Table::setDefaultAdapter($db);
+
+// Do some mysql set-up queries here
+
+$pid = pcntl_fork();
+if ($pid) {
+    // we are the parent
+
+    pcntl_wait($status); //Protect against Zombie children
+
+    // Any mysql statement here will result in gone away error
+    
+} else {
+    // we are the child
+    // do some mysql processing
+}
+</code></pre>
+
+<p><em>Example of error fixed:</em></p>
+
+<pre class="highlight"><code>
+$this-&gt;_dbConnInfo = new Zend_Config_Array(/* db connection information file */);
+
+$db = Zend_Db::factory($this-&gt;_dbConnInfo);
+Zend_Db_Table::setDefaultAdapter($db);
+
+// Do some mysql setup queries here
+
+$pid = pcntl_fork();
+
+// This will completely fix this issue
+$db-&gt;refreshConnection();
+
+if ($pid) {
+    // we are the parent
+
+    pcntl_wait($status); //Protect against Zombie children
+
+    // Any mysql statement here will result in gone away error
+    
+} else {
+    // we are the child
+    // do some mysql processing
+}
+</code></pre>
+
+<p>I know that this could also be done by simply running the functionality inside the proposed method. Adding this method saves code duplication and is very handy to have.</p>
+
+<p>Putting this method in the <em>Zend_Db_Adapter_Abstract</em> class also means that it can be used in any Zend_Db_Adapter class.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Henry Hayes (henryhayes) on 2011-09-15T15:16:45.000+0000</p> 
+        <div class="body">
+            <p>Here is the finished method for <em>Zend_Db_Adapter_Abstract</em></p>
+
+<pre class="highlight"><code>
+    /**
+     * Closes the connection and opens a new one - non-persistent only.
+     *
+     * This method is used to release an existing database connection and
+     * create a new one. Does not work with a persistent connection.
+     *
+     * @link <a href="http://framework.zend.com/issues/browse/ZF-11743">http://framework.zend.com/issues/browse/ZF-11743</a>
+     *
+     * @return void
+     */
+    public function refreshConnection()
+    {
+        if (array_key_exists('persistent', $this-&gt;_config) &amp;&amp; $this-&gt;_config['persistent'] == true) {
+
+            throw new Zend_Db_Adapter_Exception('Persistent connections cannot be refreshed.');
+        }
+
+        if ($this-&gt;isConnected()) {
+            $this-&gt;closeConnection();
+
+        }
+
+        $this-&gt;_connect();
+
+        return $this;
+    }
+</code></pre>
+
+<p>I have also created complimenting method for the <em>Zend_Db_Table_Abstract</em> class:</p>
+
+<pre class="highlight"><code>
+
+    /**
+     * Resets the default adapter - disconects and then reconnects.
+     *
+     * @return void
+     */
+    public static function resetDefaultAdapter()
+    {
+        if (is_null(self::getDefaultAdapter())) {
+            return;
+        }
+
+        $db = self::getDefaultAdapter();
+        $db-&gt;refreshConnection();
+    }
+
+</code></pre>
+
+<p>This is great for when you need to reset the database connection from anywhere in the app. I.e.</p>
+
+<pre class="highlight"><code>
+
+Zend_Db_Table::resetDefaultAdapter();
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Evan Coury (evan.pro) on 2011-09-15T17:08:50.000+0000</p> 
+        <div class="body">
+            <p>Am I correct by saying this is only really needed because _connect is protected, so it's difficult to accomplish this in user-land code? I've personally ran into the issue outlined here with pcntl_fork(), and in my case I simply extended the adapter to provide the refreshConnection() functionality. So the question is: do we need or want this in the abstract adapter as proposed, and are there any other use-cases for performing such a re-connect beyond when the process is forked and you have two processes sharing the same connection resource?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Henry Hayes (henryhayes) on 2011-09-15T20:29:14.000+0000</p> 
+        <div class="body">
+            <p>I take your point. I believe it is required. Especially in the Abstract class. Extending the adapter is a work around for this problem not a solution.Making the <em>_connect()</em> method public would not solve the issue as it returns if a connection exists. To accomplish what this new method does, you have to wite three lines of code; check for connection, disconnect and connect. This new method does all this for your and hence, reducing code duplication in your application.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-05T22:48:56.000+0000</p> 
+        <div class="body">
+            <p>Is this something which should be included in ZF 1.12?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pawel Chuchmala (styx) on 2012-04-06T11:09:38.000+0000</p> 
+        <div class="body">
+            <p>I think that adapter should autorefresh connction. This error occur also if you set short timeout in mysql server and your script has long job between thow DB operation. Workaround described at: <a href="http://www.lornajane.net/posts/2011/dealing-with-mysql-gone-away-in-zend-framework">http://lornajane.net/posts/2011/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

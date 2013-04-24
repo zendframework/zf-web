@@ -1,0 +1,157 @@
+<h2>ZF-10771: SMTP Login Enable support for &quot;you are already authenticated&quot;</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-12-03T03:15:26.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Just found a bug in Zend_Mail_Protocol_Smtp_Auth_Login where if you are already authenticated the login fails which causes emails to not be sent. The error is in the auth() function where after sending AUTH LOGIN it expects a 334 response code. Looking at the latest release that seems to have fixed Zend_Mail_Protocol_Abstract's issue of not returning the full message. I decided the best solution would be to add the return code to the exception thrown by _expect and catch it in Auth_Login.
+h3. Zend_Mail_Protocol_Abstract
+*throw new Zend_Mail_Protocol_Exception($errMsg);* -&gt; *throw new Zend_Mail_Protocol_Exception($errMsg, $cmd);*</p>
+
+<p>h3. Zend_Mail_Protocol_Smtp_Auth_Login</p>
+
+<pre class="highlight"><code>
+    public function auth()
+    {
+        // Ensure AUTH has not already been initiated.
+        parent::auth();
+        
+        $this-&gt;_send('AUTH LOGIN');
+        
+        try
+        {
+            $response = $this-&gt;_expect(334);
+        }
+        catch(Zend_Mail_Protocol_Exception $ex)
+        {
+            if($ex-&gt;getCode() == 503 &amp;&amp; strpos($ex-&gt;getMessage(), 'authenticated') !== false)
+            {
+                $this-&gt;_auth = true;
+                return;
+            }    
+        }
+        
+        $this-&gt;_send(base64_encode($this-&gt;_username));
+        $this-&gt;_expect(334);
+        $this-&gt;_send(base64_encode($this-&gt;_password));
+        $this-&gt;_expect(235);
+        $this-&gt;_auth = true;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-03T04:00:08.000+0000</p> 
+        <div class="body">
+            <p>Hi Wade.  Under what conditions would you be 'already authenticated' prior to calling $protocol-&gt;auth() ?  As soon as you call auth(), $this-&gt;_auth is set to true so that subsequent calls throw an exception.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Womersley (wade.womersley) on 2010-12-03T04:05:21.000+0000</p> 
+        <div class="body">
+            <p>Easy, when your IP gets auto validated due to POP3 before SMTP. We have web servers in our office and PC's in use by people too. All our data goes over 4 connections to the web: as a result of this, our IP addresses get auto white listed on the SMTP server due to POP3 before SMTP so when Zend tries to connect from one of those IP's it gets an "already authenticated" response.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-03T04:21:40.000+0000</p> 
+        <div class="body">
+            <p>What is the MTA (SMTP server) on the other end?  The only mention in <a href="http://tools.ietf.org/html/rfc4954">RFC4954</a> of 503 being a permissible response to AUTH is:</p>
+
+<p>{quote}
+After an AUTH command has been successfully completed, no more
+AUTH commands may be issued in the same session.  After a
+successful AUTH command completes, a server MUST reject any
+further AUTH commands with a 503 reply.
+{quote}</p>
+
+<p>Even if the user is authenticated via POP3, it seems to me from this description that the first AUTH should be accepted.</p>
+
+<p>However, RFC or not, if this is standard behavior with POP3-before-SMTP then I agree that it should be supported in the protocol adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Womersley (wade.womersley) on 2010-12-03T04:30:36.000+0000</p> 
+        <div class="body">
+            <p>It is indeed due to whitelisting, did a quick Google and found on <a href="http://kb.parallels.com/1390">this page</a>, this:
+{quote}
+- If you see "503 you are already authenticated" message after entering the "auth login" command, there are two possible reasons:
+a) you already were authorized via POP3 authorization.
+b) your IP is listed in white list, and you don't need to be authenticated in this case.
+{quote}</p>
+
+<p>I know our server will temporarily whitelist if you authenticate via POP3 first but it also means some servers support perma-whitelisting and therefore the current Login code would always fail if run behind that.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-03T17:26:16.000+0000</p> 
+        <div class="body">
+            <p>One concern with your proposed solution comes to mind.  Consider this scenario:</p>
+
+<h1>You specify credentials for SMTP AUTH (i.e. username: foo)</h1>
+
+<h1>You previously authenticated against POP3 (or whatever other mechanism) with user name "foo2"</h1>
+
+<h1>The server rejects the AUTH, but your solution catches this exception</h1>
+
+<h1>Your proposed solution handles the 503 by discarding the exception and flipping the auth flag to true in the protocol adapter</h1>
+
+<p>You asked to AUTH under "foo" but now you're auth'd under "foo2" and don't know it.</p>
+
+<p>This could cause various unexpected behaviors.  In some systems, the username you're AUTH'd against dictates certain headers in outgoing mail (i.e. "From").  You might get confusing rejections trying to send from "foo@mydomain.com" when unexpectedly auth'd under "foo2" because "foo@mydomain.com" is not a permitted sender for foo2. Or, perhaps outgoing mail would be automatically set to be "from" that user.</p>
+
+<p>Wouldn't it be better to handle this at the application level?  i.e. try/catch the "already authenticated" exception and then re-try without authentication?</p>
+
+<p>If the SMTP error code (503) is made available in the exception then you could gracefully handle this on the application side.  ZF-10741 which should be applied soon to trunk takes care of adding SMTP codes to the thrown exception so it would give you this capability.</p>
+
+        </div>
+    </div>
+    </div>
+

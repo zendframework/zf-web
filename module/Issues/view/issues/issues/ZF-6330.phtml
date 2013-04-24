@@ -1,0 +1,161 @@
+<h2>ZF-6330: Zend_Paginator_Adapter_DbSelect make incorrect SQL query when use join keyword</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-16T17:55:17.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-18T20:13:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.4 (23/Jun/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<p>OS: centos x64
+PHP: PHP 5.1.6 (cli) (built: Apr  7 2009 08:00:18) x64
+DB: psql (PostgreSQL) 8.3.7 x64</p>
+
+<p>Zend_Paginator_Adapter_DbSelect make incorrect SQL query when use join keyword.
+It make few columns as argument that passed to DISTINCT function than DISTINCT function make multi column result that COUNT function didn't understand.</p>
+
+<p>The error is:
+{quote}
+"Fatal error: Uncaught exception 'Zend_Db_Statement_Exception' with message 'SQLSTATE[42883]: Undefined function: 7 ERROR: function count(bigint, character varying, character varying) does not exist at character 8 HINT: No function matches the given name and argument types. You might need to add explicit type casts." when use Zend_Paginator with joinLeft functions.
+{quote}
+Postgresql log:
+ERROR:  function count(bigint, character varying, character varying) does not exist at character 8
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+STATEMENT:</p>
+
+<pre class="highlight"><code>
+SELECT COUNT(DISTINCT "a"."id","a"."name","a"."description") AS "zend_paginator_row_count" FROM "a"
+         LEFT JOIN "c" ON c.a_id = a.id
+         LEFT JOIN "b" ON c.b_id = b.id
+</code></pre>
+
+<p>My model for table "a" is:</p>
+
+<pre class="highlight"><code>
+class A extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'a';
+    protected $_primary = 'id';
+    public function fetchAllPaginator($pageNumber = 1, $itemCountPerPage = 20)
+    {
+        $select = $this-&gt;select()
+        -&gt;from("$this-&gt;_schema.$this-&gt;_name", array('id' =&gt; 'a.id', 'name' =&gt; 'a.name', 'description' =&gt; 'a.description'))
+        -&gt;joinLeft('c', "c.a_id = $this-&gt;_schema.$this-&gt;_name.id", array())
+        -&gt;joinLeft('b', "c.b_id = b.id", array('b_count' =&gt; 'COUNT(b.id)'))
+        -&gt;group(array('id' =&gt; 'a.id', 'name' =&gt; 'a.name', 'description' =&gt; 'a.description'))
+        -&gt;order("$order")
+        -&gt;setIntegrityCheck(false);
+
+        $paginator = Zend_Paginator::factory($select);
+        Zend_View_Helper_PaginationControl::setDefaultViewPartial('index/paginator.phtml');
+        Zend_Paginator::setDefaultScrollingStyle('Sliding');
+        $paginator-&gt;setItemCountPerPage($itemCountPerPage);
+        $paginator-&gt;setPageRange(Zend_Registry::get('configuration')-&gt;pagerange);
+        $paginator-&gt;setCurrentPageNumber($pageNumber);
+
+        return $paginator;
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-04-16T18:32:25.000+0000</p> 
+        <div class="body">
+            <p>Could you try this with the ZF 1.8.0 alpha release and see if this issue still exists?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikolay Goldschmidt (ccppprogrammer) on 2009-04-17T05:35:33.000+0000</p> 
+        <div class="body">
+            <p>The problem exists in ZendFramework-1.8.0a1 too.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikolay Goldschmidt (ccppprogrammer) on 2009-04-17T06:33:31.000+0000</p> 
+        <div class="body">
+            <p>I write patch that solve my problem:</p>
+
+<pre class="highlight"><code> 
+--- Zend/Paginator/Adapter/DbSelect.php-       2009-02-22 02:25:39.000000000 +0300
++++ Zend/Paginator/Adapter/DbSelect.php        2009-04-17 17:28:19.000000000 +0400
+@@ -191,6 +191,7 @@
+                 $groupPart = implode(',', $groupParts);
+             }
+
++            if (count($groupParts) &gt; 0) $groupPart = $groupParts[0];
+             $countPart  = empty($groupPart) ? 'COUNT(*)' : 'COUNT(DISTINCT ' . $groupPart . ')';
+             $expression = new Zend_Db_Expr($countPart . ' AS ' . $db-&gt;quoteIdentifier(self::ROW_COUNT_COLUMN));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-06-08T14:20:12.000+0000</p> 
+        <div class="body">
+            <p>I don't think randomly removing group clauses is the desired functionality.  ;-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-06-08T14:22:09.000+0000</p> 
+        <div class="body">
+            <p>This isn't a blocking issue, so I'm lowering priority to critical.  An alternative exists: passing a query to setRowCount().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-06-18T20:13:42.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r16151, merged to release-1.8 in r16152</p>
+
+        </div>
+    </div>
+    </div>
+

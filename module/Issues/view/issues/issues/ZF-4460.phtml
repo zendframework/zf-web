@@ -1,0 +1,346 @@
+<h2>ZF-4460: Resource objects passed in to ACL query methods are not passed through to registered assert()'s</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-03T03:50:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-08-17T09:07:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.1 (11/Aug/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Acl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1722">ZF-1722</a></li>
+            <li><a href="/issues/browse/ZF-1721">ZF-1721</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi,</p>
+
+<p>When querying an ACL, the resource objects that are passed into the query methods are not actually passed through to any asserts that are defined. Instead, their resourceId() is looked up and then the object passed in at ACL construction time is used instead.</p>
+
+<p>This prevents some advanced use of the assert() system.</p>
+
+<p>Here is a detailed description:</p>
+
+<p>I have classes defined in my system which implement Zend_Acl_Resource_Interface. In my case I always implement my getResourceId() as a very simple "return <strong>CLASS</strong>".</p>
+
+<p>I'll use an example of Articles to try and put this into context.</p>
+
+<p>Say I have following setup:</p>
+
+<pre class="literal"> 
+class Article implements Zend_Acl_Resource_Interface.
+{
+   public function getResourceId()
+   {
+     return __CLASS__;
+   }
+
+
+   public $author;
+
+   public function __construct($articleId)
+   {
+     // Load article by id and populate $author.
+   }
+}
+</pre>
+
+<p>(Obviously it does other stuff too!!)</p>
+
+<p>In order to restrict editing to only the author of the article, I could implement the following Acl_Assert:</p>
+
+<pre class="literal"> 
+class Own_Article_Assert implements Zend_Acl_Assert_Interface
+{
+   public function assert(
+     Zend_Acl $acl,
+     Zend_Acl_Role_Interface $role = null,
+     Zend_Acl_Resource_Interface $resource = null,
+     $privilege = null)
+   {
+     if (!($resource instanceof Article))
+       return false;
+
+     // We now know $resource is of the class "Article"
+
+     $auth = Zend_Auth::getInstance();
+     if (!$auth-&gt;hasIdentity())
+       return false;
+
+     return ($auth-&gt;getIdentity()-&gt;username == $resouce-&gt;author);
+   }
+}
+</pre>
+
+<p>Then I had an ACL something like...</p>
+
+<pre class="literal"> 
+$acl = new Zend_Acl;
+$acl-&gt;addRole(new Zend_Acl_Role('User'));
+$acl-&gt;add(new Zend_Acl_Resource('Article'));
+$acl-&gt;allow('User', 'Article' 'view');
+$acl-&gt;allow('User', 'Article' 'edit', new Own_Article_Assert);
+</pre>
+
+<p>This should allow a user to view any article, but only allow the original author to edit it.</p>
+
+<p>I've used the generic Zend_Acl_Resource() object to add the resource into the Acl as I cannot configure my Acl with the real article object without instantiating it (and thus loading an article from the DB). This seems like a reasonable thing to do.</p>
+
+<p>Allow me to elaborate further. Let's say  I then have some code:</p>
+
+<pre class="literal"> 
+$art1 = new Article(1); // An article by current user
+$art2 = new Article(2); // An article by someone else
+
+echo 'View 1: '.($acl-&gt;isAllowed('User', $art1, 'view') ? 'ACK' : 'NAK')."<br />";
+echo 'View 2: '.($acl-&gt;isAllowed('User', $art2, 'view') ? 'ACK' : 'NAK')."<br />";
+echo 'Edit 1: '.($acl-&gt;isAllowed('User', $art1, 'edit') ? 'ACK' : 'NAK')."<br />";
+echo 'Edit 2: '.($acl-&gt;isAllowed('User', $art2, 'edit') ? 'ACK' : 'NAK')."<br />";
+</pre>
+
+<p>What you'd expect here is:
+{{ACK, ACK, ACK, NAK.}}
+But what actually happens is:
+{{ACK, ACK, NAK, NAK.}}</p>
+
+<p>(sounds like Mars Attacks.... ;))</p>
+
+<p>This is because the article object itself never gets passed through to the assert method and thus it fails at the "instanceof" check. This is due to the fact that the object you pass in to isAllowed is actually internally replaced by a the generic object added during ACL construction. This is done in Acl.php's get() function. (see the variable instance storage: $this-&gt;_resources[$resourceId]['instance']).</p>
+
+<p>I can fix this trivially with a small patch (which I'll attach) that preserves the object passed in if it is given and only uses the generic object if a string is used as the parameter. With this patch applied, my original Article object makes it through to the assert() and I can perform the necessary tests.</p>
+
+<p>I really hope this is a bug as, to me, I really don't see the point in using "objects" in the Acl system if the objects themselves are not going to be preserved and passed about accordingly. If the objects just represent generic strings then why not just use generic strings in the first place. Being able to pass a specific object to an assert method is what makes it powerful/useful.</p>
+
+<p>I hope this is understandable. If you would like me to provide code I can do.</p>
+
+<p><em>EDIT</em></p>
+
+<p>I cannot for the life of me work out how to attach a patch to this issue, so I'll just have to post it inline here... am I being thick or is there really no way to add patches etc? Seems pretty counter productive if there isn't a way....</p>
+
+<pre class="literal">
+Index: Acl.php
+===================================================================
+--- Acl.php (revision 30213)
++++ Acl.php (working copy)
+@@ -288,8 +288,10 @@
+     {
+         if ($resource instanceof Zend_Acl_Resource_Interface) {
+             $resourceId = $resource-&gt;getResourceId();
++            $lookup = false;
+         } else {
+             $resourceId = (string) $resource;
++            $lookup = true;
+         }
+ 
+         if (!$this-&gt;has($resource)) {
+@@ -297,7 +299,7 @@
+             throw new Zend_Acl_Exception("Resource '$resourceId' not found");
+         }
+ 
+-        return $this-&gt;_resources[$resourceId]['instance'];
++        return $lookup ? $this-&gt;_resources[$resourceId]['instance'] : $resource;
+     }
+ 
+     /**
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2008-10-15T04:26:49.000+0000</p> 
+        <div class="body">
+            <p>There are similarities in these two bug reports with regards to the actual object that is passed to the assert(). Overall the usefulness of asserts are IMO restricted by these two issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2008-10-15T04:31:39.000+0000</p> 
+        <div class="body">
+            <p>Again these are similar bugs. With regards to Resources, I feel that my fix in ZF-4460 is sufficient, I have not looked specifically at Roles. I suspect my fix applies better as the code in Zend_Acl has moved on.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2008-10-15T04:32:47.000+0000</p> 
+        <div class="body">
+            <p>Sorry I chose the wrong kind of link :s</p>
+
+<p>Again these are similar bugs. With regards to Resources, I feel that my fix in ZF-4460 is sufficient, I have not looked specifically at Roles. I suspect my fix applies better as the code in Zend_Acl has moved on.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-24T07:46:50.000+0000</p> 
+        <div class="body">
+            <p>Colin, thanks for submitting such a clear write-up of this bug.</p>
+
+<p>I think this bug is extremely important, as it is impossible to write non-trivial assertions if you can get access to the methods of the resource you are considering.</p>
+
+<p>My use case is exactly the same as yours (a requirement to restrict people to records that belong to them), and I suspect that this is a very common scenario.</p>
+
+<p>As an alternative to changing isAllowed(), we are overriding get() by telling it to only return the resource from the registry if the $resource parameter doesn't implement Zend_Acl_Resource_Interface:</p>
+
+<pre class="highlight"><code>
+    public function get($resource)
+    {
+        if ($resource instanceof Zend_Acl_Resource_Interface) {
+            $resourceId = $resource-&gt;getResourceId();
+        } else {
+            $resourceId = (string) $resource;
+        }
+
+        if (!$this-&gt;has($resource)) {
+            require_once 'Zend/Acl/Exception.php';
+            throw new Zend_Acl_Exception("Resource '$resourceId' not found");
+        }
+
+        if (!$resource instanceof Zend_Acl_Resource_Interface) {
+            $resource = $this-&gt;_resources[$resourceId]['instance'];
+        }        
+        return $resource;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-24T07:48:21.000+0000</p> 
+        <div class="body">
+            <p>Sorry, critical spelling error above!</p>
+
+<p>I think this bug is extremely important, as it is impossible to write non-trivial assertions if you CAN'T get access to the methods of the resource you are considering.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-24T07:52:05.000+0000</p> 
+        <div class="body">
+            <p>Finally, I think that whichever fix is applied, it should also be applied to Zend_Acl_Role_Registry-&gt;get() so that the code is consistent.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2008-10-24T08:17:28.000+0000</p> 
+        <div class="body">
+            <p>Yeah the solution I had was a little messy with the inline if statement etc..</p>
+
+<p>I think this is the optimal version for neatness/compactness/clarity:</p>
+
+<pre class="highlight"><code>
+public function get($resource)
+    {
+        if (!$resource instanceof Zend_Acl_Resource_Interface) {
+            $resource = $this-&gt;_resources[(string)$resource]['instance'];
+        }
+
+        if (!$this-&gt;has($resource)) {
+            require_once 'Zend/Acl/Exception.php';
+            throw new Zend_Acl_Exception("Resource '".$resource-&gt;getResourceId()."' not found");
+        }
+
+        return $resource;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2008-10-24T08:19:08.000+0000</p> 
+        <div class="body">
+            <p>Erm, scratch that last comment. I see the by looking up the instance before checking -&gt;has() is clearly insane. I'll stop to stop smoking so much crack. :s</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-14T13:31:40.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Ralph to get closure on this issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-06-15T01:54:28.000+0000</p> 
+        <div class="body">
+            <p>Anything new on this one?
+As some other posters wrote this is some major blocker when working with assertions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-07-30T19:03:04.000+0000</p> 
+        <div class="body">
+            <p>A fix is in place in trunk at r17317 for ZF-1721 and ZF-1722 which I think might address this issue, please test.  Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2009-08-17T08:57:34.000+0000</p> 
+        <div class="body">
+            <p>Hi Ralph,</p>
+
+<p>I'd like to confirm this has indeed fixed my test case.</p>
+
+<p>That said, when the get() method is called and a resource is passed in, that same resource object will not be passed out again. Is this the intended behaviour for a public method?</p>
+
+<p>See my inline patch at the end of the description of this topic which fixes the get() method.. The resource object passed in to the get() method is preserved if it is already a resource. In the current 1.9.1 implementation, if a resource object is passed in, the resource object with the same identifier registered in the ACL is what is returned, not the original resource.</p>
+
+<p>This is arguably not needed if this is just the intended behaviour of this public function (and changing it is admittedly an API breakage), but perhaps this should be rethought for 2.0 and changed?</p>
+
+<p>I'd welcome you're opinion on the matter. :)</p>
+
+<p>Thanks for the fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-17T09:07:23.000+0000</p> 
+        <div class="body">
+            <p>I originally tried going the same route, but it gets you to (like you said) a place where there is bc breakage.  Even if its not intended behavior, its what we have.</p>
+
+<p>I think there are loads of refactoring we can do for 2.0 time.  First is that we should tree ACL's more like Trees and nodes, thus utilizing RecursiveIterator and RecursiveIteratorIterator. There should also be a focus on explict roles/resources and types of resources/roles, both use cases being supported.  This means using strings for types, and exact objects for explicit role/resource registration and checking.</p>
+
+<p>If you have other thoughts, I suggest you start a Zend_Acl 2.0 page on the ZFDEV wiki :)</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+    </div>
+

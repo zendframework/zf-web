@@ -1,0 +1,212 @@
+<h2>ZF-326: SMTP transport is not prepending dots to lines beginning with a dot</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-08-18T11:00:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-06T11:08:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2074">ZF-2074</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10093/smtp-dot.diff">smtp-dot.diff</a></li>
+            <li><a href="/issues/secure/attachment/10103/UPDATED-smtp-dot.diff">UPDATED-smtp-dot.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend/Mail/Transport/Smtp.php does not insert a leading dot for every line that begins with a dot.  I've quoted the RFC below.</p>
+
+<p>See Section 4.5.2 of RFC 2821
+   -  Before sending a line of mail text, the SMTP client checks the
+      first character of the line.  If it is a period, one additional
+      period is inserted at the beginning of the line.</p>
+
+<ul><li>When a line of mail text is received by the SMTP server, it checks
+  the line.  If the line is composed of a single period, it is
+  treated as the end of mail indicator.  If the first character is a
+  period and there are other characters on the line, the first
+  character is deleted.</li>
+</ul>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Leverton (konforce) on 2006-08-18T11:00:41.000+0000</p> 
+        <div class="body">
+            <p>A patch to conform to the RFC.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2006-09-20T18:28:00.000+0000</p> 
+        <div class="body">
+            <p>I've updated the priority to Major, as this still has the potential to mangle emails (e.g. broken images) in rare situations.</p>
+
+<p>Further to this, I discovered that Matthew Leverton's patch still wasn't catching a few examples of lines where the leading character was a '.'. I traced it back to the fact that Zend_Mail_Transport_Abstract defines a line end as '/r/n' whereas Zend_Mime was using '/n' as a line end.</p>
+
+<p>Substituting $this-&gt;EOL with Zend_Mime::LINEEND did the trick - here's the diff (and will attach separately):-</p>
+
+<p>===================================================================
+--- library/Zend/Mail/Transport/Smtp.php        (revision 1084)
++++ library/Zend/Mail/Transport/Smtp.php        (working copy)
+@@ -187,10 +187,10 @@
+     {
+         $this-&gt;_send('DATA');
+         $this-&gt;_expect(354);
+-        foreach(explode($this-&gt;EOL, $data) as $line) {
+-            if ($line=='.') {
++        foreach(explode(Zend_Mime::LINEEND, $data) as $line) {
++            if (strpos($line, '.') === 0) {
+                 // important. replace single dot on a line
+-                $line='..';
++                $line = '.' . $line;
+             }
+             $this-&gt;_send($line);
+         }</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2006-09-20T18:28:39.000+0000</p> 
+        <div class="body">
+            <p>Fixes erroneous detection of line endings</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-28T17:51:46.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for 0.7.0 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aren Sandersen (aren) on 2007-07-11T16:40:23.000+0000</p> 
+        <div class="body">
+            <p>This issue has regressed.  Simon's comments on 20 Sep still apply -- the "foreach(explode($this-&gt;EOL, $data) as $line) { " (now in Mail/Protocol/Smtp.php) is using self::EOL instead of Zend_Mime::LINEEND.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-12T06:48:55.000+0000</p> 
+        <div class="body">
+            <p>Reopening on behalf of [~aren].</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-07-14T16:06:25.000+0000</p> 
+        <div class="body">
+            <p>I'm not quite sure why this was re-opened - the updated patch applies to Zend_Mail_Transport_Smtp, but for a long time now the handling of pre-prending the dot is carried out by Zend_Mail_Protocol_Smtp, and the code in data() definitely handles the 'dot' correctly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aren Sandersen (aren) on 2007-07-15T20:14:26.000+0000</p> 
+        <div class="body">
+            <p>Zend_Mime's encodeQuotedPrintable() uses LINEND ("\n")  as the line-break sequence, but Zend_Mail_Protocol_Smtp's data() method is looking for self::EOL ("\r\n") as line-breaks.  Since these don't match, newlines inserted as a result of quoted-printable encoding aren't detected properly and this issue happens.</p>
+
+<p>Please re-open.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-07-17T05:50:18.000+0000</p> 
+        <div class="body">
+            <p>Further investigation of the issue by Aren Sandersen pointed to a logic error in Smtp components</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-07-17T05:52:33.000+0000</p> 
+        <div class="body">
+            <p>Resolution committed in SVN revision 5724 - please test and confirm the issue is fixed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aren Sandersen (aren) on 2007-07-17T15:26:25.000+0000</p> 
+        <div class="body">
+            <p>Confirmed; my tests show the issue is fixed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Todd Rhodes (rhodesbud) on 2007-07-19T15:09:28.000+0000</p> 
+        <div class="body">
+            <p>This also fixed my missing dot issue, but seemed to introduce a new issue.  When I use setBodyHtml() and setBodyText() together to create the email, the resulting sent email only shows the text version with:</p>
+
+<p>'Content-Type: text/plain; charset="iso-8859-1"
+Content-Transfer-Encoding: quoted-printable'</p>
+
+<p>displayed at the top of the received email text.  The text version of the email is shown, not the html as would be expected.  In addition, long email text is mangled and interspersed with various line break characters.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-30T09:29:01.000+0000</p> 
+        <div class="body">
+            <p>Fix version after 1.0.1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-11-05T19:50:44.000+0000</p> 
+        <div class="body">
+            <p>Todd, can you please verify this behaviour occurs in release 1.0.2? If so, can you please attach new files to this issue with your code, the original message you are trying to send and - if possible - a dump of the resulting Zend_Mail object just before it is sent.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-01-18T21:31:19.000+0000</p> 
+        <div class="body">
+            <p>No further evidence of bug exists</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Biščo (michal.bisco) on 2011-06-06T11:08:58.000+0000</p> 
+        <div class="body">
+            <p>The issue is still partially present in versions 1.11.6 and 1.11.0. It seems that only Windows environments are affected. The problem is in PHP mail function. It is mentioned in the official PHP documentation at <a href="http://php.net/mail">http://php.net/mail</a> (caution text for "message" parameter).</p>
+
+<p>Is it possible to alter the current Zend_Mail_Transport_Smtp implementation, so it would consider this bug and the developer using Zend_Mail_Transport_Smtp would not need to worry about it?</p>
+
+        </div>
+    </div>
+    </div>
+

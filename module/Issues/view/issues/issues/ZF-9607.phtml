@@ -1,0 +1,726 @@
+<h2>ZF-9607: Zend_Form_Element belongsTo Issues</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-03T17:25:00.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-20T13:34:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10468">ZF-10468</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This Task is for belongsTo related issues in several Zend_Form methods 
+mainly isValid isValidPartial getValues getValidValues populate ...</p>
+
+<p>This first patch is fixing isValid to work with belongsTo, and also
+make sure that validated ElementValues are stripped from data to validate
+what the issue ZF-9679 was about.</p>
+
+<p>For this i added a method _dissolveArrayUnsetKey which will unset the key
+in a given array after dissolving the given arrayPath.</p>
+
+<p>[#patch1] isValid fix for belongsTo
+[#patch2] testIsValidDiscardsValidatedValues
+[#patch3] isValidPartial fix for belongsTo
+[#patch4] populate setDefaults fix for belongsTo
+[#patch5] testSetDefaultsDiscardsPopulatedValues
+[#patch6] getValues fix for belongsTo
+[#patch7] getValidValues fix for belongsTo</p>
+
+<p>Changed parts in isValid, before Patch</p>
+
+<pre class="highlight"><code>
+$valid      = true;
+
+        if ($this-&gt;isArray()) {
+            $data = $this-&gt;_dissolveArrayValue($data, $this-&gt;getElementsBelongTo());
+        }
+ 
+        foreach ($this-&gt;getElements() as $key =&gt; $element) {
+            if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                $element-&gt;setTranslator($translator);
+            }
+            if (!isset($data[$key])) {
+                $valid = $element-&gt;isValid(null, $data) &amp;&amp; $valid;
+            } else {
+                $valid = $element-&gt;isValid($data[$key], $data) &amp;&amp; $valid;
+            }
+        }
+</code></pre>
+
+<p>After Patch</p>
+
+<pre class="highlight"><code>
+$valid      = true;
+        $eBelongTo  = null;
+
+        if ($this-&gt;isArray()) {
+            $eBelongTo = $this-&gt;getElementsBelongTo();
+            $data = $this-&gt;_dissolveArrayValue($data, $eBelongTo);
+        }
+ 
+        foreach ($this-&gt;getElements() as $key =&gt; $element) {
+            if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                $element-&gt;setTranslator($translator);
+            }
+            $check = $data;
+            if (($belongsTo = $element-&gt;getBelongsTo()) !== $eBelongTo) {
+                $check = $this-&gt;_dissolveArrayValue($data, $belongsTo);
+            }
+            if (!isset($check[$key])) {
+                $valid = $element-&gt;isValid(null, $check) &amp;&amp; $valid;
+            } else {
+                $valid = $element-&gt;isValid($check[$key], $check) &amp;&amp; $valid;
+                $data = $this-&gt;_dissolveArrayUnsetKey($data, $belongsTo, $key);
+            }
+        }
+</code></pre>
+
+<p>{anchor:patch1}
+h4.Patch 1 isValid fix for belongsTo
+The first patch is for isValid, Unit Test included, this also obsoletes ZF-9679.</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21863)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1579,7 +1579,27 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function _setup9607()
++    {
++        $this-&gt;form-&gt;addElement('text', 'foo')
++                   -&gt;foo-&gt;setBelongsTo('bar[quo]')
++                        -&gt;setRequired(true)
++                        -&gt;addValidator('Identical',
++                                       false,
++                                       'foo Value');
+ 
++        $data = array('valid' =&gt; array('bar' =&gt;
++                                       array('quo' =&gt;
++                                             array('foo' =&gt; 'foo Value'))));
++        return $data;
++    }
++
++    public function testIsValidWithBelongsTo()
++    {
++        $data = $this-&gt;_setup9607();
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValid($data['valid']));
++    }
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21863)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -2005,6 +2005,34 @@
+     }
+ 
+     /**
++     * Given an array, an optional arrayPath and a key this method
++     * dissolves the arrayPath and unsets the key within the array
++     * if it exists.
++     * 
++     * @param array $array 
++     * @param string|null $arrayPath
++     * @param string $key
++     * @return array
++     */
++    protected function _dissolveArrayUnsetKey($array, $arrayPath, $key)
++    {
++        $unset =&amp; $array;
++        $path  = trim(strtr((string)$arrayPath, array('[' =&gt; '/', ']' =&gt; '')), '/');
++        $segs  = ('' !== $path) ? explode('/', $path) : array();
++        
++        foreach ($segs as $seg) {
++            if (!array_key_exists($seg, (array)$unset)) {
++                return $array;
++            }
++            $unset =&amp; $unset[$seg];
++        }
++        if (array_key_exists($key, (array)$unset)) {
++            unset($unset[$key]);
++        }
++        return $array;
++    }
++
++    /**
+      * Converts given arrayPath to an array and attaches given value at the end of it.
+      *
+      * @param  mixed $value The value to attach
+@@ -2044,19 +2072,26 @@
+         }
+         $translator = $this-&gt;getTranslator();
+         $valid      = true;
++        $eBelongTo  = null;
+ 
+         if ($this-&gt;isArray()) {
+-            $data = $this-&gt;_dissolveArrayValue($data, $this-&gt;getElementsBelongTo());
++            $eBelongTo = $this-&gt;getElementsBelongTo();
++            $data = $this-&gt;_dissolveArrayValue($data, $eBelongTo);
+         }
+ 
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+             if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                 $element-&gt;setTranslator($translator);
+             }
+-            if (!isset($data[$key])) {
+-                $valid = $element-&gt;isValid(null, $data) &amp;&amp; $valid;
++            $check = $data;
++            if (($belongsTo = $element-&gt;getBelongsTo()) !== $eBelongTo) {
++                $check = $this-&gt;_dissolveArrayValue($data, $belongsTo);
++            }
++            if (!isset($check[$key])) {
++                $valid = $element-&gt;isValid(null, $check) &amp;&amp; $valid;
+             } else {
+-                $valid = $element-&gt;isValid($data[$key], $data) &amp;&amp; $valid;
++                $valid = $element-&gt;isValid($check[$key], $check) &amp;&amp; $valid;
++                $data = $this-&gt;_dissolveArrayUnsetKey($data, $belongsTo, $key);
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+
+</code></pre>
+
+<p>{anchor:patch2}
+h4.Patch 2 testIsValidDiscardsValidatedValues</p>
+
+<p>This second patch is an Unit Test only to ensure that isValid unsets already
+validated ElementValues and does not carry them to SubForms, like issued in ZF-9679</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php    (Revision 21873)
++++ tests/Zend/Form/FormTest.php    (Arbeitskopie)
+@@ -1528,6 +1528,20 @@
+         $this-&gt;assertRegexp('/value=.foo Value./', $this-&gt;form-&gt;render());
+     }
+ 
++    /**
++     * @group ZF-9679
++     */
++    public function testIsValidDiscardsValidatedValues()
++    {
++        $this-&gt;form-&gt;addElement('text', 'foo');
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'bar')
++                   -&gt;bar-&gt;addElement('text', 'foo')
++                        -&gt;foo-&gt;setAllowEmpty(true)
++                             -&gt;addValidator('Identical', true, '');
++
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValid(array('foo' =&gt; 'foo Value')));
++    }
++
+     public function _setup9350()
+     {
+         $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+</code></pre>
+
+<p>{anchor:patch3}
+h4.Patch 3 isValidPartial fix for belongsTo
+This is the same patch as Patch 1 only for isValidPartial</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21875)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1579,7 +1579,14 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function testIsValidPartialWithBelongsTo()
++    {
++        $data = $this-&gt;_setup9607();
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValidPartial($data['valid']));
++        $this-&gt;assertSame('foo Value', $this-&gt;form-&gt;foo-&gt;getValue());
++    }
+ 
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21875)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -2090,19 +2090,27 @@
+      */
+     public function isValidPartial(array $data)
+     {
++        $eBelongTo  = null;
++
+         if ($this-&gt;isArray()) {
+-            $data = $this-&gt;_dissolveArrayValue($data, $this-&gt;getElementsBelongTo());
++            $eBelongTo = $this-&gt;getElementsBelongTo();
++            $data = $this-&gt;_dissolveArrayValue($data, $eBelongTo);
+         }
+ 
+         $translator        = $this-&gt;getTranslator();
+         $valid             = true;
+ 
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+-            if (isset($data[$key])) {
++            $check = $data;
++            if (($belongsTo = $element-&gt;getBelongsTo()) !== $eBelongTo) {
++                $check = $this-&gt;_dissolveArrayValue($data, $belongsTo);
++            }
++            if (isset($check[$key])) {
+                 if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                     $element-&gt;setTranslator($translator);
+                 }
+-                $valid = $element-&gt;isValid($data[$key], $data) &amp;&amp; $valid;
++                $valid = $element-&gt;isValid($check[$key], $check) &amp;&amp; $valid;
++                $data = $this-&gt;_dissolveArrayUnsetKey($data, $belongsTo, $key);
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+
+</code></pre>
+
+<p>{anchor:patch4}
+h4.Patch 4 fix for setDefaults to work with belongsTo</p>
+
+<p>this obsoletes ZF-9666</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21877)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1579,7 +1579,14 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function testPopulateWithBelongsTo()
++    {
++        $data = $this-&gt;_setup9607();
++        $this-&gt;form-&gt;populate($data['valid']);
++        $this-&gt;assertSame('foo Value', $this-&gt;form-&gt;foo-&gt;getValue());
++    }
+ 
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21877)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -1226,13 +1226,21 @@
+      */
+     public function setDefaults(array $defaults)
+     {
++        $eBelongTo = null;
++
+         if ($this-&gt;isArray()) {
+-            $defaults = $this-&gt;_dissolveArrayValue($defaults, $this-&gt;getElementsBelongTo());
++            $eBelongTo = $this-&gt;getElementsBelongTo();
++            $defaults = $this-&gt;_dissolveArrayValue($defaults, $eBelongTo);
+         }
+         foreach ($this-&gt;getElements() as $name =&gt; $element) {
+-            if (array_key_exists($name, $defaults)) {
+-                $this-&gt;setDefault($name, $defaults[$name]);
++            $check = $defaults;
++            if (($belongsTo = $element-&gt;getBelongsTo()) !== $eBelongTo) {
++                $check = $this-&gt;_dissolveArrayValue($defaults, $belongsTo);
+             }
++            if (array_key_exists($name, $check)) {
++                $this-&gt;setDefault($name, $check[$name]);
++                $defaults = $this-&gt;_dissolveArrayUnsetKey($defaults, $belongsTo, $name);
++            }
+         }
+         foreach ($this-&gt;getSubForms() as $name =&gt; $form) {
+             if (!$form-&gt;isArray() &amp;&amp; array_key_exists($name, $defaults)) {
+
+</code></pre>
+
+<p>{anchor:patch5}
+h4.Patch 5 make sure populated Values are not carried to SubForms</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php    (Revision 21879)
++++ tests/Zend/Form/FormTest.php    (Arbeitskopie)
+@@ -1528,6 +1528,21 @@
+         $this-&gt;assertRegexp('/value=.foo Value./', $this-&gt;form-&gt;render());
+     }
+ 
++    /**
++     * @group ZF-9666
++     */
++    public function testSetDefaultsDiscardsPopulatedValues()
++    {
++        $this-&gt;form-&gt;addElement('text', 'foo');
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'bar')
++                   -&gt;bar-&gt;addElement('text', 'foo');
++
++        $this-&gt;form-&gt;populate(array('foo' =&gt; 'foo Value'));
++        $html = $this-&gt;form-&gt;setView($this-&gt;getView())
++                           -&gt;render();
++        $this-&gt;assertEquals(1, preg_match_all('/foo Value/', $html, $matches));
++    }
++
+     public function _setup9350()
+     {
+         $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+
+</code></pre>
+
+<p>{anchor:patch6}
+h4.Patch 6 getValues fix for belongsTo</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21883)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1579,7 +1579,14 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function testGetValuesWithBelongsTo()
++    {
++        $data = $this-&gt;_setup9607();
++        $this-&gt;form-&gt;populate($data['valid']);
++        $this-&gt;assertSame($data['valid'], $this-&gt;form-&gt;getValues());
++    }
+ 
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21883)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -1301,9 +1301,22 @@
+     public function getValues($suppressArrayNotation = false)
+     {
+         $values = array();
++        $eBelongTo = null;
++        
++        if ($this-&gt;isArray()) {
++            $eBelongTo = $this-&gt;getElementsBelongTo();
++        }
++        
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+             if (!$element-&gt;getIgnore()) {
+-                $values[$key] = $element-&gt;getValue();
++                $merge = array();
++                if (($belongsTo = $element-&gt;getBelongsTo()) !== $eBelongTo) {
++                    if ('' !== (string)$belongsTo) {
++                        $key = $belongsTo . '[' . $key . ']';
++                    }
++                }
++                $merge = $this-&gt;_attachToArray($element-&gt;getValue(), $key);
++                $values = array_merge_recursive($values, $merge);
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+</code></pre>
+
+<p>{anchor:patch7}
+h4.Patch 7 getValidValues with belongsTo</p>
+
+<pre class="highlight"><code>Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21885)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1579,7 +1579,13 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function testGetValidValuesWithBelongsTo()
++    {
++        $data = $this-&gt;_setup9607();
++        $this-&gt;assertSame($data['partial'], $this-&gt;form-&gt;getValidValues($data['invalid']));
++    }
+ 
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21885)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -1331,15 +1331,29 @@
+      */
+     public function getValidValues($data, $suppressArrayNotation = false)
+     {
++        $values = array();
++        $eBelongTo = null;
++
+         if ($this-&gt;isArray()) {
+-            $data = $this-&gt;_dissolveArrayValue($data, $this-&gt;getElementsBelongTo());
++            $eBelongTo = $this-&gt;getElementsBelongTo();
++            $data = $this-&gt;_dissolveArrayValue($data, $eBelongTo);
+         }
+-        $values = array();
++        
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+-            if (isset($data[$key])) {
+-                if($element-&gt;isValid($data[$key], $data)) {
+-                    $values[$key] = $element-&gt;getValue();
++            $check = $data;
++            if (($belongsTo = $element-&gt;getBelongsTo()) !== $eBelongTo) {
++                $check = $this-&gt;_dissolveArrayValue($data, $belongsTo);
++            }
++            if (isset($check[$key])) {
++                if($element-&gt;isValid($check[$key], $check)) {
++                    $merge = array();
++                    if ($belongsTo !== $eBelongTo &amp;&amp; '' !== (string)$belongsTo) {
++                            $key = $belongsTo . '[' . $key . ']';
++                    }
++                    $merge = $this-&gt;_attachToArray($element-&gt;getValue(), $key);
++                    $values = array_merge_recursive($values, $merge);
+                 }
++                $data = $this-&gt;_dissolveArrayUnsetKey($data, $belongsTo, $key);
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-15T19:29:25.000+0000</p> 
+        <div class="body">
+            <p>Added patch for isValid</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-15T19:32:44.000+0000</p> 
+        <div class="body">
+            <p>Change Type to Patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-15T19:55:20.000+0000</p> 
+        <div class="body">
+            <p>Fixed whitespaces within patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T04:00:31.000+0000</p> 
+        <div class="body">
+            <p>added Unit Test to respect ZF-9679</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T06:08:06.000+0000</p> 
+        <div class="body">
+            <p>Added Patch and Unit Test for isValidPartial fix belongsTo</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T07:32:00.000+0000</p> 
+        <div class="body">
+            <p>Added Patch 4  including Unit Test as fix for belongsTo within setDefaults.
+This obsoletes the patch from ZF-9666</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T07:51:11.000+0000</p> 
+        <div class="body">
+            <p>Added patch 5, an Unit Test to make sure ZF-9666 is satisfied.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T08:37:07.000+0000</p> 
+        <div class="body">
+            <p>Added Patch 6 for getValues fix for belongsTo including Unit Test</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T09:29:24.000+0000</p> 
+        <div class="body">
+            <p>Added Patch and Unit Test for getValidValues with belongsTo</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T13:34:24.000+0000</p> 
+        <div class="body">
+            <p>This is missing in Patch 7</p>
+
+<pre class="highlight"><code>
+    public function _setup9607()
+    {
+        $this-&gt;form-&gt;addElement('text', 'foo')
+                   -&gt;foo-&gt;setBelongsTo('bar[quo]')
+                        -&gt;setRequired(true)
+                        -&gt;addValidator('Identical',
+                                       false,
+                                       'foo Value');
+
+        $this-&gt;form-&gt;addElement('text', 'quo')
+                   -&gt;quo-&gt;setBelongsTo('bar[quo]')
+                        -&gt;addValidator('Identical',
+                                       false,
+                                       'quo Value');
+
+        $data = array('valid' =&gt; array('bar' =&gt;
+                                       array('quo' =&gt;
+                                             array('foo' =&gt; 'foo Value',
+                                                   'quo' =&gt; 'quo Value'))),
+                      'invalid' =&gt; array('bar' =&gt;
+                                         array('quo' =&gt;
+                                               array('foo' =&gt; 'foo Invalid',
+                                                     'quo' =&gt; 'quo Value'))),
+                      'partial' =&gt; array('bar' =&gt;
+                                         array('quo' =&gt;
+                                               array('quo' =&gt; 'quo Value'))));
+        return $data;
+    }
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-16T13:36:04.000+0000</p> 
+        <div class="body">
+            <p>Patches applied in trunk and 1.10 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T16:16:14.000+0000</p> 
+        <div class="body">
+            <p>Applied missing TestSetup in trunk and 1.10 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexey Kruchinin (axalix) on 2010-04-16T17:57:06.000+0000</p> 
+        <div class="body">
+            <p>This update resulted in changes of $context variable in methods isValid() in all of the specified custom validators. When we call method isValid() method of Zend_Form class, every element of the form is being deleted from the context: one-by-one, in order. Thus, I can't use $context in isValid() method for those elements that are specified before the current element. For instance, if I have 2 fields: "password" and "confirm_password" - I can't use $context in my custom validator, in the method isValid() for the field "password" because $context['password'] is unset (!) - it is not longer in the context.</p>
+
+<p>This happens due to these lines in Zend_Form class, since $key is always specified and $unset refers to $array which is our current context:</p>
+
+<p>if (array_key_exists($key, (array)$unset)) {
+    unset($unset[$key]);
+}</p>
+
+<p>So, I had to overwrite _dissolveArrayUnsetKey() method this way in my Form Class:</p>
+
+<p>protected function _dissolveArrayUnsetKey($array, $arrayPath, $key) {
+   return $array;
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-17T03:19:33.000+0000</p> 
+        <div class="body">
+            <p>Lex you are right that was not intended, could you check
+if this patch solves the problem</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21922)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -2120,7 +2120,7 @@
+             $eBelongTo = $this-&gt;getElementsBelongTo();
+             $data = $this-&gt;_dissolveArrayValue($data, $eBelongTo);
+         }
+-
++        $context = $data;
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+             if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                 $element-&gt;setTranslator($translator);
+@@ -2130,9 +2130,9 @@
+                 $check = $this-&gt;_dissolveArrayValue($data, $belongsTo);
+             }
+             if (!isset($check[$key])) {
+-                $valid = $element-&gt;isValid(null, $check) &amp;&amp; $valid;
++                $valid = $element-&gt;isValid(null, $context) &amp;&amp; $valid;
+             } else {
+-                $valid = $element-&gt;isValid($check[$key], $check) &amp;&amp; $valid;
++                $valid = $element-&gt;isValid($check[$key], $context) &amp;&amp; $valid;
+                 $data = $this-&gt;_dissolveArrayUnsetKey($data, $belongsTo, $key);
+             }
+         }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexey Kruchinin (axalix) on 2010-04-17T04:14:05.000+0000</p> 
+        <div class="body">
+            <p>(my name was Lex in the prev. post. Sorry, for this confusion)</p>
+
+<p>Christian, this patch works like a charm and solves the problem. I don't need to overwrite "_dissolveArrayUnsetKey" anymore.</p>
+
+<p>Thank you.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-17T05:15:40.000+0000</p> 
+        <div class="body">
+            <p>Additional patches applied to trunk and 1.10 release for
+isValid isValidPartial and getValidValues to make sure context
+data is kept.</p>
+
+        </div>
+    </div>
+    </div>
+

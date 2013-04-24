@@ -1,0 +1,172 @@
+<h2>ZF-4450: Problem with wrong splitted/encoded mail-subjects</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-02T03:59:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-07T12:24:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mime</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9470">ZF-9470</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12637/ZF-4450.patch">ZF-4450.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>We had two problems with the {{Zend_Mime_Decode::splitMessage()}}-method:</p>
+
+<p>A lot of mail-headers (maybe they are not really rfc-conform) couldn't be splitted correctly by the native php-function {{iconv_mime_decode_headers()}} used by the framework. e.g.</p>
+
+<pre class="highlight"><code>
+iconv_mime_decode_headers() =&gt; array( ..., [subject] =&gt; '=?iso-8859-1?q?=AB=CD?=\nX-Priority: 3', ...)
+</code></pre>
+
+<p>Some subject-strings encoded in the following way</p>
+
+<pre class="highlight"><code>
+=?(utf-8|iso-8859-1|...)?(q|b)?......?=
+</code></pre>
+
+<p>couldn't be decoded by the iconv-function. Therefore we used the {{mb_decode_mimeheader()}}-function for those messages.</p>
+
+<h1>Index: Decode.php</h1>
+
+<p>--- Decode.php  (revision 277)
++++ Decode.php  (revision 278)
+@@ -139,10 +139,17 @@</p>
+
+<pre class="highlight"><code>
+             @list($headers, $body) = @preg_split("%([\r\n]+)\\1%U", $message, 2);
+         }
+ 
++        $headers = preg_replace("/=\n([^ ]+)/", "= \n\\1", $headers);
+         $headers = iconv_mime_decode_headers($headers, ICONV_MIME_DECODE_CONTINUE_ON_ERROR);
++        
++        // normalize header names
++        foreach ($headers as $name =&gt; &amp;$header) {
+ 
+-        // normalize header names
+-        foreach ($headers as $name =&gt; $header) {
++            if (! is_array($header) &amp;&amp; preg_match('/((=\?|\?))/', $header)) {
++                $header = preg_replace_callback('/(=\?([^\?]+)\?(q|b)\?([^\?]+)\?=)/i',
++                    create_function('$a', 'return mb_decode_mimeheader($a[0]);'), $header);
++            }
++
+             $lower = strtolower($name);
+             if ($lower == $name) {
+                 continue;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Nico Edtinger (nico) on 2008-11-07T17:41:14.000+0000</p> 
+        <div class="body">
+            <p>For the headers that couldn't be decoded: did you check your setting for iconv.internal_encoding? Don't have multibyte here to test.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robert Gruber (gruberro) on 2008-11-10T01:20:10.000+0000</p> 
+        <div class="body">
+            <p>Our iconv.internal_encoding is always UTF-8!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-12-04T23:49:54.000+0000</p> 
+        <div class="body">
+            <p>Hi, Robert.</p>
+
+<p>Is this issue still active?
+We have fixed many issues between 1.7.2 and 1.7.4 .</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robert Gruber (gruberro) on 2009-12-07T10:07:49.000+0000</p> 
+        <div class="body">
+            <p>Hi!</p>
+
+<p>Unfortunately the project using the patch posted some months ago is currently running under the zf-version 1.6.1 - never touch a running system ;) It isn't also possible to upgrade for a short test, because there is a lot of bootstapping-changes and so on.
+Whenever the project will be upgraded to a newer version of zf I will look at all this features and patches again and give you entire feedback.</p>
+
+<p>For me it would make sense to have the possibility to inject Zend_Mime into Zend_Mail, so everyone would be able to extend some functionality inside there.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Graham Anderson (gnanderson) on 2010-01-17T06:23:07.000+0000</p> 
+        <div class="body">
+            <p>I can confirm the header splitting issue still exists in 1.10beta1</p>
+
+<p>It actually happend quite often because a common scenario is to have a domain key header immediately followed by the message-id header. Often a domain key signature will have the offending string end; and so the message-id header gets swallowed into the domain key header.</p>
+
+<p>I sampled about 20k emails from a local maildir store and the failure to split the headers correctly happened roughly 5% of the time.</p>
+
+<p>I cannot confirm the inconv/mbstring decoding issue exists, I did not notice it specifically nor did I test for it.</p>
+
+<p>Anyway, the regex replace for the splitting issue is good, attaching patch with unit test that replicates the splitting issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Graham Anderson (gnanderson) on 2010-01-17T06:25:24.000+0000</p> 
+        <div class="body">
+            <p>Test case reproduces issue + trivial fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2010-01-17T22:17:22.000+0000</p> 
+        <div class="body">
+            <p>Thank you for Your collaboration, Graham Anderson .
+I will look at Your suggestion deeply.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2010-06-12T06:40:06.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I have been inactive since last April.</p>
+
+        </div>
+    </div>
+    </div>
+

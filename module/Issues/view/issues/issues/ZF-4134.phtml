@@ -1,0 +1,148 @@
+<h2>ZF-4134: Zend_Controller_Action_Helper_Json-&gt;sendJson() blocks front's dispatchLoopShutdown()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-30T07:25:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-14T14:08:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11444">ZF-11444</a></li>
+            <li><a href="/issues/browse/ZF-5543">ZF-5543</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>h3.Details</p>
+
+<pre class="highlight"><code>
+/**
+ * Simplify AJAX context switching based on requested format
+ */
+class Zend_Controller_Action_Helper_Json extends Zend_Controller_Action_Helper_Abstract
+{
+    // Suppress exit when sendJson() called
+    public $suppressExit = false;
+
+    // Encode JSON response and immediately send
+    public function sendJson($data, $keepLayouts = false)
+    {
+        $data = $this-&gt;encodeJson($data, $keepLayouts);
+        $response = $this-&gt;getResponse();
+        $response-&gt;setBody($data);
+
+        if (!$this-&gt;suppressExit) {
+            $response-&gt;sendResponse();
+            exit;
+        }
+
+        return $data;
+    }
+...
+</code></pre>
+
+<p>Everything's ok here only if we assume that no controller plugin adds http headers to Zend_Controller_Response. Otherwise, we get lack of expected headers inserted by FC's plugins.</p>
+
+<p>For example, one of this affected plugin is Zend_Wildfire_Channel_HttpHeaders (extends Zend_Controller_Plugin_Abstract) which inserts firephp-related headers with its flush() method initially triggered by "_plugins-&gt;dispatchLoopShutdown()" in front controller.</p>
+
+<p>h3.Test case
+Zend_Registry::get('log') returns Zend_Logger object with firebug writer.</p>
+
+<p>h4.Works</p>
+
+<pre class="highlight"><code>
+Zend_Registry::get('log')-&gt;info('Test debug msg...'); // WILL send firebug headers
+</code></pre>
+
+<p>h4.Doesn't work</p>
+
+<pre class="highlight"><code>
+Zend_Registry::get('log')-&gt;info('Test debug msg...'); // Will NOT send firebug headers
+$this-&gt;_helper-&gt;Json($data);
+</code></pre>
+
+<p>h3. Temporary Workaround for Zend_Wildfire_Channel_HttpHeaders</p>
+
+<pre class="highlight"><code>
+$json = $this-&gt;getHelper('Json');
+$json-&gt;suppressExit = true;
+$json-&gt;sendJson($foo);
+Zend_Wildfire_Channel_HttpHeaders::getInstance()-&gt;flush();
+$json-&gt;getResponse()-&gt;sendResponse();
+exit;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-01T09:21:57.000+0000</p> 
+        <div class="body">
+            <p>For Zend_Wildfire_Channel_HttpHeaders, the problem could be solved by registering a listener/plugin on Zend_Controller_Response that gets notified when sendResponse() or more specifically sendHeaders() is called. This would work for any other plugins that need to send headers as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-04T08:37:34.000+0000</p> 
+        <div class="body">
+            <p>See ZF-4181 for another reason for needing a listener for sendHeaders() for the Response object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T11:16:30.000+0000</p> 
+        <div class="body">
+            <p>Also reported here: ZF-4202</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-14T14:08:43.000+0000</p> 
+        <div class="body">
+            <p>Marked as won't fix for the following reasons:</p>
+
+<ol><li>The helper explicitly notes that it's purpose it to immediately send the response when called sendJson().</li>
+<li>I can see two possible solutions for deferring the immediate sending using the sendJson() and direct() methods to return the JSON without calling sendResponse().</li>
+</ol><p>It appears that the issue is not a bug but a disagreement over the nature/API of the helper. Such disagreements do not constitute a valid issue.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,196 @@
+<h2>ZF-11947: Zend_GData does not handle major protocol version 2 correctly when building dom tree</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-12-17T23:44:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-06T22:22:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Trevor Johns (tjohns)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Gdata</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When processing a YouTube response requested with major version 2, some nodes that are clearly present in the XML stream, are not found. Example is entry-&gt;getControl() would return null, even though the  element is present.
+I traced this back to an oversight in the following code:</p>
+
+<pre class="highlight"><code>
+    protected function takeChildFromDOM($child)
+    {
+        $absoluteNodeName = $child-&gt;namespaceURI . ':' . $child-&gt;localName;
+        switch ($absoluteNodeName) {
+        case $this-&gt;lookupNamespace('atom') . ':' . 'entry':
+            $newEntry = new $this-&gt;_entryClassName($child);
+            $newEntry-&gt;setHttpClient($this-&gt;getHttpClient());
+            $newEntry-&gt;setMajorProtocolVersion($this-&gt;getMajorProtocolVersion());
+            $newEntry-&gt;setMinorProtocolVersion($this-&gt;getMinorProtocolVersion());
+            $this-&gt;_entry[] = $newEntry;
+            break;
+        default:
+            parent::takeChildFromDOM($child);
+            break;
+        }
+    }
+</code></pre>
+
+<p>You will note that the protocol version for the new entry is set after it has been created. Its creation, however, recursively processes all the DOM elements under it. During this processing, the entry object believes its protocol version to be the default, which is 1. Consequently some other element lookups will go wrong due to an apparent namespace mismatch:</p>
+
+<pre class="highlight"><code>
+        case $this-&gt;lookupNamespace('app') . ':' . 'control':
+</code></pre>
+
+<p>The namespace is looked up:</p>
+
+<pre class="highlight"><code>
+    public function lookupNamespace($prefix,
+                                    $majorVersion = null,
+                                    $minorVersion = null)
+    {
+        // Auto-select current version
+        if ($majorVersion === null) {
+            $majorVersion = $this-&gt;getMajorProtocolVersion();
+        }
+        if ($minorVersion === null) {
+            $minorVersion = $this-&gt;getMinorProtocolVersion();
+        }
+
+        // Perform lookup
+        return parent::lookupNamespace($prefix, $majorVersion, $minorVersion);
+    }
+</code></pre>
+
+<p>At the time of the lookup, the entry's protocol version has not yet been set correctly, yet its value affects the lookup of the namespace. In this particular example  is not being recognized as the default major protocol version is 1 and thus the namespace does not get recognized (only available in version 2) and the corresponding element is not treated correctly.</p>
+
+<p>My fix has been to change the constructor of all "entry" elements to accept a major and minor version number and to pass them to the constructor of the element:</p>
+
+<pre class="highlight"><code>
+    protected function takeChildFromDOM($child)
+    {
+        $absoluteNodeName = $child-&gt;namespaceURI . ':' . $child-&gt;localName;
+        switch ($absoluteNodeName) {
+        case $this-&gt;lookupNamespace('atom') . ':' . 'entry':
+            $newEntry = new $this-&gt;_entryClassName($child, $this-&gt;getMajorProtocolVersion(), $this-&gt;getMinorProtocolVersion());
+            $newEntry-&gt;setHttpClient($this-&gt;getHttpClient());
+            $this-&gt;_entry[] = $newEntry;
+            break;
+        default:
+            parent::takeChildFromDOM($child);
+            break;
+        }
+    }
+</code></pre>
+
+<p>I will not repeat the 5 or 6 cases where the constructor needs to be changed, except at the root level, where the incoming values need to be set (unless null for backward compatability):</p>
+
+<pre class="highlight"><code>
+    public function __construct($element = null, $major = null, $minor = null)
+    {
+        if (!is_null($major)) {
+            $this-&gt;setMajorProtocolVersion($major);
+        }
+        if (!is_null($minor)) {
+            $this-&gt;setMinorProtocolVersion($minor);
+        }
+        if (!($element instanceof DOMElement)) {
+            if ($element) {
+                $this-&gt;transferFromXML($element);
+            }
+        } else {
+            $this-&gt;transferFromDOM($element);
+        }
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by R Servus (rservus) on 2012-07-06T22:08:45.000+0000</p> 
+        <div class="body">
+            <p>Yet another place where protocol version is handled wrong</p>
+
+<pre class="highlight"><code>
+protected function takeChildFromDOM($child)
+    {
+        $absoluteNodeName = $child-&gt;namespaceURI . ':' . $child-&gt;localName;
+        switch ($absoluteNodeName) {
+        case $this-&gt;lookupNamespace('app') . ':' . 'draft':
+            $draft = new Zend_Gdata_App_Extension_Draft();
+            $draft-&gt;transferFromDOM($child);
+            $this-&gt;_draft = $draft;
+            break;
+        default:
+            parent::takeChildFromDOM($child);
+            break;
+        }
+    }
+</code></pre>
+
+<p>and now look at the lookupNamespace method, which always use version majorVersion = 1</p>
+
+<pre class="highlight"><code>
+public function lookupNamespace($prefix,
+                                    $majorVersion = 1,
+                                    $minorVersion = null)
+    {
+        // Check for a memoized result
+        $key = $prefix . ' ' .
+               ($majorVersion === null ? 'NULL' : $majorVersion) .
+               ' '. ($minorVersion === null ? 'NULL' : $minorVersion);
+</code></pre>
+
+<p>Simple search over library code for lookupNamespace and majorVersion gets a lot of possible issues with protocol 2 support. 
+Looks like v2 support is completely broken in current version of library.</p>
+
+<p>Google should clearly state in their documentation that v2 is not only "not enabled yet" but is <em>unsupported</em>.</p>
+
+<p>{quote}
+As of version 1.7.4 of the PHP Client Library, the version 2 specific functionality has not yet been enabled by default. You can use the setMajorProtocolVersion function to set a version for either a service class, a feed or an entry. A version 2 specific service class will always return v2 feeds and entries.
+{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by R Servus (rservus) on 2012-07-06T22:22:11.000+0000</p> 
+        <div class="body">
+            <p>oops, lookupNamespace method is in Zend_Gdata_App_Base</p>
+
+        </div>
+    </div>
+    </div>
+

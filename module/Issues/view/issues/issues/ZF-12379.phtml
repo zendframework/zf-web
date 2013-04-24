@@ -1,0 +1,150 @@
+<h2>ZF-12379: Captcha / Session issues - isValid() returns false even when input is correct after a certain number of attemps (expiration hops)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-08-21T00:40:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-25T01:21:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stanislav Malyshev (stas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Captcha</li>
+            <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This reports a combination of issues with Zend_Captcha which may also involve Zend_Session. Basically, after Zend generates a CAPTCHA, the first attempt goes well. However, if the first attempts due to incorrect input, further attempts fail regardless of the input. I identified some problems in Zend's code, but I can't point exactly to where the problem is or suggest a fix. My debugger (XDebug with Eclipse) is showing some really strange stuff (but then, I know the debugger is half-broken).
+Zend maintainers are advised to take a deep breath and have appropriate beverage nearby before going further.</p>
+
+<p>I discovered this issue while testing Tiki Wiki CMS Groupware, which uses Zend_Captcha since version 6. A demo of version 9, on which I found the problem, is available on <a href="http://demo.tiki.org/9x/tiki-index.php">http://demo.tiki.org/9x/tiki-index.php</a>
+However, reproducing the scenario will require some configuration.
+In Tiki's case, a user can make 2 attempts to solve the CAPTCHA. If the input is wrong in both cases, further attempts will fail regardless of the input. Zend reports the verification code was mis-typed even if the code was typed correctly. By default, only 1 attempt works fine (Tiki allows 2 because it uses setExpirationHops(2)).</p>
+
+<p>The relevant part of isValid() is:</p>
+
+<pre><code>    if ($input !== $this-&gt;getWord()) {
+        $this-&gt;_error(self::BAD_CAPTCHA);
+        return false;
+    }
+</code></pre>
+
+<p>getWord() reads:</p>
+
+<pre><code>/**
+ * Get captcha word
+ *
+ * @return string
+ */
+public function getWord()
+{
+    if (empty($this-&gt;_word)) {
+        $session     = $this-&gt;getSession();
+        $this-&gt;_word = $session-&gt;word;
+    }
+    return $this-&gt;_word;
+}
+</code></pre>
+
+<p>Some unclear issue with sessions causes getWord() to return null or the empty string in some cases, rather than the verification code. isValid() does not expect that and reports the input as invalid, even though the real problem was in fetching the actual verification code.</p>
+
+<p>Whatever number of expiration hops is initially set, that number is set to 1 in getSession(), so any number above 2 won't work correctly. The session namespace for some foo CAPTCHA is stored in session array $_SESSION['foo'], which is managed by a second session array, $_SESSION['__ZF']['Zend_Form_Captcha_foo']. The latter array's ENNH element defines the number of hops to expiration, and decreases each hop. Session expiration is managed by Zend_Session_Namespace's constructor. Therefore, what should happen is that a first request generates the CAPTCHA and creates these session arrays, which should be set to expire the next hop. Then, regardless of the input submitted, the namespace should expire and both arrays should be unset. But that's not what happens. Since getSession() sets expiration to 1 hop after the namespace is constructed, $_SESSION['__ZF']['Zend_Form_Captcha_foo'] remains (so only $_SESSION['foo'] actually disappears). To make things worst, on the next request, $_SESSION['foo'] is also recreated. I failed to figure out why. In the end, both arrays are defined, when they should both be gone. And $_SESSION['foo'] does not contain the original data, but rather maps the word key to the empty string, hence isValid() rejects any non-empty string. It's worth noting that if all CAPTCHAs become the empty string, this would constitute a security threat allowing to trivially defeat Zend_Captcha, although I haven't verified this.</p>
+
+<p>I'm providing a quick testcase for this. Before running zend_captcha.php, the Zend component needs to be made a symbolic link to a Zend installation. I also suggest to destroy any pre-existing session. To test, open the file, then add 2 GET parameters for the id and the input. For example, if the CAPTCHA generated has id 15517fa872b888710cefe41d0bff0c4a and code f5sac2, then hit zend_captcha.php?input=f5sac2&amp;id=15517fa872b888710cefe41d0bff0c4a
+The verification will work the first time. But if you simply refresh the page, the test will claim the input is invalid.</p>
+
+<p>Again, the affected code is too large for me to recommend a patch, but I imagine isValid() and getSession() will need changes.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Filipus Klutiero (chealer) on 2012-08-21T00:47:49.000+0000</p> 
+        <div class="body">
+            <p>Sorry, it seems I cannot attach files to this ticket. Ask me for the testcase.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-08-23T20:43:11.000+0000</p> 
+        <div class="body">
+            <p>@<a href="http://framework.zend.com/cla">~chealer]
+You must fill out the [CLA</a> and then you can add files.</p>
+
+<p>We need a complete and short example to reproduce the problem but without any code from a third party!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Filipus Klutiero (chealer) on 2012-08-24T02:52:18.000+0000</p> 
+        <div class="body">
+            <p>Well, I don't intend to send any "contribution" to Zend, so I have no desire to send the CLA.</p>
+
+<p>The testcase is based on Tiki's code, but trivial (ignoring the font included).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-08-24T07:35:50.000+0000</p> 
+        <div class="body">
+            <p>[~chealer]
+Have I missed something or where is the testcase? We need some code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Filipus Klutiero (chealer) on 2012-08-24T12:12:39.000+0000</p> 
+        <div class="body">
+            <p>Frank, the testcase is on my PC. If I understand correctly, I cannot attach files to this ticket without having sent the Individual Contributor License Agreement. Since I have no intention to become a Contributor, I am not going to send the CLA, and therefore am not going to attach the testcase here. As I said, ask me if you want it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-08-24T13:53:07.000+0000</p> 
+        <div class="body">
+            <p>Simple solution: Use <a href="https://gist.github.com/">Gist</a> or any other similar service! :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Filipus Klutiero (chealer) on 2012-08-25T01:21:54.000+0000</p> 
+        <div class="body">
+            <p>My testcase is not just text. However, I pasted the code to <a href="http://paste.debian.net/185493/">http://paste.debian.net/185493/</a></p>
+
+        </div>
+    </div>
+    </div>
+

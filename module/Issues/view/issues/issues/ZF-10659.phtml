@@ -1,0 +1,116 @@
+<h2>ZF-10659: Zend_Paginator_Adapter_DbSelect incorrect items on the last page with mssql</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-08T08:02:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-30T12:58:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10599">ZF-10599</a></li>
+            <li><a href="/issues/browse/ZF-10455">ZF-10455</a></li>
+            <li><a href="/issues/browse/ZF-11305">ZF-11305</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Last page of paginator doesn't work correctly with mssql/sqlsrv driver.
+On the last page it displays items from previous page as well.
+For example if we have 2 pages (70 rows total):
+1. (1-50)
+2. (50-70)
+Then second page will display rows 20-70, not 50-70.</p>
+
+<p>Code sample:
+$select = ..some select from foo..
+$adapter = new Zend_Paginator_Adapter_DbSelect($select);
+$paginator = new Zend_Paginator($adapter);
+$paginator-&gt;setItemCountPerPage(50);
+$paginator-&gt;setCurrentPageNumber($this-&gt;_getParam('page'));</p>
+
+<p>Reason:
+mssql limit function workaround(e.g. select top *(select top *(query)desc ) asc)
+(see Db/Adapter/Pdo/Mssql.php )</p>
+
+<p>How to fix:</p>
+
+<pre class="highlight"><code>
+class Zend_Paginator_Adapter_DbSelect
+{
+    public function getItems($offset, $itemCountPerPage)
+    {
+        //check only for mssql, but actually it will be usefull for all db-s
+    $adapter = $this-&gt;_select-&gt;getAdapter();
+    if( $adapter instanceof Zend_Db_Adapter_Pdo_Mssql || 
+        $adapter instanceof Zend_Db_Adapter_Sqlsrv ){
+
+        if( $offset + $itemCountPerPage &gt; $this-&gt;_rowCount ){
+            $itemCountPerPage = $this-&gt;_rowCount - $offset;
+        }
+    }
+        $this-&gt;_select-&gt;limit($itemCountPerPage, $offset);
+
+        return $this-&gt;_select-&gt;query()-&gt;fetchAll();
+
+    }
+
+}
+</code></pre>
+
+<p>After fix query for last page will "select top (totalRows-pagesCount*itemPerpage)" and works as expected.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2011-03-05T01:29:27.000+0000</p> 
+        <div class="body">
+            <p>Related to ZF-10455</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maxime Aoustin (maxwell2022) on 2011-04-28T03:42:20.000+0000</p> 
+        <div class="body">
+            <p>I personally think it's better to fix the bug directly inside Zend_Paginator, as the object should return what we are asking for (X results (or less for the last page) per page) and not be dependant of the returned values from Zend_Paginator_Adapter_DbSelect. Zend_Paginator knows that for the last page it will have to return Z results, it should specify the limit to Zend_Paginator_Adapter_DbSelect calculating the new limit.
+Plus if we are waiting for a fix from MSSQL (related issue ZF-10455) we can wait a long time...</p>
+
+        </div>
+    </div>
+    </div>
+

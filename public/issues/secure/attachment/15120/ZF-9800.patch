@@ -1,0 +1,166 @@
+Index: library/Zend/Controller/Dispatcher/Standard.php
+===================================================================
+--- library/Zend/Controller/Dispatcher/Standard.php	(revision 24859)
++++ library/Zend/Controller/Dispatcher/Standard.php	(working copy)
+@@ -257,6 +257,19 @@
+         }
+ 
+         /**
++         * If we're in a module or prefixDefaultModule is on, we must add the module name
++         * prefix to the contents of $className, as getControllerClass does not do that automatically.
++         * We must keep a separate variable because modules are not strictly PSR-0: We need the no-module-prefix
++         * class name to do the class->file mapping, but the full class name to insantiate the controller
++         */
++        $moduleClassName = $className;
++        if (($this->_defaultModule != $this->_curModule)
++            || $this->getParam('prefixDefaultModule'))
++        {
++            $moduleClassName = $this->formatClassName($this->_curModule, $className);
++        }
++
++        /**
+          * Load the controller class file
+          */
+         $className = $this->loadClass($className);
+@@ -265,12 +278,12 @@
+          * Instantiate controller with request, response, and invocation
+          * arguments; throw exception if it's not an action controller
+          */
+-        $controller = new $className($request, $this->getResponse(), $this->getParams());
++        $controller = new $moduleClassName($request, $this->getResponse(), $this->getParams());
+         if (!($controller instanceof Zend_Controller_Action_Interface) &&
+             !($controller instanceof Zend_Controller_Action)) {
+             require_once 'Zend/Controller/Dispatcher/Exception.php';
+             throw new Zend_Controller_Dispatcher_Exception(
+-                'Controller "' . $className . '" is not an instance of Zend_Controller_Action_Interface'
++                'Controller "' . $moduleClassName . '" is not an instance of Zend_Controller_Action_Interface'
+             );
+         }
+ 
+Index: tests/Zend/Controller/Dispatcher/StandardTest.php
+===================================================================
+--- tests/Zend/Controller/Dispatcher/StandardTest.php	(revision 24859)
++++ tests/Zend/Controller/Dispatcher/StandardTest.php	(working copy)
+@@ -77,6 +77,15 @@
+         unset($this->_dispatcher);
+     }
+ 
++    /**
++     * @group ZF-9800
++     */
++    public function testFormatModuleName()
++    {
++        $this->assertEquals('Test', $this->_dispatcher->formatModuleName('test'));
++        $this->assertEquals('TestFoo', $this->_dispatcher->formatModuleName('test-foo'));
++    }
++
+     public function testFormatControllerName()
+     {
+         $this->assertEquals('IndexController', $this->_dispatcher->formatControllerName('index'));
+@@ -471,7 +480,7 @@
+     }
+ 
+     /**
+-     * @see ZF-3034
++     * @group ZF-3034
+      */
+     public function testIsValidModuleShouldNormalizeModuleName()
+     {
+@@ -535,6 +544,42 @@
+         $this->assertTrue(class_exists($test));
+     }
+ 
++    /**
++     * @group ZF-9800
++     */
++    public function testLoadClassLoadsControllerInSpecifiedModuleWithHyphenatedModuleName()
++    {
++        $front = Zend_Controller_Front::getInstance();
++        $front->addModuleDirectory(dirname(__FILE__) . '/../_files/modules');
++        $dispatcher = $front->getDispatcher();
++
++        $request = new Zend_Controller_Request_Simple();
++        $request->setControllerName('foo')
++                ->setModuleName('baz-bat');
++        $class = $dispatcher->getControllerClass($request);
++        $this->assertEquals('FooController', $class);
++        $test = $dispatcher->loadClass($class);
++        $this->assertEquals('BazBat_FooController', $test);
++        $this->assertTrue(class_exists($test));
++    }
++
++    /**
++     * @group ZF-9800
++     */
++    public function testDispatcherCanDispatchControllersFromModuleWithHyphenatedName()
++    {
++        $front = Zend_Controller_Front::getInstance();
++        $front->addModuleDirectory(dirname(__FILE__) . '/../_files/modules');
++        $dispatcher = $front->getDispatcher();
++
++        $request = new Zend_Controller_Request_Simple();
++        $request->setModuleName('baz-bat')->setControllerName('foo');
++        $response = new Zend_Controller_Response_Cli();
++        $dispatcher->dispatch($request, $response);
++        $body = $dispatcher->getResponse()->getBody();
++        $this->assertContains("BazBat_FooController::indexAction() called", $body, $body);
++    }
++
+     public function testLoadClassLoadsControllerInDefaultModuleWithModulePrefixWhenRequested()
+     {
+         Zend_Controller_Front::getInstance()
+Index: tests/Zend/Controller/_files/modules/baz-bat/controllers/FooController.php
+===================================================================
+--- tests/Zend/Controller/_files/modules/baz-bat/controllers/FooController.php	(revision 0)
++++ tests/Zend/Controller/_files/modules/baz-bat/controllers/FooController.php	(revision 0)
+@@ -0,0 +1,50 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Controller
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id: IndexController.php 24593 2012-01-05 20:35:02Z matthew $
++ */
++
++
++
++
++require_once 'Zend/Controller/Action.php';
++
++/**
++ * Mock file for testbed
++ *
++ * @category   Zend
++ * @package    Zend_Controller
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class BazBat_FooController extends Zend_Controller_Action
++{
++
++    /**
++     * Test Function for indexAction
++     *
++     * @return void
++     */
++    public function indexAction()
++    {
++        $this->_response->appendBody("BazBat_FooController::indexAction() called\n");
++    }
++
++}

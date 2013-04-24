@@ -1,0 +1,197 @@
+<h2>ZF-5039: Rename filter does PHP rename() instead of setting target for move_uploaded_file()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-24T02:25:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-01-25T06:23:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm not sure if it's side effect of general filters design, but it's definitely efficiency and common sense issue.
+Rename filter does PHP rename() instead of setting target for move_uploaded_file() - this file would be moved twice from tempname to originalname and that to renamedName, which is at least unefficient.</p>
+
+<p>Cheers!</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2008-11-24T05:36:21.000+0000</p> 
+        <div class="body">
+            <p>What is worse is that several clients can upload files simultaneously and all will be saved (during Adapter-&gt;receive()) with the same name, and then rename to desired value, which can lead to race conditions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-24T07:14:02.000+0000</p> 
+        <div class="body">
+            <p>False assignment... Zend_File_Transfer related</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-24T07:21:31.000+0000</p> 
+        <div class="body">
+            <p>And why do you think that we have move_uploaded_file when working with FTP or WEBDAV ?
+File filters work independently from the protocol.</p>
+
+<p>The second is that you can not manipulate a file when it's not received. Therefor the filters are applied at last.</p>
+
+<p>And we can not guarantee that the user set's the rename filter always as first filter. This would then lead to a attack exception when the filter would move the uploaded file which has been changed by another filter.</p>
+
+<p>What Piotr noted will be integrated with ZF-4969 in the next few days and is seen as feature enhancement and not as bug.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-24T07:22:59.000+0000</p> 
+        <div class="body">
+            <p>Btw: There is no race condition... the second user will get an error in this case.</p>
+
+<p>Only when you defined the "overwrite" option to true you will have a race condition. But this is not default.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2008-11-25T02:18:03.000+0000</p> 
+        <div class="body">
+            <p>Hi Thomas!</p>
+
+<p>You said "The second is that you can not manipulate a file when it's not received." it's not true, in most of cases you just load php-uploaded-temp-file into RAM if you want to process it, and when it's ready you write it in desired location (for example image resize, parsing XML etc). For big files which cannot be loaded into ram, moving them twice instead of once can be also resource greedy, for example if temp location is on other partition than target dir which is quite possible.</p>
+
+<p>My main agruments are:
+1) You agreed that race condition can occour when overwrite is set to true (will you guarantee race won't occur on high load sites?)
+2) Moving same file twice can be resource greedy, and is used just to fit the design.
+3) Saving a file with client-provided name is not a good idea, name can be incompatibile with filesystem.
+4) Instead of using Rename filter, method for setting target filepath, not only destination dir when defining Zend_Form_Element_File would fix this situation.</p>
+
+<p>I know you're on higher level of abstraction here, but these details are important.'</p>
+
+<p>Cheers!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2008-11-25T03:04:31.000+0000</p> 
+        <div class="body">
+            <p>...</p>
+
+<p>5) What if I want to save file with a name depending on file contents?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-25T03:22:55.000+0000</p> 
+        <div class="body">
+            <p>When we would load the temporary file into RAM without calling move_uploaded_file we would allow intrusion for changed files which is a big security problem.</p>
+
+<p>And when you change the temp file before calling move_uploaded_file you will get an attacker exception from php as the file has been manipulated.</p>
+
+<p>So this is no solution.</p>
+
+<p>To 1)
+Yes I can guarantee that there is no race condition. PHP itself throws an error when the file already exists so the second user will get an "upload problem, please upload again". This is no race condition as the problem is prevented and returned.</p>
+
+<p>To 2)
+Probably, but this is the actual solution. This changes in future, but as I already said, the actual implementation was a quick one and we were not able to prevent all problems for the first release. It works, and this is all what's relevant... performance will come soon.</p>
+
+<p>To 3)
+You can still overload the name with your own as I told you in the mailinglist. Still, this is a known feature enhancement for the rename filter and not a problem of the transfer component.</p>
+
+<p>To 4)
+No it would not, because this would still allow to have multiple same named files in one directory and force a condition as you declared for one. The setDestination method is just for setting the internal temporary directory. That's the reason why this method is declared as "depreciated". And again, this is no problem but a feature enhancement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-25T03:25:02.000+0000</p> 
+        <div class="body">
+            <p>To 5)
+Read the content and call the filter manually afterwards.
+Or make your own filter.</p>
+
+<p>This is really not a bug... this was originally the reason why we added filters... to change content.
+And the name is also a part of the content.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2008-11-25T04:00:21.000+0000</p> 
+        <div class="body">
+            <p>When I'm talking about loading file to RAM,I'm thinking about the case, when php-temp file is only read, and never written in this temp location, which is quite common case, (read XML and process it, load image and save in different location, etc.).</p>
+
+<p>Ad. 4) Setting target filepath can be done at any moment, before move_uploaded_file() is called. So it can be done in controller at any time, while processing the form, and before receive() is called.</p>
+
+<p>"The setDestination method is just for setting the internal temporary directory.":
+Isn't it already done by PHP a step before, I mean temp-file is already created - why you duplicate that step?
+I still don't understand why you assume that somebody will want to modify this temp file, it's rather unusual case, can you provide some examples?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2008-11-25T04:11:38.000+0000</p> 
+        <div class="body">
+            <p>To prevent intrusion you can use is_uploaded_file() instead of move_uploaded_file().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-25T05:09:47.000+0000</p> 
+        <div class="body">
+            <p>No it is not... in several situations php is not able to detect the temporary path.
+Originally I did not want to integrate setDestination... and just because I was forced to do it does not mean that it will stay because it does not work this way for other protocols and directions.</p>
+
+<p>is_uploaded_file would not prevent intrusion as it does not check the content, only if the internal hash has changed and the file from $_FILES was really uploaded. What it does not check is if the content according to the hash has changed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-01-25T06:23:59.000+0000</p> 
+        <div class="body">
+            <p>An attached rename filter will now be taken in account as with r13799.
+The file will not be moved twice anymore.</p>
+
+        </div>
+    </div>
+    </div>
+

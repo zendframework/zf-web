@@ -1,0 +1,154 @@
+<h2>ZF-11669: Zend_Service_Amazon_S3::copyObject is not working</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-08-15T22:48:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-12-04T16:41:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Enrico Zimuel (zimuel)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Service_Amazon</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11030">ZF-11030</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>After debugging I found out that the problem is related with Zend_Http_Client:</p>
+
+<pre class="literal"> 
+if (($method == self::POST || $method == self::PUT || $method == self::DELETE) &amp;&amp; $this-&gt;enctype === null) {
+    $this-&gt;setEncType(self::ENC_URLENCODED);
+}
+</pre>
+
+<p>As copyObject executes a PUT request, I realized that encType can't be URLENCODED.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-08-16T14:24:38.000+0000</p> 
+        <div class="body">
+            <p>Related with ZF-11030 see <a href="http://framework.zend.com/code/diff.php?repname=Zend+Framework&amp;path=/standard/trunk/library/Zend/Http/Client.php&amp;rev=24269">r24269</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thiago Flessak (tflessak) on 2011-08-16T14:40:56.000+0000</p> 
+        <div class="body">
+            <p>This issue started after 1.11.10, as long as I know, the ZF 11030 path was applied in this version, consequently, it broke other services.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Plumb (adamplumb) on 2011-09-09T15:05:42.000+0000</p> 
+        <div class="body">
+            <p>I just found this ticket after running into this bug myself.  I'm using 1.11.10 and copyObject isn't working because the signatures aren't matching.  This seems to be because of a urlencoding issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thiago Flessak (tflessak) on 2011-09-30T14:43:21.000+0000</p> 
+        <div class="body">
+            <p>I can confirm it is related with ZF 11030. After this path, the content-type header is always set if not explicity defined.
+The problem is that for copy operation, if content-type was specified, Amazon S3 expects that it were included in auth header signature.</p>
+
+<p>I propose the follow path:</p>
+
+<pre class="literal">
+--- S3.php (revision 24083)
++++ S3.php (working copy)
+@@ -524,10 +524,12 @@
+     {
+         $sourceObject = $this-&gt;_fixupObjectName($sourceObject);
+         $destObject   = $this-&gt;_fixupObjectName($destObject);
++        $sourceInfo = $this-&gt;getInfo($sourceObject);
+ 
+         $headers = (is_array($meta)) ? $meta : array();
+         $headers['x-amz-copy-source'] = $sourceObject;
+         $headers['x-amz-metadata-directive'] = $meta === null ? 'COPY' : 'REPLACE';
++        $headers['Content-type'] = $sourceInfo['type'];
+ 
+         $response = $this-&gt;_makeRequest('PUT', $destObject, null, $headers);
+
+</pre>
+
+<p>This way, content-type header is explicity defined as the same of original object.
+In my tests, this issue doesn't affect  other operations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vladimir Grigor (voukka) on 2012-01-05T16:25:44.000+0000</p> 
+        <div class="body">
+            <p>I confirm that Thiago's patch works for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jan Hapke (hopka) on 2012-02-01T21:51:55.000+0000</p> 
+        <div class="body">
+            <p>Thiago's patch would force the Content-type header to the Content-type of the source object and make it impossible to change the Content-type during the copy operation by passing the $meta array.</p>
+
+<p>I suggest to only add the header if it is not already specified in the $meta array.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by J B (dubnut) on 2012-05-15T05:11:03.000+0000</p> 
+        <div class="body">
+            <p>Came up against this tonight while using 1.11.10. Upgraded to 1.11.11 and still had the problem. Rolled back to an old 1.11.4 just cuz it was there, and the S3 moveObject + copyObject calls started to work again... Point being: Appears to be a problem in .10 + 1.11.11</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Reid (mikereid79) on 2012-12-04T16:41:24.000+0000</p> 
+        <div class="body">
+            <p>I encountered this problem today in the latest build from Zend.  This can be coded around though, rather than using a patch.</p>
+
+<pre class="highlight"><code> 
+$s = $s3-&gt;getInfo($source);
+$meta['Content-type'] = $s['type'];
+return $this-&gt;getS3()-&gt;copyObject($source, $destination, $meta); 
+</code></pre>
+
+<p>Hope this helps.</p>
+
+        </div>
+    </div>
+    </div>
+

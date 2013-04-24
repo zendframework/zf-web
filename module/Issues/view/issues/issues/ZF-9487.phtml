@@ -1,0 +1,152 @@
+<h2>ZF-9487: For numeric autoincrementing fields, Zend_Db_Table treats '' as a value and doesn't grab last id</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-20T06:22:44.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-08T19:28:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If the primary key in the data for a table row gets set to '' (empty string) on an autoincrementing field, the Zend_Db_Table will neglect to get the last updated id for that record.</p>
+
+<p>One easy way to get a value like this is through working with forms (which is how I found it.)</p>
+
+<p>Since the code already assumes integral type, and I don't think any RDBMS supports non-integral autoincrementing fields, I think it is safe to consider treat '' as null for this.</p>
+
+<p>Updated code for Zend_Db_Table_Abstract::insert()</p>
+
+<pre class="highlight"><code>
+...
+        /**
+         * If the primary key can be generated automatically, and no value was
+         * specified in the user-supplied data, then omit it from the tuple.
+         */
+        if (array_key_exists($pkIdentity, $data) &amp;&amp; ($data[$pkIdentity] === null || $data[$pkIdentity] === ''))
+        {
+            unset($data[$pkIdentity]);
+        }
+...
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-06-08T19:20:05.000+0000</p> 
+        <div class="body">
+            <p>Couldn't reproduce the issue, tried this ...</p>
+
+<pre class="highlight"><code>
+    /** @group ZF-9487 */
+    public function testTableInsertSequence()
+    {
+        $table = $this-&gt;_getTable('My_ZendDbTable_TableProducts',
+            array(Zend_Db_Table_Abstract::SEQUENCE =&gt; 'zfproducts_seq'));
+
+        $row = array (
+            'product_id' =&gt; '',
+            'product_name' =&gt; 'Solaris'
+        );
+        $insertResult         = $table-&gt;insert($row);
+        $lastInsertId         = $this-&gt;_db-&gt;lastInsertId('zfproducts');
+        $lastSequenceId       = $this-&gt;_db-&gt;lastSequenceId('zfproducts_seq');
+        $this-&gt;assertEquals($insertResult, $lastInsertId);
+        $this-&gt;assertEquals($insertResult, $lastSequenceId);
+        $this-&gt;assertEquals(4, $insertResult);
+    }
+</code></pre>
+
+<p>Though, I think this could be fixed slightly different way ...</p>
+
+<pre class="highlight"><code>
+--- library/Zend/Db/Table/Abstract.php  (revision 24129)
++++ library/Zend/Db/Table/Abstract.php  (working copy)
+@@ -1044,7 +1044,7 @@
+          * to the row.  We assume that only the first column in a compound
+          * primary key takes a value from a sequence.
+          */
+-        if (is_string($this-&gt;_sequence) &amp;&amp; !isset($data[$pkIdentity])) {
++        if (is_string($this-&gt;_sequence) &amp;&amp; empty($data[$pkIdentity])) {
+             $data[$pkIdentity] = $this-&gt;_db-&gt;nextSequenceId($this-&gt;_sequence);
+             $pkSuppliedBySequence = true;
+         }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-06-08T19:27:27.000+0000</p> 
+        <div class="body">
+            <p>Just realised that this has been already fixed ...</p>
+
+<p><em>library/Zend/Db/Table/Abstract.php, line 1062</em></p>
+
+<pre class="highlight"><code>
+/** 
+ * If the primary key can be generated automatically, and no value was
+ * specified in the user-supplied data, then omit it from the tuple.
+ * 
+ * Note: this checks for sensible values in the supplied primary key
+ * position of the data.  The following values are considered empty:
+ *   null, false, true, '', array()
+ */
+if (!isset($pkSuppliedBySequence) &amp;&amp; array_key_exists($pkIdentity, $data)) {
+    if ($data[$pkIdentity] === null                                        // null
+--&gt;     || $data[$pkIdentity] === ''                                       // empty string
+        || is_bool($data[$pkIdentity])                                     // boolean
+        || (is_array($data[$pkIdentity]) &amp;&amp; empty($data[$pkIdentity]))) {  // empty array
+        unset($data[$pkIdentity]);
+    }   
+}   
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-06-08T19:28:59.000+0000</p> 
+        <div class="body">
+            <p>Already fixed</p>
+
+        </div>
+    </div>
+    </div>
+

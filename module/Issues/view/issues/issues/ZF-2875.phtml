@@ -1,0 +1,211 @@
+<h2>ZF-2875: swallowed exception in zend_date</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-13T11:46:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-03-29T10:03:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.5.1 (25/Mar/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I noticed some stack traces in my log that were not normally displayed, I guess thanks to xdebug.
+They originate from Zend_Date_DateObject-&gt;setTimezone() ZendFramework-1.5.0RC3/library/Zend/Date.php:1338
+I looked at the code and saw this (lines 1344-1346):</p>
+
+<pre class="highlight"><code>
+        } catch (Exception $e) {
+            // fall through
+        }
+</code></pre>
+
+<p>Clearly the exception doesn't fall through, it's swallowed and never handled.</p>
+
+<p>After commenting the try-catch block I get an error:
+Zend_Date_Exception: timezone (2008) is not a known timezone in ZendFramework-1.5.0RC3/library/Zend/Date/DateObject.php on line 1018
+when calling code:</p>
+
+<pre class="highlight"><code>
+new Zend_Date('09/01/2008');
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-13T12:58:41.000+0000</p> 
+        <div class="body">
+            <p>This is no issue...</p>
+
+<p>Timezones can be given as string within a date... they are always the last portion of a string.
+Therefor Zend_Date tries to see if the last date part is a timezone.</p>
+
+<p>And as php itself throws an exception if you set a not existing timezone we must catch this exception... otherwise we would have no chance to have this feature.</p>
+
+<p>As it is not displayed but pre-catched by your own exception handler this is not an error but a behaviour from your exception handler (xdebug).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-03-14T04:50:21.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the explanation but I think this still needs to be addressed.
+This code looks "suspicious" and comment is misleading.
+It's doomed to be raised again unless the comments states that the exception is silenced on purpose and for a good reason.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-14T06:19:42.000+0000</p> 
+        <div class="body">
+            <p>When you tell me a way how to know if a given string is a timezone or not I will integrate it as replacement for the actual solution.</p>
+
+<p>But actually there is no way... if a user gives "myzone" it will always try to set the zone... and you would also not know if a string like "Monday" is a timezone or a datevalue.</p>
+
+<p>And no, the framework does not raise the exception again... it's your own exception handler which you are using instead of the default one. This is the reason why this is not seen as bug.</p>
+
+<p>As this method has always to return a integer and must not throw an exception this is wished behaviour.
+There are some single places in the framework where this is done this way, because there are no other ways for handling.</p>
+
+<p>Also to mention: The behaviour IS documented... but it's of course documented where the error is catched. You should have looked into DateObject where your exception handler told you the problem.</p>
+
+<pre class="highlight"><code>
+        // throw an error on false input, but only if the new date extension is available
+        if (function_exists('timezone_open')) {
+            if (!@timezone_open($zone)) {
+                require_once 'Zend/Date/Exception.php';
+                throw new Zend_Date_Exception("timezone ($zone) is not a known timezone", $zone);
+            }
+        }
+        // this can generate an error if the date extension is not available and a false timezone is given
+        $result = @date_default_timezone_set($zone);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-03-14T07:07:21.000+0000</p> 
+        <div class="body">
+            <p>I raised a very simple issue. Looking at the code, all I can see you explicitly throw Zend_Date_Exception that is silenced and never handled. If there is no better way of doing this, fine but the comment shouldn't say "fall through".
+In my opinion empty catch block is bad and it looks like you are using exceptions for flaw control. For this reason I suggest that the comment should be improved to clearly state that this is a required behaviour and why the exception is silenced. The comment you mentioned is when the error is thrown not caught and it doesn't explain why it's not handled.
+p.s. I'm not using a custom error handler and I never said the exception is re-thrown, It just appears in the logs because xdebug automatically attaches stack trace to it. Normally it will not show up and I agree that this is not a big issue, but still there's no harm in making the comment better, right? Can you see that it would already save us some time discussing this, and would prevent this issue from being raised ever again?
+I'm sure I'm not the only one alerted by empty catch blocks and I want to contribute by raising <em>potential</em> issues. Better comments will help us to judge whether this is an actual bug or not. Please understand.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:34:13.000+0000</p> 
+        <div class="body">
+            <p>I'm assuming this fix is merged to the 1.5 release branch for release with 1.5.1. Please update JIRA if this is not the case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Kaps (akkie) on 2008-04-07T08:30:33.000+0000</p> 
+        <div class="body">
+            <p>Thomas, can you check if my proposal solves this issue.</p>
+
+<p>When i add in the method Zend_Date::getTimezoneFromString() the following part:</p>
+
+<pre class="highlight"><code>
+if (is_int($zone)) {
+   return $this-&gt;getTimezone();
+}
+</code></pre>
+
+<p>or better</p>
+
+<pre class="highlight"><code>
+public function getTimezoneFromString($zone)
+{
+   if ($zone instanceof Zend_Date) {
+      return $zone-&gt;getTimezone();
+   }
+
+   if (!is_string($zone)) {
+      return $this-&gt;getTimezone();
+   }
+
+   preg_match('/([+-]\d{2}):{0,1}\d{2}/', $zone, $match);
+   .........
+</code></pre>
+
+<p>this issue will besolved.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Kaps (akkie) on 2008-04-07T08:47:11.000+0000</p> 
+        <div class="body">
+            <p>I have seen that this issue can not be resolved by my proposal because the value is 09/01/2008 and this is a string.</p>
+
+<p>In my logs i get the message 
+Zend_Date_Exception: timezone (1207572901) is not a known timezone in /srv/apache/htdocs/user/christian/projects/meet2cheat/private/library/Zend/Date/DateObject.php on line 1018</p>
+
+<p>For this case my proposal fix the issue.</p>
+
+<p>Is it not possible to check the format of the timezone. 
+e.g. When the $zone var has no timezone format return the default timezone.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-04-07T09:00:21.000+0000</p> 
+        <div class="body">
+            <p>Maybe it would be resolved for you... but about 50% of all inputs would no longer be recognised.
+Timezones like "+0100" like done in atom format would be ignored.</p>
+
+<p>Also to mention that the above described problem is not an issue from ZF.
+When using own error or exception handlers these handlers are getting ALL messages. Even if you supress them or have other settings in your php.ini.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Kaps (akkie) on 2011-03-29T10:03:08.000+0000</p> 
+        <div class="body">
+            <p>I know this is an old issue, but now I stumble over it again. My question is, why not validate the timezone in Zend_Date::getTimezoneFromString() and when it is valid set it with Zend_Date_DateObject::setTimezone(). This should be possible with the functions timezone_open() and date_default_timezone_set(). Then you needn't the empty catch block.</p>
+
+<p>I know this isn't directly a ZF problem. But disabling the xdebug extension for the whole application only why using the Zend_Date classes, shouldn't the preferred way.</p>
+
+        </div>
+    </div>
+    </div>
+

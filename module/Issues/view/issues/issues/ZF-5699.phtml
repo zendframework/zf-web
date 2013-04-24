@@ -1,0 +1,317 @@
+<h2>ZF-5699: Zend_Db_Table_Abstract::findDependentRowset throws an error when called on unsaved Zend_Db_Table_Row (with PDO_MYSQL)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-05T12:37:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:52:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3379">ZF-3379</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When I create a new row from a table object and I use findDependentRowset to get stuff linked with the row, I obtain this output :</p>
+
+<pre class="literal">
+PHP Fatal error:  Uncaught exception 'Zend_Db_Statement_Exception' with message 'SQLSTATE[HY093]: Invalid parameter number: no parameters were bound' in /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Statement/Pdo.php:238
+Stack trace:
+#0 /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Statement.php(283): Zend_Db_Statement_Pdo-&gt;_execute(Array)
+#1 /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Adapter/Abstract.php(433): Zend_Db_Statement-&gt;execute(Array)
+#2 /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Adapter/Pdo/Abstract.php(230): Zend_Db_Adapter_Abstract-&gt;query(Object(Zend_Db_Table_Select), Array)
+#3 /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Table/Abstract.php(1330): Zend_Db_Adapter_Pdo_Abstract-&gt;query(Object(Zend_Db_Table_Select))
+#4 /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Table/Abstract.php(1158): Zend_Db_Table_Abstract-&gt;_fetch(Object(Zend_Db_Table_Select))
+#5 /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Table/Row/Abstrac in /home/sylvain/Documents/ZendFramework-1.7.4/library/Zend/Db/Statement/Pdo.php on line 238
+</pre>
+
+<p>Instead, I should have an empty Zend_Db_Table_Rowset.</p>
+
+<p>You should note that with the pdo_sqlite adapter and 'dbname' =&gt; ':memory:', it works as expected.</p>
+
+<p>Here is the code to reproduce the problem :</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+set_include_path('/home/sylvain/Documents/ZendFramework-1.7.4/library');
+
+require_once('Zend/Loader.php');
+
+Zend_Loader::registerAutoload();
+
+class Application {
+
+        public static function setUp() {
+                $db = Zend_Db::factory('pdo_mysql', array(
+                        'dbname' =&gt; 'test',
+                        'host' =&gt; 'localhost',
+                        'username' =&gt; 'root',
+                        'password' =&gt; ''
+                ));
+                Zend_Db_Table_Abstract::setDefaultAdapter($db);
+
+                $db-&gt;query('DROP TABLE IF EXISTS projects');
+                $db-&gt;query('DROP TABLE IF EXISTS components');
+
+                $db-&gt;query('CREATE TABLE projects (id INTEGER AUTO_INCREMENT, name VARCHAR(15), PRIMARY KEY (id));');
+                $db-&gt;query('CREATE TABLE components (id INTEGER AUTO_INCREMENT, name VARCHAR(15), fk_parent INTEGER, PRIMARY KEY (id));');
+        }
+
+}
+
+class Projects extends Zend_Db_Table_Abstract {
+
+        protected $_name = 'projects';
+
+        protected $_dependentTables = array('Components');
+
+}
+
+class Components extends Zend_Db_Table_Abstract {
+
+        protected $_name = 'components';
+
+        protected $_referenceMap = array(
+                'Parent' =&gt; array(
+                        'columns' =&gt; 'fk_parent',
+                        'refTableClass' =&gt; 'Projects',
+                        'refColumns' =&gt; 'id'
+                )
+        );
+
+}
+
+Application::setUp();
+
+$tbl_projects = new Projects();
+$new_project = $tbl_projects-&gt;createRow();
+
+$components = $new_project-&gt;findDependentRowset('Components');
+echo count($components) . "\n";
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-05T12:43:49.000+0000</p> 
+        <div class="body">
+            <p>Add format to the description</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-09T07:51:31.000+0000</p> 
+        <div class="body">
+            <p>I think the problem happen in the function Zend_Db_Select::_where. When you have a null value, the function doesn't ask the adapter to quote the value :</p>
+
+<pre class="highlight"><code>
+if ($value !== null) {
+    $condition = $this-&gt;_adapter-&gt;quoteInto($condition, $value, $type);
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-09T10:47:48.000+0000</p> 
+        <div class="body">
+            <p>I think it's a duplicate.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-09T10:47:53.000+0000</p> 
+        <div class="body">
+            <p>I think it's a duplicate.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-02-25T14:55:24.000+0000</p> 
+        <div class="body">
+            <p>I am not quite following the use case above.</p>
+
+<p>You are attempting to call findDependentRowset() on a row that is not yet saved into the database.  This poses a major problem.  Your $new_project variable doesn't represent an actual row in the database, it represents a <em>potential</em> row in the database.  Also, since you are using surrogate keys (primary key id autoincrement), this means that this row wont have a primary key until it is actually saved.</p>
+
+<p>In short, you cannot query the database for relationships that do not exist yet... which is what you are attempting to do here.  To make this work (and it will always return 0 when you take the count), you could do this:</p>
+
+<pre class="highlight"><code>
+$tbl_projects = new Projects();
+$new_project = $tbl_projects-&gt;createRow();
+$new_project-&gt;save(); // this will ensure the row is saved to the database, and a primary key is assigned to it to do relationship queryies later
+
+$components = $new_project-&gt;findDependentRowset('Components');
+echo count($components) . "\n";
+</code></pre>
+
+<p>This too i am inclined to close as "Not an Issue"</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-25T17:10:36.000+0000</p> 
+        <div class="body">
+            <p>In my opinion, it should work as is, or at least have the same behavior across the database adapters.</p>
+
+<p>Actually, if I run my code with an sqlite adapter, it just works and return 0. Also, the same code work on ZF 1.0.x. I know this version is an old story but...</p>
+
+<p>Maybe the method should just return an empty Rowset when the row was never saved ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-02-26T07:47:50.000+0000</p> 
+        <div class="body">
+            <p>You make a good point, and for that i'll have to turn to the community to see what people think.  It should either return an exception, or an empty result set inside findDependentRowset and/or the magic find query</p>
+
+<p>Another point: I am guessing that (the effective dependent rowset query)</p>
+
+<pre class="highlight"><code>
+select * from mytable where something = ?
+</code></pre>
+
+<p>is working on SQLite (as you mentioned, but i have yet to test), but that query still is nonsensical, and technically <em>most</em> RDMBS will throw an error on such a query.  In this case, the ? should probably be quoted for the query to pass, but like i said, i'd have to check SQLite on this one.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-02-26T08:32:18.000+0000</p> 
+        <div class="body">
+            <p>It should throw an exception across all adapters.  Returning an empty rowset is confusing in this scenario.  It's not hard to do a try/catch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-26T10:21:25.000+0000</p> 
+        <div class="body">
+            <p>I think that when you use methods like findDependentRowset, findParentRow and find, you don't really want to know the what is the query under the hood.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-02-26T10:29:22.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+I think that when you use methods like findDependentRowset, findParentRow and find, you don't really want to know the what is the query under the hood.
+{quote}</p>
+
+<p>I agree with that point Sylvain, but trying to find dependents of a row that doesn't exist in the database is misuse and/or unintended use case IMO.  In which case should throw an exception since it actually is Exceptional behavior.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2009-02-26T10:34:49.000+0000</p> 
+        <div class="body">
+            <p>I agree with Matthew, it should throw an exception.</p>
+
+<p>The rationale is simple:
+Until a row object is saved, there <em>IS NO</em> row and therefore there <em>CAN'T</em> be any dependent rows (at least if referential integrity is maintained).</p>
+
+<p>Indeed, there <em>AREN'T</em> any rows, so one could argue that an empty rowset is the correct response, but that would be the same as if reading from a non-existent file returned 0 bytes instead of an error. Sure, there aren't any bytes, but there can't be any either.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-26T10:35:42.000+0000</p> 
+        <div class="body">
+            <p>Throwing an exception is not something that will help me with my existing code base. But I must agree that this is the correct solution.</p>
+
+<p>I'm curious to see what propel or doctrine do with this use case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sylvain Filteau (sylvain) on 2009-02-26T11:43:16.000+0000</p> 
+        <div class="body">
+            <p>For the method findParentRow, it should return null because it's completly valid to have a row with a foreignkey NULL.</p>
+
+<p>Imagine that in my use case of the projects and components, a components can have no project linked with fk_parent (the field is nullable) :</p>
+
+<pre class="highlight"><code>
+$tbl_components = new Components();
+$comp = $tbl_components-&gt;createRow();
+$comp-&gt;name = "Something";
+$comp-&gt;save();
+
+$project = $comp-&gt;findParentRow();
+</code></pre>
+
+<p>Actually, this throws an exception but it should return null, like older version of ZF.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2009-02-26T12:02:44.000+0000</p> 
+        <div class="body">
+            <p>Makes sense to me.</p>
+
+<p>A parent may exist before a row does, but children can't. So findParentRow() should return null and findDependentRowset() should throw.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-02-27T09:53:18.000+0000</p> 
+        <div class="body">
+            <p>I agree with the community here.  I will add the exceptional behavior (throwing) to both find dependentRowset as well as the magic findByRule method.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Gilliot (alsimon) on 2009-10-19T08:27:04.000+0000</p> 
+        <div class="body">
+            <p>Any news on this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:52:44.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

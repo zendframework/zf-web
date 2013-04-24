@@ -1,0 +1,235 @@
+<h2>ZF-5062: action controller render() not working as expected</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-25T10:04:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-11-26T22:46:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11660/Smarty.php">Smarty.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Like others, I am having problems with rendering alternate scripts in action methods</p>
+
+<p>My view class is
+class ZWare_View_Smarty extends Zend_View_Abstract</p>
+
+<p>and behaves perfectly when the action script terminates and renders itself normally, picking up the correct Smarty .tpl file named after the action script.</p>
+
+<p>However if I have the following in a controller:
+    public function testAction() {
+        $this-&gt;render('processinstall');
+    }
+and processinstall.tpl exists in the script path</p>
+
+<p>then I get the following error:</p>
+
+<p>Fatal error: Uncaught exception 'Zend_View_Exception' with message 'script '.phtml' not found in path</p>
+
+<p>Tracing through the script with a debugger, the call to render() is fine and executes normally.  It is when the function exits that the the error is thrown which suggests that the rendering functionality is being called twice.</p>
+
+<p>If I substitute $this-&gt;render('processinstall');
+with $this-&gt;render('processinstall.tpl');
+for instance I get:
+Fatal error: Uncaught exception 'Zend_View_Exception' with message 'script 'install/processinstall-tpl.tpl' not found in path
+which shows again that the call to render() is working correctly and that indeed processinstall-tpl.tpl doesn't exist.</p>
+
+<p>I originally wrote this bit of code using ZF 1.5 and it worked fine but now doesn't under 1.7.  Unfortunately I am unable to go back as the system is utilising functionality in 1.7 elsewhere.</p>
+
+<p>Tracing through the code seems to suggest that if render is called it should set a flag somewhere to stop subsequent renders at function exit but this is not being observed by the controller/View or whatever.  Is there an explicit method to call that will stop further renders that I can use after <em>my</em> render call that I can use to see if that is the problem?</p>
+
+<p>Regards
+Ashley</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-25T10:46:26.000+0000</p> 
+        <div class="body">
+            <p>The action controller's render() method actually proxies to the ViewRenderer, and as such, the argument passed must play by view renderer rules. What this means is that you should pass an action name, minus the suffix -- and that script must exist in the same subdirectory as the current controller.  Additionally, actual rendering does not happen until postDispatch() -- render() simply tells the ViewRenderer which view script will be rendered. The signature of Zend_Controller_Action::render() is as follows:</p>
+
+<pre class="highlight"><code>
+    public function render($action = null, $name = null, $noController = false)
+</code></pre>
+
+<p>$name would be the response segment to render to, and passing a boolean true to $noController will tell the ViewRenderer not to prefix the view script with the controller subdirectory.</p>
+
+<p>If you want to render a specific view script and capture the content, you should call render() on the <em>view</em> object:</p>
+
+<pre class="highlight"><code>
+$content = $this-&gt;view-&gt;render('processinstall.tpl');
+</code></pre>
+
+<p>```</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-25T11:43:20.000+0000</p> 
+        <div class="body">
+            <p>I had a brainwave!!</p>
+
+<p>My controller does not have an action method called processinstallAction(), so on the off chance, I created one (an empty function) and hey presto my call to render() now works and renders what I am expecting! (without trying to render a script associated with the action method itself or a null one.)</p>
+
+<p>OK, so I have a work around for the problem but I now really think that this is a bug.  The documentation (section 10.7.5.2) says "render() renders a view script"</p>
+
+<p>It doesn't say anything about having to have an associated action method for the view script, or that by not having one an error will be thrown.  Having empty methods littered about is not an ideal situation.</p>
+
+<p>Ideally, render() should possibly have a 4th parameter - $lastRender = true; which would allow devs to signify that they don't want any further rendering to happen in this action method by default</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-25T11:53:21.000+0000</p> 
+        <div class="body">
+            <p>Matthew wrote "The action controller's render() method actually proxies to the ViewRenderer, and as such, the argument passed must play by view renderer rules ........"</p>
+
+<p>I know.  I understand the calling convention.  What is at issue (not for the first time in ZF) is that the documentation is not specific or detailed enough.  Looking at other issues here, clearly a lot of people expect render() to work exactly in the fashion I am suggesting and myself believed it to work.</p>
+
+<p>There are two bugs/issues here
+1/ documentation does not accurately describe usage of render()
+2/ the requirement to have an action method() if you want to render a <em>view</em> script</p>
+
+<p>It is not, I believe, an uncommon requirement to want to display a different page template (i.e. view) dependent on the outcome of some processing in a controller.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-25T11:56:10.000+0000</p> 
+        <div class="body">
+            <p>I see you have resolved the issue by providing a somewhat stock answer.  I don't think you are correct to do so and would like my issues addressed please.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-26T04:16:57.000+0000</p> 
+        <div class="body">
+            <p>Re-opening as a documentation issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-26T04:18:30.000+0000</p> 
+        <div class="body">
+            <p>I will review the relevant documentation and see if updates need to be made. My answer was <em>not</em> a stock answer, as suggested, but an accurate description of how the internals work. To my memory, this is documented, but, as noted, I will review and correct the documentation if I find this is not the case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-26T05:42:31.000+0000</p> 
+        <div class="body">
+            <p>You may have given an accurate description of how the internals work, but unfortunately it didn't address the reported issue and nor have any subsequent items been addressed.</p>
+
+<p>So you've classified this as a 'trivial' documentation issue.  That's OK to cover the documentation,  What about the problem of having to have an action method (albeit empty) associated with any alternate views script that you want to render.</p>
+
+<p>As no mention has been made of it, I assume that there must be a 'correct' way of doing what I (and others) are trying to do.  Perhaps a small example of that may help to alleviate the problem, or if it's covered in the documentation perhaps a pointer to it maybe?  It could help others from logging an issue on the same subject.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-26T07:41:10.000+0000</p> 
+        <div class="body">
+            <p>As noted in a private email exchange, I think the issue may be that you are overriding the render() method in an extension of Zend_Controller_Action. render() normally proxies to the ViewRenderer, and thus uses the ViewRenderer's configuration to resolve the requested view script path; if you are not seeing that, then in all liklihood you have custom code interfering. Can you deny or confirm, please?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-26T12:39:47.000+0000</p> 
+        <div class="body">
+            <p>I have sent a copy of the code in question via email,  however, I will confirm for anyone picking up on this issue, that my extension of Zend_Controller_Action does <em>not</em> override render()</p>
+
+<p>I do use a custom ViewRenderer:
+$view = new ZWare_View_Smarty($viewConfig);
+$viewRenderer = new Zend_Controller_Action_Helper_ViewRenderer($view);
+$viewRenderer-&gt;setViewSuffix('tpl');
+Zend_Controller_Action_HelperBroker::addHelper($viewRenderer);</p>
+
+<p>utilising code based on Maurice Fonk's smarty view class that can be found at <a href="http://naneau.nl">http://naneau.nl</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-26T12:42:49.000+0000</p> 
+        <div class="body">
+            <p>Update:</p>
+
+<p>As an alternative to having an empty action method to ghost for the view script, you can also follow the call to render() with $this-&gt;_helper-&gt;viewRenderer-&gt;setNoRender(true)  e.g.</p>
+
+<p>public function someAction() {
+        $this-&gt;render('other');
+        $this-&gt;_helper-&gt;viewRenderer-&gt;setNoRender(true);
+}</p>
+
+<p>you do not then write 
+public function otherAction() {}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-26T13:27:54.000+0000</p> 
+        <div class="body">
+            <p>The problem appears to have been in the _run() method of the Smarty wrapper -- it was incorrectly identifying the appropriate template path.</p>
+
+<p>The ViewRenderer adds a path based on the current module whenever it is initialized by the instantiation of a new controller. The code as presented was pulling the first item on the scriptPath, which was whatever the new path currently was. As a result, and due to poor matching, it was attempting to use this script path to render the appropriate view script.</p>
+
+<p>I've made some modifications to ensure that the file is compared to the script path accurately, and in my testing this attached version of the Smarty wrapper works apropriately with the ViewRenderer -- and with render().</p>
+
+<p>You may want to contact Maurice to have him update his version.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-26T13:28:43.000+0000</p> 
+        <div class="body">
+            <p>Issue was in Smarty wrapper.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-11-26T22:46:29.000+0000</p> 
+        <div class="body">
+            <p>Confirmed.  Tested locally with amended script OK.  I will update Smarty class developer.  Thanks for help.</p>
+
+        </div>
+    </div>
+    </div>
+

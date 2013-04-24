@@ -1,0 +1,114 @@
+<h2>ZF-11640: SQLite backend fails using &quot;:memory:&quot; database</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-08-03T14:40:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-04T17:53:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.11 (29/Sep/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Bennewitz (private) (mabe)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li></li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>With default "automatic_cleaning_factor" (10, from Core) and "automatic_vacuum_factor" (10, from Backend_Sqlite), the <em>SQLite cache backend</em>, using <em>in-memory databases (":memory:")</em> will <em>fail 1 time out of 100</em> (100 = 10 * 10, 1%) when attempting a "clean()" operation.</p>
+
+<pre class="highlight"><code>
+$failures = 0; $attempts = 100000;
+foreach (range(1, $attempts) as $i) {
+    $cache = Zend_Cache::factory(
+        'Core', 'Sqlite',
+        array(),
+        array('cache_db_complete_path' =&gt; ':memory:') // in-memory database
+    );
+    $success = $cache-&gt;save('cache_data', $id = 'cache_id');
+    $failures += ($success ? 0 : 1);
+}
+printf('Failures: %d (%.1f %%)', $failures, ($failures / $attempts) * 100);
+</code></pre>
+
+<pre class="literal">
+(100000 attempts)
+Failures: 1008 (1.0 %)
+</pre>
+
+<p>The problem comes from <em>Sqlite::_automaticVacuum()</em>, where a call to "<em>sqlite_close()</em>" will <em>remove all tables from the database</em>, but the value of "$this-&gt;<em>_structureChecked</em>", set by "$this-&gt;_checkAndBuildStructure()", in "clean()" (previous to the "automaticVacuum" call), *will still be "true"*. So the SQLite backend will re-open a new connection, but the *tables will not be created again*. Thus the occasional "table not found" errors while "_query()"ing, 1 time out of 100.</p>
+
+<p>Disabling automatic vacuum "patches" the immediate problem, but a real fix would look a little bit more like this :</p>
+
+<pre class="literal">
+diff --git a/Zend/Cache/Backend/Sqlite.php b/Zend/Cache/Backend/Sqlite.php
+index 5b964a1..427f13d 100644
+--- a/Zend/Cache/Backend/Sqlite.php
++++ b/Zend/Cache/Backend/Sqlite.php
+@@ -68,7 +68,7 @@ class Zend_Cache_Backend_Sqlite extends Zend_Cache_Backend implements Zend_Cache
+     private $_db = null;
+ 
+     /**
+-     * Boolean to store if the structure has benn checked or not
++     * Boolean to store if the structure has been checked or not
+      *
+      * @var boolean $_structureChecked
+      */
+@@ -531,6 +531,7 @@ class Zend_Cache_Backend_Sqlite extends Zend_Cache_Backend implements Zend_Cache
+             if ($rand == 1) {
+                 $this-&gt;_query('VACUUM');
+                 @sqlite_close($this-&gt;_getConnection());
++                $this-&gt;_structureChecked = false;
+             }
+         }
+     }
+</pre>
+
+<p>(Sorry about the in-line patch, could not figure out how to attach it and the Contributors Guide was down.)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-08-04T17:53:22.000+0000</p> 
+        <div class="body">
+            <p>There is no need to close db connection after VACUUM</p>
+
+<p>fixed in r24347 (trunk) and r24348 (1.11 branch)</p>
+
+        </div>
+    </div>
+    </div>
+

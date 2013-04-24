@@ -1,0 +1,192 @@
+<h2>ZF-8364: Zend_Loader_Autoloader_Resource::autoload() should return false if no match is found</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-20T14:09:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-25T00:37:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.6 (24/Nov/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marco Kaiser (bate)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12413/library.diff">library.diff</a></li>
+            <li><a href="/issues/secure/attachment/12419/varname.diff">varname.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently (r19141 of the standard trunk), the resource autoloader can produce some unexpected PHP warnings if it accidentally attempts to autoload something that doesn't exist.  E.g.:</p>
+
+<ol><li>Create and configure an instance of the resource autoloader; for example:</li>
+</ol><pre class="highlight"><code>
+require_once 'Zend/Loader/Autoloader.php';
+require_once 'Zend/Loader/Autoloader/Resource.php';
+$autoloader = new Zend_Loader_Autoloader_Resource(array(
+    'namespace' =&gt; 'My',
+    'basePath' =&gt; '/path/to/my',
+));$autoloader-&gt;addResourceType('resource', 'resources', 'Resource');
+</code></pre>
+
+<ol><li>Attempt to instantiate a class that doesn't exist, but would be in the configured namespace:</li>
+</ol><pre class="highlight"><code>
+$obj = new My_Resource_DoesNotExist();
+</code></pre>
+
+<p>At this point you'll get two PHP errors.  The first is an E_WARNING message indicating that you tried to include a file that doesn't exist; the second is an E_FATAL message indicating that you tried to instantiate a class that doesn't exist.</p>
+
+<p>However, if the behavior of Zend_Loader_Autoloader::autoload() is any indicator, Zend_Loader_Autoloader_Resource::autoload() should instead return false if the expected class cannot be found.  This will get rid of the first E_WARNING message and enable a bit more flexible error handling.</p>
+
+<p>For an example of why this would be helpful, please take a look at <a href="http://www.doctrine-project.org/jira/browse/DC-137">http://www.doctrine-project.org/jira/browse/DC-137</a> : Doctrine has a feature that will generate a certain class on the fly if it can't be autoloaded; if the current ZF resource autoloader is registered, this will still work correctly ...but not without generating the E_WARNING message mentioned earlier.</p>
+
+<p>Thanks!
+Adam</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2009-11-20T14:18:28.000+0000</p> 
+        <div class="body">
+            <p>On further inspection, I realized it's not the return value of autoload() that's causing this ...in fact, it's returning false for classes-not-found, just as documented.</p>
+
+<p>However, I do think it would be worth avoiding the E_WARNING messages.  Developers will still get enough error information out of the E_FATAL message that follows it when a non-existing class is being instantiated ...and in the meantime, other situations (like Doctrine's use of class_exists()) would still function gracefully without emitting any errors.</p>
+
+<p>I should be attaching a patch shortly; if this sounds like a good idea, it'd be a pretty easy fix.</p>
+
+<p>Thanks!
+Adam</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2009-11-20T14:23:47.000+0000</p> 
+        <div class="body">
+            <p>OK, I've attached my patch ...I made this from the library dir of the standard trunk; is that the right way to do that?</p>
+
+<p>In any case, this should prevent any superfluous E_WARNINGs by avoiding the include call unless the path is valid.</p>
+
+<p>Thanks!
+Adam</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2009-11-20T14:44:56.000+0000</p> 
+        <div class="body">
+            <p>Found a couple of other issues that seem to be related to the same problem:</p>
+
+<p><a href="http://framework.zend.com/issues/browse/ZF-6607">http://framework.zend.com/issues/browse/ZF-6607</a>
+<a href="http://framework.zend.com/issues/browse/ZF-6798">http://framework.zend.com/issues/browse/ZF-6798</a></p>
+
+<p>If my patch is accepted here, it may be worth double-checking if those two issues are resolved as well; I believe they will be.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2009-11-20T17:55:25.000+0000</p> 
+        <div class="body">
+            <p>Better patch ...in my first version, I rather unthinkingly left it calling getClassPath() twice; this one doesn't make that mistake.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Jensen (jazzslider) on 2009-11-20T21:26:32.000+0000</p> 
+        <div class="body">
+            <p>Turns out the previously-attached patch didn't really solve the problem, because getClassPath() is apparently only returning false when the class name isn't in any of the autoloader's registered namespaces ...it still doesn't check to see if the file actually exists.</p>
+
+<p>Seems this could be resolved by adding a file_exists() or Zend_Loader::isReadable() call at the end of getClassPath(); that way, the autoloader can simply fail silently for any files it can't figure out, allowing other autoloaders to take care of it if they can ...and if no registered autoloaders can handle it, the standard E_FATAL "class does not exist" error will still be emitted.</p>
+
+<p>I've attached a fresh patch that should accomplish all this nicely enough.</p>
+
+<p>Thanks!
+Adam</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2009-11-23T00:03:36.000+0000</p> 
+        <div class="body">
+            <p>fixed in r19187 please check an close if finally fixed</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Erik Wegner (eman) on 2009-11-23T02:28:50.000+0000</p> 
+        <div class="body">
+            <p>Maybe the wrong variable name is used in line 195? It currently reads</p>
+
+<p>{{return $path;}}</p>
+
+<p>but shouldn't it be</p>
+
+<p>{{return $classPath;}}</p>
+
+<p>?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Erik Wegner (eman) on 2009-11-23T02:31:35.000+0000</p> 
+        <div class="body">
+            <p>see comment</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Berstein (danielb) on 2009-11-23T03:32:01.000+0000</p> 
+        <div class="body">
+            <p>Please commit Erik's patch, as it currently stands ZF autoloader is broken and you get errors/warnings like these:</p>
+
+<p>Notice: Undefined variable: path in .../lib/Zend/Loader/Autoloader/Resource.php on line 195</p>
+
+<p>Warning: Zend_Loader_Autoloader_Resource::include() [function.include]: Failed opening '' for inclusion (include_path='.../lib:.:/usr/share/php') in .../lib/Zend/Loader/Autoloader/Resource.php on line 195</p>
+
+<p>Fatal error: Class 'Default_Model_Abstract' not found in ... on line 38</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2009-11-23T04:40:33.000+0000</p> 
+        <div class="body">
+            <p>fixed the small typo in r19189</p>
+
+        </div>
+    </div>
+    </div>
+

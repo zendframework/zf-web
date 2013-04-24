@@ -1,0 +1,196 @@
+Index: library/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Abstract.php	(revision 9326)
++++ library/Zend/Db/Adapter/Abstract.php	(working copy)
+@@ -993,6 +993,10 @@
+         }
+     }
+ 
++    public function renderColumnsForZendDbSelect($columnsPart, $fromPart) {
++        return null;
++    }
++
+     /**
+      * Abstract Methods
+      */
+Index: library/Zend/Db/Adapter/Oracle.php
+===================================================================
+--- library/Zend/Db/Adapter/Oracle.php	(revision 9326)
++++ library/Zend/Db/Adapter/Oracle.php	(working copy)
+@@ -609,5 +609,48 @@
+         }
+     }
+ 
+-}
+-
++    public function renderColumnsForZendDbSelect($columnsPart, $fromPart) {
++        $columns = array();
++        foreach ($columnsPart as $columnEntry) {
++            list($correlationName, $column, $alias) = $columnEntry;
++            if ($column instanceof Zend_Db_Expr) {
++                $columns[] = $this->quoteColumnAs($column, $alias, true);
++            } else {
++                if ($column == Zend_Db_Select::SQL_WILDCARD) {
++                    $column = new Zend_Db_Expr(Zend_Db_Select::SQL_WILDCARD);
++                    $alias = null;
++                }
++                if (empty($correlationName)) {
++                    $columns[] = $this->quoteColumnAs($column, $alias, true);
++                } else {
++                    // check link with other table
++                    //  - with previous table
++                    $tableJoinType = $fromPart[$correlationName]['joinType'];
++                    //  - with next table
++                    $nextTableJoinType = null;
++                    $record = false;
++                    reset($fromPart);
++                    while (list($key,$value) = each($fromPart)) {
++                        if ($record == true) {
++                            $nextTableJoinType = $value['joinType'];
++                            $record = false;
++                        }
++                        if ($key == $correlationName) {
++                            $record = true;
++                        }
++                    }
++                    if ($tableJoinType == Zend_Db_Select::NATURAL_JOIN || $nextTableJoinType == Zend_Db_Select::NATURAL_JOIN) {
++                        $columns[] = $this->quoteColumnAs($column, $alias, true);
++                    } else {
++                        $columns[] = $this->quoteColumnAs(array($correlationName, $column), $alias, true);
++                    }
++                }
++            }
++        }
++        if (in_array('*', $columns)) {
++            return '*';
++        } else {
++            return implode(', ', $columns);
++        }
++    }
++}
+\ No newline at end of file
+Index: library/Zend/Db/Select.php
+===================================================================
+--- library/Zend/Db/Select.php	(revision 9326)
++++ library/Zend/Db/Select.php	(working copy)
+@@ -940,25 +940,30 @@
+             return null;
+         }
+ 
+-        $columns = array();
+-        foreach ($this->_parts[self::COLUMNS] as $columnEntry) {
+-            list($correlationName, $column, $alias) = $columnEntry;
+-            if ($column instanceof Zend_Db_Expr) {
+-                $columns[] = $this->_adapter->quoteColumnAs($column, $alias, true);
+-            } else {
+-                if ($column == self::SQL_WILDCARD) {
+-                    $column = new Zend_Db_Expr(self::SQL_WILDCARD);
+-                    $alias = null;
+-                }
+-                if (empty($correlationName)) {
++        $adapterRenderColumns = $this->_adapter->renderColumnsForZendDbSelect($this->_parts[self::COLUMNS], $this->_parts[self::FROM]);
++
++        if ($adapterRenderColumns === null) {
++            $columns = array();
++            foreach ($this->_parts[self::COLUMNS] as $columnEntry) {
++                list($correlationName, $column, $alias) = $columnEntry;
++                if ($column instanceof Zend_Db_Expr) {
+                     $columns[] = $this->_adapter->quoteColumnAs($column, $alias, true);
+                 } else {
+-                    $columns[] = $this->_adapter->quoteColumnAs(array($correlationName, $column), $alias, true);
++                    if ($column == self::SQL_WILDCARD) {
++                        $column = new Zend_Db_Expr(self::SQL_WILDCARD);
++                        $alias = null;
++                    }
++                    if (empty($correlationName)) {
++                        $columns[] = $this->_adapter->quoteColumnAs($column, $alias, true);
++                    } else {
++                        $columns[] = $this->_adapter->quoteColumnAs(array($correlationName, $column), $alias, true);
++                    }
+                 }
+             }
++            return $sql .= ' ' . implode(', ', $columns);
++        } else {
++            return $sql .= ' ' . $adapterRenderColumns;
+         }
+-
+-        return $sql .= ' ' . implode(', ', $columns);
+     }
+ 
+     /**
+Index: tests/Zend/Db/Select/OracleTest.php
+===================================================================
+--- tests/Zend/Db/Select/OracleTest.php	(revision 9326)
++++ tests/Zend/Db/Select/OracleTest.php	(working copy)
+@@ -41,4 +41,71 @@
+         return 'Oracle';
+     }
+ 
++    public function testSelectJoinNaturalWildCard1()
++    {
++        $select = $this->_db->select()
++            ->from('t1')
++            ->joinNatural('t2');
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT * FROM "t1" NATURAL JOIN "t2"', $strSQL);
++    }
++
++    public function testSelectJoinNaturalWildCard2()
++    {
++        $select = $this->_db->select()
++            ->from('t1', 'col1')
++            ->joinNatural('t2');
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT * FROM "t1" NATURAL JOIN "t2"', $strSQL);
++    }
++
++    public function testSelectJoinNaturalAndInnerJoin1()
++    {
++        $select = $this->_db->select()
++            ->from('t1')
++            ->join('t2', '"t1"."col1" = "t2"."col1"')
++            ->joinNatural('t3');
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT * FROM "t1" INNER JOIN "t2" ON "t1"."col1" = "t2"."col1" NATURAL JOIN "t3"', $strSQL);
++    }
++
++    public function testSelectJoinNaturalAndInnerJoin2()
++    {
++        $select = $this->_db->select()
++            ->from('t1')
++            ->join('t2', '"t1"."col1" = "t2"."col1"', null)
++            ->joinNatural('t3', null);
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT "t1".* FROM "t1" INNER JOIN "t2" ON "t1"."col1" = "t2"."col1" NATURAL JOIN "t3"', $strSQL);
++    }
++
++    public function testSelectJoinNaturalAndInnerJoin3()
++    {
++        $select = $this->_db->select()
++            ->from('t1')
++            ->join('t2', '"t1"."col1" = "t2"."col1"')
++            ->joinNatural('t3', null);
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT * FROM "t1" INNER JOIN "t2" ON "t1"."col1" = "t2"."col1" NATURAL JOIN "t3"', $strSQL);
++    }
++
++    public function testSelectJoinNaturalAndInnerJoin4()
++    {
++        $select = $this->_db->select()
++            ->from('t1', 'col1')
++            ->join('t2', '"t1"."col1" = "t2"."col1"')
++            ->joinNatural('t3', null);
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT * FROM "t1" INNER JOIN "t2" ON "t1"."col1" = "t2"."col1" NATURAL JOIN "t3"', $strSQL);
++    }
++
++    public function testSelectJoinNaturalAndInnerJoin5()
++    {
++        $select = $this->_db->select()
++            ->from('t1', 'col1')
++            ->join('t2', '"t1"."col1" = "t2"."col1"', null)
++            ->joinNatural('t3', null);
++        $strSQL = str_replace("\n", "", $select->__toString());
++        $this->assertEquals('SELECT "t1"."col1" FROM "t1" INNER JOIN "t2" ON "t1"."col1" = "t2"."col1" NATURAL JOIN "t3"', $strSQL);
++    }
+ }

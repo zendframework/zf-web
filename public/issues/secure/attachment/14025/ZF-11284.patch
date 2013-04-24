@@ -1,0 +1,78 @@
+--- library/Zend/Controller/Router/Route.php	(revision 24026)
++++ library/Zend/Controller/Router/Route.php	(working copy)
+@@ -123,6 +123,12 @@
+     protected $_wildcardData = array();
+ 
+     /**
++     * Declares whether wildcard data is overridden
++     * @var boolean
++     */
++    protected $_allowOverrideWildcardData = false;
++
++    /**
+      * Helper var that holds a count of route pattern's static parts
+      * for validation
+      * @var int
+@@ -154,14 +160,16 @@
+      * @param array $defaults Defaults for map variables with keys as variable names
+      * @param array $reqs Regular expression requirements for variables (keys as variable names)
+      * @param Zend_Translate $translator Translator to use for this instance
++     * @param boolean $allowOverride Either the * wildcard data can be overridden or not
+      */
+-    public function __construct($route, $defaults = array(), $reqs = array(), Zend_Translate $translator = null, $locale = null)
++    public function __construct($route, $defaults = array(), $reqs = array(), Zend_Translate $translator = null, $locale = null, $allowOverride = false)
+     {
+         $route               = trim($route, $this->_urlDelimiter);
+         $this->_defaults     = (array) $defaults;
+         $this->_requirements = (array) $reqs;
+         $this->_translator   = $translator;
+         $this->_locale       = $locale;
++        $this->_allowOverrideWildcardData = $allowOverride;
+ 
+         if ($route !== '') {
+             foreach (explode($this->_urlDelimiter, $route) as $pos => $part) {
+@@ -236,7 +244,14 @@
+                     $count = count($path);
+                     for($i = $pos; $i < $count; $i+=2) {
+                         $var = urldecode($path[$i]);
+-                        if (!isset($this->_wildcardData[$var]) && !isset($this->_defaults[$var]) && !isset($values[$var])) {
++                        $valid_wcdata = !isset($this->_wildcardData[$var])
++                                      && !isset($values[$var]);
++
++                        if (!$this->_allowOverrideWildcardData) {
++                            $valid_wcdata &= !isset($this->_defaults[$var]);
++                        }
++
++                        if ($valid_wcdata) {
+                             $this->_wildcardData[$var] = (isset($path[$i+1])) ? urldecode($path[$i+1]) : null;
+                         }
+                     }
+Index: tests/Zend/Controller/Router/RouteTest.php
+===================================================================
+--- tests/Zend/Controller/Router/RouteTest.php	(revision 24026)
++++ tests/Zend/Controller/Router/RouteTest.php	(working copy)
+@@ -795,6 +795,24 @@
+         $values = $route->match(':foo/@bar/en_foo');
+         $this->assertEquals($values['myvar'], 'foo');
+     }
++
++    /** @group ZF-11284 */
++    public function testWildcardWithDefaultValuesCanBeOverwritten()
++    {
++        $route = new Zend_Controller_Router_Route(
++            ':controller/:action/*',
++            array('foo' => 'bar'),
++            array(),
++            null,
++            null,
++            true
++        );
++        $values = $route->match('c/a/foo/baz');
++
++        $this->assertEquals('c', $values['controller']);
++        $this->assertEquals('a', $values['action']);
++        $this->assertEquals('baz', $values['foo']);
++    }
+ }
+ 
+ if (PHPUnit_MAIN_METHOD == 'Zend_Controller_Router_RouteTests::main') {

@@ -1,0 +1,222 @@
+<h2>ZF-7107: Zend_Validate_Http outputs &quot;unsupported operand type&quot; error when running PHP in interactive mode</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-23T14:50:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-08-31T11:41:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Attempting construct a Zend_Uri in an interactive PHP console fails with an "unsupported operand type" error:</p>
+
+<pre class="literal">
+$ php -a
+Interactive shell
+
+php &gt; require_once('Zend/Uri.php');
+php &gt; Zend_Uri::factory("http://<a href="www.google.com">www.google.com</a>");
+PHP Fatal error:  Unsupported operand types in .../library/Zend/Validate/Hostname.php on line 469
+PHP Stack trace:
+PHP   1. {main}() php shell code:0
+PHP   2. Zend_Uri::factory() php shell code:1
+PHP   3. Zend_Uri_Http-&gt;__construct() .../library/Zend/Uri.php:130
+PHP   4. Zend_Uri_Http-&gt;valid() .../library/Zend/Uri/Http.php:154
+PHP   5. Zend_Uri_Http-&gt;validateHost() .../library/Zend/Uri/Http.php:281
+PHP   6. Zend_Validate_Hostname-&gt;isValid() .../library/Zend/Uri/Http.php:449
+</pre>
+
+<p>Oddly enough, this works just fine when executed inside of a .php file.</p>
+
+<p>Digging through past versions, it seems this behavior didn't start until ZF 1.8.0.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2009-06-23T15:04:31.000+0000</p> 
+        <div class="body">
+            <p>What version of php are you on (in CLI mode)?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-06-23T15:08:41.000+0000</p> 
+        <div class="body">
+            <p>$ php --version
+PHP 5.2.9 (cli) (built: Jun 22 2009 18:51:54) 
+Copyright (c) 1997-2009 The PHP Group
+Zend Engine v2.2.0, Copyright (c) 1998-2009 Zend Technologies
+    with Xdebug v2.0.4, Copyright (c) 2002-2008, by Derick Rethans</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-24T01:31:47.000+0000</p> 
+        <div class="body">
+            <p>This is interesting:</p>
+
+<p>I've looked into the source code and this error is in my understanding impossible :-)</p>
+
+<p>Checked against trunk... lines are +1
+Line 470 (old 469):</p>
+
+<pre class="highlight"><code>
+                            $regexChars += $this-&gt;_validIdns[strtoupper($this-&gt;_tld)];
+</code></pre>
+
+<pre class="highlight"><code>
+*1*                    $this-&gt;_tld = strtolower($matches[1]);
+                    if ($this-&gt;_validateTld) {
+                        if (!in_array($this-&gt;_tld, $this-&gt;_validTlds)) {
+                            $this-&gt;_error(self::UNKNOWN_TLD);
+                            $status = false;
+                            break;
+                        }
+                    }
+
+                    /**
+                     * Match against IDN hostnames
+                     * Note: Keep label regex short to avoid issues with long patterns when matching IDN hostnames
+                     * @see Zend_Validate_Hostname_Interface
+                     */
+*2*                    $regexChars = array(0 =&gt; '/^[a-z0-9\x2d]{1,63}$/i');
+                    if ($this-&gt;_validateIdn &amp;&amp;  isset($this-&gt;_validIdns[strtoupper($this-&gt;_tld)])) {
+                        if (is_string($this-&gt;_validIdns[strtoupper($this-&gt;_tld)])) {
+                            $regexChars += include($this-&gt;_validIdns[strtoupper($this-&gt;_tld)]);
+                        } else {
+*0*                            $regexChars += $this-&gt;_validIdns[strtoupper($this-&gt;_tld)];
+                        }
+                    }
+</code></pre>
+
+<p><em>1</em>: $this-&gt;_tld is in any case a string by using strtolower($matches[1]); Else the error/warning/notice would have been thrown in this line.
+So the problem is not regarding the usage of strtoupper($this-&gt;_tld) within *0*</p>
+
+<p><em>0</em>: $this-&gt;_validatldns is an internal array which is set in any case.
+So the problem can not be due to _validldsn not being an array.</p>
+
+<p><em>2</em>: $regexChars is in any case an array which is set.
+So the problem can not be the usage of += as the array is already set.</p>
+
+<p>In sum:
+I don't see a way how a fatal error can occur within ZF1.8 / trunk.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-24T01:35:11.000+0000</p> 
+        <div class="body">
+            <p>Can you do some debugging to see where the problem comes from ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-06-24T17:34:24.000+0000</p> 
+        <div class="body">
+            <p>So, I did some more digging, and I found the problem.</p>
+
+<p>It seems that when running from the interactive shell, include() is always returning int(1). As a result, we're executing:</p>
+
+<p>{{$regexChars += 1;}}</p>
+
+<p>I've verified this behavior on several systems, as well as the latest release of PHP (5.2.10).</p>
+
+<p>I'm attributing this to a problem with PHP itself. It looks like there's a bug open for this behavior in the PHP bug tracker, but it was marked as bogus (working as intended). I'm not sure why.</p>
+
+<p><a href="http://bugs.php.net/bug.php?id=48056">http://bugs.php.net/bug.php?id=48056</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-06-24T17:41:56.000+0000</p> 
+        <div class="body">
+            <p>Since PHP Bug #48056 is closed and I can't add any comments to it, I've opened a new bug asking somebody to look into this:</p>
+
+<p><a href="http://bugs.php.net/bug.php?id=48682">http://bugs.php.net/bug.php?id=48682</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-05T03:18:25.000+0000</p> 
+        <div class="body">
+            <p>Closing as not reproducable.</p>
+
+<p>Feel free to reopen it as soon as you can provide us with a way how to prevent include from returning a 1 instead of the file itself in your case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Zimmerman (sandwyrm) on 2009-08-28T15:16:12.000+0000</p> 
+        <div class="body">
+            <p>I'm seeing the same issues on 1.9.0, 1.9.1 and 1.9.2 when trying to utilize Zend_Http_Client but the errors being reported appear exactly the same and testing Zend_Uri as the original reporter did produces the same result for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Zimmerman (sandwyrm) on 2009-08-28T16:26:49.000+0000</p> 
+        <div class="body">
+            <p>Discovered this is a general fallacy with PHP's include function that appears to have gone awry in 5.2.9 and 5.2.10 and possibly other version.  Reported as bug there.</p>
+
+<p>[<a href="http://bugs.php.net/bug.php?id=49405">http://bugs.php.net/bug.php?id=49405</a>]</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-08-29T01:20:03.000+0000</p> 
+        <div class="body">
+            <p>I see no way how ZF can solve a problem which is related to special PHP versions.
+Specially when we don't know how this occurs nor how we could fix it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-08-31T11:41:23.000+0000</p> 
+        <div class="body">
+            <p>Thomas is correct.</p>
+
+<p>This is definitely a PHP bug, not a ZF one. Nothing further to do here.</p>
+
+        </div>
+    </div>
+    </div>
+

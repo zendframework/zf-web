@@ -1,0 +1,170 @@
+<h2>ZF-11869: Zend_File_Transfer_Adapter_Abstract::_detectMimeType should not check existence of file by its name</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-11-03T17:45:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-12-13T19:39:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm using Zend_File_Transfer to handle POSTed file uploads and ran into a nasty edge case.</p>
+
+<p>Zend_File_Transfer_Adapter_Abstract line 1283 is checking the existence of the posted file by its name parameter before checking its existence by its tmp_name parameter.  The problem is that the name parameter is not a path, so it's checking for its existence in the current working directory, which is my application's root directory.  In my application's root dir, I have a CMakeLists.txt file.  When I tried to upload a file to my application that was also named CMakeLists.txt, I got the following warning:</p>
+
+<p>Warning: finfo_file() [<a href="function.finfo-file">function.finfo-file</a>]: File or path not found 'CMakeLists.txt'</p>
+
+<p>on line 1302 in file C:\xampp\htdocs\Midas3\library\Zend\File\Transfer\Adapter\Abstract.php</p>
+
+<p>file_exists was returning true for the name parameter, which screwed up the rest of the method.  Why do you check if the file exists by its name?  The tmp_name param is the one that refers to the actual file, it seems to me that's the only one that should be used.</p>
+
+<p>Thanks!</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-11-03T19:10:23.000+0000</p> 
+        <div class="body">
+            <p>Your assumption is not correct.
+Files exist only as "tmp_name" as long as they have not been downloaded.
+As soon as you download the file only the "name" param can be found.</p>
+
+<p>So it depends on when you call this method... before downloading the file or afterwards. But the method itself does not know if you already downloaded the file or not.
+Therefor it checks if the given file exists or not to decide which action to use.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zach Mullen (zach_mullen) on 2011-11-03T19:19:46.000+0000</p> 
+        <div class="body">
+            <p>Then this is only a bug if we call this method before downloading the file (which is my use case).  Is there a precondition on calling receive() that the file must already have been downloaded, or is my use case supposed to be supported?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zach Mullen (zach_mullen) on 2011-11-03T19:28:56.000+0000</p> 
+        <div class="body">
+            <p>This is how I call the transfer:</p>
+
+<pre><code>  $upload = new Zend_File_Transfer('HttpFixed');
+  $upload-&gt;receive();
+  $path = $upload-&gt;getFileName();
+  $filesize =  filesize($path);
+  $filename = $upload-&gt;getFilename(null, false);
+</code></pre>
+
+<p>Then, I call a method that copies the posted file into a path corresponding to its md5sum, so no file exists by its original uploaded name.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zach Mullen (zach_mullen) on 2011-11-03T19:30:24.000+0000</p> 
+        <div class="body">
+            <p>Ignore the 'HttpFixed', that was my workaround subclass adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-11-03T23:06:50.000+0000</p> 
+        <div class="body">
+            <p>In my opinion this can not work.</p>
+
+<p>You are creating a file transfer according to the given $_FILES variable from a form.
+Then you say "download this files" by calling receive()... but then you say that !afterwards! you copy the file into another path... and the class should know that changed path before you set it???</p>
+
+<p>You eighter set the name and path before you receive the file (with the rename filter) or you set it manually.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zach Mullen (zach_mullen) on 2011-11-04T00:15:16.000+0000</p> 
+        <div class="body">
+            <p>The problem is happening in the very first line.</p>
+
+<p>$upload = new Zend_File_Transfer();</p>
+
+<p>It's actually the very first line of my controller.</p>
+
+<p>Everything after that is actually working fine.  The only thing failing is the mime type check. The constructor calls _prepareFiles, which is calling _detectMimeType, which is failing because it's checking if the file exists by name (in the current working directory, which is my application root dir) before it checks the existence of the tmp_name file.  If we just switched the order of checking that existence, it would actually work for me.  To reproduce this bug, just create a minimal zend application, place a dummy.txt file in the root directory of it, create a controller that just calls that one line of code, and then attempt to upload a different file called dummy.txt.</p>
+
+<p>This block of code is the culprit:</p>
+
+<p>protected function _detectMimeType($value)
+    {
+        if (file_exists($value['name'])) {
+            $file = $value['name'];
+        } else if (file_exists($value['tmp_name'])) {
+            $file = $value['tmp_name'];
+        }</p>
+
+<p>I think that is meant to be equivalent to:</p>
+
+<pre><code>if(file_already_moved_from_tmp_name)
+      $file= $value['name'];
+else if(file_exists($value['tmp_name']))
+      $file = $value['tmp_name'];
+</code></pre>
+
+<p>But they are not equivalent, because file_exists($value['name']) does not represent the condition that the file has already been downloaded; especially since this is happening in the constructor, so we know the file has not already been received.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zach Mullen (zach_mullen) on 2011-11-18T19:40:28.000+0000</p> 
+        <div class="body">
+            <p>Any status update on this issue?</p>
+
+<p>Thanks,</p>
+
+<p>-Zach</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Zach Mullen (zach_mullen) on 2011-12-13T19:39:16.000+0000</p> 
+        <div class="body">
+            <p>Are there plans to fix this in the next release?</p>
+
+        </div>
+    </div>
+    </div>
+

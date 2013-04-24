@@ -1,0 +1,239 @@
+<h2>ZF-10870: Zend_Reflection_Method::getBody fails with multi-line method signature</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-12-27T07:08:36.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-02T02:16:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Reflection</li>
+            <li>FixForZF1.12</li>
+            <li>zf-caretaker-adamlundrigan</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9018">ZF-9018</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/15122/ZF-10870.patch">ZF-10870.patch</a></li>
+            <li><a href="/issues/secure/attachment/15123/ZF-10870_v2.patch">ZF-10870_v2.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When you declare a function in multiple lines (because of the golden "80-characters-a-line"-rule for example):</p>
+
+<pre class="highlight"><code>
+function myFunction($arga, $argb, $argc,
+    $argd, $arge
+) {
+
+  ...
+
+}
+</code></pre>
+
+<p>"getBody" returns everything from line 2:</p>
+
+<pre class="highlight"><code>
+    $argd, $arge
+) {
+
+ ....
+</code></pre>
+
+<p>which is extremely poor when using Zend_CodeGenerator, which relies on this function. The attached patch resolves the issue with current 1.11.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dennis Ploeger (ploeger) on 2010-12-27T07:11:49.000+0000</p> 
+        <div class="body">
+            <p>Hmmm... don't know, how to attach something here, so here's the patch:</p>
+
+<pre class="highlight"><code>
+--- Method.php  2010-01-06 03:05:09.000000000 +0100
++++ /usr/share/php5/Zend/Reflection/Method.php  2010-12-27 16:03:48.643040872 +0100
+@@ -152,7 +152,15 @@
+ 
+         $firstLine = array_shift($lines);
+ 
++        while (!preg_match('/{/', $firstLine)) {
++
++            $firstLine = array_shift($lines);
++
++        }
++
+         if (trim($firstLine) !== '{') {
++
++            $firstLine = preg_replace("/[^{]*{(.*)$/", "{\1", $firstLine);
+             array_unshift($lines, $firstLine);
+         }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dennis Ploeger (ploeger) on 2010-12-28T02:28:11.000+0000</p> 
+        <div class="body">
+            <p>The patch above is wrong (there's a special character outputted as well) This one corrects it and should also work on Windows systems:</p>
+
+<pre class="highlight"><code>
+--- Method.php  2010-01-06 03:05:09.000000000 +0100
++++ /usr/share/php5/Zend/Reflection/Method.php  2010-12-28 11:26:39.849801427 +0100
+@@ -152,7 +152,15 @@
+ 
+         $firstLine = array_shift($lines);
+ 
++        while (!preg_match('/{/', $firstLine)) {
++
++            $firstLine = array_shift($lines);
++
++        }
++
+         if (trim($firstLine) !== '{') {
++
++            $firstLine = preg_replace("/^[^{]*{(.*$)/", '{$1', $firstLine);
+             array_unshift($lines, $firstLine);
+         }
+ 
+@@ -163,6 +171,6 @@
+         }
+ 
+         // just in case we had code on the bracket lines
+-        return rtrim(ltrim(implode("\n", $lines), '{'), '}');
++        return rtrim(ltrim(implode(PHP_EOL, $lines), '{'), '}');
+     }
+ }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dennis Ploeger (ploeger) on 2010-12-28T05:07:15.000+0000</p> 
+        <div class="body">
+            <p>Argh! Still wrong. This should do it:</p>
+
+<pre class="highlight"><code>
+--- Method.php  2010-01-06 03:05:09.000000000 +0100
++++ /usr/share/php5/Zend/Reflection/Method.php  2010-12-28 14:05:03.860674888 +0100
+@@ -150,10 +150,42 @@
+             true
+         );
+ 
++        $bodyStart = 1;
++        $headerNotClosed = false;
++
++        foreach ($lines as $line) {
++
++            if (preg_match("/^[\s]*\) \{/", $line)) {
++                $headerNotClosed = true;
++                break;
++            }
++
++            $bodyStart++;
++
++        }
++
++        if ($headerNotClosed) {
++
++            for ($a = 0; $a &lt; $bodyStart; $a++) {
++
++                array_shift($lines);
++
++            }
++
++        }
++
+         $firstLine = array_shift($lines);
+ 
+-        if (trim($firstLine) !== '{') {
+-            array_unshift($lines, $firstLine);
++        if (preg_match('/{/', $firstLine)) {
++
++            $firstLine = trim(preg_replace('/^[^{]*{(.*$)/', '$1', $firstLine));
++
++            if (!empty($firstline)) {
++
++                array_unshift($lines, $firstLine);
++
++            }
++
+         }
+ 
+         $lastLine = array_pop($lines);
+@@ -163,6 +195,6 @@
+         }
+ 
+         // just in case we had code on the bracket lines
+-        return rtrim(ltrim(implode("\n", $lines), '{'), '}');
++        return rtrim(ltrim(implode(PHP_EOL, $lines), '{'), '}');
+     }
+ }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-29T01:44:14.000+0000</p> 
+        <div class="body">
+            <p>Dennis, have you signed a CLA?  Patches can't be accepted without a signed CLA.  Your JIRA profile doesn't have you tagged to the dev group.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-06-01T18:30:47.000+0000</p> 
+        <div class="body">
+            <p>[Edit: Code removed]</p>
+
+<p>Complete patch is attached.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-06-01T18:50:41.000+0000</p> 
+        <div class="body">
+            <p>Added updated patch (v2) to also work with inline methods (ie: signature and body on same line)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-06-02T02:16:54.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24870</p>
+
+        </div>
+    </div>
+    </div>
+

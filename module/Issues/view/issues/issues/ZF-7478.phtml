@@ -1,0 +1,133 @@
+<h2>ZF-7478: Issue when JSON encoding an dojo-ified view containing a datastore</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-04T16:04:02.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-08-05T04:33:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Dojo</li>
+            <li>Zend_Json</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm using this excellent tip  <a href="http://framework.zend.com/wiki/display/ZFUSER/Using+Zend_Dojo+dijit+elements+in+AJAX+requests">http://framework.zend.com/wiki/display/…</a>.
+This is the only and unique solution I found to render dojo enabled view retrieved using ajax request in a content pane.</p>
+
+<p>The issue I have is that Zend_Json::encode of $this-&gt;layout()-&gt;content doesn't generate the javascript snippet of code for declaring a datastore when I'm using a filteringelect of combobox based on a datastore in this view.</p>
+
+<p>Eg. :
+When rendering the following code the <em>normal</em> way  (i.e in a pure html layout) :</p>
+
+<pre class="highlight"><code>
+$form-&gt;addElement(
+    'ComboBox',
+    'foo',
+    array(
+        'label'       =&gt; 'ComboBox (datastore)',
+        'storeId'     =&gt; 'stateStore',
+        'storeType'   =&gt; 'dojo.data.ItemFileReadStore',
+        'storeParams' =&gt; array(
+            'url' =&gt; '/js/states.txt',
+        ),
+        'dijitParams' =&gt; array(
+            'searchAttr' =&gt; 'name',
+        ),
+    )
+);
+</code></pre>
+
+<p>ZF automagically produced a few line of javascript to declare the datastore in the resulting page header.</p>
+
+<p>If you decided to Zend_Json::encode the resulting html (i.e this-&gt;layout()-&gt;content), ZF doesn't generate nor output the javascript code needed to declare the datastore. ComboBox is then empty.</p>
+
+<p>Hope this is clear. Let me know if you need further information.</p>
+
+<p>Jean-Fabrice</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jean-Fabrice (jeanfabrice) on 2009-08-05T02:11:19.000+0000</p> 
+        <div class="body">
+            <p>I went deeper into this issue and found that the tip I'm using lacks the encoding of the javascript statements (eg. : using $this-&gt;dojo()-&gt;getJavascript() in the ajax layout). So, in ZF 1.8.3, adding a few lines to deal with the javascript statement in both ajax layout and in the load callback function is OK.</p>
+
+<p>But in ZF 1.8.4 and over, Zend_Dojo_View_Helper_ComboBox::_renderStore() is now calling $this-&gt;dojo-&gt;prependOnLoad($js) (line 151) instead of $this-&gt;dojo()-&gt;addJavascript($js), according to <a href="http://framework.zend.com/issues/browse/ZF-6148">http://framework.zend.com/issues/browse/ZF-6148</a>.</p>
+
+<p>dojo()-&gt;getJavascript (ZF 1.8.4 and over) is now returning an array of anonymous function when it was returning simple javascript code lines in ZF 1.8.3 (easy to deals with). These anonymous function first declare the store and the register the store against their digits</p>
+
+<p>Questions are : 
+1/ How can  I deal with this array of anonymous functions when I retrieve and display a page using xhr ? AddOnLoad functions are useless in such case.
+2/ Could it be an option defining where to insert the javascript : prependonload when using full rendering html, and/or something else when we want javascript code to be inserted directly in the flow (for ajax request)</p>
+
+<p>JF</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-08-05T04:32:57.000+0000</p> 
+        <div class="body">
+            <p>When using XHR, the dojo() view helper is not and should not be rendered; it should only be rendered during the initial page call.</p>
+
+<p>However, as you note, this leads to issues when you return Dojo content via XHR, as you're now missing information.</p>
+
+<p>The way to handle this requires work, and it's unfortunately not something that ZF can do for you. The way I handle it is as follows:
+* First, identify any content that will be returned via XHR, and make sure you have requireModule() calls for any Dijits you use. Place those into your bootstrap where you configure Dojo, or, better yet, into a layer file (so that you can modify only that, and not your PHP code). This ensures your Dijits will be present.
+* Second, return declarative markup in your XHR payloads, and then use the Dojo parser to parse it, which will initialize the appropriate objects. This means you'll need to call dojo.parser.parse() on a block surrounding the content you inject. So, if you inject your content into a</p>
+
+<p>&lt;</p>
+
+<p>div&gt; with id="foo", in your XHR call, after placing the new content, you would call "dojo.parser.parse('foo')". (To turn on declarative markup, call Zend_Dojo_View_Helper_Dojo::setUseDeclarative(true) in the view script returning the XHR payload.) This works for tings like ComboBoxes and FilteringSelects as well, as the dojo.data store will be created using declarative markup.</p>
+
+<p>Dojo also provides ways to attach code to events using declarative markup. You can typically include blocks like this:</p>
+
+<pre class="highlight"><code>
+</code></pre>
+
+<p>(Note, the above may be incorrect or invalid scripting, but the idea is sane.) If you include markup such as this via a form decorator, you can then provide custom events to forms returned via XHR.</p>
+
+<p>Another technique is to return JSON that includes things such as your form, but also your data stores. In your XHR handler, you would then parse through the JSON and do what you need to do -- such as triggering events, using metadata to determine where to place content, etc.</p>
+
+<p>These are things that require a collaboration between client and server, and as such, ZF can't really do much more. If you need help with the above techniques, ping me on one of the mailing lists or directly via email; reference this issue when you do.</p>
+
+        </div>
+    </div>
+    </div>
+

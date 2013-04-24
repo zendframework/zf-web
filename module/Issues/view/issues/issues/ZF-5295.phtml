@@ -1,0 +1,182 @@
+<h2>ZF-5295: Failure on Oracle database</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-17T02:02:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-18T19:41:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.4 (23/Jun/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The DbSelect adapter fails under Oracle, because Oracle does not support statements like:</p>
+
+<pre class="highlight"><code>
+
+Instead, in Oracle, the statement should be:
+</code></pre>
+
+<p>I made a quick fix by changing Zend/Paginator/Adapter/DbSelect.php, but then this would only support Oracle(which is no problem in my case)
+The fix is not perfect, there is a chance of failure, but I suppose the '###' string could be changed to something unique.</p>
+
+<pre class="highlight"><code>
+187,188d186
+&lt;           //ORACLE COUNT(DISTINCT col1||col2..) fix
+&lt;           $groupPart = str_replace(",", "||'###'||", $groupPart);
+</code></pre>
+
+<p>Sample code:</p>
+
+<pre class="highlight"><code>
+$select = new Zend_Db_Select($this-&gt;db);
+
+$select-&gt;from("product_transfers", 
+                array(
+                    "quantity" =&gt; "SUM(quantity)",
+                    "product_id",
+                    "name",
+                    "batch_number"));
+
+$select-&gt;group(array(
+                "product_id",
+                "name",
+                "batch_number"));
+
+$paginator = Zend_Paginator::factory($select);  
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-12-17T02:07:22.000+0000</p> 
+        <div class="body">
+            <p>Please, could you provide a complete reproduce code?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-12-21T09:39:18.000+0000</p> 
+        <div class="body">
+            <p>I understood the problem but your fix could have problem:</p>
+
+<pre class="highlight"><code>
+create table foo(
+    bar number(3) not null,
+    baz varchar2(50)
+);
+insert into foo( 1, '0abc');
+insert into foo( 10, 'abc');
+select count(distinct bar || baz) from foo;
+// this will return 1 because '||' will concat the 2 columns and won't apply a real distinct
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-12-23T01:06:39.000+0000</p> 
+        <div class="body">
+            <p>If we want something independent of the DBMS, we must use a request like:</p>
+
+<pre class="highlight"><code>
+SELECT COUNT(*) FROM (SELECT DISTINCT column1, column2, column3 FROM table_name)
+</code></pre>
+
+<p>Note: Problem also occurs with DB2</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-12-23T01:14:25.000+0000</p> 
+        <div class="body">
+            <p>I'd prefer to avoid subqueries if possible because they're a lot slower than regular queries. Wouldn't a GROUP BY on the multiple columns provide the same result?</p>
+
+<pre class="highlight"><code>
+
+would become
+
+</code></pre>
+
+<p>Feel free to slap me if I'm saying stupid things atm... I need more coffee!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-12-23T01:25:02.000+0000</p> 
+        <div class="body">
+            <p>No, this wouldn't function ;)
+I f you take my example above, you will receive 2 lines of result.
+I understand though the problem of performance.
+Take a coffee :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-12-23T11:08:41.000+0000</p> 
+        <div class="body">
+            <p>Hehe, coffee taken ; )
+We could probably detect these problematic queries and create subqueries if there are no other nice ways of supporting them. The solution would preferably work on every DB. If we go for subqueries, we should make an entry in the manual saying these kind of queries are better off with a custom COUNT query (also supported by the DbSelect adapter).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-05-30T20:44:25.000+0000</p> 
+        <div class="body">
+            <p>This thread: <a href="http://www.dbasupport.com/forums/showthread.php?t=11349">http://dbasupport.com/forums/showthread.php/…</a> might have a solution. The Paginator Adapter solution would check the no. of columns. If there's one column, we keep doing things the way they're done now. If there are multiple columns, we apply the suggestion from that forum thread. Currently haven't got time to fully investigate this, so feedback is welcome : )</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-06-08T14:23:35.000+0000</p> 
+        <div class="body">
+            <p>This isn't a blocking issue, so I'm lowering priority to critical. An alternative exists: passing a query to setRowCount().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-06-18T19:41:01.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r16149 and merged to release-1.8 in r16150</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,189 @@
+<h2>ZF-5189: Zend_Paginator_Adapter_DbSelect - no way to bind data to placeholders</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-08T20:11:09.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-07T12:34:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Given a query with named parameter placeholders, eg</p>
+
+<pre class="highlight"><code>
+SELECT * FROM TABLE WHERE STATUS = :status
+</code></pre>
+
+<p>there's currently no way to pass the array of bind variables to the pagination adapter for use in the getItems() or count() / setRowCount() methods.</p>
+
+<p>Given that this is the recommended method of parameter passing (at least for non-string values), shouldn't it be supported by the adapter?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-12-23T11:02:19.000+0000</p> 
+        <div class="body">
+            <p>A Zend_Db_Statement object isn't flexible enough to be used in a similar way as a Zend_Db(_Table)_Select object. The current Zend_Db_Select adapter works by modifying the original query and converting it into a COUNT query to determine the amount of items in the result set. Zend_Db_Statement uses plain strings for the unbound query. 
+At the moment I don't see a way to create decent support for Zend_Db_Statement. Suggestions are welcome, but I'll postpone this issue until a nice way to support this is offered. Please use Zend_Db(_Table)_Select for paginating Db results in the mean while.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Phil Brown (philbrown) on 2009-01-04T16:35:31.000+0000</p> 
+        <div class="body">
+            <p>I've solved this by extending Zend_Paginator_Adapter_DbSelect with the following alterations.</p>
+
+<pre class="highlight"><code>
+protected $_bind = array();
+
+public function __construct(Zend_Db_Select $select, array $bind = array())
+{
+    parent::__construct($select);
+    $this-&gt;setBindValues($bind);
+}
+
+public function setBindValues(array $bind)
+{
+    $this-&gt;_bind = $bind;
+    return $this;
+}
+</code></pre>
+
+<p>in setRowCount()</p>
+
+<pre class="highlight"><code>
+$stmt = $rowCount-&gt;getAdapter()-&gt;query($rowCount, $this-&gt;_bind);
+$stmt-&gt;setFetchMode(Zend_Db::FETCH_ASSOC);
+$result = $stmt-&gt;fetch();
+</code></pre>
+
+<p>and similarly in getItems()</p>
+
+<pre class="highlight"><code>
+$stmt = $this-&gt;_select-&gt;getAdapter()-&gt;query($this-&gt;_select, $this-&gt;_bind);
+$stmt-&gt;setFetchMode($this-&gt;_select-&gt;getAdapter()-&gt;getFetchMode());
+return $stmt-&gt;fetchAll();
+</code></pre>
+
+<p>Of course, when using the Zend_Paginator::factory() method, the bind data needs to be added after the paginator is created. Otherwise, the array can be set using the adapter's constructor.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-03-30T18:05:50.000+0000</p> 
+        <div class="body">
+            <p>Has been resolved with ZF-2017 and ZF-3220</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron S. Hawley (ashawley) on 2010-06-07T12:34:37.000+0000</p> 
+        <div class="body">
+            <p>Phil Brown's suggestion in the comment above is a good one.</p>
+
+<p>It should be accepted into ZF in my opinion.</p>
+
+<p>Here's a patch that works for me.</p>
+
+<pre class="literal">
+2010-06-03  Aaron S. Hawley   vtinfo.com&gt;
+
+    * Zend/Paginator/Adapter/DbSelect.php: Pass bind data values
+          to Zend_Db_Select.
+
+--- Zend/Paginator/Adapter/DbSelect.php 2010-04-29 12:37:49.475322300 -0400
++++ Zend/Paginator/Adapter/DbSelect.php 2010-06-03 16:57:27.698390900 -0400
+@@ -64,6 +64,13 @@
+     protected $_select = null;
+ 
+     /**
++     * Bind values
++     *
++     * @var array
++     */
++    protected $_bind = array();
++
++    /**
+      * Total item count
+      *
+      * @var integer
+@@ -118,7 +125,8 @@
+                 throw new Zend_Paginator_Exception('Row count column not found');
+             }
+ 
+-            $result = $rowCount-&gt;query(Zend_Db::FETCH_ASSOC)-&gt;fetch();
++            $result = $rowCount-&gt;query(Zend_Db::FETCH_ASSOC, $this-&gt;_bind)
++                               -&gt;fetch();
+ 
+             $this-&gt;_rowCount = count($result) &gt; 0 ? $result[$rowCountColumn] : 0;
+         } else if (is_integer($rowCount)) {
+@@ -146,7 +154,7 @@
+     {
+         $this-&gt;_select-&gt;limit($itemCountPerPage, $offset);
+ 
+-        return $this-&gt;_select-&gt;query()-&gt;fetchAll();
++        return $this-&gt;_select-&gt;bind($this-&gt;_bind)-&gt;query()-&gt;fetchAll();
+     }
+ 
+     /**
+@@ -259,4 +267,15 @@
+ 
+         return $rowCount;
+     }
++
++    /**
++     * Set the data to bind to placeholders.
++     *
++     * @return Zend_Db_Select
++     */
++    public function setBindValues(array $bind)
++    {
++        $this-&gt;_bind = $bind;
++        return $this;
++    }
+ }
+</pre>
+
+        </div>
+    </div>
+    </div>
+

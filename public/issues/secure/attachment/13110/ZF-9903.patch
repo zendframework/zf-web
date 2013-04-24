@@ -1,0 +1,123 @@
+Index: tests/Zend/Application/Resource/MultidbTest.php
+===================================================================
+--- tests/Zend/Application/Resource/MultidbTest.php	(revision 22306)
++++ tests/Zend/Application/Resource/MultidbTest.php	(working copy)
+@@ -198,7 +198,38 @@
+         $this->assertEquals($expected, $res->getDb('db2')->getConfig());
+     }
+ 
++    /**
++     * @group ZF-9903
++     */
++    public function testSetStoredInRegistry()
++    {
++        $resource = new Zend_Application_Resource_Multidb(array());
++        $resource->setBootstrap($this->bootstrap);
++        $options = $this->_dbOptions;
++        $resource->setOptions($options);
++        $res = $resource->init();
++        $this->assertFalse($resource->isStoredInRegistry());
+ 
++        $options['storedInRegistry'] = true;
++        $resource->setOptions($options);
++        $this->assertTrue($resource->isStoredInRegistry());
++    }
++
++    /**
++     * @group ZF-9903
++     */
++    public function testExistsAdapterInRegistry()
++    {
++        $resource = new Zend_Application_Resource_Multidb(array());
++        $resource->setBootstrap($this->bootstrap);
++        $options = $this->_dbOptions;
++        $options['storedInRegistry']        = true;
++        $options['db1']['storedInRegistry'] = false;
++        $resource->setOptions($options);
++        $resource->init();
++        $this->assertTrue(Zend_Registry::isRegistered('db2'));
++        $this->assertFalse(Zend_Registry::isRegistered('db1'));
++    }
+ }
+ 
+ if (PHPUnit_MAIN_METHOD == 'Zend_Application_Resource_LogTest::main') {
+Index: library/Zend/Application/Resource/Multidb.php
+===================================================================
+--- library/Zend/Application/Resource/Multidb.php	(revision 22306)
++++ library/Zend/Application/Resource/Multidb.php	(working copy)
+@@ -69,6 +69,13 @@
+     protected $_defaultDb;
+ 
+     /**
++     * Option if the multidb will stored the object adapter in registry
++     *
++     * @var boolean
++     */
++    protected $_storedInRegistry = false;
++
++    /**
+      * Initialize the Database Connections (instances of Zend_Db_Table_Abstract)
+      *
+      * @return Zend_Application_Resource_Multidb
+@@ -76,6 +83,7 @@
+     public function init()
+     {
+         $options = $this->getOptions();
++        unset($options['storedInRegistry']);
+ 
+         foreach ($options as $id => $params) {
+         	$adapter = $params['adapter'];
+@@ -83,10 +91,14 @@
+                 isset($params['isDefaultTableAdapter']) && $params['isDefaultTableAdapter']
+                 || isset($params['default']) && $params['default']
+             );
++            $storedInRegistry = (int) isset($params['storedInRegistry'])
++                              ? $params['storedInRegistry']
++                              : $this->_storedInRegistry;
+             unset(
+                 $params['adapter'],
+                 $params['default'],
+-                $params['isDefaultTableAdapter']
++                $params['isDefaultTableAdapter'],
++                $params['storedInRegistry']
+             );
+ 
+             $this->_dbs[$id] = Zend_Db::factory($adapter, $params);
+@@ -94,6 +106,10 @@
+             if ($default) {
+                 $this->_setDefault($this->_dbs[$id]);
+             }
++
++            if ($storedInRegistry) {
++                Zend_Registry::set($id, $this->_dbs[$id]);
++            }
+         }
+ 
+         return $this;
+@@ -168,4 +184,26 @@
+         Zend_Db_Table::setDefaultAdapter($adapter);
+         $this->_defaultDb = $adapter;
+     }
++
++    /**
++     * Assign if the adapter will stored in registry
++     *
++     * @param boolean $stored
++     * @return Zend_Application_Resource_Multidb
++     */
++    public function setStoredInRegistry($stored)
++    {
++        $this->_storedInRegistry = (bool) $stored;
++        return $this;
++    }
++
++    /**
++     * Is stored in Registry the adapters?
++     *
++     * @return boolean
++     */
++    public function isStoredInRegistry()
++    {
++        return $this->_storedInRegistry;
++    }
+ }

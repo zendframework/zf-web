@@ -1,0 +1,185 @@
+<h2>ZF-5222: Zend_Form::getValues() mishandles SubForms data when elementsBelongTo is set</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-11T19:53:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-16T09:46:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9467">ZF-9467</a></li>
+            <li><a href="/issues/browse/ZF-9584">ZF-9584</a></li>
+            <li><a href="/issues/browse/ZF-9593">ZF-9593</a></li>
+            <li><a href="/issues/browse/ZF-8078">ZF-8078</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When setting elementsBelongTo for a Zend_Form_SubForm to either an empty value '' (isArray() == false) or to an array such as "__children[Employees][Company][__ids][pk_33]" these methods do not handle the arrays properly:</p>
+
+<p>getValues()
+getErrors()
+getMessages()</p>
+
+<p>1.) Not all subforms are arrays, such as when elementsBelongTo is set empty.  This causes extra levels in the returned array structure due to calling _attachToArray() with empty $arrayPath.  Analogous calls to _dissolveArray() correctly check for isArray().</p>
+
+<p>2.) When collecting data recursively from subforms, only data from the last subform is kept because array_merge() overwrites array entries where the first key is the same among the subforms.  Note that array_merge() works for the simple case where just the subform name (or simple elementsBelongTo) is used for the value keys.  Using array_merge_recursive() instead of array_merge() fixes this bug when elementsBelongTo is set to a deeper array structure.</p>
+
+<p>For example, sibling subforms may typically have elementsBelongTo set to common base arrays with only the last key differing:</p>
+
+<pre><code>__children[Employees][Company][__ids][pk_33]
+__children[Employees][Company][__ids][pk_31]
+__children[Employees][Company][__ids][pk_58]
+</code></pre>
+
+<p>Here is a proposed patch:</p>
+
+<pre class="literal">
+Index: Zend/Form.php
+===================================================================
+--- Zend/Form.php   (revision 11917)
++++ Zend/Form.php   (working copy)
+@@ -1282,8 +1282,20 @@
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+-            $fValues = $this-&gt;_attachToArray($subForm-&gt;getValues(true), $subForm-&gt;getElementsBelongTo());
+-            $values = array_merge($values, $fValues);
++            $fValues = $subForm-&gt;getValues(true);
++            
++            // Not all subForms are arrays, such as when elementsBelongTo is set empty
++            if ($subForm-&gt;isArray()) {
++                $fValues = $this-&gt;_attachToArray($fValues, $subForm-&gt;getElementsBelongTo());
++            }
++
++            // Need to use array_merge_recursive() instead of array_merge() because
++            // elementsBelongTo when set for sibling subForms may typically
++            // have common base arrays; for example:
++            //     __children[Users][ManagementCompany][__ids][pk_33]
++            //     __children[Users][ManagementCompany][__ids][pk_31]
++            //     __children[Users][ManagementCompany][__ids][pk_58]
++            $values = array_merge_recursive($values, $fValues);
+         }
+ 
+         if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray()) {
+@@ -2208,8 +2220,20 @@
+                 $errors[$key] = $element-&gt;getErrors();
+             }
+             foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+-                $fErrors = $this-&gt;_attachToArray($subForm-&gt;getErrors(), $subForm-&gt;getElementsBelongTo());
+-                $errors = array_merge($errors, $fErrors);
++                $fErrors = $subForm-&gt;getErrors();
++                
++                // Not all subForms are arrays, such as when elementsBelongTo is set empty
++                if ($subForm-&gt;isArray()) {
++                    $fErrors = $this-&gt;_attachToArray($fErrors, $subForm-&gt;getElementsBelongTo());
++                }
++
++                // Need to use array_merge_recursive() instead of array_merge() because
++                // elementsBelongTo when set for sibling subForms may typically
++                // have common base arrays; for example:
++                //     __children[Users][ManagementCompany][__ids][pk_33]
++                //     __children[Users][ManagementCompany][__ids][pk_31]
++                //     __children[Users][ManagementCompany][__ids][pk_58]
++                $errors = array_merge_recursive($errors, $fErrors);
+             }
+         }
+         return $errors;
+@@ -2261,8 +2285,18 @@
+             $fMessages = $subForm-&gt;getMessages(null, true);
+             if (!empty($fMessages)) {
+                 if (array_key_exists($key, $arrayKeys)) {
+-                    $fMessages = $this-&gt;_attachToArray($fMessages, $arrayKeys[$key]);
+-                    $messages = array_merge($messages, $fMessages);
++                    // Not all subForms are arrays, such as when elementsBelongTo is set empty
++                    if ($subForm-&gt;isArray()) {
++                        $fMessages = $this-&gt;_attachToArray($fMessages, $arrayKeys[$key]);
++                    }
++
++                    // Need to use array_merge_recursive() instead of array_merge() because
++                    // elementsBelongTo when set for sibling subForms may typically
++                    // have common base arrays; for example:
++                    //     __children[Users][ManagementCompany][__ids][pk_33]
++                    //     __children[Users][ManagementCompany][__ids][pk_31]
++                    //     __children[Users][ManagementCompany][__ids][pk_58]
++                    $messages = array_merge_recursive($messages, $fMessages);
+                 } else {
+                     $messages[$key] = $fMessages;
+                 }
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-18T08:37:40.000+0000</p> 
+        <div class="body">
+            <p>getValues() is Fixed in [ZF-9584] and in [ZF-9586].</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-18T10:24:24.000+0000</p> 
+        <div class="body">
+            <p>getErrors Fixed in [ZF-9467]</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-25T13:23:59.000+0000</p> 
+        <div class="body">
+            <p>Reopened because suggested fix is not reviewed and committed yet.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-02T00:56:03.000+0000</p> 
+        <div class="body">
+            <p>getMessages Fixed in ZF-9593</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-16T09:46:30.000+0000</p> 
+        <div class="body">
+            <p>Resolving as duplicate of ZF-9584, ZF-9586, ZF-9467 and ZF-9593</p>
+
+        </div>
+    </div>
+    </div>
+

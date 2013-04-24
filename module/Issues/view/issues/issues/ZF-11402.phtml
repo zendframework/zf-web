@@ -1,0 +1,403 @@
+<h2>ZF-11402: Zend_Form_Element_MultiCheckbox does not accept empty array even when AllowEmpty flag is set</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-05-23T15:20:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-11-04T00:15:35.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.8 (07/Jul/11)</li>
+            <li>1.11.12 (22/Jun/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14338/ZF-11402.patch">ZF-11402.patch</a></li>
+            <li><a href="/issues/secure/attachment/14698/ZF-11402_v2.patch">ZF-11402_v2.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Here is the code with the validator :</p>
+
+&lt;?php
+class Form_User extends Zend_Form {
+...
+// Cities element
+$options = array(
+  1 =&gt; 'New York',
+  2 =&gt; 'Los Angeles'
+  3 =&gt; 'Chicago'
+);
+
+$element = new Zend_Form_Element_MultiCheckbox('cities');
+$element-&gt;setLabel('Cities')
+    -&gt;setMultiOptions($options)
+    -&gt;setRequired(true)
+    -&gt;addValidators(array(
+        new Zend_Validate_NotEmpty(Zend_Validate_NotEmpty::PHP)
+    ));
+$this-&gt;addElement($element);
+...
+?&gt;
+
+<p>Then I test it like this:</p>
+
+&lt;?php
+$form = new Form_User();
+$user = array(
+ 'name' =&gt; 'someone',
+ 'email' =&gt; 'someone@somewhere.com',
+ 'cities' =&gt; array()
+);
+
+Zend_Debug::dump($form-&gt;isValid($user)); exit();
+// return (bool) true
+?&gt;
+
+<p>I would have expected the $form-&gt;isValid($user) to return false ...</p>
+
+<p>In my real code I use a form to validate my model before saving it.
+The user model has an empty array as default value if data relationship is enable in my mapper other null.
+My user model should have at least 1 city but I can't check it with the form validation when data relationship is enable...</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-05-24T01:29:54.000+0000</p> 
+        <div class="body">
+            <p>This is not an issue with Zend_Validate_NotEmpty, as it rejects empty array properly, as evidenced by this test:</p>
+
+<pre class="highlight"><code>
+/**
+ * @group ZF-11402
+ */
+public function testPHPRejectsEmptyArray()
+{
+    $validator = new Zend_Validate_NotEmpty(
+        Zend_Validate_NotEmpty::PHP
+    );
+    $this-&gt;assertFalse($validator-&gt;isValid(array()));        
+}
+</code></pre>
+
+<p>And the result:</p>
+
+<pre class="highlight"><code>
+++ phpunit --verbose --group ZF-11402 AllTests
+PHPUnit 3.5.13 by Sebastian Bergmann.
+OK (1 test, 1 assertion)
+</code></pre>
+
+<p>I would check the documentation for Zend_Form_Element_MultiCheckbox to determine how to properly enforce the condition that one or more of the checkboxes in the group must be selected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Olivier (oliviercuyp@hotmail.com) on 2011-05-24T11:40:45.000+0000</p> 
+        <div class="body">
+            <p>Hi Adam,</p>
+
+<p>Sorry about this, I miss placed the issue. It is not on the Zend_Validator_NotEmpty element but on the Zend_Element_Multi.
+Correct me if I'm wrong but the validator for Zend_Element_Multi the validation only happens on each individudal value but not set of values itself if it is an array.
+Believe me, I have red the documentation but I couldn't find any way (expect ugly hacks) to validate the number of elements of a Zend_Element_Multi.
+I even looked in the code of Zend_Element_Multi and Zend_Element and to my unberstanding, today it is impossible to validate the number of values recieved.</p>
+
+<p>Here is the code of the validation for Zend_Element (nothing interesting in Zend_Element_Multi just adding InArray) :</p>
+
+<p>public function isValid($value, $context = null) {
+...
+foreach ($this-&gt;getValidators() as $key =&gt; $validator) {
+...
+if ($isArray &amp;&amp; is_array($value)) {
+    $messages = array();
+    $errors   = array();
+    foreach ($value as $val) {
+        if (!$validator-&gt;isValid($val, $context)) {
+            $result = false;
+            if ($this-&gt;_hasErrorMessages()) {
+                $messages = $this-&gt;_getErrorMessages();
+                $errors   = $messages;
+            } else {
+                $messages = array_merge($messages, $validator-&gt;getMessages());
+                $errors   = array_merge($errors,   $validator-&gt;getErrors());
+            }
+        }
+    }
+    if ($result) {
+        continue;
+    }
+}
+..
+}
+...
+}</p>
+
+<p>Validation only validate single value not value set so if you give a empty array it will still pass the validation.
+Not alternative method given by the documentation ...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-05-31T13:14:26.000+0000</p> 
+        <div class="body">
+            <p>Olivier,</p>
+
+<p>Ah, I see the issue now.  I can reproduce it with this code:</p>
+
+<pre class="highlight"><code>
+/**
+ * @group ZF-11402
+ */
+public function testValidateShouldNotAcceptEmptyArray()
+{
+    $this-&gt;element-&gt;addMultiOptions(array(
+        'foo' =&gt; 'Foo',
+        'bar' =&gt; 'Bar',
+        'baz' =&gt; 'Baz',
+    ));
+    $this-&gt;element-&gt;setRegisterInArrayValidator(true);
+
+    $this-&gt;assertTrue($this-&gt;element-&gt;isValid(array('foo')));
+    $this-&gt;assertTrue($this-&gt;element-&gt;isValid(array('foo','baz')));
+
+    $this-&gt;element-&gt;setAllowEmpty(true);
+    $this-&gt;assertTrue($this-&gt;element-&gt;isValid(array()));
+
+    $this-&gt;element-&gt;setAllowEmpty(false);
+    $this-&gt;assertFalse($this-&gt;element-&gt;isValid(array()));
+}
+</code></pre>
+
+<p>This results in:</p>
+
+<pre class="highlight"><code>
+++ phpunit --verbose --group Zend_Form AllTests
+
+There was 1 failure:
+
+1) Zend_Form_Element_MultiCheckboxTest::testValidateShouldNotAcceptEmptyArray
+Failed asserting that  is false.
+
+/usr/local/apache2/htdocs/lib/zfdev/trunk/tests/Zend/Form/Element/MultiCheckboxTest.php:301
+</code></pre>
+
+<p>The last assert in my test - where isValid(array()) is tested - fails.  When I make the following change to Zend_Form_Element:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Form/Element.php
+===================================================================
+--- library/Zend/Form/Element.php       (revision 24092)
++++ library/Zend/Form/Element.php       (working copy)
+@@ -1377,15 +1377,23 @@
+             if ($isArray &amp;&amp; is_array($value)) {
+                 $messages = array();
+                 $errors   = array();
+-                foreach ($value as $val) {
+-                    if (!$validator-&gt;isValid($val, $context)) {
++                if (empty($value)) {
++                    if ($this-&gt;isRequired()
++                        || (!$this-&gt;isRequired() &amp;&amp; !$this-&gt;getAllowEmpty())
++                    ) {
+                         $result = false;
+-                        if ($this-&gt;_hasErrorMessages()) {
+-                            $messages = $this-&gt;_getErrorMessages();
+-                            $errors   = $messages;
+-                        } else {
+-                            $messages = array_merge($messages, $validator-&gt;getMessages());
+-                            $errors   = array_merge($errors,   $validator-&gt;getErrors());
++                    }
++                } else {
++                    foreach ($value as $val) {
++                        if (!$validator-&gt;isValid($val, $context)) {
++                            $result = false;
++                            if ($this-&gt;_hasErrorMessages()) {
++                                $messages = $this-&gt;_getErrorMessages();
++                                $errors   = $messages;
++                            } else {
++                                $messages = array_merge($messages, $validator-&gt;getMessages());
++                                $errors   = array_merge($errors,   $validator-&gt;getErrors());
++                            }
+                         }
+                     }
+                 }
+</code></pre>
+
+<p>The heart of the change is this:</p>
+
+<pre class="highlight"><code>
+if (empty($value)) {
+    if ($this-&gt;isRequired()
+        || (!$this-&gt;isRequired() &amp;&amp; !$this-&gt;getAllowEmpty())
+    ) {
+        $result = false;
+    }
+}
+</code></pre>
+
+<p>Which sets the result to false if the value is empty and the field is either required or is not required and does not allow empty values.  The latter is done to maintain the fact that Required supercedes AllowEmpty, as by defition marking a field as required does not allow it to be empty.</p>
+
+<p>After making the proposed change to Zend_Form_Element, all unit tests in Zend_Form group (including my test testValidateShouldNotAcceptEmptyArray()) now pass.</p>
+
+<p>I've attached the full patch to this issue.</p>
+
+<p>This, however, only handles the empty case.  I haven't looked at your other question on how to validate the number of values provided (ie: X values must be provided)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Olivier (oliviercuyp@hotmail.com) on 2011-05-31T19:44:00.000+0000</p> 
+        <div class="body">
+            <p>Adam,</p>
+
+<p>Thanks for the patch.
+For the x values required validation, I just feel that it should happen in Zend_Element_Multi and not in Zend_Element.
+I guess other validation could be useful at this higher level like SumGreaterThan, SumLessThan, Average,...
+It would be nice to have some room for specific validation on Zend_Element_Multi.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-06-26T11:26:34.000+0000</p> 
+        <div class="body">
+            <p>Assigned Zend_Form as component as requested
+Removed Zend_Validate as component
+Reassigned maintainer</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-05T16:05:04.000+0000</p> 
+        <div class="body">
+            <p>Reviewed and applied patches from Adam to trunk and 1.11 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justis Durkee (justis.durkee) on 2011-09-28T22:00:42.000+0000</p> 
+        <div class="body">
+            <p>What about the validation messages?  isValid will return false, but there will be no error message(s) associated with the element.</p>
+
+<p>Since the NotEmpty validator is being added to validation stack when the element value is required, we can allow it to run on the known empty value and thus create the error messages.</p>
+
+<p>Library File:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Form/Element.php
+===================================================================
+--- library/Zend/Form/Element.php   (revision 24480)
++++ library/Zend/Form/Element.php   (working copy)
+@@ -1377,13 +1379,13 @@
+             if ($isArray &amp;&amp; is_array($value)) {
+                 $messages = array();
+                 $errors   = array();
++
++                // If the array is empty, then throw an empty element in the
++                // values array to allow the validators to run their course.
+                 if (empty($value)) {
+-                    if ($this-&gt;isRequired()
+-                        || (!$this-&gt;isRequired() &amp;&amp; !$this-&gt;getAllowEmpty())
+-                    ) {
+-                        $result = false;
++                    array_push($value, '');
+                     }
+-                } else {
++
+                     foreach ($value as $val) {
+                         if (!$validator-&gt;isValid($val, $context)) {
+                             $result = false;
+</code></pre>
+
+<p>Unit Test:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/Element/MultiCheckboxTest.php
+===================================================================
+--- tests/Zend/Form/Element/MultiCheckboxTest.php   (revision 24480)
++++ tests/Zend/Form/Element/MultiCheckboxTest.php   (working copy)
+@@ -299,6 +299,15 @@
+     
+         $this-&gt;element-&gt;setAllowEmpty(false);
+         $this-&gt;assertFalse($this-&gt;element-&gt;isValid(array()));
++
++        $errors = $this-&gt;element-&gt;getErrors();
++        $this-&gt;assertArrayHasKey(0, $errors);
++        $this-&gt;assertEquals(1, count($errors));
++
++        $messages = $this-&gt;element-&gt;getMessages();
++        $this-&gt;assertArrayHasKey($errors[0], $messages);
++        $this-&gt;assertEquals(1, count($messages));
++        $this-&gt;assert($this-&gt;element-&gt;get
+     }
+ }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-19T23:10:55.000+0000</p> 
+        <div class="body">
+            <p>Justis:
+Thanks for pointing that out!  I've taken your suggestion and implemented a revised version of my original fix which allows the validators to run so that the error messages come through properly.  Could you try it out and let me know if it fixes the problem you raised?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justis Durkee (justis.durkee) on 2011-10-24T18:49:15.000+0000</p> 
+        <div class="body">
+            <p>Adam,</p>
+
+<p>Yes, your most recent patch fixes the issue.  Thank you.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-03T23:48:20.000+0000</p> 
+        <div class="body">
+            <p>Additional fix committed to trunk in r24552
+Merged to release-1.11 in r24553</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-04T00:15:13.000+0000</p> 
+        <div class="body">
+            <p>ZF2 Pull Request: <a href="https://github.com/zendframework/zf2/pull/562">https://github.com/zendframework/zf2/pull/562</a></p>
+
+        </div>
+    </div>
+    </div>
+

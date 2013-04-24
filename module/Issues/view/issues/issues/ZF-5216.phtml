@@ -1,0 +1,193 @@
+<h2>ZF-5216: &quot;uncaught exception&quot; when throwing zend_exception in a plugin</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-11T13:07:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-20T20:22:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Layout</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>this may be the same as bug ZF-2461, but come back for the 1.7.1 release...</p>
+
+<p>i have inherited another developer's code, and i am not familiar with zend, however googling for "uncaught exception zend" took me to the bug mentioned above.</p>
+
+<p>please let me know what other information you need.</p>
+
+<p>cheers,</p>
+
+<p>russell</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-05T14:09:33.000+0000</p> 
+        <div class="body">
+            <p>Ralph, please fix/categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-09T23:57:42.000+0000</p> 
+        <div class="body">
+            <p>Component assigned</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Constantine Karnacevych (digital) on 2009-09-14T22:39:35.000+0000</p> 
+        <div class="body">
+            <p>recently I was ungently need a workaround for this issue and herebelow is what i've found</p>
+
+<p>is exception has been thrown in plugin we should 1) discontinue to render/dispatch actions/layouts</p>
+
+<p>a/ patch for a standart dispatcher to make sure we do not render dispatched action, but render everything what came form error controller and actions called from its layout</p>
+
+<h1>Index: Controller/Dispatcher/Standard.php</h1>
+
+<p>--- Controller/Dispatcher/Standard.php  ()
++++ Controller/Dispatcher/Standard.php  (working copy)
+@@ -231,7 +231,12 @@
+     public function dispatch(Zend_Controller_Request_Abstract $request, Zend_Controller_Response_Abstract $response)
+     {</p>
+
+<h2>         $this-&gt;setResponse($response);</h2>
+
+<ul><li>$params = $request-&gt;getParams();</li>
+<li>$arr = array('module', 'controller', 'action');</li>
+<li>if ($response-&gt;isException() &amp;&amp; !array_key_exists('error_handler', $params) &amp;&amp; array_intersect($arr, array_keys($params)) == $arr) {</li>
+<li>$request-&gt;setDispatched(true);</li>
+<li>return;</li>
+<li>}
+     /**
+      * Get controller class
+      */</li>
+</ul><p>b/ fix a plugin broker Controller/Plugin/Broker.php</p>
+
+<p>no need to extend this class with an abstract one, just add some protected variables</p>
+
+<p>class Zend_Controller_Plugin_Broker
+ {
+    /**
+     * @var Zend_Controller_Request_Abstract
+     */
+    protected $_request;</p>
+
+<pre><code> /**
+ * @var Zend_Controller_Response_Abstract
+ */
+protected $_response;
+
+/**
+ * Array of instance of objects extending Zend_Controller_Plugin_Abstract
+ *
+ * @var array
+ */
+ protected $_plugins = array();
+
+ /**
+ * Array of plugin's methods where an exception was thrown to avoid in next call
+ * Array keys are methods for magic call
+ *
+ * I think that these keys would rather be obtained using reflection of abstract class
+ *
+ * @var array
+ */
+protected $skipPlugins = array(
+                                'routeStartup' =&gt; array(),
+                                'routeShutdown' =&gt; array(),
+                                'dispatchLoopStartup' =&gt; array(),
+                                'preDispatch' =&gt; array(),
+                                'postDispatch' =&gt; array(),
+                                'dispatchLoopShutdown' =&gt; array()
+                            );
+</code></pre>
+
+<p>then remove all these functions as they copy each other, eg their behavior is similar to each other
+and add a magic method to call them instead</p>
+
+<pre><code>private function __call($method, $args)
+{
+    if (array_key_exists($method, $this-&gt;skipPlugins)) { // check is the proper method is called
+        foreach ($this-&gt;_plugins as $plugin) {
+            if (in_array($plugin, $this-&gt;skipPlugins[$method])) {
+                continue; // ie skip the plugin where exception has been thrown in
+            }
+            try {
+                if (count($args &gt; 0)) {
+                    $plugin-&gt;$method($args[0]);
+                } else {
+                    $plugin-&gt;$method();
+                }
+            } catch (Exception $e) {
+                if (Zend_Controller_Front::getInstance()-&gt;throwExceptions()) {
+                    throw $e;
+                } else {
+                    $this-&gt;getResponse()-&gt;setException($e);
+                    $this-&gt;skipPlugins[$method][] = $plugin;
+                }
+             }
+         }
+    } else {
+        require_once 'Zend/Controller/Action/Exception.php';
+        throw new Exception('Method "' . $method . '" does not exist!');
+     }
+ }
+</code></pre>
+
+<p>a bit stupid but this does work at least</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-20T20:22:48.000+0000</p> 
+        <div class="body">
+            <p>I tried to fully understand the code snippet and reproduce the issues, but I cannot.</p>
+
+<p>if you can provide a valid use-case and demonstrative script, please re-open.</p>
+
+<p>Thanks, Ralph</p>
+
+        </div>
+    </div>
+    </div>
+

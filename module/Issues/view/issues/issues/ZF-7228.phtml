@@ -1,0 +1,165 @@
+<h2>ZF-7228: Zend_Loader will include a file multiple times (no include_once)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-08T13:18:26.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-12T13:51:17.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In ZF-2923 (SVN 12769), the include_once call on line #83 was changed to include.  This created some cases where a single file could be included multiple times and cause a 'Cannot redeclare class' fatal error.</p>
+
+<pre class="highlight"><code>
+// Register the ZF autoload function
+require_once 'Zend/Loader/AutoLoader.php';
+$loader = Zend_Loader_Autoloader::getInstance();
+$loader-&gt;setFallbackAutoloader(true);
+$loader-&gt;suppressNotFoundWarnings();
+
+Zend_Locale::$compatibilityMode = false;
+$localeExists = class_exists('Locale') // Should equal false, but includes Zend/Locale.php
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jeff Mace (jeffmace) on 2009-07-08T13:38:50.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I just remembered to check the trunk and it looks like it has already been updated there.  When will that be moved into a tag?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jeff Mace (jeffmace) on 2009-07-08T13:46:46.000+0000</p> 
+        <div class="body">
+            <p>Ok, double sorry.  I'm not used to Fisheye so I was looking at an old version.  The latest trunk does not have include_once.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-07-08T18:41:49.000+0000</p> 
+        <div class="body">
+            <p>First, are you absolutely sure about the error and the fix?</p>
+
+<p>Zend_Loader::loadClass() does a class_exists() check before it ever attempts to load a class via include(). We switched from include_once() to include() as (a) the aforementioned class_exists() check typically short circuits the call in the first place, and (b) it provides some performance gain over its _once() cousin (which must do a stat() call internally to check against its internal path cache).</p>
+
+<p>Second, the case that you present indicates that your include_path is set incorrectly. if class_exists('Locale') is including Zend_Locale, that means that you have library/Zend/ on your include_path -- instead of just library/ -- which is what should be on the path.</p>
+
+<p>Finally, I'd recommend against using the autoloader as a fallback autoloader. One of the key reasons it was developed was to provide a namespaced autoloader -- which helps prevent the very issues you're running against. Always, always, always prefix your classes with your vendor/personal class prefix -- it prevents naming collisions, and assists the autoloader in preventing false positive lookups.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jeff Mace (jeffmace) on 2009-07-09T06:30:32.000+0000</p> 
+        <div class="body">
+            <p>To your first points, I can understand that you want to get the performance benefits of dropping include_once to just include, but it does add the possibility in some edge cases for including a file multiple times.  The only reason we've found it is because of some practices which are probably more lazy than anything on our part.  But I'll get into that after addressing the include_path.</p>
+
+<p>A standard PHP include path looks something like '.:{PEAR libraries}'.  Since there is a '.' in the include path, an attempt to load a class of name 'Locale' will include the Zend/Locale.php file because the Loader.php file also sits in that Zend directory.  That can be solved by shifting your include_path to ensure the real Locale file gets included before the Zend locale or by removing the '.'.  But that is only a fix if there is a Locale.php file elsewhere that you are trying to include.</p>
+
+<p>In this particular case we are running class_exists with the string 'Locale', which doesn't exist.  If class_exists returns false, we prepend a prefix and run the check again.  The second check finds the proper class and we continue running.  This is why the class_exists check doesn't protect us from the include call.</p>
+
+<pre class="highlight"><code>
+* This calls the autoloader with 'Zend_Locale', which includes the Zend/Locale.php file
+
+</code></pre>
+
+<ul><li>This call the auto loader with 'Locale', which should return false but causes a fatal error</li>
+<li>The class_exists check before the include call returns false because no file has been included that defines the class Locale</li>
+<li>The include call sees the '.' in the include path and includes Zend/Locale.php because the Loader.php file is in the Zend directory</li>
+<li>At that point the fatal error is thrown saying that Zend_Locale cannot be redeclared</li>
+</ul><p>If you are interested in keeping the benefits of the include call over include_once, could I suggest adding a setting to Zend_Loader that determines if it should use include or include_once?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrick van Dissel (tdm) on 2009-09-29T06:27:27.000+0000</p> 
+        <div class="body">
+            <p>I'm with Jeff Mace.
+I just got the same problem, we're looping over 2 different namespaces to autoload a class depending on the first namespace that it finds it in.
+With include_once it works perfectly, but with the current 1.9.2 and 1.9.3PL1 it just give me a blank error page without error.</p>
+
+<p>Note that I only have this problem running it on Zend Platform Enterprise Edition with code acceleration and such options enabled, locally on a WAMPserver it does not occur.
+Also note that the Zend_Loader::loadFile() function has an option to use include or include_one, but it's not used withing the loadClass() function when you do not give it any directories.</p>
+
+<p>I think all includes should be an include_once/require_once, no matter what.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrick van Dissel (tdm) on 2009-09-29T07:47:47.000+0000</p> 
+        <div class="body">
+            <p>Addition to my comment above:</p>
+
+<p>Zend_Loader @line: 82&amp;83:</p>
+
+<pre class="highlight"><code>
+self::_securityCheck($file);
+include $file;
+</code></pre>
+
+<p>can be replaced by the following line:</p>
+
+<pre class="highlight"><code>
+self::loadFile($file, null, true);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Radek (salac.r) on 2010-01-05T23:52:46.000+0000</p> 
+        <div class="body">
+            <p>I have just the same problem, Our class Auth was included as Zend_Auth and it caused problem "Cannot redeclare class". I spent 4 hours  to figure out the reason. Please repair these bug.
+Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-01-12T13:51:16.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk, to release with 1.10.0.</p>
+
+        </div>
+    </div>
+    </div>
+

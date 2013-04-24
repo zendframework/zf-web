@@ -1,0 +1,375 @@
+<h2>ZF-6351: Zend_Soap_Server should facilitate the use of document-literal-wrapped WSDL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-19T18:05:03.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-01T21:16:35.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Enrico Zimuel (zimuel)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Soap_Server</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6349">ZF-6349</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><em>For more information about "document-literal-wrapped WSDL" please see ZF-6349</em></p>
+
+<p>As it is, PHP's SOAP extension can be used with a WSDL document making use of the "wrapped parameters" style (used by .NET and others). However, unwrapping is not done automatically. Consider the following method:</p>
+
+<pre class="highlight"><code>
+/**
+ * This methods returns Hello $firstname $lastname.
+ * @param string $firstname First name
+ * @param string $lastname Last name
+ * @return string
+ */
+public function helloYou($firstname, $lastname) {
+    return "Hello {$firstname} {$lastname}";
+}
+</code></pre>
+
+<p>A typical document-literal-wrapped WSDL document would wrap the two arguments into a "parameters" object declared by the message {{part}}, and whose complexType is defined in the {{types}} schema as a sequence of these parameters. Basically, after going through SoapServer, the {{helloYou()}} method would actually be called with <em>only 1 argument</em>: a <em>stdClass</em> object whose properties are {{firstname}} and {{lastname}}. Additionally, wrapping the return value is not automatic either, and one would have to return an array with $methodname.'Result' as the key and the actual return value as its value.</p>
+
+<p>That is to say, the function above would have to be rewritten like this:</p>
+
+<pre class="highlight"><code>
+/**
+ * This methods returns Hello $firstname $lastname.
+ * @param string $firstname First name
+ * @param string $lastname Last name
+ * @return string
+ */
+public function helloYou($parameters) {
+    return array('helloYouResult' =&gt; "Hello {$parameters-&gt;firstname} {$parameters-&gt;lastname}");
+}
+</code></pre>
+
+<p>Beyond the fact this hack becomes quickly unreadable and completely depends on how the WSDL is made (whereas it should be transparent), it also poses a major problem when the WSDL is auto-generated from the same class by Zend_Soap_AutoDiscover (provided the ZF-6349 are applied as well as its dependencies). The <em>function parameters</em> and their <em>description</em> in the docblock are <em>inconsistent</em>. And this would throw an exception when doing reflection in Zend_Soap_AutoDiscover. BAD!</p>
+
+<p>So, after this long explanation, I have the <em>beginning of a solution</em> but it's not integrated at all with Zend.. that is to say, the Zend_Soap_Server user must know he/she needs it and have the appropriate class, while ideally this should all be transparent.</p>
+
+<p>The idea is to have a <em>proxy</em> class between SoapServer and the actual service class. This proxy is be able to intercept calls via the {{__call()}} magic method, to pre-process arguments and the return value appropriately (wrap/unwrap). Instead of using {{setClass()}} on Zend_Soap_Server, the user would have to do the following:</p>
+
+<pre class="highlight"><code>
+$proxy = new TestService_Proxy('TestService', array(), array('wrappedParts' =&gt; true));
+$server-&gt;setObject($proxy);
+</code></pre>
+
+<p>The {{TestService_Proxy}} class (well, yes, it was for a test service.. don't mind the name ;)) is the following (inspired by Zend_Soap_Client):</p>
+
+<pre class="highlight"><code>
+&lt;?php
+class TestService_Proxy
+{
+    protected $_className;
+    protected $_classInstance = null;
+    protected $_wrappedParts = false;
+    
+    /**
+     * TestService_Proxy creates an intermediate (proxy) class between the SOAP server
+     * and the actual handling class, allowing pre-processing of function arguments and return values.
+     * 
+     * @param string $className name of the handling class to proxy.
+     * @param array $classArgs arguments used to instantiate the handling class.
+     * @param array $options proxy options.
+     */
+    public function __construct($className, $classArgs = array(), $options = array())
+    {
+        $class = new ReflectionClass($className);
+        $constructor = $class-&gt;getConstructor();
+        if ($constructor === null) {
+            $this-&gt;_classInstance = $class-&gt;newInstance();
+        } else {
+            $this-&gt;_classInstance = $class-&gt;newInstanceArgs($classArgs);
+        }
+        $this-&gt;_className = $className;
+        $this-&gt;_setOptions($options);
+    }
+    
+    protected function _setOptions($options)
+    {
+        foreach ($options as $key =&gt; $value) {
+            switch ($key) {
+                case 'wrappedParts':
+                    $this-&gt;_wrappedParts = $value;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    
+    protected function _getOptions()
+    {
+        $options = array();
+        $options['wrappedParts'] = $this-&gt;_wrappedParts;
+        return $options;
+    }
+    
+    protected function _preProcessArguments($name, $arguments)
+    {
+        if ($this-&gt;_wrappedParts &amp;&amp; count($arguments) == 1 &amp;&amp; is_object($arguments[0])) {
+            return get_object_vars($arguments[0]);
+        } else {
+            return $arguments;
+        }
+    }
+    
+    protected function _preProcessResult($name, $result)
+    {
+        if ($this-&gt;_wrappedParts) {
+            return array($name.'Result' =&gt; $result);
+        } else {
+            return $result;
+        }
+    }
+    
+    public function __call($name, $arguments)
+    {
+        $result = call_user_func_array(array($this-&gt;_classInstance, $name), $this-&gt;_preProcessArguments($name, $arguments));
+        return $this-&gt;_preProcessResult($name, $result);
+    }
+}
+</code></pre>
+
+<p>Now, this works pretty well and lets you write your service class without having to take the WSDL style into account.
+The problem, as I said, is it's completely NOT integrated with the rest of Zend. I would appreciate <em>feedback and help</em> on this, as I don't really know what approach to take to make use of it transparently in Zend_Soap_Server...</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Walter Tamboer (walter.tamboer) on 2011-06-23T11:27:45.000+0000</p> 
+        <div class="body">
+            <p>As far as I can see it is currently impossible to let .NET clients interact with a SOAP service without applying the above solution. Therefor I do not understand why this issue has a minor priority.
+Although the given solution works, I would make more sense to create a Zend_Soap_Server_DotNet class instead of creating a proxy class for a service. This would also be in line with the Zend_Soap_Client_DotNet class. Of course this Zend_Soap_Server_DotNet could create an internal wrapper around the service. One would have to overload the setClass and setObject of PHP's SoapServer class in order to make it work I think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-01-04T19:32:13.000+0000</p> 
+        <div class="body">
+            <p>While the solution to the problem is well-documented, we really, really need to have a sample SOAP payload from a .NET client in order to create reasonable test cases here. Without this information, we can't judge for certain if the solution adequately addresses the issue, nor support the solution long-term.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shadow Caster (shadowcaster) on 2012-03-10T20:40:35.000+0000</p> 
+        <div class="body">
+            <p>Forget .NET, Matthew, have you tested it with a Zend_Soap_Client? Because it doesn't work. The Zend_Soap_client class is unable to correctly interact with a Zend_Soap_Server if the WSDL is auto-generated with Zend_Soap_AutoDiscover under a document/literal binding. Try it and you'll see. I spent two days trying to figure this out until I got to this page.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2012-03-29T19:33:33.000+0000</p> 
+        <div class="body">
+            <p>I'm encountering this exact problem with 1.10.8. RPC-literal makes it hard to do schema-validation, while Document-literal forces all the function signatures and docblocks to be inconsistent and flawed. As Shadow Caster mentions, the behavior isn't even consistent inside the Zend Framework ecosystem.</p>
+
+<p>Thankfully, Fabien's proxy class solutions seems to work quite well, for now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2012-04-26T17:13:34.000+0000</p> 
+        <div class="body">
+            <p>I implemented the proxy solution in Zend_Soap_Server_Proxy class and I changed the Zend_Soap_Server to manage the document-literal SOAP using an option parameter 'wsi_compliant' (WS-I standard used by .NET and Java/Axis).. If this option is set to true Zend_Soap_Server will use the proxy class to manage the service.
+You can set the wsi_compliant option passing by construct or using the setWsiCompliant($value) method.</p>
+
+<p>$soap = new Zend_Soap_Server("http://url?wsdl", array('wsi_compliant'=&gt;true));
+or
+$soap-&gt;setWsiCompliant(true);</p>
+
+<p>In order to produce a document-literal WSDL using the AutoDiscover component you have to use the following settings:
+$autodiscover = new Zend_Soap_AutoDiscover();
+$autodiscover-&gt;setBindingStyle(array('style' =&gt; 'document'));
+$autodiscover-&gt;setOperationBodyStyle(array('use' =&gt; 'literal'));
+$autodiscover-&gt;setComplexTypeStrategy('Zend_Soap_Wsdl_Strategy_ArrayOfTypeSequence');</p>
+
+<p>I committed these changes in trunk (commit #24718).
+Try it and let me know, thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2012-05-02T11:38:43.000+0000</p> 
+        <div class="body">
+            <p>Fixed the Zend_Soap_Server_Proxy class with unit test (commit #24744).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien Crespel (fcrespel) on 2012-08-01T21:16:35.000+0000</p> 
+        <div class="body">
+            <p>With some delay (3 months...) I finally tested the proxy solution you committed, Enrico. As far as I can see, it works fine when using {{setClass()}} on {{Zend_Soap_Server}}, but when using {{setObject()}} it instantiates a new, fresh object instead of using the existing one. IMO this defeats the purpose of the {{setObject()}} method, which is to be able to pass an already instantiated and configured object.</p>
+
+<p>I've prepared a patch against r25030 to address this, and to improve extensibility of the Proxy class (additional parameter to {{_preProcessArguments()}} and new {{_preProcessResult()}} method)).</p>
+
+<p>Since I don't seem to have an "Add attachment" button in JIRA (permissions issue?), I'll just post it below. Could you please review it and apply it quickly, hopefully before ZF 1.12.0 gets released? :)</p>
+
+<pre class="highlight"><code>
+--- library/Zend/Soap/Server/Proxy.php  (revision 25030)
++++ library/Zend/Soap/Server/Proxy.php  (working copy)
+@@ -26,27 +26,68 @@
+      * @var object
+      */
+     protected $_classInstance;
++
+     /**
+-     * @var string
+-     */
+-    protected $_className;
+-    /**
+      * Constructor
+      * 
+-     * @param object $service 
++     * @param string|object $className name or instance of the service class to proxy
++     * @param array $classArgs arguments used to instantiate the handling class
+      */
+     public function  __construct($className, $classArgs = array())
+     {
++        if (is_object($className)) {
++            $this-&gt;setObject($className);
++        } else if (is_string($className)) {
++            $this-&gt;setClass($className, $classArgs);
++        } else {
++            require_once 'Zend/Soap/Server/Exception.php';
++            throw new Zend_Soap_Server_Exception('Invalid className argument (' . gettype($className) . ')');
++        }
++    }
++
++    /**
++     * Set the service class to proxy.
++     * 
++     * @param string $className name of the handling class to proxy.
++     * @param array $classArgs arguments used to instantiate the handling class.
++     */
++    public function setClass($className, $classArgs = array())
++    {
++        if (!is_string($className)) {
++            require_once 'Zend/Soap/Server/Exception.php';
++            throw new Zend_Soap_Server_Exception('Invalid class argument (' . gettype($className) . ')');
++        }
++
++        if (!class_exists($className)) {
++            require_once 'Zend/Soap/Server/Exception.php';
++            throw new Zend_Soap_Server_Exception('Class "' . $className . '" does not exist');
++        }
++
+         $class = new ReflectionClass($className);
+         $constructor = $class-&gt;getConstructor();
+-   if ($constructor === null) {
++        if ($constructor === null) {
+             $this-&gt;_classInstance = $class-&gt;newInstance();
+-   } else {
++        } else {
+             $this-&gt;_classInstance = $class-&gt;newInstanceArgs($classArgs);
+-   }
+-   $this-&gt;_className = $className;
++        }
+     }
++
+     /**
++     * Set the service object to proxy.
++     * 
++     * @param object $object
++     */
++    public function setObject($object)
++    {
++        if (!is_object($object)) {
++            require_once 'Zend/Soap/Server/Exception.php';
++            throw new Zend_Soap_Server_Exception('Invalid object argument (' . gettype($object) . ')');
++        }
++
++        $this-&gt;_classInstance = $object;
++    }
++
++    /**
+      * Proxy for the WS-I compliant call
+      * 
+      * @param  string $name
+@@ -55,21 +96,35 @@
+      */
+     public function __call($name, $arguments)
+     {
+-        $result = call_user_func_array(array($this-&gt;_classInstance, $name), $this-&gt;_preProcessArguments($arguments));
+-        return array("{$name}Result"=&gt;$result);
++        $result = call_user_func_array(array($this-&gt;_classInstance, $name), $this-&gt;_preProcessArguments($name, $arguments));
++        return $this-&gt;_preProcessResult($name, $result);
+     }
++
+     /**
+-     *  Pre process arguments
++     * Pre process arguments
+      * 
++     * @param  string $name
+      * @param  mixed $arguments
+-     * @return array 
++     * @return array
+      */
+-    protected function _preProcessArguments($arguments)
++    protected function _preProcessArguments($name, $arguments)
+     {
+         if (count($arguments) == 1 &amp;&amp; is_object($arguments[0])) {
+             return get_object_vars($arguments[0]);
+-   } else {
++        } else {
+             return $arguments;
+-   }
++        }
+     }
++
++    /**
++     * Pre process result
++     * 
++     * @param  string $name
++     * @param  mixed $result
++     * @return array
++     */
++    protected function _preProcessResult($name, $result)
++    {
++        return array("{$name}Result" =&gt; $result);
++    }
+ }
+\ No newline at end of file
+
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

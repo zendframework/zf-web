@@ -1,0 +1,153 @@
+<h2>ZF-5949: When connectivity is down, it fails with fatal non-object error</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-03-05T05:36:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-04-02T16:09:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.1 (12/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Trevor Johns (tjohns)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Gdata</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In short: If network connectivity is down <em>after</em> you got Zend_Gdata_Gapps service with valid authentication credentials, then the next Google request fails and throws a fatal error rather than a nice Zend exception.</p>
+
+<p>That can happen e.g. in batch processing, when you use Zend_Gdata_Gapps over several actions, and suddenly your comms go down.</p>
+
+<p>How to duplicate the problem:
+&lt;?php
+set_include_path( get_include_path() . PATH_SEPARATOR . dirname(__FILE__). "/../library" );
+require_once 'Zend/Loader.php';
+Zend_Loader::loadClass('Zend_Gdata_ClientLogin');
+Zend_Loader::loadClass('Zend_Gdata_Gapps');
+
+$client = Zend_Gdata_ClientLogin::getHttpClient("GOOGLE_SERVICE_EMAIL", "GOOGLE_SERVICE_PASS", Zend_Gdata_Gapps::AUTH_SERVICE_NAME);
+echo "\nAuthenticated ok. NOW DISCONNECT the network cable";
+sleep( 20 );
+$service = new Zend_Gdata_Gapps($client, "GOOGLE_DOMAIN");
+
+$service-&gt;createUser(
+    'sleepy.smallelephant',
+    'Small Elephant', 'Sleepy', 'very secret password', null
+);
+?&gt;</p>
+
+<p>Trace:
+Fatal error: Call to a member function getBody() on a non-object in /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata/Gapps.php on line 151</p>
+
+<p>Call Stack:
+    0.0051     239216   1. {main}() /Users/peterk/google.mytbwa.com/trunk/google_gateway/action/process.php:0
+    0.0901    3633944   2. process_action_set_status() /Users/peterk/google.mytbwa.com/trunk/google_gateway/action/process.php:745
+    0.0901    3634496   3. process_action() /Users/peterk/google.mytbwa.com/trunk/google_gateway/action/process.php:307
+   10.0916    3643920   4. Zend_Gdata_Gapps-&gt;retrieveUser() /Users/peterk/google.mytbwa.com/trunk/google_gateway/action/process.php:427
+   10.0952    3761512   5. Zend_Gdata_Gapps-&gt;getUserEntry() /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata/Gapps.php:754
+   10.0953    3761784   6. Zend_Gdata-&gt;getEntry() /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata/Gapps.php:465
+   10.0953    3762072   7. Zend_Gdata_App-&gt;getEntry() /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata.php:186
+   10.0953    3762072   8. Zend_Gdata_App-&gt;importUrl() /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata/App.php:219
+   10.0953    3763024   9. Zend_Gdata_Gapps-&gt;get() /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata/App.php:718
+   10.1105    4222608  10. Zend_Gdata_Gapps::throwServiceExceptionIfDetected() /Users/peterk/google.mytbwa.com/trunk/google_gateway/library/Zend/Gdata/Gapps.php:205</p>
+
+<p>Proposed solution:
+In library/Zend/Gdata/Gapps.php modify throwServiceExceptionIfDetected($e) to use something like following:
+    $response= $e-&gt;getResponse();
+            if( $response ) {
+                $error = new Zend_Gdata_Gapps_ServiceException();
+                $error-&gt;importFromString( $response-&gt;getBody() );
+                //var_dump(debug_backtrace());
+                //debug_print_backtrace();
+                throw $error;
+            }
+            else {
+                throw new Exception( "Google connection is down or some other serious error." );
+            }</p>
+
+<p>This is in version 1.7.4 but throwServiceExceptionIfDetected() is same in 1.7.6 so most likely there's the same problem in 1.7.6 and the fix should work for 1.7.6 too.</p>
+
+<p>I've signed the contributor's agreement so it's OK for you to use any of the above. Thx</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-03-07T11:38:44.000+0000</p> 
+        <div class="body">
+            <p>Patch sent to [~jhartmann] for review:</p>
+
+<p><a href="http://codereview.appspot.com/24079">http://codereview.appspot.com/24079</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-04-02T16:08:49.000+0000</p> 
+        <div class="body">
+            <p>Committed to trunk as r14612.
+Committed to release-1.7 as r14613.
+Marking as fixed as of the next mini release.</p>
+
+<pre class="literal">
+commit e882d1eb739c7a77dfbaa28bcea7254bae715ef6
+Author: tjohns 
+Date:   Thu Apr 2 22:52:29 2009 +0000
+
+    ZF-5949: Update Zend_Gdata_Gapps to throw an exception (rather than a fatal
+    error) when connectivity is lost.
+    
+    Review URL: <a href="http://codereview.appspot.com/24079">http://codereview.appspot.com/24079</a>
+    
+    git-svn-id: <a href="http://framework.zend.com/svn/framework/standard/trunk@14612">http://framework.zend.com/svn/framework/…</a> 44c647ce-9c0f-0410-b52a-842ac1e357ba
+
+commit ac3147eb8d9be1928ffb2bbfb4f1ef3586105cf2
+Author: tjohns 
+Date:   Thu Apr 2 23:04:12 2009 +0000
+
+    Merging r14612 from trunk to release-1.7.
+    
+    ZF-5949: Update Zend_Gdata_Gapps to throw an exception (rather than a fatal
+    error) when connectivity is lost.
+    
+    Review URL: <a href="http://codereview.appspot.com/24079">http://codereview.appspot.com/24079</a>
+    
+    git-svn-id: <a href="http://framework.zend.com/svn/framework/standard/branches/release-1.7@14613">http://framework.zend.com/svn/framework/…</a> 44c647ce-9c0f-0410-b52a-842ac1e357ba
+</pre>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,221 @@
+<h2>ZF-11741: Issues with file inputs in subforms</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-09-15T03:27:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-09-29T18:11:15.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>using inputs with names structured like this:</p>
+
+<p>subform[subsubform][name] i.e. Zend_SubForm style, eg files[0][file]</p>
+
+<p>kills Zend_File_Transfer_Adapter_Abstract::_detectMimeType</p>
+
+<p>--</p>
+
+<p>ZF currently creates file inputs in subforms with names as: "name" rather than "subform[subsubform][name]" - which is the naming syntax for all other subform elements, which I can only presume is because the transfer atapter wont accept file inputs in that structure.  This however causes "namespace" clashes and is not consistent with the naming conventions for all other subform elements.</p>
+
+<p>manually creating file elements with names subform[subsubform][name] confuses Zend_File_Transfer_Atapter_Http::_prepareFiles() and it does not produce usable output.</p>
+
+<p>The mods below to Zend_File_Transfer_Atapter_Http will produce usable output for elements structured as form[subform][name] , but will proably break in other situations.  additionally to recieve the file you need to manually set the name for the file element as $form-&gt;subform-&gt;subsubform-&gt;fileinput-&gt;setName('subform_subsubform_name'); so this is not a usable solution, more something to illustrate the problem.</p>
+
+<pre class="literal"> 
+
+    /**
+     * Helps the _prepareFiles method make the $_FILES array to match the internal syntax of one file per entry
+     *
+     * @param   array   $content
+     * @param   str     $form
+     * @return  void
+     */
+    protected function _prepareNestedFileArray($content, $form)     
+    {
+        if($form){
+            
+            if(is_array($content) &amp;&amp; !array_key_exists('name', $content)){
+                
+                foreach ($content as $parent =&gt; $child) {
+                    $this-&gt;_prepareNestedFileArray($child, $parent);
+                }
+                
+            }elseif(is_array($content)){
+
+                if (is_array($content['name'])) {
+
+                    foreach ($content as $param =&gt; $file) {
+                        if(is_array($file)){
+                            foreach ($file as $number =&gt; $target) {
+                                if(is_array($target)){
+                                    foreach($target as $name =&gt; $val){
+                                        $this-&gt;_files[$form. '_' . $number . '_'. $name][$param] = $val;
+                                        $this-&gt;_files[$form]['multifiles'][$number] = $form. '_' . $number. '_'. $name  ;
+                                    }
+                                }else{
+                                    $this-&gt;_files[$form . '_'. $number . '_' ][$param]      = $target;
+                                    $this-&gt;_files[$form]['multifiles'][$number] = $form . '_' . $number . '_'  ;                        
+                                }
+                            }
+                        }
+                    }
+
+                    //echo print_r($_FILES,1);
+                    //echo "\n\n post processed files ".print_r($this-&gt;_files,1);
+                    //echo print_r($this-&gt;_files[$form]['multifiles'],1);
+                    //die();
+                    
+                    $this-&gt;_files[$form]['name'] = $form;
+
+                    foreach($this-&gt;_files[$form]['multifiles'] as $key =&gt; $value) {
+
+                        $this-&gt;_files[$value]['options']   = $this-&gt;_options;
+                        $this-&gt;_files[$value]['validated'] = false;
+                        $this-&gt;_files[$value]['received']  = false;
+                        $this-&gt;_files[$value]['filtered']  = false;
+
+                        //echo '  '.$value ;
+                        //die(print_r($this-&gt;_files[$value],1));
+                        //if (empty($this-&gt;_files[$value]['name'])) die(); //die(print_r($this-&gt;_files,1));
+
+                        $mimetype = $this-&gt;_detectMimeType($this-&gt;_files[$value]);
+                        $this-&gt;_files[$value]['type'] = $mimetype;
+
+                        $filesize = $this-&gt;_detectFileSize($this-&gt;_files[$value]);
+                        $this-&gt;_files[$value]['size'] = $filesize;
+                        
+                        //this is where it all goes wrong
+                        if ($this-&gt;_options['detectInfos']) {
+                            if(is_array($_FILES[$form]['type'][$key])){
+                                $k = trim(str_replace($form.'_','',str_replace($key.'_','',$value)),'_');
+                                $_FILES[$form]['type'][$key][$k] = $mimetype;
+                            }else{
+                                $_FILES[$form]['type'][$key] = $mimetype;
+                            }
+                            if(is_array($_FILES[$form]['type'][$key])){
+                                $_FILES[$form]['size'][$key][$k] = $filesize;
+                            }else{
+                                $_FILES[$form]['size'][$key] = $filesize;
+                            }                           
+                        }
+                        
+                    }
+                } else {
+                    $this-&gt;_files[$form]              = $content;
+                    $this-&gt;_files[$form]['options']   = $this-&gt;_options;
+                    $this-&gt;_files[$form]['validated'] = false;
+                    $this-&gt;_files[$form]['received']  = false;
+                    $this-&gt;_files[$form]['filtered']  = false;
+
+                    $mimetype = $this-&gt;_detectMimeType($this-&gt;_files[$form]);
+                    $this-&gt;_files[$form]['type'] = $mimetype;
+
+                    $filesize = $this-&gt;_detectFileSize($this-&gt;_files[$form]);
+                    $this-&gt;_files[$form]['size'] = $filesize;
+
+                    if ($this-&gt;_options['detectInfos']) {
+                        $_FILES[$form]['type'] = $mimetype;
+                        $_FILES[$form]['size'] = $filesize;
+                    }
+                }               
+            }
+        }   
+    }
+    /**
+     * Prepare the $_FILES array to match the internal syntax of one file per entry
+     *
+     * @param  array $files
+     * @return array
+     */
+    protected function _prepareFiles()
+    {
+        if(empty($this-&gt;_files) || !count($this-&gt;_files)){
+            
+            $this-&gt;_files = array();
+
+            //echo "\n\n preparefiles called \n\n ";//.print_r(debug_backtrace(false),1);
+            //echo "\n\n pre processed files ".print_r($this-&gt;_files,1);
+            //echo "\n\n _FILES ".print_r($_FILES,1);
+            //echo "\n\n _options ".print_r($this-&gt;_options,1);
+            
+            foreach ($_FILES as $form =&gt; $content) {
+
+                $this-&gt;_prepareNestedFileArray($content, $form);
+                
+            }
+        }
+
+        return $this;
+    }  
+
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-09-19T06:30:50.000+0000</p> 
+        <div class="body">
+            <p>No, this is a limitation of php's file upload capability.
+From ZF's manual:</p>
+
+<p>{quote}
+File elements in Subforms</p>
+
+<p>When you use file elements in subforms you must set unique names. For example, if you name a file element in subform1 "file", you must give any file element in subform2 a different name.</p>
+
+<p>If there are 2 file elements with the same name, the second element is not be displayed or submitted.</p>
+
+<p>Additionally, file elements are not rendered within the sub-form. So when you add a file element into a subform, then the element will be rendered within the main form.
+{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-09-29T18:11:15.000+0000</p> 
+        <div class="body">
+            <p>Closing as wont fix as there is actually no way to solve this limitation</p>
+
+        </div>
+    </div>
+    </div>
+

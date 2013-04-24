@@ -1,0 +1,271 @@
+<h2>ZF-1897: Leading/trailing newlines and spaces are preserved when loading XML from HTTP response.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-31T10:37:29.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-28T12:39:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.8 (07/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_XmlRpc_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10781/response-chunked.txt">response-chunked.txt</a></li>
+            <li><a href="/issues/secure/attachment/10780/response-not-chunked.txt">response-not-chunked.txt</a></li>
+            <li><a href="/issues/secure/attachment/10760/Zend_Http_Response.patch">Zend_Http_Response.patch</a></li>
+            <li><a href="/issues/secure/attachment/14341/ZF-1897_reproduce.patch">ZF-1897_reproduce.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When parsing a HTTP response with "Transfer-encoding: chunked" header Zend_Http_Response::getBody() tries to decode the body using Zend_Http_Response::decodeChunkedBody(). Unfortunately the decoded body is not trimmed as Zend_Http_Response::extractBody() already does for not chunked bodies.
+This results in a problem when using Zend_XmlRpc_Client because SimpleXML expects the XML declaration at the start of the document.
+I'd like to suggest to change Zend_Http_Response::decodeChunkedBody() as follows (i.e. simply adding a ltrim() call before returning the decoded body): see attachement.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-08-31T18:21:03.000+0000</p> 
+        <div class="body">
+            <p>Assign to Shahar.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-09-03T09:00:49.000+0000</p> 
+        <div class="body">
+            <p>Hi, and thanks for the report and patch.</p>
+
+<p>Are you using ::decodeChunkedBody() statically without instantiating a Response object?</p>
+
+<p>If you could supply me with some reproduction code (for example a URL that I can send a request to that returns such problematic response) that would be most useful. The reason I need it is because the body which is decoded using decodeChunkedBody() should already be trimmed from the leading blank line as it is received from the server.</p>
+
+<p>Additionally, your bug made me notice an even bigger issue - in some cases, the extractBody() method removed intentional blank lines and spaces from the response body - this is of course not acceptable, and I would like to change it, and not use ltrim() in any case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Foo Bar (jreich) on 2007-09-06T10:14:27.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I noticed this problem when using Zend_XmlRpc_Client.
+Zend_XmlRpc_Client aggregates an instance of Zend_Http_Client and calls Zend_Http_Client::request() within Zend_XmlRpc_Client::doRequest().
+Zend_Http_Client::request() calls Zend_Http_Response::fromString() to construct an instance of Zend_Http_Response.
+Zend_Http_Response::fromString() on his part calls Zend_Http_Response::extractBody() to get the contents. ::extractBody() uses ltrim() to string newlines.
+Later Zend_Http_Response::getBody() is called. If the body is not chunked there is no problem because there are no leading newlines and the XML declaration is at the start of the document.
+But if the body is chunked the decoded body may contain new lines. Which results in an error when SimpleXML tries to parse the document in Zend_XmlRpc_Response::loadXml().
+Please look at the attached sample responses (XML-RPC response bodies cut off).
+On closer inspection you will notice that Zend_Http_Response will cut off all leading newlines in response-not-chunked.txt which results in a valid XML document.
+But in response-chunked.txt Zend_Http_Reponse will only cut off newlines that stand ahead of the first length information (line 9).</p>
+
+<p>I'm not sure wheter simply removing all leading newlines (as I proposed) is the best way to solve the problem. Maybe it would be a better approach for this particular problem to remove leading newlines in Zend_XmlRpc_Response::loadXml().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-09-09T06:31:27.000+0000</p> 
+        <div class="body">
+            <p>Looking at the samples you sent, it looks like the problem is in the response (and in the way Zend_XmlRpc parses it) and not in Zend_Http_Client. The chunked response actually contains leading spaces (sent by the server). Logically, Zend_Http_Client should not be cutting off any data from the response sent by the server - including leading white space, as long as it's a part of the response body.</p>
+
+<p>I suggest changing Zend_XmlRpc to trim any whitespace from the response body if it causes SimpleXML to fail.</p>
+
+<p>I am assiging this to the XmlRpc owners - I will also file a new bug on Zend_Http_Response because it shouldn't be trimming anything at all (which now it does).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-09-09T06:32:33.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Matthew</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-10-11T13:12:43.000+0000</p> 
+        <div class="body">
+            <p>Setting component to Zend_XmlRpc</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-03-06T10:12:15.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for 1.5.0 RC2</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-03-06T20:24:01.000+0000</p> 
+        <div class="body">
+            <p>I'm having trouble finding a way to re-create the issue in a test, and will need to consult with Shahar to fix. Rescheduling for next mini release following 1.5.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:05:27.000+0000</p> 
+        <div class="body">
+            <p>This issue should have been fixed for the 1.5 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:52.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-22T10:39:44.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next minor release; need to work with Shahar on a way to test this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-22T07:15:10.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Shahar; need help determining how to test to recreate the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-17T14:17:39.000+0000</p> 
+        <div class="body">
+            <p>Shahar, any ideas here?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-02T13:23:06.000+0000</p> 
+        <div class="body">
+            <p>How about this for a reproducing test case:  I used the OP's 'response-chunked.txt' file as a basis to create this test response:</p>
+
+<pre class="highlight"><code>
+HTTP/1.1 200 OK
+Date: Thu, 06 Sep 2007 14:58:44 GMT
+Server: Apache/2.0.54 (Debian GNU/Linux) DAV/2 SVN/1.1.4 mod_python/3.1.3 Python/2.3.5 mod_ssl/2.0.54 OpenSSL/0.9.7e PHP/5.1.6
+X-Powered-By: PHP/5.1.6
+Connection: close
+Transfer-Encoding: chunked
+Content-Type: text/html; charset=iso-8859-1
+
+92 
+
+ 
+&lt;?xml version="1.0"?&gt;
+FOO
+ 
+0 
+ 
+</code></pre>
+
+<p>Then run the following unit test using it:</p>
+
+<pre class="highlight"><code>
+    /**
+     * @group ZF-1897
+     */
+    public function testCallFailsWhenHttpClientDoesNotTrimChunkedResponse()
+    {
+        $baseUri = "http://foo:80";
+        $this-&gt;httpAdapter = new Zend_Http_Client_Adapter_Test();
+        $this-&gt;httpClient = new Zend_Http_Client(null, array('adapter' =&gt; $this-&gt;httpAdapter));
+        
+        $respBody = file_get_contents(dirname(__FILE__) . "/_files/ZF1897-response-chunked.txt");
+        $this-&gt;httpAdapter-&gt;setResponse($respBody);
+
+        $this-&gt;xmlrpcClient = new Zend_XmlRpc_Client($baseUri);
+        $this-&gt;xmlrpcClient-&gt;setHttpClient($this-&gt;httpClient);
+        
+        $this-&gt;assertEquals('FOO', $this-&gt;xmlrpcClient-&gt;call('foo'));
+    }
+</code></pre>
+
+<p>The result of this test is:</p>
+
+<pre class="highlight"><code>
+++ phpunit --verbose --group ZF-1897 AllTests
+PHPUnit 3.5.13 by Sebastian Bergmann.
+[...snipped...]
+There was 1 error:
+1) Zend_XmlRpc_ClientTest::testCallFailsWhenHttpClientDoesNotTrimChunkedResponse
+Zend_XmlRpc_Client_FaultException: Failed to parse response
+[...snipped...]
+</code></pre>
+
+<p>Apply Shahar's suggested fix (trim the body):</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/XmlRpc/Client.php
+===================================================================
+--- library/Zend/XmlRpc/Client.php      (revision 24104)
++++ library/Zend/XmlRpc/Client.php      (working copy)
+@@ -294,7 +294,7 @@
+             $response = new Zend_XmlRpc_Response();
+         }
+         $this-&gt;_lastResponse = $response;
+-        $this-&gt;_lastResponse-&gt;loadXml($httpResponse-&gt;getBody());
++        $this-&gt;_lastResponse-&gt;loadXml(trim($httpResponse-&gt;getBody()));
+     }
+
+     /**
+</code></pre>
+
+<p>...and the unit test above (and the XmlRpc test suite as a whole) now passes.</p>
+
+<p>So it looks to me like trimming the body is the way to go.  Thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-24T15:05:27.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24150</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-28T12:39:50.000+0000</p> 
+        <div class="body">
+            <p>Merged to release-1.11 in r24159</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,249 @@
+<h2>ZF-11129: DbSelect Adapter connect again</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-02T00:47:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-02-26T06:14:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+            <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13661/double_connect.jpg">double_connect.jpg</a></li>
+            <li><a href="/issues/secure/attachment/13659/double_connect_cache.jpg">double_connect_cache.jpg</a></li>
+            <li><a href="/issues/secure/attachment/13657/paginator_firebug.jpg">paginator_firebug.jpg</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>New Problem description - see my next comment</p>
+
+<p>Old description
+-Hello,-</p>
+
+<p>-i'm using Zend_Paginator with the DbSelect adapter.-</p>
+
+<p>-Zend_Paginator_Adapter_DbSelect connect to the database, although there is a connection.-</p>
+
+<p>-Screenshots:
+-$dbLisp connects to the database to get the session.-
+-Afterwards I use $dbLisp--&gt;select() to create the Zend_Db_Select object -&gt; so it should also be connected, but Zend_Paginator connect again.-</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-02T02:03:03.000+0000</p> 
+        <div class="body">
+            <p>Zend_Paginator and his adapter connects never to a database!
+This is the sole task of the database adapter.</p>
+
+<p>Why is this issue critical?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-02T06:37:01.000+0000</p> 
+        <div class="body">
+            <p>Can you provide a complete example to reproduce the problem?
+Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-02T07:19:37.000+0000</p> 
+        <div class="body">
+            <p>I can not reproduce the problem:</p>
+
+<pre class="highlight"><code>
+// Adapter
+$dbAdapter = new Zend_Db_Adapter_Pdo_Mysql(array(
+    'host'     =&gt; 'localhost',
+    'username' =&gt; 'foo',
+    'password' =&gt; '',
+    'dbname'   =&gt; 'bar',
+    'profiler' =&gt; true,
+));
+
+// Select for a general query
+$selectForGeneralQuery = new Zend_Db_Select($dbAdapter);
+$selectForGeneralQuery-&gt;from('baz')-&gt;limit(1);
+
+// Execute
+$dbAdapter-&gt;query($selectForGeneralQuery);
+
+// Select for paginator
+$selectForPaginator = new Zend_Db_Select($dbAdapter);
+$selectForPaginator-&gt;from('baz');
+
+// Paginator
+$paginator = Zend_Paginator::factory($selectForPaginator);
+$paginator-&gt;setCurrentPageNumber(1);
+
+// Execute
+$paginator-&gt;getItem(1);
+
+// Ouput
+foreach ($dbAdapter-&gt;getProfiler()-&gt;getQueryProfiles() as $query) {
+    echo ($query-&gt;getQuery()) . "\n";
+}
+
+</code></pre>
+
+<pre class="highlight"><code>
+connect
+SELECT `baz`.* FROM `baz` LIMIT 1
+SELECT COUNT(1) AS `zend_paginator_row_count` FROM `baz`
+SELECT `baz`.* FROM `baz` LIMIT 10
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Keckeis (thadafinser) on 2011-03-04T04:22:19.000+0000</p> 
+        <div class="body">
+            <p>Okay i found the problem.</p>
+
+<p>I store a copy of Zend_Db_Select in the cache (the select query).</p>
+
+<p>In Zend_Cache the PHP function "serialize" is called.</p>
+
+<p>Serialize call the function "__sleep" from Zend_Db_Select object, which is located in Zend_Db_Adapter_Abstract.
+Where the variable $this-&gt;_connection is set to "false".</p>
+
+<p>After that serialization the next query has to connect again.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-04T05:57:11.000+0000</p> 
+        <div class="body">
+            <p>This is a normal behaviour:</p>
+
+<pre class="highlight"><code>
+/**
+ * called when object is getting serialized
+ * This disconnects the DB object that cant be serialized
+ *
+ * @throws Zend_Db_Adapter_Exception
+ * @return array
+ */
+public function __sleep()
+{
+    // ...
+}
+</code></pre>
+
+<p>[<a href="http://framework.zend.com/svn/framework/standard/tags/release-1.11.4/library/Zend/Db/Adapter/Abstract.php">http://framework.zend.com/svn/framework/…</a>]</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Keckeis (thadafinser) on 2011-03-08T00:37:19.000+0000</p> 
+        <div class="body">
+            <p>Yes it is the normal behaviour.</p>
+
+<p>But in my case it's a problem:
+I use an instance ob the "Zend_Db_Adapter_Pdo_Mysql" to operate with the database.
+Also i use this instance to create the "Zend_Db_Select".</p>
+
+<p>After the "Zend_Db_Select" object get saved in the cache serialized, the "Zend_Db_Adapter_Pdo_Mysql" instance also lose the connection and have to reconnect, if querys are executed after the serialization.</p>
+
+<p>So how can i save the "Zend_Db_Select" in the cache, without losing my connection?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-08T01:06:08.000+0000</p> 
+        <div class="body">
+            <p>Within one page request you use a cache?!</p>
+
+<p>You do the following:</p>
+
+<h1>create a Zend_Db_Select-object</h1>
+
+<h1>save this select-object in cache</h1>
+
+<h1>fetch the object from the cache</h1>
+
+<h1>execute the select-query</h1>
+
+<p>Did I understand correctly?</p>
+
+<p>Correct me, but I think point 2 and 3 are unnecessary.</p>
+
+<p>{quote}So how can i save the "Zend_Db_Select" in the cache, without losing my connection?{quote}
+Extend the adapter class.</p>
+
+<p>(By the way, I hope, you don't save the select-object in Zend_Registry!)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Keckeis (thadafinser) on 2011-03-08T02:33:04.000+0000</p> 
+        <div class="body">
+            <p>I hope not, that i save it there ;-)
+No, i save it with Zend_Cache in a file...</p>
+
+<p>I explain it now a little bit further:
+I got a datagrid, where result data from the Zend_Db_Select are displayed.
+The datagrid got pagination, custom user filters and so on....</p>
+
+<p>On the grid you have also the option to export the current displayed (and maybe filtered) data to PDF or Excel (without pagination/limit).
+So i have to take the last executed query from the user (which is saved in the cache) and remove the limit.</p>
+
+<p>I know that another options would be to cache the last filters set, but i liked to work with the Zend_Db_Select object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-08T03:30:51.000+0000</p> 
+        <div class="body">
+            <p>Save the Zend_Db_Select object in the cache as the last step of all operations. So you have only one connection to the database and with the next request you can get the same select object from the cache.</p>
+
+<h1>create a Zend_Db_Select-object</h1>
+
+<h1>execute the query</h1>
+
+<h1>...</h1>
+
+<h1>save this select-object in cache - last step!</h1>
+
+        </div>
+    </div>
+    </div>
+

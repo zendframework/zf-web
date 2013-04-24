@@ -1,0 +1,130 @@
+Index: tests/Zend/Service/Amazon/S3/OnlineTest.php
+===================================================================
+--- tests/Zend/Service/Amazon/S3/OnlineTest.php	(revision 22463)
++++ tests/Zend/Service/Amazon/S3/OnlineTest.php	(working copy)
+@@ -471,6 +471,24 @@
+         $this->_amazon->removeBucket("testgetobjectparams1");
+     }
+ 
++    /**
++     * ZF-9965
++     */
++    public function testFixupObjectName()
++    {
++        $object = $this->_amazon->fixupObjectName('foo/bar');
++        $this->assertEquals('foo/bar', $object);
++
++        $object = $this->_amazon->fixupObjectName('foo/bar baz');
++        $this->assertEquals('foo/bar%20baz', $object);
++
++        $object = $this->_amazon->fixupObjectName('foo/bar baz/foo');
++        $this->assertEquals('foo/bar%20baz/foo', $object);
++
++        $object = $this->_amazon->fixupObjectName('foo/bar baz/foo bar baz');
++        $this->assertEquals('foo/bar%20baz/foo%20bar%20baz', $object);
++    }
++
+     public function tearDown()
+     {
+         unset($this->_amazon->debug);
+Index: library/Zend/Service/Amazon/S3.php
+===================================================================
+--- library/Zend/Service/Amazon/S3.php	(revision 22463)
++++ library/Zend/Service/Amazon/S3.php	(working copy)
+@@ -220,7 +220,7 @@
+     {
+         $info = array();
+ 
+-        $object = $this->_fixupObjectName($object);
++        $object = $this->fixupObjectName($object);
+         $response = $this->_makeRequest('HEAD', $object);
+ 
+         if ($response->getStatus() == 200) {
+@@ -317,9 +317,9 @@
+      * Make sure the object name is valid
+      *
+      * @param  string $object
+-     * @return string
++     * @return string Valid object name, rawurlencoded per S3 spec
+      */
+-    protected function _fixupObjectName($object)
++    public function fixupObjectName($object)
+     {
+         $nameparts = explode('/', $object);
+ 
+@@ -334,6 +334,19 @@
+     }
+ 
+     /**
++     * Make sure the object name is valid
++     *
++     * @param  string $object
++     * @return string
++     * @deprecated
++     */
++    protected function _fixupObjectName($object)
++    {
++        // proxy for BC
++        return $this->fixupObjectName($object);
++    }
++
++    /**
+      * Get an object
+      *
+      * @param  string $object
+@@ -342,7 +355,7 @@
+      */
+     public function getObject($object, $paidobject=false)
+     {
+-        $object = $this->_fixupObjectName($object);
++        $object = $this->fixupObjectName($object);
+         if ($paidobject) {
+             $response = $this->_makeRequest('GET', $object, null, array(self::S3_REQUESTPAY_HEADER => 'requester'));
+         }
+@@ -369,7 +382,7 @@
+      */
+     public function getObjectStream($object, $streamfile = null, $paidobject=false)
+     {
+-        $object = $this->_fixupObjectName($object);
++        $object = $this->fixupObjectName($object);
+         self::getHttpClient()->setStream($streamfile?$streamfile:true);
+         if ($paidobject) {
+             $response = $this->_makeRequest('GET', $object, null, array(self::S3_REQUESTPAY_HEADER => 'requester'));
+@@ -396,7 +409,7 @@
+      */
+     public function putObject($object, $data, $meta=null)
+     {
+-        $object = $this->_fixupObjectName($object);
++        $object = $this->fixupObjectName($object);
+         $headers = (is_array($meta)) ? $meta : array();
+ 
+         if(!is_resource($data)) {
+@@ -495,7 +508,7 @@
+      */
+     public function removeObject($object)
+     {
+-        $object = $this->_fixupObjectName($object);
++        $object = $this->fixupObjectName($object);
+         $response = $this->_makeRequest('DELETE', $object);
+ 
+         // Look for a 204 No Content response
+@@ -513,8 +526,8 @@
+      */
+     public function copyObject($sourceObject, $destObject, $meta = null)
+     {
+-        $sourceObject = $this->_fixupObjectName($sourceObject);
+-        $destObject   = $this->_fixupObjectName($destObject);
++        $sourceObject = $this->fixupObjectName($sourceObject);
++        $destObject   = $this->fixupObjectName($destObject);
+ 
+         $headers = (is_array($meta)) ? $meta : array();
+         $headers['x-amz-copy-source'] = $sourceObject;
+@@ -656,7 +669,7 @@
+      * Add the S3 Authorization signature to the request headers
+      *
+      * @param  string $method
+-     * @param  string $path
++     * @param  string $path    Object path, must be encoded (use fixupObjectName() to escape)
+      * @param  array &$headers
+      * @return string
+      */

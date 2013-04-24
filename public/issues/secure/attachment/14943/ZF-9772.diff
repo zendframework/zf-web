@@ -1,0 +1,254 @@
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php	(revision 24671)
++++ library/Zend/Form.php	(working copy)
+@@ -2404,6 +2404,33 @@
+     }
+ 
+     /**
++     * clear validation error messages from elements and subforms
++     *
++     * @param  null|string $name element or sub form name
++     * @return Zend_Form
++     */
++    public function clearMessages($name = null)
++    {
++        if (null !== $name) {
++            if (isset($this->_elements[$name])) {
++                $this->getElement($name)->clearMessages();
++            } else if (isset($this->_subForms[$name])) {
++                $this->getSubForm($name)->clearMessages();
++            }
++        } else {
++            foreach ($this->getElements() as $element) {
++                $element->clearMessages();
++            }
++        }
++
++        foreach ($this->getSubForms() as $subForm) {
++            $subForm->clearMessages($name);
++        }
++
++        return $this;
++    }
++
++    /**
+      * Mark the element as being in a failed validation state
+      *
+      * @return Zend_Form
+Index: library/Zend/Form/Element.php
+===================================================================
+--- library/Zend/Form/Element.php	(revision 24671)
++++ library/Zend/Form/Element.php	(working copy)
+@@ -1468,6 +1468,34 @@
+     }
+ 
+     /**
++     * Add a custom message to return in the event of failed validation
++     *
++     * @param  string $message
++     * @return Zend_Form_Element
++     */
++    public function addMessage($message)
++    {
++        if($this->hasErrors()) {
++            $this->_messages[] = (string) $message;
++        }
++        return $this;
++    }
++
++    /**
++     * Add multiple messages to return in the event of failed validation
++     *
++     * @param  array $messages
++     * @return Zend_Form_Element
++     */
++    public function addMessages(array $messages)
++    {
++        foreach ($messages as $message) {
++            $this->addMessage($message);
++        }
++        return $this;
++    }
++
++    /**
+      * Same as addErrorMessages(), but clears custom error message stack first
+      *
+      * @param  array $messages
+@@ -1501,6 +1529,17 @@
+     }
+ 
+     /**
++     * Clear validator messages
++     *
++     * @return Zend_Form_Element
++     */
++    public function clearMessages()
++    {
++        $this->_messages = array();
++        return $this;
++    }
++
++    /**
+      * Get errorMessageSeparator
+      *
+      * @return string
+Index: tests/Zend/Form/ElementTest.php
+===================================================================
+--- tests/Zend/Form/ElementTest.php	(revision 24671)
++++ tests/Zend/Form/ElementTest.php	(working copy)
+@@ -48,6 +48,14 @@
+  */
+ class Zend_Form_ElementTest extends PHPUnit_Framework_TestCase
+ {
++
++    /**
++     * @var Zend_Form_Element
++     */
++    public $element;
++
++    public $error;
++
+     public static function main()
+     {
+         $suite  = new PHPUnit_Framework_TestSuite('Zend_Form_ElementTest');
+@@ -845,6 +853,78 @@
+         $this->assertEquals($translations['notDigits'], $message);
+     }
+ 
++    /**
++     * @group ZF-9772
++     */
++    public function testMessageStackShouldBeClearable()
++    {
++        $this->element->addValidator('Alpha');
++        $this->element->isValid(0);
++        $messages = $this->element->getMessages();
++        $this->assertEquals('Invalid type given. String expected',array_shift($messages));
++        $this->element->clearMessages();
++        $this->assertEquals(0, count($this->element->getMessages()));
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCanAddCustomMessage()
++    {
++        $this->element->addValidator('Alpha');
++        $this->element->isValid(0);
++        $messages = $this->element->getMessages();
++        $this->assertEquals('Invalid type given. String expected',array_shift($messages));
++
++        $this->element->addMessage('custom message');
++        $messages = $this->element->getMessages();
++        $this->assertContains('custom message',$this->element->getMessages());
++        $this->assertTrue(count($messages) === 2);
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCadAddCustomMessages()
++    {
++        $this->element->addValidator('Alpha');
++        $this->element->isValid(0);
++
++        $this->element->addMessages(array('foo','bar'));
++        $messages = $this->element->getMessages();
++        $this->assertTrue(count($messages) === 3);
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCanAddCustomMessagesIfMarkedAsError()
++    {
++        $this->assertEquals(array(),$this->element->getMessages());
++        $this->element->markAsError();
++
++        $this->element->addMessage('foo');
++        $messages = $this->element->getMessages();
++
++        $this->assertContains('foo',$messages);
++        $this->assertTrue(count($messages) === 1);
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCantAddCustomMessagesIfValueIsValid()
++    {
++        $this->element->addValidator('Alpha');
++        $this->element->isValid('abc');
++
++        $this->element->addMessages(array('foo','bar'));
++        $this->element->addMessage('foo');
++        $messages = $this->element->getMessages();
++        $this->assertEquals(array(),$messages);
++    }
++
++
+     /**#@+
+      * @group ZF-2988
+      */
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php	(revision 24671)
++++ tests/Zend/Form/FormTest.php	(working copy)
+@@ -2520,6 +2520,56 @@
+         $this->assertEquals($foo->getErrors(), $errors);
+     }
+ 
++    /**
++     * @group ZF-9772
++     */
++    public function testCanClearMessagesFromAllElementsAfterFailedValidation()
++    {
++        $this->testCanRetrieveErrorMessagesFromAllElementsAfterFailedValidation();
++        $this->form->clearMessages();
++        $errors = $this->form->getMessages();
++        $this->assertEquals(array(),$errors);
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCanClearMessageFromSpecifiedElementAfterFailedValidation()
++    {
++        $this->testCanRetrieveErrorMessagesFromAllElementsAfterFailedValidation();
++        $this->form->clearMessages('foo');
++        $errors = $this->form->getMessages();
++        $this->assertEquals(array('bar', 'baz'),array_keys($errors)); //TODO fast
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCanClearMessagesFromSpecifiedSubFormAfterFailedValidation()
++    {
++        $this->testFullDataArrayUsedToValidateSubFormByDefault();
++        $errors = $this->form->getMessages('sub');
++        $this->assertGreaterThan(0,count($errors));
++
++        $this->form->clearMessages('sub');
++        $errors = $this->form->getMessages('sub');
++        $this->assertEquals(array(), $errors);
++    }
++
++    /**
++     * @group ZF-9772
++     */
++    public function testCanClearMessagesFromSpecifiedSubFormElementAfterValidation()
++    {
++        $this->testFullDataArrayUsedToValidateSubFormByDefault();
++        $errors = $this->form->getSubForm('sub')->getElement('subfoo')->getMessages();
++        $this->assertGreaterThan(0,count($errors));
++
++        $this->form->clearMessages('subfoo');
++        $errors = $this->form->getSubForm('sub')->getElement('subfoo')->getMessages();
++        $this->assertEquals(array(),$errors);
++    }
++
+     public function testCanRetrieveErrorMessagesFromAllElementsAfterFailedValidation()
+     {
+         $this->_checkZf2794();

@@ -1,0 +1,136 @@
+<h2>ZF-5655: expunge() missing in Zend_Mail_Storage_Imap &amp; remove expunge call inside removeMessage()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-29T11:51:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-14T19:23:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Nico Edtinger (nico)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail_Storage</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<p>I'm using Zend_Mail_Storage_Imap to periodically check a mailbox for new mails.</p>
+
+<p>First thing I see: There is no explicit function to expunge. Because I have to be sure to work with "correct" data, I need to do an expunge directly after connecting. So I had to write my own:</p>
+
+<pre class="highlight"><code>
+/**
+ * Expunge deleted messages in current folder
+ *
+ * @return null
+ * @throws Zend_Mail_Storage_Exception
+ */
+public function expunge()
+{
+    if (!$this-&gt;_protocol-&gt;expunge()) {
+        throw new Zend_Mail_Storage_Exception('expunge failed');
+    }
+}
+</code></pre>
+
+<p>I also need to parse all emails and remove them. If I loop through all mails with
+foreach ($storage as $id=&gt;$message) {
+and call removeMessage() inside this loop, I get an exception! This is caused by expunge() directly after/inside removeMessage().</p>
+
+<p>Example:
+Assume we have the following mailbox:
+Unique ID | ID | Subject
+12345     |  1 | First mail
+12349     |  2 | Second mail
+12358     |  3 | Third mail</p>
+
+<p>Assume we have the following code:</p>
+
+<pre class="highlight"><code>
+foreach ($storage as $id=&gt;$message) {
+    // do something with message. parse and put into database e.g.
+    
+    $storage-&gt;removeMessage($id);
+}
+</code></pre>
+
+<p>What happens:
+We first get the mail with ID 1. Parse it, and then remove it (set flag and call expunge). Then the next foreach-loop gets the mail with ID 2. But this is not "Second mail", it is "Third mail", because expunge reorganizes all mails, and "Second mail" becomes ID 1 and "Third mail" becomes ID 2. So we are not correctly looping through all mails.
+In the third loop, there is an exception: 
+Uncaught exception 'Zend_Mail_Protocol_Exception' with message 'the single id was not found in response'
+because ID 3 (which exists at start) doesn't exists in the third loop (reorganization, ID3 becomes ID1 in second loop after removeMessage())</p>
+
+<p>Conclusion:
+It would be best to provide an expunge() function to the developer, and let him decide when to call it. We also need to remove automatic expunge in removeMessage(). Then the developer can call expunge() right after connecting or before closing. We don't get the failure described above if we call expunge() before close(), and not after/in each removeMessage()...</p>
+
+<p>Greets</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Nico Edtinger (nico) on 2009-11-05T05:22:38.000+0000</p> 
+        <div class="body">
+            <p>Actually the behavior is the same is every storage class. If you want to remove more than one message and use the message number it's better to remove them last to first:</p>
+
+<pre class="highlight"><code>
+for ($i = count($storage); $i; --$i) {
+    $storage-&gt;removeMessage($i);
+}
+</code></pre>
+
+<p>If someone has the time to implement a message set class we can support UIDs and multiple messages in a transparent manner. Your code could become:</p>
+
+<pre class="highlight"><code>
+$storage-&gt;removeMessage($storage-&gt;getSet()-&gt;range(1, '*'));
+</code></pre>
+
+<p>It's clean and can be supported by all storage classes. Having one storage class behave differently is something that should be avoided if possible. That's why there is an automatic expunge.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-14T19:23:38.000+0000</p> 
+        <div class="body">
+            <p>Doesn't appear to be a bug so much as a possible improvement. Would suggest adding as an improvement for ZF2 perhaps but marking as Won't Fix since it's simple to do as described by reporter.</p>
+
+        </div>
+    </div>
+    </div>
+

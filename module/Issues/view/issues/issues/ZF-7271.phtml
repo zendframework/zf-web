@@ -1,0 +1,174 @@
+<h2>ZF-7271: ZF is not tolerant of phar paths</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-14T12:46:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-02-04T08:23:17.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.1 (10/Feb/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>    </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>A number of ZF components, including Zend_Loader and Zend_Tool_Framework_Loader_IncludePathLoader, are not tolerant of the new PHP 5.3 phar:// paths.</p>
+
+<p>Zend_Tool_Framework_Loader_IncludePathLoader::_getFiles() example:</p>
+
+<pre class="literal">
+$paths = explode(PATH_SEPARATOR, get_include_path());
+</pre>
+
+<p>An include path of '<a>phar://foo/bar.phar:.:/usr/lib/php</a>' will result in $paths looking like this:</p>
+
+<pre class="literal">
+Array
+(
+    [0] =&gt; phar
+    [1] =&gt; //foo/bar.phar
+    [2] =&gt; .
+    [3] =&gt; /usr/lib/php
+)
+</pre>
+
+<p>For ZF to support environments where phars are used in the include path, we may no longer explode on PATH_SEPARATOR. Instead, we now need to step through the include_path string more carefully, like this:</p>
+
+<pre class="literal">
+// step through inc path, beware of phar://
+$incpath = get_include_path();
+$paths = array();
+$offset = 0;
+while ($pos = strpos($incpath, ':', $offset)) {
+    $chunk = substr($incpath, 0, $pos);
+    if ($chunk == 'phar') {
+        ++$offset;
+        continue;
+    }
+    $offset = 0;
+    $paths[] = $chunk;
+    $incpath = substr($incpath, $pos+1);
+}
+
+// catch the last one which no longer has 
+// a PATH_SEPARATOR in it
+if (! empty($incpath)) {
+    $paths[] = $incpath;
+}
+unset($incpath, $offset, $chunk);
+</pre>
+
+<p>That results in $paths looking like this:</p>
+
+<pre class="literal">
+Array
+(
+    [0] =&gt; <a>phar://foo/bar.phar</a>
+    [1] =&gt; .
+    [2] =&gt; /usr/lib/php
+)
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Clay Loveless (clay) on 2009-07-14T12:58:36.000+0000</p> 
+        <div class="body">
+            <p>Updated suggested fix to populate $incpath variable.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-07-14T14:13:08.000+0000</p> 
+        <div class="body">
+            <p>Clay -- I'd be thrilled if you would provide a patch and/or commit a fix. :) Be my guest. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2010-01-24T10:51:23.000+0000</p> 
+        <div class="body">
+            <p>I think this method should go onto Zend_Loader, plus it can be hugely simplified, for example:</p>
+
+<pre class="highlight"><code>
+if (strpos($path, "phar://") !== false) {
+    $path = str_replace("phar://", "phar#//", $path);
+    $paths = explode(PATH_SEPARATOR, $path);
+    foreach ($paths AS $k =&gt; $v) {
+        $paths[$k] = str_replace("phar#//", "phar://", $paths[$k]);
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-02-04T05:43:52.000+0000</p> 
+        <div class="body">
+            <p>Actually, searching for phar:// is a bit short-sighted; we really should honor all stream definitions in the path as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-02-04T05:47:39.000+0000</p> 
+        <div class="body">
+            <p>Assuming there are no directories ending on :// you could probably use the same patch?</p>
+
+<pre class="highlight"><code>if (strpos($path, '://') !== false) {
+    $path = str_replace('://', "#//", $path);
+    $paths = explode(PATH_SEPARATOR, $path);
+    foreach ($paths AS $k =&gt; $v) {
+        $paths[$k] = str_replace('#//', '://', $paths[$k]);
+    }
+}</code></pre>
+
+<p>(code untested, spur of mind)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-02-04T08:22:53.000+0000</p> 
+        <div class="body">
+            <p>The behavior was not just phar related, but affected any stream scheme registered in the include_path.</p>
+
+<p>I believe this is now working in trunk and the 1.10 release branch as of r20904; please test.</p>
+
+        </div>
+    </div>
+    </div>
+

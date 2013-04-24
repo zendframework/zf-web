@@ -1,0 +1,169 @@
+Index: library/Zend/Db/Table/Row/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Row/Abstract.php	(révision 6788)
++++ library/Zend/Db/Table/Row/Abstract.php	(copie de travail)
+@@ -683,12 +683,16 @@
+     /**
+      * Query a dependent table to retrieve rows matching the current row.
+      *
+-     * @param string|Zend_Db_Table_Abstract  $dependentTable
+-     * @param string                         OPTIONAL $ruleKey
+-     * @return Zend_Db_Table_Rowset_Abstract Query result from $dependentTable
++     * @param  string|Zend_Db_Table_Abstract  $dependentTable
++     * @param  string                         OPTIONAL $ruleKey
++     * @param  string|array		      OPTIONAL $where
++     * @param  string|array		      OPTIONAL $order
++     * @param  integer     		      OPTIONAL $count
++     * @param  integer     		      OPTIONAL $offset
++     * @return Zend_Db_Table_Rowset_Abstract  Query result from $dependentTable
+      * @throws Zend_Db_Table_Row_Exception If $dependentTable is not a table or is not loadable.
+      */
+-    public function findDependentRowset($dependentTable, $ruleKey = null)
++    public function findDependentRowset($dependentTable, $ruleKey = null, $where = array(), $order = NULL, $count = NULL, $offset = NULL)
+     {
+         $db = $this->_getTable()->getAdapter();
+ 
+@@ -712,7 +716,7 @@
+ 
+         $map = $this->_prepareReference($dependentTable, $this->_getTable(), $ruleKey);
+ 
+-        $where = array();
++        $where = (array) $where;
+         for ($i = 0; $i < count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+             $parentColumnName = $db->foldCase($map[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+             $value = $this->_data[$parentColumnName];
+@@ -722,18 +726,22 @@
+             $type = $dependentInfo[Zend_Db_Table_Abstract::METADATA][$dependentColumnName]['DATA_TYPE'];
+             $where[] = $db->quoteInto("$dependentColumn = ?", $value, $type);
+         }
+-        return $dependentTable->fetchAll($where);
++        return $dependentTable->fetchAll($where, $order, $count, $offset);
+     }
+ 
+     /**
+      * Query a parent table to retrieve the single row matching the current row.
+      *
+-     * @param string|Zend_Db_Table_Abstract $parentTable
+-     * @param string                        OPTIONAL $ruleKey
++     * @param string|Zend_Db_Table_Abstract   $parentTable
++     * @param string                          OPTIONAL $ruleKey
++     * @param  string|array		      OPTIONAL $where
++     * @param  string|array		      OPTIONAL $order
++     * @param  integer     		      OPTIONAL $count
++     * @param  integer     		      OPTIONAL $offset
+      * @return Zend_Db_Table_Row_Abstract   Query result from $parentTable
+      * @throws Zend_Db_Table_Row_Exception If $parentTable is not a table or is not loadable.
+      */
+-    public function findParentRow($parentTable, $ruleKey = null)
++    public function findParentRow($parentTable, $ruleKey = null, $where = array(), $order = null, $count = null, $offset = null)
+     {
+         $db = $this->_getTable()->getAdapter();
+ 
+@@ -757,7 +765,7 @@
+ 
+         $map = $this->_prepareReference($this->_getTable(), $parentTable, $ruleKey);
+ 
+-        $where = array();
++        $where = (array) $where;
+         for ($i = 0; $i < count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+             $dependentColumnName = $db->foldCase($map[Zend_Db_Table_Abstract::COLUMNS][$i]);
+             $value = $this->_data[$dependentColumnName];
+@@ -767,7 +775,7 @@
+             $type = $parentInfo[Zend_Db_Table_Abstract::METADATA][$parentColumnName]['DATA_TYPE'];
+             $where[] = $db->quoteInto("$parentColumn = ?", $value, $type);
+         }
+-        return $parentTable->fetchRow($where);
++        return $parentTable->fetchRow($where, $order, $count, $offset);
+     }
+ 
+     /**
+@@ -775,10 +783,14 @@
+      * @param  string|Zend_Db_Table_Abstract  $intersectionTable
+      * @param  string                         OPTIONAL $primaryRefRule
+      * @param  string                         OPTIONAL $matchRefRule
++     * @param  string|array		      OPTIONAL $where
++     * @param  string|array		      OPTIONAL $order
++     * @param  integer     		      OPTIONAL $count
++     * @param  integer     		      OPTIONAL $offset
+      * @return Zend_Db_Table_Rowset_Abstract Query result from $matchTable
+      * @throws Zend_Db_Table_Row_Exception If $matchTable or $intersectionTable is not a table class or is not loadable.
+      */
+-    public function findManyToManyRowset($matchTable, $intersectionTable, $callerRefRule = null, $matchRefRule = null)
++    public function findManyToManyRowset($matchTable, $intersectionTable, $callerRefRule = null, $matchRefRule = null, $where = array(), $order = null, $count = null, $offset = null)
+     {
+         $db = $this->_getTable()->getAdapter();
+ 
+@@ -835,6 +847,18 @@
+         $select = $db->select()
+             ->from(array('i' => $interName), array())
+             ->join(array('m' => $matchName), $joinCond, '*');
++	if ($where) {
++	  $select->where($where);
++	}
++	if ($order) {
++	  $select->order($order);
++	}
++	if ($count) {
++	  $select->count($count);
++	}
++	if ($offset) {
++	  $select->offset($offset);
++	}
+ 
+         $callerMap = $this->_prepareReference($intersectionTable, $this->_getTable(), $callerRefRule);
+ 
+@@ -848,7 +872,7 @@
+             $type = $matchInfo[Zend_Db_Table_Abstract::METADATA][$matchColumnName]['DATA_TYPE'];
+             $select->where($db->quoteInto("$interCol = ?", $value, $type));
+         }
+-        $stmt = $select->query();
++	$stmt = $select->query();
+ 
+         $config = array(
+             'table'    => $matchTable,
+@@ -887,9 +911,10 @@
+          * Use the non-greedy pattern repeat modifier e.g. \w+?
+          */
+         if (preg_match('/^findParent(\w+?)(?:By(\w+))?$/', $method, $matches)) {
+-            $class    = $matches[1];
+-            $ruleKey1 = isset($matches[2]) ? $matches[2] : null;
+-            return $this->findParentRow($class, $ruleKey1);
++	    $args = array_merge(array($matches[1], // class
++				      isset($matches[2]) ? $matches[2] : null), // ruleKey1
++				$args);
++	    return call_user_func_array(array($this, 'findParentRow'), $args);
+         }
+ 
+         /**
+@@ -900,11 +925,12 @@
+          * Use the non-greedy pattern repeat modifier e.g. \w+?
+          */
+         if (preg_match('/^find(\w+?)Via(\w+?)(?:By(\w+?)(?:And(\w+))?)?$/', $method, $matches)) {
+-            $class    = $matches[1];
+-            $viaClass = $matches[2];
+-            $ruleKey1 = isset($matches[3]) ? $matches[3] : null;
+-            $ruleKey2 = isset($matches[4]) ? $matches[4] : null;
+-            return $this->findManyToManyRowset($class, $viaClass, $ruleKey1, $ruleKey2);
++	    $args = array_merge(array($matches[1], // class
++				      $matches[2], // viaClass
++				      isset($matches[3]) ? $matches[3] : null, // ruleKey1
++				      isset($matches[4]) ? $matches[4] : null), // ruleKey2
++				$args);
++	    return call_user_func_array(array($this, 'findManyToManyRowset'), $args);
+         }
+ 
+         /**
+@@ -914,9 +940,10 @@
+          * Use the non-greedy pattern repeat modifier e.g. \w+?
+          */
+         if (preg_match('/^find(\w+?)(?:By(\w+))?$/', $method, $matches)) {
+-            $class    = $matches[1];
+-            $ruleKey1 = isset($matches[2]) ? $matches[2] : null;
+-            return $this->findDependentRowset($class, $ruleKey1);
++	    $args = array_merge(array($matches[1], // class
++				      isset($matches[2]) ? $matches[2] : null), // ruleKey1
++				$args);
++	    return call_user_func_array(array($this, 'findDependentRowset'), $args);
+         }
+ 
+         require_once 'Zend/Db/Table/Row/Exception.php';

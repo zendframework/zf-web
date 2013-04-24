@@ -1,0 +1,191 @@
+<h2>ZF-8830: Zend_Navigation_Page_Mvc::isActive() produces false-negatives when coupled with custom routes</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-15T06:37:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-06T10:45:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.8 (07/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Kai Uwe (kaiuwe)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11359">ZF-11359</a></li>
+            <li><a href="/issues/browse/ZF-8438">ZF-8438</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12625/ZF-8830.patch">ZF-8830.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>According to [<a href="http://framework.zend.com/manual/en/zend.navigation.pages.html#zend.navigation.pages.mvc.example.routes">http://framework.zend.com/manual/en/…</a>], navigation items using custom routes should include the module, controller, and action so that Zend_Navigation_Page_Mvc::isActive() can tell if a page is active or not. The problem that occurs from this is that the router's assemble() method will break the route by unnecessarily appending the module, controller, and action, even if the route is not supposed to display them.</p>
+
+<p>For example, a route like:</p>
+
+<pre class="highlight"><code>
+new Zend_Controller_Router_Route(':uniqueId/edit/:level',
+    array(
+        'controller'    =&gt; 'users',
+        'action'        =&gt; 'edit',
+        'module'        =&gt; 'admin'
+    ), array(
+        'uniqueId'      =&gt; (\d+),
+        'level'         =&gt; '(admin|user|editor|foo)'
+    ))
+</code></pre>
+
+<p>And a navigation page like:</p>
+
+<pre class="highlight"><code>
+$config['admin']['pages'][$uniqueId] = array(
+    'label'         =&gt; 'Editing ' . $userName,
+    'module'        =&gt; 'admin',
+    'controller'    =&gt; 'users',
+    'action'        =&gt; 'edit',
+    'route'         =&gt; 'adminEditUser',
+    'params'        =&gt; array(
+        'uniqueId'      =&gt; $uniqueId,
+        'level'         =&gt; $level,
+    )
+)
+</code></pre>
+
+<p>Would produce a url:</p>
+
+<pre class="highlight"><code>
+/12345/edit/foo/module/admin/controller/users/action/edit
+</code></pre>
+
+<p>When the expected url should be:</p>
+
+<pre class="highlight"><code>
+/12345/edit/foo
+</code></pre>
+
+<p>Attached is a patch that looks at the route provided to the navigation page, checks to see if the front controller's router has the route, and if it does it will use the module, controller, and action from that route if the module, controller, and action were not provided as part of the configuration for the navigation page. This takes care of Zend_Navigation_Page_Mvc::isActive() not being able to recognize a page as active, and it removes the requirement of having to provide the module, controller, and action to the navigation configuration.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Môshe van der Sterre (môshevds) on 2011-05-11T08:39:32.000+0000</p> 
+        <div class="body">
+            <p>A unit-test for this bug is here: <a href="http://pastie.org/1886460">http://pastie.org/1886460</a>
+The patch fixes the problem.</p>
+
+<p>I did not expect a 16 month old issue to be a duplicate of my issue (ZF-11359), but at close inspection, it is.
+However, I think ZF-8438 is not a duplicate, and I think it is already fixed, but I'm not sure about this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-05-11T08:53:01.000+0000</p> 
+        <div class="body">
+            <p>It is the same problem and the current issue (ZF-8830) is not solved.
+Your unit test is a plus and always welcome! :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-06-06T10:45:43.000+0000</p> 
+        <div class="body">
+            <p>Tests:</p>
+
+<pre class="highlight"><code>
+public function testHrefGeneratedIsRouteAwareWithVariablePrefix()
+{
+    $page = new Zend_Navigation_Page_Mvc(array(
+        'label'  =&gt; 'foo',
+        'route'  =&gt; 'myroute',
+        'params' =&gt; array(
+            'id'   =&gt; 1337,
+            'page' =&gt; 'baz',
+        )
+    ));
+
+    $this-&gt;_front-&gt;getRouter()-&gt;addRoute(
+        'myroute',
+        new Zend_Controller_Router_Route(
+            ':id/foobar/:page',
+            array(
+                'module'     =&gt; 'default',
+                'controller' =&gt; 'foobar',
+                'action'     =&gt; 'bazbat',
+                'id'         =&gt; 1,
+                'page'       =&gt; 'foo',
+            ),
+            array(
+                'id'   =&gt; '(\d+)',
+                'page' =&gt; '(foo|bar|baz|bat)'
+            )
+        )
+    );
+
+    $this-&gt;assertEquals('/1337/foobar/baz', $page-&gt;getHref());
+}
+
+public function testHrefGeneratedIsRouteAwareWithVariablePrefixWithoutParams()
+{
+    $page = new Zend_Navigation_Page_Mvc(array(
+        'label' =&gt; 'foo',
+        'route' =&gt; 'myroute',
+    ));
+
+    $this-&gt;_front-&gt;getRouter()-&gt;addRoute(
+        'myroute',
+        new Zend_Controller_Router_Route(
+            ':id/foobar/:page',
+            array(
+                'module'     =&gt; 'default',
+                'controller' =&gt; 'foobar',
+                'action'     =&gt; 'bazbat',
+                'id'         =&gt; 1,
+                'page'       =&gt; 'foo',
+            ),
+            array(
+                'id'   =&gt; '(\d+)',
+                'page' =&gt; '(foo|bar|baz|bat)'
+            )
+        )
+    );
+
+    $this-&gt;assertEquals('/1/foobar', $page-&gt;getHref());
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

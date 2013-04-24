@@ -1,0 +1,210 @@
+<h2>ZF-897: Zend_Db_Select generates not working queries</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-02-09T08:29:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.8.0 (21/Feb/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-896">ZF-896</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There is a simple query with one join:</p>
+
+<pre class="highlight"><code>
+$select-&gt;from('foo', '*'); 
+$select-&gt;join('bar', 'foo.id = bar.id', '*'); 
+</code></pre>
+
+<p>It should produce sql query like this:</p>
+
+<pre class="highlight"><code>
+SELECT foo.*, bar.* 
+FROM foo 
+JOIN bar ON foo.id = bar.id 
+</code></pre>
+
+<p>But it produces this sql query:</p>
+
+<pre class="highlight"><code>
+SELECT foo_1.*, bar_1.* 
+FROM foo foo_1
+JOIN bar bar_1 ON foo.id = bar.id 
+</code></pre>
+
+<p>It doesn't work, PDO throwns exception: 
+"SQLSTATE[42S02]: Base table or view not found: 1109 Unknown table 'foo' in on clause"</p>
+
+<p>This bug affects some other methods eg. Zend_Db_Select::where() and it is connected with correlations feature added on last commit.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sergey Belov (arikon) on 2007-02-09T08:56:11.000+0000</p> 
+        <div class="body">
+            <p>Dublicate</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Belov (arikon) on 2007-02-09T12:53:01.000+0000</p> 
+        <div class="body">
+            <p>One more bug with generation of query:</p>
+
+<pre class="highlight"><code>
+$select = $this-&gt;db
+    -&gt;select()
+    -&gt;from(array('nstree' =&gt; 't1'), array('left_key', 'right_key', 'id'))
+    -&gt;joinLeft(array('nstree' =&gt; 'j1'), 
+        '(j1.right_key &gt;= t1.right_key AND j1.left_key &lt;= t1.left_key)', 
+        "GROUP_CONCAT(d.uri_part ORDER BY j1.level ASC SEPARATOR '/') AS path")
+    -&gt;joinLeft(array('pages' =&gt; 'd'), '(j1.page_id = d.id)', 'uri_part');
+</code></pre>
+
+<p>should produce</p>
+
+<pre class="highlight"><code>
+SELECT
+    t1.*,
+    GROUP_CONCAT(d.uri_part ORDER BY j1.level ASC SEPARATOR '/') AS path,
+    d.uri_part
+FROM nstree t1
+LEFT JOIN nstree j1 ON (j1.right_key &gt;= t1.right_key AND j1.left_key &lt;= t1.left_key)
+LEFT JOIN pages d ON (j1.page_id = d.id)
+</code></pre>
+
+<p>but produces</p>
+
+<pre class="highlight"><code>
+SELECT
+    t1.*,
+    j1.GROUP_CONCAT(d.uri_part ORDER BY j1.level ASC SEPARATOR '/') AS path,
+    d.uri_part
+FROM nstree t1
+LEFT JOIN nstree j1 ON (j1.right_key &gt;= t1.right_key AND j1.left_key &lt;= t1.left_key)
+LEFT JOIN pages d ON (j1.page_id = d.id)
+</code></pre>
+
+<p>problem is in "j1." before "GROUP_CONCAT"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Belov (arikon) on 2007-02-09T13:07:21.000+0000</p> 
+        <div class="body">
+            <p>Maybe this could help.
+I'm using this workaround to avoid adding correlation name to "custom" fields.</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Db/Select.php
+===================================================================
+--- library/Zend/Db/Select.php  (revision 3324)
++++ library/Zend/Db/Select.php  (working copy)
+@@ -638,6 +638,10 @@
+         settype($cols, 'array');
+ 
+         foreach ($cols as $col) {
++            if (preg_match("/[\(\)]/", $col)) {
++                $this-&gt;_parts[self::COLUMNS][''][] = trim($col);
++                continue;
++            }
+             $this-&gt;_parts[self::COLUMNS][$correlationName][] = trim($col);
+         }
+     }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-09T15:49:20.000+0000</p> 
+        <div class="body">
+            <p>I don't think it would be good to do that kind of pattern-matching on the column name.  Column names that are quoted can contain parentheses as part of the identifier.</p>
+
+<p>There are also other cases that should not be prepended with the correlation name that do not contain parens.</p>
+
+<p>I am proposing a different solution for this issue.  See ZF-900.</p>
+
+<p>You can specify the correlation name.  Correlation names can be identical to the physical table name.  For example:</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-09T15:54:10.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I hit send too soon.</p>
+
+<p>The issue at the top of this issue report is that the class generates correlation names, and these do not match the correlation names in your join condition.</p>
+
+<p>You can specify the correlation name. Correlation names can be identical to the physical table name. For example:</p>
+
+<pre class="highlight"><code>
+$select-&gt;from( array('foo' =&gt; 'foo'), '*'); 
+$select-&gt;join( array('bar' =&gt; 'bar'), 'foo.id = bar.id', '*');
+</code></pre>
+
+<p>The secondary issues reported above are different; they are related to adding expressions to the select-list that should not have correlation names prepended.  Another workaround for this is the following:</p>
+
+<pre class="highlight"><code>
+$select = $this-&gt;db
+    -&gt;select()
+    -&gt;from(array('nstree' =&gt; 't1'), array('left_key', 'right_key', 'id'))
+    -&gt;from( '', "GROUP_CONCAT(d.uri_part ORDER BY j1.level ASC SEPARATOR '/') AS path")
+    -&gt;joinLeft(array('nstree' =&gt; 'j1'), 
+        '(j1.right_key &gt;= t1.right_key AND j1.left_key &lt;= t1.left_key)', array() )
+    -&gt;joinLeft(array('pages' =&gt; 'd'), '(j1.page_id = d.id)', 'uri_part');
+</code></pre>
+
+<p>Above you see that if you pass '' as the table name, it does not generate a correlation name but it does add the named column to the select-list.  Also, you can specify an empty {{array()}} for the column list in the {{joinLeft()}} method, which will add no columns from j1to the select-list.  Otherwise it defaults to {{'*'}}.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-09T19:59:06.000+0000</p> 
+        <div class="body">
+            <p>I'm resolving this issue as "Not an Issue".
+I intend to enhance Zend_Db_Select more, but it will be recorded under different issues in JIRA.</p>
+
+        </div>
+    </div>
+    </div>
+

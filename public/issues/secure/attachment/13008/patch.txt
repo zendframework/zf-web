@@ -1,0 +1,135 @@
+### Eclipse Workspace Patch 1.0
+#P zend-framework
+Index: library/Zend/Uri.php
+===================================================================
+--- library/Zend/Uri.php	(revision 21873)
++++ library/Zend/Uri.php	(working copy)
+@@ -79,14 +79,16 @@
+      * Create a new Zend_Uri object for a URI.  If building a new URI, then $uri should contain
+      * only the scheme (http, ftp, etc).  Otherwise, supply $uri with the complete URI.
+      *
+-     * @param  string $uri The URI form which a Zend_Uri instance is created
++     * @param  string $uri       The URI form which a Zend_Uri instance is created
++     * @param  string $className The name of the class to use in order to manipulate URI
+      * @throws Zend_Uri_Exception When an empty string was supplied for the scheme
+      * @throws Zend_Uri_Exception When an illegal scheme is supplied
+      * @throws Zend_Uri_Exception When the scheme is not supported
++     * @throws Zend_Uri_Exception When $className doesn't exist or doesn't implements Zend_Uri
+      * @return Zend_Uri
+      * @link   http://www.faqs.org/rfcs/rfc2396.html
+      */
+-    public static function factory($uri = 'http')
++    public static function factory($uri = 'http', $className = null)
+     {
+         // Separate the scheme from the scheme-specific parts
+         $uri            = explode(':', $uri, 2);
+@@ -104,31 +106,44 @@
+             throw new Zend_Uri_Exception('Illegal scheme supplied, only alphanumeric characters are permitted');
+         }
+ 
+-        /**
+-         * Create a new Zend_Uri object for the $uri. If a subclass of Zend_Uri exists for the
+-         * scheme, return an instance of that class. Otherwise, a Zend_Uri_Exception is thrown.
+-         */
+-        switch ($scheme) {
+-            case 'http':
+-                // Break intentionally omitted
+-            case 'https':
+-                $className = 'Zend_Uri_Http';
+-                break;
++        if ($className === null) {
++            /**
++             * Create a new Zend_Uri object for the $uri. If a subclass of Zend_Uri exists for the
++             * scheme, return an instance of that class. Otherwise, a Zend_Uri_Exception is thrown.
++             */
++            switch ($scheme) {
++                case 'http':
++                    // Break intentionally omitted
++                case 'https':
++                    $className = 'Zend_Uri_Http';
++                    break;
+ 
+-            case 'mailto':
+-                // TODO
+-            default:
+-                require_once 'Zend/Uri/Exception.php';
+-                throw new Zend_Uri_Exception("Scheme \"$scheme\" is not supported");
+-                break;
++                case 'mailto':
++                    // TODO
++                default:
++                    require_once 'Zend/Uri/Exception.php';
++                    throw new Zend_Uri_Exception("Scheme \"$scheme\" is not supported");
++                    break;
++            }
+         }
+ 
+         if (!class_exists($className)) {
+             require_once 'Zend/Loader.php';
+-            Zend_Loader::loadClass($className);
++            try {
++                Zend_Loader::loadClass($className);
++            } catch (Exception $e) {
++                require_once 'Zend/Uri/Exception.php';
++                throw new Zend_Uri_Exception("\"$className\" not found");
++            }
+         }
++
+         $schemeHandler = new $className($scheme, $schemeSpecific);
+ 
++        if (! $schemeHandler instanceof Zend_Uri) {
++            require_once 'Zend/Uri/Exception.php';
++            throw new Zend_Uri_Exception("\"$className\" is not an instance of Zend_Uri");
++        }
++
+         return $schemeHandler;
+     }
+ 
+Index: tests/Zend/UriTest.php
+===================================================================
+--- tests/Zend/UriTest.php	(revision 21873)
++++ tests/Zend/UriTest.php	(working copy)
+@@ -157,13 +157,41 @@
+      *
+      * @param string $uri
+      */
+-    protected function _testValidUri($uri)
++    protected function _testValidUri($uri, $className = null)
+     {
+-        $uri = Zend_Uri::factory($uri);
++        $uri = Zend_Uri::factory($uri, $className);
+         $this->assertTrue($uri instanceof Zend_Uri, 'Zend_Uri object not returned.');
++        return $uri;
+     }
+ 
++    public function testFactoryWithUnExistingClassThrowException()
++    {
++        $this->setExpectedException('Zend_Uri_Exception', '"This_Is_An_Unknown_Class" not found');
++        Zend_Uri::factory('http://example.net', 'This_Is_An_Unknown_Class');
++    }
++
++    public function testFactoryWithExistingClassButNotImplementingZendUriThrowException()
++    {
++        $this->setExpectedException('Zend_Uri_Exception', '"Fake_Zend_Uri" is not an instance of Zend_Uri');
++        Zend_Uri::factory('http://example.net', 'Fake_Zend_Uri');
++    }
++
++    public function testFactoryWithExistingClassReturnObject()
++    {
++        $uri = $this->_testValidUri('http://example.net', 'Zend_Uri_Mock');
++        $this->assertTrue($uri instanceof Zend_Uri_Mock, 'Zend_Uri_Mock object not returned.');
++    }
++
+ }
++class Zend_Uri_Mock extends Zend_Uri
++{
++    protected function __construct($scheme, $schemeSpecific = '') { }
++    public function getUri() { }
++    public function valid() { }
++}
++class Fake_Zend_Uri
++{
++}
+ 
+ // Call Zend_UriTest::main() if this source file is executed directly.
+ if (PHPUnit_MAIN_METHOD == "Zend_UriTest::main") {

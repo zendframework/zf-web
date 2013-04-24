@@ -1,0 +1,402 @@
+<h2>ZF-4370: Zend_Form::getValues returns invalid rendered array when using subforms</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-24T05:59:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-03-18T08:15:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8078">ZF-8078</a></li>
+            <li><a href="/issues/browse/ZF-9407">ZF-9407</a></li>
+            <li><a href="/issues/browse/ZF-9456">ZF-9456</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using subforms in Zend_Form, getValues method returns subform values with empty key. In zf 1.5 it looks like this: array('value' =&gt; 1, 'value2' =&gt; 2, 'subform' =&gt; array(...))
+In zf 1.6 it looks like this: array('value' =&gt; 1, 'value2' =&gt; 2, '' =&gt; array(...))</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Turland (elazar) on 2008-11-04T08:55:08.000+0000</p> 
+        <div class="body">
+            <p>See the block below from Zend_Form::getValues().</p>
+
+<pre class="highlight"><code>
+foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+    $fValues = $this-&gt;_attachToArray($subForm-&gt;getValues(true), $subForm-&gt;getElementsBelongTo());
+    $values = array_merge($values, $fValues);
+}
+</code></pre>
+
+<p>The issue described is caused by $subForm-&gt;setElementsBelongTo() never being called, which results in the call to $subForm-&gt;getElementsBelongsTo() returning a null value. The subsequent array_merge() call overrides the existing blank index on each iteration of the loop with the array from the last subform for which values were fetched.</p>
+
+<p>Maybe the return value of $subForm-&gt;getElementsBelongsTo() should be checked prior to the loop and $subForm-&gt;getName() used in the event that it's empty? Either that or just using $subForm-&gt;getName() outright would be my suggestion. When adding a subform to a form, it has to be present and unique anyway.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2009-03-13T01:42:07.000+0000</p> 
+        <div class="body">
+            <p>Any news on this issue ? This is a major bug when having multible subforms, beacuse you only get the values from one of the subforms :S</p>
+
+<p>plz let us know!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-04-15T06:42:55.000+0000</p> 
+        <div class="body">
+            <p>I believe this is already fixed in recent versions of ZF. I performed the following test just now:</p>
+
+<pre class="highlight"><code>
+$sub = new Zend_Form_SubForm();
+$sub-&gt;setName('subform')
+    -&gt;addElement('text', 'foo')
+    -&gt;addElement('text', 'bar');
+
+$form = new Zend_Form();
+$form-&gt;addElement('text', 'foo')
+     -&gt;addElement('text', 'bar')
+     -&gt;addSubForm($sub, 'subform');
+
+$form-&gt;foo-&gt;setValue('FOO');
+$form-&gt;bar-&gt;setValue('BAR');
+$form-&gt;subform-&gt;foo-&gt;setValue('FOO');
+$form-&gt;subform-&gt;bar-&gt;setValue('BAR');
+
+$values = $form-&gt;getValues();
+var_export($values);
+</code></pre>
+
+<p>I get the expected output:</p>
+
+<pre class="highlight"><code>
+array (
+  'foo' =&gt; 'FOO',
+  'bar' =&gt; 'BAR',
+  'subform' =&gt; 
+  array (
+    'foo' =&gt; 'FOO',
+    'bar' =&gt; 'BAR',
+  ),
+)
+</code></pre>
+
+<p>I'm closing this for now. If you have a reproduce case that displays the issue you're reporting using current trunk, please re-open the issue and provide it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-04-15T06:46:14.000+0000</p> 
+        <div class="body">
+            <p>And just as a followup, I did a test with multiple sub forms and nested subforms as well:</p>
+
+<pre class="highlight"><code>
+$sub = new Zend_Form_SubForm();
+$sub-&gt;setName('subform')
+    -&gt;addElement('text', 'foo')
+    -&gt;addElement('text', 'bar');
+
+$sub2 = new Zend_Form_SubForm();
+$sub2-&gt;setName('subform2')
+     -&gt;addElement('text', 'foo')
+     -&gt;addElement('text', 'bar');
+
+$sub3 = new Zend_Form_SubForm();
+$sub3-&gt;setName('subform3')
+     -&gt;addElement('text', 'foo')
+     -&gt;addElement('text', 'bar');
+$sub2-&gt;addSubForm($sub3, 'subform3');
+$sub2-&gt;subform3-&gt;foo-&gt;setValue('FOO');
+$sub2-&gt;subform3-&gt;bar-&gt;setValue('BAR');
+
+$form = new Zend_Form();
+$form-&gt;addElement('text', 'foo')
+     -&gt;addElement('text', 'bar')
+     -&gt;addSubForm($sub, 'subform')
+     -&gt;addSubForm($sub2, 'subform2');
+
+$form-&gt;foo-&gt;setValue('FOO');
+$form-&gt;bar-&gt;setValue('BAR');
+$form-&gt;subform-&gt;foo-&gt;setValue('FOO');
+$form-&gt;subform-&gt;bar-&gt;setValue('BAR');
+$form-&gt;subform2-&gt;foo-&gt;setValue('FOO');
+$form-&gt;subform2-&gt;bar-&gt;setValue('BAR');
+
+$values = $form-&gt;getValues();
+var_export($values);
+</code></pre>
+
+<p>This gave the expected output as well:</p>
+
+<pre class="highlight"><code>
+array (
+  'foo' =&gt; 'FOO',
+  'bar' =&gt; 'BAR',
+  'subform' =&gt; 
+  array (
+    'foo' =&gt; 'FOO',
+    'bar' =&gt; 'BAR',
+  ),
+  'subform2' =&gt; 
+  array (
+    'foo' =&gt; 'FOO',
+    'bar' =&gt; 'BAR',
+    'subform3' =&gt; 
+    array (
+      'foo' =&gt; 'FOO',
+      'bar' =&gt; 'BAR',
+    ),
+  ),
+)
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Remy Damour (remy215) on 2009-04-16T10:54:27.000+0000</p> 
+        <div class="body">
+            <p>Hi,
+I've tried the above code on ZF 1.7.8 (latest stable release), and indeed it works.</p>
+
+<p>Problem is that it does not work if, instead of instanciating a Zend_Form_SubForm, you simply provide a Zend_Form:</p>
+
+<pre class="highlight"><code>
+$sub = new Zend_Form();
+$sub-&gt;setName('subform')
+    -&gt;addElement('text', 'foo')
+    -&gt;addElement('text', 'bar');
+
+$form = new Zend_Form();
+$form-&gt;addElement('text', 'foo')
+     -&gt;addElement('text', 'bar')
+     -&gt;addSubForm($sub, 'subform');
+
+$form-&gt;foo-&gt;setValue('FOO');
+$form-&gt;bar-&gt;setValue('BAR');
+$form-&gt;subform-&gt;foo-&gt;setValue('FOO');
+$form-&gt;subform-&gt;bar-&gt;setValue('BAR');
+
+$values = $form-&gt;getValues();
+var_export($values);
+</code></pre>
+
+<p>This gives the wrong output (subform name not used as key in array =&gt; multiple subforms overwrite one another):</p>
+
+<pre class="highlight"><code>
+array (
+  'foo' =&gt; 'FOO',
+  'bar' =&gt; 'BAR',
+  '' =&gt; 
+  array (
+    'foo' =&gt; 'FOO',
+    'bar' =&gt; 'BAR',
+  ),
+)
+</code></pre>
+
+<p>By the way, is it possible to make the call to {{$sub-&gt;setName('subform')}} optional since when we attach the subform, we do provide a name! {{-&gt;addSubForm($sub, 'subform');}}</p>
+
+<p>PS1: I did not find how to re-open the bug, I hope that commenting will automatically re-open it
+PS2: it has nothing to do with this bug, but please update the downloadable api documentation upon each release! (it's currently stuck on 1.7.2 and it's a real pain to regenerate it each time): <a href="http://framework.zend.com/docs/api">http://framework.zend.com/docs/api</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Lounsbury (stephenminded) on 2009-06-04T22:06:16.000+0000</p> 
+        <div class="body">
+            <p>I can confirm the comment above as well (on 1.8.2). It only happens when using Zend_Form as a subform instead of Zend_Form_SubForm.</p>
+
+<p>According to the docs, this is perfectly legal: "A sub form may be a Zend_Form object, or, more typically, a Zend_Form_SubForm object."</p>
+
+<p>Perhaps this needs to be opened as a new issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hector Virgen (djvirgen) on 2009-08-13T14:24:14.000+0000</p> 
+        <div class="body">
+            <p>To add a Zend_Form object as a subform, you need to call $subform-&gt;setIsArray(true). This will allow $form-&gt;getValues() to produce the expected array.</p>
+
+<pre class="highlight"><code>
+$form = new MyForm(); // extends Zend_Form
+$subform = new MySubform(); // extends Zend_Form
+$subform-&gt;setIsArray(true);
+$form-&gt;addSubform($subform, 'mysubform');
+</code></pre>
+
+<p>Another issue related to adding Zend_Form objects as subforms is that the subforms have their own</p>
+
+<p>&lt;</p>
+
+<p>form&gt; tag. The fix is to remove the "Form" decorator from each subform:</p>
+
+<pre class="highlight"><code>
+$form = new MyForm(); // extends Zend_Form
+$subform = new MySubform(); // extends Zend_Form
+$subform-&gt;setIsArray(true);
+$subform-&gt;removeDecorator('Form');
+$form-&gt;addSubform($subform, 'mysubform');
+</code></pre>
+
+<p>It would be nice if Zend_Form::addSubform() handled these tasks automatically.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Avi Block (blocka) on 2009-10-25T16:37:24.000+0000</p> 
+        <div class="body">
+            <p>I don't believe this issue is closed. Matthew's tests did not hit the sweet spot, which is having multiple subforms of the same level. Only the last one is getting returned. Please fix this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jamal Fanaian (jamal) on 2010-03-01T15:10:40.000+0000</p> 
+        <div class="body">
+            <p>I am able to replicate what I understand the issue to be. It seems that array_merge is overwriting previous entries of the same subform. Using array_merge_recursive solves the issue. Here is an example on replicating it.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require 'Zend/Form.php';
+require 'Zend/Form/SubForm.php';
+
+class MyForm extends Zend_Form
+{
+    public function init()
+    {
+        $this-&gt;addElement('text', 'foo');
+    }
+}
+
+class MySubForm extends Zend_Form_SubForm
+{
+    static protected $formId = 0;
+
+    public function init()
+    {
+        $this-&gt;setElementsBelongTo('mysubform[' . self::$formId++ . ']');
+        $this-&gt;addElement('text', 'bar');
+    }
+}
+
+$data = array(
+    'foo' =&gt; 'one',
+    'mysubform' =&gt; array(
+        array(
+            'bar' =&gt; 'two',
+        ),
+        array(
+            'bar' =&gt; 'three',
+        ),
+    ),
+);
+
+// Method 1:
+// Simply calling Zend_Form::isValid() will not work because the form
+// has no knowledge of the SubForms.
+$form = new MyForm();
+$form-&gt;isValid($data);
+var_dump($form-&gt;getValues());
+/* Result:
+array(1) {
+  ["foo"]=&gt;
+  string(3) "one"
+}
+*/
+
+// Method 2: 
+// So the second option is just to add the subforms and then try to
+// validate the data. This method almost works. The data is validated
+// correctly. The problem here is in Zend_Form::getValues(). The issue,
+// is that array_merge will overwrite each mysubform key even if they
+// have differing keys within it. The only way to solve this is by using
+// array_merge_recursive instead.
+$form = new MyForm();
+
+foreach ($data['mysubform'] as $key =&gt; $datasub) {
+    $subform = new MySubForm();
+    $form-&gt;addSubForm($subform, 'mysubform' . $key);
+}
+
+$form-&gt;isValid($data);
+var_dump($form-&gt;getValues());
+/* Result:
+array(3) {
+  ["foo"]=&gt;
+  string(3) "one"
+  ["mysubform0"]=&gt;
+  array(0) {
+  }
+  ["mysubform1"]=&gt;
+  array(0) {
+  }
+}
+*/
+
+// Now, changing array_merge to array_merge_recursive in 
+// Zend/Form.php:1308 solves the problem, yielding the expected result
+/* Result:
+array(2) {
+  ["foo"]=&gt;
+  string(3) "one"
+  ["mysubform"]=&gt;
+  array(2) {
+    [0]=&gt;
+    array(1) {
+      ["bar"]=&gt;
+      string(3) "two"
+    }
+    [1]=&gt;
+    array(1) {
+      ["bar"]=&gt;
+      string(5) "three"
+    }
+  }
+}
+ */
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

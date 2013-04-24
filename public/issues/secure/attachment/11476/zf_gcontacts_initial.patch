@@ -1,0 +1,2632 @@
+Index: /Users/darien/Documents/src/Zend/Gdata/App/Base.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/App/Base.php	(revision 10903)
++++ /Users/darien/Documents/src/Zend/Gdata/App/Base.php	(working copy)
+@@ -187,15 +187,56 @@
+             $element->appendChild($element->ownerDocument->createTextNode($this->_text));
+         }
+         foreach ($this->_extensionElements as $extensionElement) {
++            if($extensionElement == null){continue;} //TODO consider some sort of warning?
+             $element->appendChild($extensionElement->getDOM($element->ownerDocument));
+         }
+         foreach ($this->_extensionAttributes as $attribute) {
++            if($attribute == null){continue;} //TODO consider some sort of warning?
+             $element->setAttribute($attribute['name'], $attribute['value']);
+         }
+         return $element;
+     }
+ 
+     /**
++     * Convenience function for setting DOM attributes. Null values
++     * remove the attribute.
++     *
++     * @param DOMElement $element
++     * @param string $name
++     * @param string $value
++     */
++    public static function setDomAttribute($element,$name,$value){
++        if($value == null){
++            $element->removeAttribute($name);
++        }else{
++            $element->setAttribute($name,$value);
++        }
++    }
++
++    /**
++     * Convenience function for setting a single DOM child, handles nulls gracefully
++     *
++     * @param DOMElement $element Parent element
++     * @param array|object $values An array of child elements or else a single element. 
++     * 		Expected to be subclasses of Zend_Gdata_App_Base.     
++     */    
++    public static function setDomChildren($element, $value){
++        if($value == null){
++            return(false);
++        }
++        
++        if(is_array($value)){            
++            foreach($value as $child){
++                if($child == null){continue;}
++                assert($child instanceof Zend_Gdata_App_Base);                    
++                $element->appendChild($child->getDOM($element->ownerDocument));
++            }
++        }else{
++            assert($value instanceof Zend_Gdata_App_Base);                    
++            $element->appendChild($value->getDOM($element->ownerDocument));
++        }
++    }
++    /**
+      * Given a child DOMNode, tries to determine how to map the data into
+      * object instance members.  If no mapping is defined, Extension_Element
+      * objects are created and stored in an array.
+@@ -453,7 +494,8 @@
+      */
+     public function __toString()
+     {
+-        return $this->getText();
++        // Ensure cast to string because returning null from this magic method can cause errors
++        return (string)$this->getText();
+     }
+ 
+ }
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts.php	(revision 0)
+@@ -0,0 +1,141 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata
++ */
++require_once 'Zend/Gdata.php';
++
++/**
++ * @see Zend_Gdata_Contacts_ListFeed
++ */
++require_once 'Zend/Gdata/Contacts/ListFeed.php';
++
++/**
++ * @see Zend_Gdata_Contacts_ListEntry
++ */
++require_once 'Zend/Gdata/Contacts/ListEntry.php';
++
++
++/**
++ * Service class for interacting with the Google Contacts data API
++ * @link http://code.google.com/apis/contacts/
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts extends Zend_Gdata
++{
++
++    const CONTACTS_FEED_URI = 'http://www.google.com/m8/feeds/contacts/default';
++    const AUTH_SERVICE_NAME = 'cp';
++
++    protected $_defaultPostUri = self::CONTACTS_FEED_URI;
++
++    /**
++     * The projection determines how much detail should be given in the
++     * result of the feed.
++     *
++     * @link 	http://code.google.com/apis/contacts/reference.html#Projections
++     * @var string
++     */
++    protected $_projection = 'full';
++
++    public static $namespaces = array(
++            'gd' => 'http://schemas.google.com/g/2005');
++
++    /**
++     * Create Gdata_Contacts object
++     *
++     * @param Zend_Http_Client $client (optional) The HTTP client to use when
++     *          when communicating with the Google servers.
++     * @param string $applicationId The identity of the app in the form of Company-AppName-Version
++     */
++    public function __construct($client = null, $applicationId = 'MyCompany-MyApp-1.0')
++    {
++        $this->registerPackage('Zend_Gdata_Contacts');
++        //$this->registerPackage('Zend_Gdata_Contacts_Extension');
++        parent::__construct($client, $applicationId);
++        $this->_httpClient->setParameterPost('service', self::AUTH_SERVICE_NAME);
++    }
++
++    /**
++     * Creates and returns a new query object.
++     *
++     * The returned object will inherit it's initial projection value.
++     *
++     * @return Zend_Gdata_Contacts_Query
++     */
++    public function newContactQuery(){
++        $q = new Zend_Gdata_Contacts_Query();
++        $q->setProjection($this->getProjection());
++         
++        return($q);
++         
++    }
++
++    /**
++     * Sets the projection for this feed. Valid values for Contacts are "full",
++     * "thin", and "property-KEY" where KEY is an extended property name.
++     *
++     * Projections mainly influence the visibility of extended properties.
++     *
++     * The default is "full".
++     *
++     * @param string $value
++     * @return Zend_Gdata_Contacts Provides a fluent interface
++     */
++    public function setProjection($value)
++    {
++        $this->_projection = $value;
++        return $this;
++    }
++
++
++    /**
++     * Gets the projection for this feed.
++     *
++     * @return string projection
++     */
++    public function getProjection()
++    {
++        return $this->_projection;
++    }
++
++    /**
++     * Retrieve feed object
++     *
++     * @return Zend_Gdata_Contacts_ListFeed
++     */
++    public function getContactListFeed()
++    {
++        $uri = self::CONTACTS_FEED_URI;
++        if($this->_projection){
++            $uri .= '/' . $this->_projection;
++        }
++        return parent::getFeed($uri,'Zend_Gdata_Contacts_ListFeed');
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/ListEntry.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/ListEntry.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/ListEntry.php	(revision 0)
+@@ -0,0 +1,428 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Entry
++ */
++require_once 'Zend/Gdata/Entry.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Name
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Name.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Notes
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Notes.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Email
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Email.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Im
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Im.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_PhoneNumber
++ */
++require_once 'Zend/Gdata/Contacts/Extension/PhoneNumber.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_PostalAddress
++ */
++require_once 'Zend/Gdata/Contacts/Extension/PostalAddress.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Organization
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Organization.php';
++
++/**
++ * @see Zend_Gdata_Extension_ExtendedProperty
++ */
++require_once 'Zend/Gdata/Extension/ExtendedProperty.php';
++
++/**
++ * Represents a contact entry.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_ListEntry extends Zend_Gdata_Entry
++{
++
++    protected $_contactName 	= null;
++    protected $_contactNotes 	= null;
++    protected $_emails			= array();
++    protected $_ims				= array();
++    protected $_phones			= array();
++    protected $_postAddr 		= array();
++    protected $_orgs			= array();
++    protected $_extendedProperty = array();
++
++
++
++    public function __construct($element = null)
++    {
++        foreach (Zend_Gdata_Contacts::$namespaces as $nsPrefix => $nsUri) {
++            $this->registerNamespace($nsPrefix, $nsUri);
++        }
++        parent::__construct($element);
++    }
++
++    protected function getAllElements(){
++        $allElements = array_merge(
++        $this->_emails,
++        $this->_ims,
++        $this->_phones,
++        $this->_postAddr,
++        $this->_orgs,
++        $this->_extendedProperty
++        );
++        $allElements[] = $this->_contactNotes;
++        $allElements[] = $this->_contactName;
++        return($allElements);
++    }
++
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++
++        $children = $this->getAllElements();
++        self::setDomChildren($element,$children);
++
++        return $element;
++    }
++
++    protected function takeChildFromDOM($child)
++    {
++        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;
++        switch ($absoluteNodeName) {
++            case $this->lookupNamespace('atom') . ':' . 'title';
++            $item = new Zend_Gdata_Contacts_Extension_Name();
++            $item->transferFromDOM($child);
++            $this->_contactName = $item;
++            break;
++            case $this->lookupNamespace('atom') . ':' . 'content';
++            $item = new Zend_Gdata_Contacts_Extension_Notes();
++            $item->transferFromDOM($child);
++            $this->_contactNotes = $item;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'email';
++            $item = new Zend_Gdata_Contacts_Extension_Email();
++            $item->transferFromDOM($child);
++            $this->_emails[] = $item;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'im';
++            $item = new Zend_Gdata_Contacts_Extension_Im();
++            $item->transferFromDOM($child);
++            $this->_ims[] = $item;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'phoneNumber';
++            $item = new Zend_Gdata_Contacts_Extension_PhoneNumber();
++            $item->transferFromDOM($child);
++            $this->_phones[] = $item;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'postalAddress';
++            $item = new Zend_Gdata_Contacts_Extension_PostalAddress();
++            $item->transferFromDOM($child);
++            $this->_postAddr[] = $item;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'organization';
++            $item = new Zend_Gdata_Contacts_Extension_Organization();
++            $item->transferFromDOM($child);
++            $this->_orgs[] = $item;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'extendedProperty';
++            $item = new Zend_Gdata_Extension_ExtendedProperty();
++            $item->transferFromDOM($child);
++            $this->_extendedProperty[] = $item;
++            break;
++
++            default:
++                parent::takeChildFromDOM($child);
++                break;
++        }
++    }
++
++    /**
++     * Retrieves the name of this contact
++     *
++     * @return Zend_Gdata_Contacts_Extension_Name 
++     */
++    public function getName(){
++        return($this->_contactName);
++    }
++    /**
++     * @param Zend_Gdata_Contacts_Extension_Name $value
++     * @return Zend_Gdata_Extension_ListEntry Provides a fluent interface
++     */
++    public function setName($value){
++        $this->_contactName = $value;
++        return($this);
++    }
++    /**
++     * Retrieves the text of any notes associated with this contact.
++     *
++     * @return Zend_Gdata_Contacts_Extension_Notes Note text
++     */
++    public function getNotes(){
++        return($this->_contactNotes);
++    }
++    /**
++     * @param Zend_Gdata_Contacts_Extension_Notes $value
++     * @return Zend_Gdata_Extension_ListEntry Provides a fluent interface
++     */
++    public function setNotes($value){
++        $this->_contactNotes = $value;
++        return($this);
++    }
++    /**
++     * Retrieves a list of Zend_Gdata_Contacts_Extension_Email items.
++     *
++     * @todo return primary first, if any
++     * @return array An array of Zend_Gdata_Contacts_Extension_Email objects
++     */
++    public function getEmails(){
++        return($this->_emails);
++    }
++    /**
++     * @param array $values Array of Zend_Gdata_Contacts_Extension_Email items
++     * @return Zend_Gdata_Extension_ListEntry or else FALSE on error
++     */
++    public function setEmails($values){
++        foreach($values as $v){
++            if(!($v instanceof Zend_Gdata_Contacts_Extension_Email)){
++                return(false);
++            }
++        }
++        $this->_emails = $values;
++        return($this);
++    }
++    /**
++     * Retrieves a list of Zend_Gdata_Contacts_Extension_Im items.
++     *
++     * @todo return primary first, if any
++     * @return array An array of Zend_Gdata_Contacts_Extension_Im objects
++     */
++    public function getIms(){
++        return($this->_ims);
++    }
++    /**
++     * @param array $values Array of Zend_Gdata_Contacts_Extension_Im items
++     * @return Zend_Gdata_Extension_ListEntry or else FALSE on error
++     */
++    public function setIms($values){
++        foreach($values as $v){
++            if(!($v instanceof Zend_Gdata_Contacts_Extension_Im)){
++                return(false);
++            }
++        }
++        $this->_ims = $values;
++        return($this);
++    }
++    /**
++     * Retrieves a list of Zend_Gdata_Contacts_Extension_PhoneNumber items.
++     *
++     * @todo return primary first, if any
++     * @return array An array of Zend_Gdata_Contacts_Extension_PhoneNumber objects
++     */
++    public function getPhones(){
++        return($this->_phones);
++    }
++    /**
++     * @param array $values Array of Zend_Gdata_Contacts_Extension_PhoneNumber items
++     * @return Zend_Gdata_Extension_ListEntry or else FALSE on error
++     */
++    public function setPhones($values){
++        foreach($values as $v){
++            if(!($v instanceof Zend_Gdata_Contacts_Extension_PhoneNumber)){
++                return(false);
++            }
++        }
++        $this->_phones = $values;
++        return($this);
++    }
++
++    /**
++     * Sets the "primary" flag on the given object, and unsets it on all
++     * sibling objects.
++     *
++     * @param Zend_Gdata_Contacts_Extension_Primary $object
++     * @return boolean True on success, false on failure.
++     */
++    public function setPrimary(Zend_Gdata_Contacts_Extension_Primary $object){
++        // First, check that the desired primary is already part of our
++        // data structure
++        $found = false;
++        $elements = $this->getAllElements();
++
++        foreach($elements as $e){
++            if($e == $object){$found = true;}
++        }
++        if(!$found){
++            return(false);
++        }
++
++
++        $label = $object->getPrimaryLabel();
++        // Set false on all items of same type
++        foreach($elements as $e){
++            if($e instanceof Zend_Gdata_Contacts_Extension_Primary){
++                if($label == $e->getPrimaryLabel()){
++                    $e->setPrimary(false);
++                }
++            }
++        }
++        // Set true on our single chosen primary item
++        $object->setPrimary(true);
++        return(true);
++    }
++    /**
++     * Retrieves a list of Zend_Gdata_Contacts_Extension_PostalAddress items.
++     *
++     * @todo return primary first, if any
++     * @return array An array of Zend_Gdata_Contacts_Extension_PostalAddress objects
++     */
++    public function getAddresses(){
++        return($this->_postAddr);
++    }
++    /**
++     * @param array $values Array of Zend_Gdata_Contacts_Extension_PostalAddress items
++     * @return Zend_Gdata_Extension_ListEntry Provides a fluent interface
++     */
++    public function setAddresses($values){
++        foreach($values as $v){
++            if(!($v instanceof Zend_Gdata_Contacts_Extension_PostalAddress)){
++                return(false);
++            }
++        }
++        $this->_postAddr = $values;
++        return($this);
++    }
++    /**
++     * Retrieves a list of Zend_Gdata_Contacts_Extension_Organization items.
++     * 
++     * @todo return primary first, if any
++     * @return array An array of Zend_Gdata_Contacts_Extension_Organization objects
++     */
++    public function getOrgs(){
++        return($this->_orgs);
++    }
++    /**
++     * @param array $values Array of Zend_Gdata_Contacts_Extension_Organization items
++     * @return Zend_Gdata_Extension_ListEntry or else FALSE on error
++     */
++    public function setOrgs($values){
++        foreach($values as $v){
++            if(!($v instanceof Zend_Gdata_Contacts_Extension_Organization)){
++                return(false);
++            }
++        }
++        $this->_orgs = $values;
++        return($this);
++    }
++
++    /**
++     * Retrieves a list of Zend_Gdata_Extension_ExtendedProperty items.
++     *
++     * @return array An array of Zend_Gdata_Extension_ExtendedProperty objects
++     */
++    public function getExtendedProperties()
++    {
++        return $this->_extendedProperty;
++    }
++
++    /**
++     * @param array $values Array of Zend_Gdata_Extension_ExtendedProperty items
++     * @return Zend_Gdata_Contacts_ListEntry or else FALSE on error
++     */
++    public function setExtendedProperties($values)
++    {
++        $keys = array();
++        foreach($values as $v){
++            if(!($v instanceof Zend_Gdata_Extension_ExtendedProperty)){
++                return(false);
++            }
++            $keys[] = $v->getName();
++        }
++        $n = sizeof($keys);
++        if($n != array_unique($keys)){
++            // Dupe key! Not allowed, will prevent saving
++            return(false);
++        }
++        	
++        $this->_extendedProperty = $values;
++        return $this;
++    }
++    /**
++     * Returns all detected categories for elements
++     *
++     * @return array Array of string labels
++     */
++    public function getCategories(){
++        $elements = $this->getAllElements();
++        $ret = array();
++        foreach($elements as $e){
++            if($e instanceof Zend_Gdata_Contacts_Extension_Categorizable){
++                $ret[] = $e->getCategory();
++            }
++        }
++        return(array_unique($ret));
++    }
++
++    /**
++     * Returns all categorizable elements of a specific type (e.g. "work", "other", "MyCategory")
++     *
++     * @param string $name
++     * @param string $caseSensitive
++     * @return array Array of Zend_Gdata_Extension objects
++     */
++    public function getByCategory($name,$caseSensitive = true){
++        $elements = $this->getAllElements();
++
++        if(!$caseSensitive){
++            $name = strtolower($name);
++        }
++        $ret = array();
++        foreach($elements as $e){
++            if($e instanceof Zend_Gdata_Contacts_Extension_Categorizable){
++                $actual = $e->getCategory();
++                if(!$caseSensitive){
++                    $actual = strtolower($actual);
++                }
++
++                if($name == $actual){
++                    $ret[] = $e;
++                }
++            }
++        }
++        return($ret);
++    }
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/ListFeed.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/ListFeed.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/ListFeed.php	(revision 0)
+@@ -0,0 +1,63 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Feed
++ */
++require_once 'Zend/Gdata/Feed.php';
++
++
++/**
++ * Represents the meta-feed list of contacts
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_ListFeed extends Zend_Gdata_Feed
++{
++
++    /**
++     * The classname for individual feed elements.
++     *
++     * @var string
++     */
++    protected $_entryClassName = 'Zend_Gdata_Contacts_ListEntry';
++
++    /**
++     * The classname for the feed.
++     *
++     * @var string
++     */
++    protected $_feedClassName = 'Zend_Gdata_Contacts_ListFeed';
++
++    public function __construct($element = null)
++    {
++        foreach (Zend_Gdata_Contacts::$namespaces as $nsPrefix => $nsUri) {
++            $this->registerNamespace($nsPrefix, $nsUri);
++        }
++        parent::__construct($element);
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Query.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Query.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Query.php	(revision 0)
+@@ -0,0 +1,245 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * Zend_Gdata_Query
++ */
++require_once('Zend/Gdata/Query.php');
++
++/**
++ * Assists in constructing queries for Google Document List documents
++ *
++ * @link http://code.google.com/apis/gdata/spreadsheets/
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Query extends Zend_Gdata_Query
++{
++        
++	const ORDER_LASTMODIFIED = "lastmodified";
++		
++    /**
++     * The generic base URL used by some inherited methods
++     *
++     * @var string
++     */
++    protected $_defaultFeedUri = Zend_Gdata_Contacts::CONTACTS_FEED_URI;   
++
++    /**
++     * The projection determines how much detail should be given in the
++     * result of the query. 
++     * 
++     * @link 	http://code.google.com/apis/contacts/reference.html#Projections
++     * @var string
++     */
++    protected $_projection = 'full';
++   
++    /**
++     * The ordering to use when retrieving results.
++     * 
++     * This will generally correspond to one of the self::ORDER_* constants 
++     *
++     * @var string
++     */
++    protected $_ordering = self::ORDER_LASTMODIFIED;
++    
++    /**
++     * Whether to show contacts marked "deleted" or not. Defaults to false.
++     *
++     * @var boolean
++     */
++    protected $_showDeleted = false;
++    
++    /**
++     * Whether to order results in ascending or descending order. True for
++     * ascending, false for descending. Defaults to true.
++     *
++     * @var boolean
++     */
++    protected $_ascending = true;
++    
++    /**
++     * If present, a string ID for the proup to restrict results to.
++     * Defaults to a blank string for no group restrictions.
++     *
++     * @var string
++     */
++    protected $_onlyGroup = '';
++    /**
++     * Constructs a new instance of a Zend_Gdata_Contacts_Query object.
++     */
++    public function __construct()
++    {
++        parent::__construct();
++    }
++    
++    /**
++     * Sets the ordering for results. Some supported ordering schemes may be
++     * found using the self::ORDER_* constants.
++     *
++     * @param string $type Ordering scheme label
++     * @return boolean True if successfully set, false otherwise
++     */
++    public function setOrdering($type){
++    	if(strlen($type) <= 0){
++    		return(false);
++    	}
++    	$this->_ordering = $type;
++    	
++		if($this->_ordering){
++    		$this->_params['orderby'] = $this->_ordering;
++    	}else{
++    		unset($this->_params['orderby']);
++    	}
++    	return(true);
++    }
++    
++    /**
++     * Retrieves the ordering used when making queries. 
++     *
++     * @return string
++     */
++    public function getOrdering(){
++    	return($this->_ordering);
++    }
++    
++    /**
++     * Sets sort order. True for ascending, false for descending.
++     *
++     * @param boolean $asc
++     */
++    public function setAscending($asc){
++    	$this->_ascending = (boolean)$asc;
++    	
++    	if($this->_ascending){
++    		$this->_params['sortorder'] = 'ascending';
++    	}else{
++    		$this->_params['sortorder'] = 'descending';
++    	}
++    }
++    /**
++     * Retrieves sort order. True for ascending, false for descending.
++     *
++     * @return boolean
++     */
++    public function isAscending(){
++    	return($this->_ascending);
++    }
++    
++    /**
++     * Sets whether "deleted" contacts are returned in results or not.
++     *
++     * @param boolean $show
++     */
++    public function setShowingDeleted($show){
++    	$this->_showDeleted = (boolean)$show;
++    	
++        if($this->_showDeleted){
++    		$this->_params['showdeleted'] = 'true';
++    	}else{
++    		$this->_params['showdeleted'] = 'false	';
++    	}
++    }
++    /**
++     * Retrives whether or not "deleted" contacts will appear in results.
++     *
++     * @return boolean
++     */
++    public function isShowingDeleted(){
++    	return($this->_showDeleted);
++    }
++
++    /**
++     * Sets the group ID that a contact must exist within in order to be in the
++     * query result. This group ID will typically be an URI.
++     * 
++     * Any setting other than a positive-length string will disable this 
++     * result restriction.
++     * 
++     * @link http://code.google.com/apis/contacts/reference.html#GroupElements
++     * @param string $uri
++     */
++    public function setGroup($uri){
++    	if(strlen($uri) <= 0){
++    		return(false);
++    	}
++    	$this->_onlyGroup = $uri;
++    	
++		if($this->_onlyGroup){
++    		$this->_params['group'] = $this->_onlyGroup;
++    	}else{
++    		unset($this->_params['group']);
++    	}
++    	return(true);
++    }    
++    /**
++     * Sets the projection for this query. Valid values for Contacts are "full", 
++     * "thin", and "property-KEY" where KEY is an extended property name. 
++     * 
++     * Projections mainly influence the visibility of extended properties.
++     *
++     * @param string $value
++     * @return Zend_Gdata_Contacts_Query Provides a fluent interface
++     */
++    public function setProjection($value)
++    {
++        $this->_projection = $value;
++        return $this;
++    }
++
++
++    /**
++     * Gets the projection for this query.
++     *
++     * @return string projection
++     */
++    public function getProjection()
++    {
++        return $this->_projection;
++    }
++    
++
++    /**
++     * Gets the full query URL for this query.
++     *
++     * @return string url
++     */
++    public function getQueryUrl()
++    {
++        $uri = $this->_defaultFeedUri;
++        
++        if ($this->_projection !== null) {
++            $uri .= '/' . $this->_projection;
++        } else {
++            require_once 'Zend/Gdata/App/Exception.php';
++            throw new Zend_Gdata_App_Exception(
++                'A projection must be provided for contact queries.'); //TODO is this true? Test.
++        }
++
++        $uri .= $this->getQueryString();
++        return $uri;
++    }
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/OrgTitle.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/OrgTitle.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/OrgTitle.php	(revision 0)
+@@ -0,0 +1,63 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Extension
++ */
++require_once 'Zend/Gdata/Extension.php';
++
++/**
++ * Represents the gd:orgTitle element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_OrgTitle extends Zend_Gdata_Extension
++{
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'orgTitle';
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Organization object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        parent::__construct($value);
++        if($value !== null){
++            $this->setText($value);
++        }
++    }
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        return (string) ($this->getText());
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Categorizable.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Categorizable.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Categorizable.php	(revision 0)
+@@ -0,0 +1,46 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++interface Zend_Gdata_Contacts_Extension_Categorizable
++{
++
++    /**
++     * Get the value for this element's value attribute.
++     *
++     * @return string The category associated with this e-mail or null if not present
++     */
++    public function getCategory();
++
++    /**
++     * Sets the category for this element
++     *
++     * @param string $value The desired category (work, personal, other)
++     */
++    public function setCategory($value);
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Categorized.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Categorized.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Categorized.php	(revision 0)
+@@ -0,0 +1,184 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Extension
++ */
++require_once 'Zend/Gdata/Extension.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Categorizable
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Categorizable.php';
++
++/**
++ * Represents shared functionality for several elements used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++abstract class Zend_Gdata_Contacts_Extension_Categorized extends Zend_Gdata_Extension implements Zend_Gdata_Contacts_Extension_Categorizable
++{
++
++    /**
++     * On reading, check 'rel' attribute. If not present, check 'label' attribute.
++     * On writing, use 'rel' only if the category is one of the predefined ones.
++     */
++    const BEHAVIOR_NORM 		= 0;
++
++
++    protected static $categories = array('work','personal','other');
++    protected $_rootNamespace = null;
++    protected $_rootElement = null;
++
++    protected $_value_rel = null;
++    protected $_value_label = null;
++
++    /**
++     * The behavior flag here is for flexibility if/when the means for encoding
++     * category membership changes or bugs come up.
++     *
++     * @var integer A self::BEHAVIOR_* class constant value
++     */
++    protected $_categoryBehavior = 0; // Subclasses should override as appropriate
++
++    /**
++     * Constructs a new object. (This class is abstract.)
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        foreach (Zend_Gdata_Contacts::$namespaces as $nsPrefix => $nsUri) {
++            $this->registerNamespace($nsPrefix, $nsUri);
++        }
++        parent::__construct();
++    }
++
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++        // We assume that the values have been correctly set already
++        self::setDomAttribute($element,'rel',$this->_value_rel);
++        self::setDomAttribute($element,'label',$this->_value_label);
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members.  If no mapping is defined, the name and value are
++     * stored in an array.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'rel': // fall-through
++                $this->_value_rel = $attribute->nodeValue;
++                break;
++            case 'label':
++                $this->_value_label = $attribute->nodeValue;
++                break;
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    protected function determineCategory(){
++        switch($this->_categoryBehavior)
++        {
++            case self::BEHAVIOR_NORM:
++                $val = false;
++                // Check rel's value
++                if($this->_value_rel){
++                    $bits = explode("#",$this->_value_rel);
++                    if(sizeof($bits)==2){
++                        assert($bits[0] == $this->lookupNamespace($this->_rootNamespace));
++                        $val = $bits[1];
++                        assert(in_array($val,self::$categories));
++                        return($val);
++                    }
++                }
++                /**
++                 * Okay, so the rel attribute wasn't any help. Try label.
++                 * Note that some items use additional data in the label.
++                 * For example, for phone numbers, the label might be:
++                 * 		"Category / Mobile"
++                 *
++                 * This class does NOT deal with the additional data or the
++                 * slash separator. That's a matter for subclasses to
++                 * handle.
++                 */
++                	
++                if($this->_value_label){
++                    return($this->_value_label);
++                }
++                	
++                // Okay, so nothing (yet?)
++                return(FALSE);
++                break;
++        }
++    }
++
++
++    /**
++     * Get the value for this element's value attribute.
++     *
++     * @return string The category associated with this e-mail or null if not present
++     */
++    public function getCategory()
++    {
++        return($this->determineCategory());
++    }
++
++    /**
++     * Sets the category for this element
++     *
++     * @param string $value The desired category (work, personal, other)
++     * @return Zend_Gdata_Contacts_Extension_Email The element being modified.
++     */
++    public function setCategory($value)
++    {
++        if(in_array($value,self::$categories)){
++            $this->_value_rel = $this->lookupNamespace($this->_rootNamespace) . "#" . $value;
++            $this->_value_label = false;
++        }else{
++            $this->_value_rel = false;;
++            $this->_value_label = $value;
++        }
++        return $this;
++    }
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Name.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Name.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Name.php	(revision 0)
+@@ -0,0 +1,73 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Extension
++ */
++require_once 'Zend/Gdata/Extension.php';
++
++/**
++ * Represents the title element used by the Contacts data API to define the name
++ * of a contact.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_Name extends Zend_Gdata_Extension
++{
++
++    protected $_rootNamespace = 'atom';
++    protected $_rootElement = 'title';
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Name object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        foreach (Zend_Gdata_Contacts::$namespaces as $nsPrefix => $nsUri) {
++            $this->registerNamespace($nsPrefix, $nsUri);
++        }
++        parent::__construct();
++        if($value !== null){
++            $this->setText($value);
++        }
++
++    }
++
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        if($this->getText() != null){
++            return($this->getText());
++        }else{
++            return('');
++        }
++    }
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/PhoneNumber.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/PhoneNumber.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/PhoneNumber.php	(revision 0)
+@@ -0,0 +1,228 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Categorized
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Categorized.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Primary
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Primary.php';
++
++/**
++ * Represents the gd:phoneNumber element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_PhoneNumber extends Zend_Gdata_Contacts_Extension_Categorized implements Zend_Gdata_Contacts_Extension_Primary
++{
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'phoneNumber';
++    protected $_subType = '';
++    protected $_isPrimary = false;
++
++
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_PhoneNumber object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        parent::__construct($value);
++        if($value !== null){
++            $this->setText($value);
++        }
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++        if($this->_isPrimary){
++            $element->setAttribute('primary', 'true');
++        }else{
++            $element->setAttribute('primary', 'false');
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members.  If no mapping is defined, the name and value are
++     * stored in an array.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'primary':
++                if(strtolower($attribute->nodeValue) == 'true'){
++                    $this->_isPrimary = true;
++                }else{
++                    $this->_isPrimary = false;
++                }
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++
++    /**
++     * Enhances parent implementation to deal with phone number subtypes
++     *
++     */
++    protected function determineCategory(){
++        $label = parent::determineCategory();
++        $bits = explode(" / ",$label);
++        if(sizeof($bits) == 2){
++            $this->_subType = $bits[1];
++            return($bits[0]);
++        }else{
++            $this->_subType = '';
++            return($label);
++        }
++        	
++        	
++    }
++
++    /**
++     * Extends parent implementation to deal with storying phone number subtypes
++     *
++     */
++    public function setCategory($value)
++    {
++        if($this->_subType){
++            $value = $value . " / ". $this->_subType;
++        }
++        return( parent::setCategory($value) );
++    }
++
++    /**
++     * Returns the subtype label, e.g. "Mobile", "Pager", "Fax"...
++     * May be a blank string.
++     */
++    public function getSubType(){
++        $this->determineCategory();
++        return($this->_subType);
++    }
++    /**
++     * Sets the subtype label, e.g. "Mobile", "Pager", "Fax" ...
++     * May be a blank string.
++     *
++     * @param string $label The label to set
++     * @return Zend_Gdata_Contacts_Extension_PhoneNumber The element being modified.
++     */
++    public function setSubType($label){
++        $cat = $this->getCategory();
++        $this->_subType = $label; // Was overwritten when getCategory is called
++        $this->setCategory($cat);
++        return($this);
++    }
++
++    /**
++     * Gets the (textual) phone number for this element.
++     *
++     * @return string The phone number, may contain parenthesis, spaces, dashes, etc.
++     */
++    public function getNumber()
++    {
++        return($this->getText());
++    }
++
++    /**
++     * Sets the (textual) phone number for this element.
++     *
++     * @param string $number The phone number to set
++     * @return Zend_Gdata_Contacts_Extension_PhoneNumber The element being modified.
++     */
++    public function setNumber($number)
++    {
++        $this->setText($number);
++        return $this;
++    }
++
++
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        return( (string) $this->getNumber());
++    }
++
++    /**
++     * Whether or not this object is marked as the 'primary' item of this type for the contact
++     *
++     * @return boolean True if primary, false otherwise
++     */
++    public function isPrimary()
++    {
++        return $this->_isPrimary;
++    }
++
++    /**
++     * Returns the label used to prevent multiple primaries.
++     *
++     * All objects with the same label may only have one "primary" item between
++     * them, e.g. "email" elements.
++     *
++     * @return string 	A label unique to a set of items where only one item may
++     * 					be set as primary
++     */
++    public function getPrimaryLabel(){
++        return("CONTACT_PHONE");
++    }
++
++    /**
++     * Changes the flag for whether this is the primary object among it's peers.
++     * Note that this does NOT change the flag on any sibling elements.
++     * That task must be managed by caller code.
++     *
++     * @param boolean $value True to set as primary, false otherwise.
++     * @return Zend_Gdata_Contacts_Extension_PhoneNumber The element being modified.
++     */
++    public function setPrimary($value)
++    {
++        $this->_isPrimary = $value;
++        return $this;
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Primary.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Primary.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Primary.php	(revision 0)
+@@ -0,0 +1,58 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++interface Zend_Gdata_Contacts_Extension_Primary
++{
++	/**
++	 * Whether or not this element is marked as the primary one amongst it's peers
++	 *
++	 * @return boolean True if primary, false otherwise
++	 */
++	public function isPrimary();
++
++	/**
++	 * Changes the flag for whether this is the primary e-mail for a contact.
++	 * Depending on implementation this may or may not unset the primary flag for
++	 * other elements.
++	 *
++	 * @param boolean $value True to set as primary, false otherwise.
++	 */
++	public function setPrimary($value);
++
++	/**
++	 * Returns the label used to prevent multiple primaries.
++	 *
++	 * All objects with the same label may only have one "primary" item between
++	 * them, e.g. "email" elements.
++	 *
++	 * @return string 	A label unique to a set of items where only one item may
++	 * 					be set as primary
++	 */
++	public function getPrimaryLabel();
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Organization.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Organization.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Organization.php	(revision 0)
+@@ -0,0 +1,249 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Categorized
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Categorized.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_OrgName
++ */
++require_once 'Zend/Gdata/Contacts/Extension/OrgName.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_OrgTitle
++ */
++require_once 'Zend/Gdata/Contacts/Extension/OrgTitle.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Primary
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Primary.php';
++
++/**
++ * Represents the gd:organization element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_Organization extends Zend_Gdata_Contacts_Extension_Categorized implements Zend_Gdata_Contacts_Extension_Primary
++{
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'organization';
++    protected $_company		= null;
++    protected $_jobtitle	= null;
++    protected $_isPrimary = false;
++
++
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Organization object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        parent::__construct($value);
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++        self::setDomChild($element,$this->_company);
++        self::setDomChild($element,$this->_jobtitle);
++        if($this->_isPrimary){
++            $element->setAttribute('primary', 'true');
++        }else{
++            $element->setAttribute('primary', 'false');
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members.  If no mapping is defined, the name and value are
++     * stored in an array.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'primary':
++                if(strtolower($attribute->nodeValue) == 'true'){
++                    $this->_isPrimary = true;
++                }else{
++                    $this->_isPrimary = false;
++                }
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    /**
++     * Given a child DOMNode, tries to determine how to map the data into
++     * object instance members.  If no mapping is defined, Extension_Element
++     * objects are created and stored in an array.
++     *
++     * @param DOMNode $child The DOMNode needed to be handled
++     */
++    protected function takeChildFromDOM($child)
++    {
++        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;
++        switch ($absoluteNodeName) {
++            case $this->lookupNamespace('gd') . ':' . 'orgName';
++            $name = new Zend_Gdata_Contacts_Extension_OrgName();
++            $name->transferFromDOM($child);
++            $this->_company = $name;
++            break;
++            break;
++            case $this->lookupNamespace('gd') . ':' . 'orgTitle';
++            $name = new Zend_Gdata_Contacts_Extension_OrgTitle();
++            $name->transferFromDOM($child);
++            $this->_jobtitle = $name;
++            break;
++            default:
++                parent::takeChildFromDOM($child);
++                break;
++        }
++    }
++
++    /**
++     * Sets the job title
++     *
++     * @param string $value Job title
++     * @return Zend_Gdata_Contacts_Extension_Organization The element being modified.
++     */
++    public function setJobTitle($name)
++    {
++        if($this->_jobtitle == null){
++            $this->_jobtitle = new Zend_Gdata_Contacts_Extension_OrgTitle();
++        }
++        $this->_jobtitle->setText($name);
++        return $this;
++    }
++
++    /**
++     * Retrieves the job title associated with this organizational contact
++     *
++     * @return string Job title
++     */
++    public function getJobTitle()
++    {
++        if($this->_jobtitle != null){
++            return $this->_jobtitle->getText();
++        }else{
++            return(false);
++        }
++    }
++
++    /**
++     * Gets the company name of this organizational contacts
++     *
++     * @return string Company name
++     */
++    public function getCompany()
++    {
++        if($this->_company != null){
++            return $this->_company->getText();
++        }else{
++            return(false);
++        }
++    }
++
++    /**
++     * Sets the company name of this organizational contacts
++     *
++     * @param string $value Company name
++     * @return Zend_Gdata_Contacts_Extension_Organization The element being modified.
++     */
++    public function setCompany($name)
++    {
++        if($this->_company == null){
++            $this->_company = new Zend_Gdata_Contacts_Extension_OrgName();
++        }
++        $this->_company->setText($name);
++        return $this;
++    }
++
++
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        return( (string) ($this->getCompany()." : ".$this->getJobTitle()) );
++    }
++
++    /**
++     * Whether or not this object is marked as the 'primary' item of this type for the contact
++     *
++     * @return boolean True if primary, false otherwise
++     */
++    public function isPrimary()
++    {
++        return $this->_isPrimary;
++    }
++
++    /**
++     * Changes the flag for whether this is the primary object among it's peers.
++     * Note that this does NOT change the flag on any sibling elements.
++     * That task must be managed by caller code.
++     *
++     * @param boolean $value True to set as primary, false otherwise.
++     * @return Zend_Gdata_Contacts_Extension_Organization The element being modified.
++     */
++    public function setPrimary($value)
++    {
++        $this->_isPrimary = $value;
++        return $this;
++    }
++
++    /**
++     * Returns the label used to prevent multiple primaries.
++     *
++     * All objects with the same label may only have one "primary" item between
++     * them, e.g. "email" elements.
++     *
++     * @return string 	A label unique to a set of items where only one item may
++     * 					be set as primary
++     */
++    public function getPrimaryLabel(){
++        return("CONTACT_ORG");
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Im.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Im.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Im.php	(revision 0)
+@@ -0,0 +1,218 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Categorized
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Categorized.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Primary
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Primary.php';
++
++/**
++ * Represents the gd:im element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_Im extends Zend_Gdata_Contacts_Extension_Categorized implements Zend_Gdata_Contacts_Extension_Primary
++{
++
++    const PROTOCOL_AOL 		= "http://schemas.google.com/g/2005#AIM";
++    const PROTOCOL_MSN		= "http://schemas.google.com/g/2005#MSN";
++    const PROTOCOL_YAHOO 	= "http://schemas.google.com/g/2005#YAHOO";
++    const PROTOCOL_SKYPE 	= "http://schemas.google.com/g/2005#SKYPE";
++    const PROTOCOL_QQ		= "http://schemas.google.com/g/2005#QQ";
++    const PROTOCOL_GTALK	= "http://schemas.google.com/g/2005#GOOGLE_TALK";
++    const PROTOCOL_ICQ		= "http://schemas.google.com/g/2005#ICQ";
++    const PROTOCOL_JABBER	= "http://schemas.google.com/g/2005#JABBER";
++
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'im';
++    protected $_address = null;
++    protected $_protocol = null;
++    protected $_isPrimary = null;
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Im object.
++     */
++    public function __construct()
++    {
++        parent::__construct();
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++
++        self::setDomAttribute($element,'address',$this->_address);
++        self::setDomAttribute($element,'protocol',$this->_protocol);
++
++        if($this->_isPrimary){
++            $element->setAttribute('primary', 'true');
++        }else{
++            $element->setAttribute('primary', 'false');
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members.  If no mapping is defined, the name and value are
++     * stored in an array.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'address':
++                $this->_address = $attribute->nodeValue;
++                break;
++            case 'protocol':
++                $this->_protocol = $attribute->nodeValue;
++                break;
++            case 'primary':
++                if(strtolower($attribute->nodeValue) == 'true'){
++                    $this->_isPrimary = true;
++                }else{
++                    $this->_isPrimary = false;
++                }
++                break;
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    /**
++     * Get the value for this element's value attribute.
++     *
++     * @return string The instant-messaging id, screenname, or address
++     */
++    public function getName()
++    {
++        return $this->_address;
++    }
++
++    /**
++     * Sets the IM screen-name or ID for this element
++     *
++     * @param string $name The instant-messaging id, screenname, or address to set
++     * @return Zend_Gdata_Contacts_Extension_Im The element being modified.
++     */
++    public function setName($name)
++    {
++        $this->_address = $name;
++        return $this;
++    }
++    /**
++     * Get the value for this element's value attribute. This will frequently be
++     * an URI such as those defined in this class' PROTOCOL_* constants.
++     *
++     * @return string The instant-messaging protocol identifier
++     */
++    public function getProtocol()
++    {
++        return $this->_protocol;
++    }
++
++    /**
++     * Sets the IM protocol identifier for this element
++     *
++     * @param string $protocol The protocol string to set.
++     * @return Zend_Gdata_Contacts_Extension_Im The element being modified.
++     */
++    public function setProtocol($protocol)
++    {
++        $this->_protocol = $protocol;
++        return $this;
++    }
++
++
++    /**
++     * Whether or not this object is marked as the 'primary' item of this type for the contact
++     *
++     * @return boolean True if primary, false otherwise
++     */
++    public function isPrimary()
++    {
++        return $this->_isPrimary;
++    }
++
++    /**
++     * Changes the flag for whether this is the primary object among it's peers.
++     * Note that this does NOT change the flag on any sibling elements.
++     * That task must be managed by caller code.
++     *
++     * @param boolean $value True to set as primary, false otherwise.
++     * @return Zend_Gdata_Contacts_Extension_Im The element being modified.
++     */
++    public function setPrimary($value)
++    {
++        $this->_isPrimary = $value;
++        return $this;
++    }
++
++    /**
++     * Returns the label used to prevent multiple primaries.
++     *
++     * All objects with the same label may only have one "primary" item between
++     * them, e.g. "email" elements.
++     *
++     * @return string 	A label unique to a set of items where only one item may
++     * 					be set as primary
++     */
++    public function getPrimaryLabel(){
++        return("CONTACT_IM");
++    }
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        if($this->_address != null){
++            return($this->_address);
++        }else{
++            return('');
++        }
++    }
++
++
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Email.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Email.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Email.php	(revision 0)
+@@ -0,0 +1,178 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Categorized
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Categorized.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Primary
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Primary.php';
++
++/**
++ * Represents the gd:email element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_Email extends Zend_Gdata_Contacts_Extension_Categorized implements Zend_Gdata_Contacts_Extension_Primary
++{
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'email';
++    protected $_address = null;
++    protected $_isPrimary = false;
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Email object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        parent::__construct($value);
++        $this->_address = $value;
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++        self::setDomAttribute($element,'address',$this->_address);
++
++        if($this->_isPrimary){
++            $element->setAttribute('primary', 'true');
++        }else{
++            $element->setAttribute('primary', 'false');
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members.  If no mapping is defined, the name and value are
++     * stored in an array.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'address':
++                $this->_address = $attribute->nodeValue;
++                break;
++            case 'primary':
++                if(strtolower($attribute->nodeValue) == 'true'){
++                    $this->_isPrimary = true;
++                }else{
++                    $this->_isPrimary = false;
++                }
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    /**
++     * Get the value for this element's value attribute.
++     *
++     * @return string The e-mail address string
++     */
++    public function getEmail()
++    {
++        return $this->_address;
++    }
++
++    /**
++     * Sets the e-mail address of this element
++     *
++     * @param string $value The e-mail address to set
++     * @return Zend_Gdata_Contacts_Extension_Email The element being modified.
++     */
++    public function setEmail($email)
++    {
++        $this->_address = $email;
++        return $this;
++    }
++
++    /**
++     * Whether or not this object is marked as the 'primary' item of this type for the contact
++     *
++     * @return boolean True if primary, false otherwise
++     */
++    public function isPrimary()
++    {
++        return $this->_isPrimary;
++    }
++
++    /**
++     * Changes the flag for whether this is the primary object among it's peers.
++     * Note that this does NOT change the flag on any sibling elements.
++     * That task must be managed by caller code.
++     *
++     * @param boolean $value True to set as primary, false otherwise.
++     * @return Zend_Gdata_Contacts_Extension_Email The element being modified.
++     */
++    public function setPrimary($value)
++    {
++        $this->_isPrimary = $value;
++        return $this;
++    }
++
++    /**
++     * Returns the label used to prevent multiple primaries.
++     *
++     * All objects with the same label may only have one "primary" item between
++     * them, e.g. "email" elements.
++     *
++     * @return string 	A label unique to a set of items where only one item may
++     * 					be set as primary
++     */
++    public function getPrimaryLabel(){
++        return("CONTACT_EMAIL");
++    }
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        if($this->_address != null){
++            return($this->_address);
++        }else{
++            return('');
++        }
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Notes.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Notes.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/Notes.php	(revision 0)
+@@ -0,0 +1,73 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Extension
++ */
++require_once 'Zend/Gdata/Extension.php';
++
++/**
++ * Represents the body text used by the Contacts data API to define notes about
++ * a contact
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_Notes extends Zend_Gdata_Extension
++{
++
++    protected $_rootNamespace = 'atom';
++    protected $_rootElement = 'content';
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Name object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        foreach (Zend_Gdata_Contacts::$namespaces as $nsPrefix => $nsUri) {
++            $this->registerNamespace($nsPrefix, $nsUri);
++        }
++        parent::__construct();
++        if($value !== null){
++            $this->setText($value);
++        }
++    }
++
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        if($this->getText() != null){
++            return($this->getText());
++        }else{
++            return('');
++        }
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/OrgName.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/OrgName.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/OrgName.php	(revision 0)
+@@ -0,0 +1,63 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Extension
++ */
++require_once 'Zend/Gdata/Extension.php';
++
++/**
++ * Represents the gd:orgName element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_OrgName extends Zend_Gdata_Extension
++{
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'orgName';
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_Organization object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        parent::__construct($value);
++        if($value !== null){
++            $this->setText($value);
++        }
++    }
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        return((string) $this->getText());
++    }
++
++
++}
+Index: /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/PostalAddress.php
+===================================================================
+--- /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/PostalAddress.php	(revision 0)
++++ /Users/darien/Documents/src/Zend/Gdata/Contacts/Extension/PostalAddress.php	(revision 0)
+@@ -0,0 +1,170 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Categorized
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Categorized.php';
++
++/**
++ * @see Zend_Gdata_Contacts_Extension_Primary
++ */
++require_once 'Zend/Gdata/Contacts/Extension/Primary.php';
++
++/**
++ * Represents the gd:postalAddress element used by the Contacts data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Gdata_Contacts_Extension_PostalAddress extends Zend_Gdata_Contacts_Extension_Categorized
++{
++    protected $_rootNamespace = 'gd';
++    protected $_rootElement = 'postalAddress';
++    protected $_isPrimary = false;
++
++
++
++    /**
++     * Constructs a new Zend_Gdata_Contacts_Extension_PostalAddress object.
++     * @param string $value (optional) The text content of the element.
++     */
++    public function __construct($value = null)
++    {
++        parent::__construct($value);
++        $this->_text = $value;
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++        if($this->_isPrimary){
++            $element->setAttribute('primary', 'true');
++        }else{
++            $element->setAttribute('primary', 'false');
++        }
++        return $element;
++    }
++
++    /**
++     * Given a DOMNode representing an attribute, tries to map the data into
++     * instance members.  If no mapping is defined, the name and value are
++     * stored in an array.
++     *
++     * @param DOMNode $attribute The DOMNode attribute needed to be handled
++     */
++    protected function takeAttributeFromDOM($attribute)
++    {
++        switch ($attribute->localName) {
++            case 'primary':
++                if(strtolower($attribute->nodeValue) == 'true'){
++                    $this->_isPrimary = true;
++                }else{
++                    $this->_isPrimary = false;
++                }
++            default:
++                parent::takeAttributeFromDOM($attribute);
++        }
++    }
++
++    /**
++     * Gets the address text for this element.
++     *
++     */
++    public function getAddress()
++    {
++        return $this->_text;
++    }
++
++    /**
++     * Sets the address text for this element.
++     *
++     * @param string $address The phone number to set
++     * @return Zend_Gdata_Contacts_Extension_PostalAddress The element being modified.
++     */
++    public function setAddress($address)
++    {
++        $this->_text = $address;
++        return $this;
++    }
++
++
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP >= 4.2.0
++     */
++    public function __toString()
++    {
++        return( (string) $this->getAddress());
++    }
++
++    /**
++     * Whether or not this object is marked as the 'primary' item of this type for the contact
++     *
++     * @return boolean True if primary, false otherwise
++     */
++    public function isPrimary()
++    {
++        return $this->_isPrimary;
++    }
++
++    /**
++     * Returns the label used to prevent multiple primaries.
++     *
++     * All objects with the same label may only have one "primary" item between
++     * them, e.g. "email" elements.
++     *
++     * @return string 	A label unique to a set of items where only one item may
++     * 					be set as primary
++     */
++    public function getPrimaryLabel(){
++        return("CONTACT_POSTAL");
++    }
++
++    /**
++     * Changes the flag for whether this is the primary object among it's peers.
++     * Note that this does NOT change the flag on any sibling elements.
++     * That task must be managed by caller code.
++     *
++     * @param boolean $value True to set as primary, false otherwise.
++     * @return Zend_Gdata_Contacts_Extension_PostalAddress The element being modified.
++     */
++    public function setPrimary($value)
++    {
++        $this->_isPrimary = $value;
++        return $this;
++    }
++
++}
+

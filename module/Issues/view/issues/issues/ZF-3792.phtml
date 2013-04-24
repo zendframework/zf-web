@@ -1,0 +1,173 @@
+<h2>ZF-3792: joinUsing() produces wrong SQL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-07-29T09:15:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-10-14T17:54:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5372">ZF-5372</a></li>
+            <li><a href="/issues/browse/ZF-3309">ZF-3309</a></li>
+            <li><a href="/issues/browse/ZF-5165">ZF-5165</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+$db-&gt;select()-&gt;from('A')-&gt;joinUsing('B', 'colname')
+</code></pre>
+
+<p>Should produce SQL syntax with the {{USING}} clause:</p>
+
+<pre class="highlight"><code>
+SELECT * FROM A JOIN B USING (colname)
+</code></pre>
+
+<p>But it currently tries to guess at the tables being joined, and output a traditional equi-join:</p>
+
+<pre class="highlight"><code>
+SELECT * FROM A JOIN B ON A.colname = B.colname
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2008-07-29T09:40:33.000+0000</p> 
+        <div class="body">
+            <p>This actually results in semantic problems in some queries, because Zend_Db_Select always assumes that a "Using" join is joining to the first table referenced in the query.  This is not how the {{USING}} clause works in SQL.</p>
+
+<pre class="highlight"><code>
+$db-&gt;select()-&gt;from('A')-&gt;joinUsing('B', 'colname1')-&gt;joinUsing('C', 'colname2')
+</code></pre>
+
+<p>Should produce SQL syntax:</p>
+
+<pre class="highlight"><code>
+SELECT * FROM A JOIN B USING (colname1) JOIN C USING (colname2)
+</code></pre>
+
+<p>This should give the same results as this query:</p>
+
+<pre class="highlight"><code>
+SELECT * FROM A JOIN B ON B.colname1 = A.colname1 JOIN C ON C.colname2 = B.colname2
+</code></pre>
+
+<p>But in Zend_Db_Select, it produces the following SQL:</p>
+
+<pre class="highlight"><code>
+SELECT * FROM A JOIN B ON B.colname1 = A.colname1 JOIN C ON C.colname2 = A.colname2
+</code></pre>
+
+<p>Of course if table {{A}} has no {{colname2}}, this query returns an error.</p>
+
+<p>If both {{A}} and {{B}} have a column named {{colname2}}, a query with {{USING (column2)}} is ambiguous, and should return an error.  The SQL produced by Zend_Db_Select is not ambiguous, but it assumes that {{C}} is joined to {{A}}.  This is in improper assumption.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2008-07-29T09:51:27.000+0000</p> 
+        <div class="body">
+            <p>Schema for above example:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE A ( colname1 INT);
+CREATE TABLE B ( colname1 INT, colname2 INT);
+CREATE TABLE C ( coname2 INT);
+</code></pre>
+
+<p>SQL's {{USING}} clause actually knows which columns exist in which tables, and it decides which table you're trying to join based on which table has a column of the same name.  So it knows that you intend to join {{C.colname2 = B.colname2}} because it knows {{B}} has a column {{colname2}}.</p>
+
+<p>When multiple tables in the query contain a column of the same name, this is ambiguous and the semantics for {{USING}} can't guess what you intended.  So it throws an error, which is the right thing to do.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-27T09:36:57.000+0000</p> 
+        <div class="body">
+            <p>Updating project management info: Minor, Should Have in Next Mini Release, assumed 2h of work.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guilherme Blanco (guilhermeblanco) on 2009-08-27T13:35:51.000+0000</p> 
+        <div class="body">
+            <p>I think that joinUsing should change to support USING like it should and at the same time it should support a joinOn.
+I spoke with Ralph about this issue and I came with a suggested implementation:</p>
+
+<pre class="highlight"><code>
+    public function joinOn($table, $onCondition) {
+        if (strpos($onCondition, ' ') === false) {
+            $onCondition = $this-&gt;_name . '.' . $this-&gt;_primary . ' = ' . $table . '.' . $onCondition;
+        }
+
+        $this-&gt;... = 'JOIN ' . $table . ' ON (' . $onCondition . ')';
+    }
+</code></pre>
+
+<p>It's a pseudo-code... I'm not too focused on Zend Framework internals. So it's just an idea.
+Just a quick explanation:</p>
+
+<p>The condition is there to support custom queries too.
+Examples:</p>
+
+<pre class="highlight"><code>
+$q-&gt;joinOn('B', 'column'); // JOIN B ON (A.column = B.column)
+
+$q-&gt;joinOn('B', 'A.foo = B.column2'); // JOIN B ON (A.foo = B.column2)
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-14T17:54:10.000+0000</p> 
+        <div class="body">
+            <p>After speaking with [~ralph] on the issue, it was decided to close this as "Won't Fix" for these two reasons:</p>
+
+<ul><li>SQL Server and Sybase do not support USING clause</li>
+<li>JOIN USING and JOIN ON differ in the way they return columns. ie: JOIN ON would have t1.col and t2.col in the result set, but JOIN USING would have only col, so references to t1.col or t2.col in the WHERE clause would fail.</li>
+</ul><p>More information here: <a href="http://en.wikipedia.org/wiki/Join_%28SQL%29#Equi-join">http://en.wikipedia.org/wiki/Join_%28SQL%29/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

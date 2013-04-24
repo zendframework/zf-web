@@ -1,0 +1,197 @@
+--- tests/Zend/MimeTest.php	(revision 23450)
++++ tests/Zend/MimeTest.php	(working copy)
+@@ -68,19 +68,59 @@
+         $this->assertTrue(Zend_Mime::isPrintable('Test without special chars'));
+     }
+ 
+-    public function testQP()
++    public function testQuotedPrintableEncoding()
+     {
+-        $text = "This is a cool Test Text with special chars: ����\n"
+-              . "and with multiple lines���� some of the Lines are long, long"
+-              . ", long, long, long, long, long, long, long, long, long, long"
+-              . ", long, long, long, long, long, long, long, long, long, long"
+-              . ", long, long, long, long, long, long, long, long, long, long"
+-              . ", long, long, long, long and with ����";
++        $text = $this->_getQuotedPrintableStringSource();
++        $qp   = Zend_Mime::encodeQuotedPrintable($text);
++        $this->assertEquals(quoted_printable_decode($qp), $text);
++    }
+ 
+-        $qp = Zend_Mime::encodeQuotedPrintable($text);
++    /**
++     * When PHP quoted-printable methods are available, Zend_Mime skips using
++     * its internal encoding methods.  So, this test directly tests
++     * Zend_Mime's internal encoding method.
++     */
++    public function testInternalQuotedPrintableEncoding()
++    {
++        if (!function_exists('quoted_printable_encode') && !function_exists('imap_8bit')) {
++            $this->markTestSkipped('no PHP quoted-printable encoding methods found');
++        }
++
++        $text = $this->_getQuotedPrintableStringSource();
++
++        $qp = QuotedPrintableTest::forceEncodeQuotedPrintableInternally($text);
+         $this->assertEquals(quoted_printable_decode($qp), $text);
++
++        // ensure both internal and PHP encoding result in identical decoded result
++        $qpFromPhp  = Zend_Mime::encodeQuotedPrintable($text);
++        $this->assertSame(quoted_printable_decode($qp), quoted_printable_decode($qpFromPhp));
+     }
+ 
++    public function testLineLengthIsConfigurableInQuotedPrintableEncoding()
++    {
++        $text = $this->_getQuotedPrintableStringSource();
++
++        $qp = Zend_Mime::encodeQuotedPrintable($text, 40);
++        foreach (explode(Zend_Mime::LINEEND, $qp) as $line) {
++            if(strlen($line) > 40) {
++                $this->fail("Line '".$line."' is ".strlen($line)." chars long, only 40 allowed.");
++            }
++        }
++    }
++    
++    public function testLineEndingsAreConfigurableInQuotedPrintableEncoding()
++    {
++        $text = $this->_getQuotedPrintableStringSource();
++
++        $qp = Zend_Mime::encodeQuotedPrintable($text, Zend_Mime::LINELENGTH, "\n");
++        $this->assertContains("=\n", $qp);
++        $this->assertNotContains("=\r\n", $qp);
++
++        $qp = Zend_Mime::encodeQuotedPrintable($text, Zend_Mime::LINELENGTH, "\r\n");
++        $this->assertNotContains("=\n", $qp);
++        $this->assertContains("=\r\n", $qp);
++    }
++
+     public function testBase64()
+     {
+         $content = str_repeat("\x88\xAA\xAF\xBF\x29\x88\xAA\xAF\xBF\x29\x88\xAA\xAF", 4);
+@@ -163,4 +203,26 @@
+             }
+         }
+     }
++
++    protected function _getQuotedPrintableStringSource()
++    {
++        return "This is a cool Test Text with special chars: ����\n"
++              . "and with multiple lines���� some of the Lines are long, long"
++              . ", long, long, long, long, long, long, long, long, long, long"
++              . ", long, long, long, long, long, long, long, long, long, long"
++              . ", long, long, long, long, long, long, long, long, long, long"
++              . ", long, long, long, long and with ����";
++    }
+ }
++
++/**
++ * Class for testing internal Zend_Mime quoted-printable encoding
++ */
++class QuotedPrintableTest extends Zend_Mime
++{
++    static public function forceEncodeQuotedPrintableInternally($str)
++    {
++        $str = self::_encodeQuotedPrintableInternal($str);
++        return self::_breakQuotedPrintableLines($str, self::LINELENGTH, self::LINEEND);
++    }
++}
+\ No newline at end of file
+Index: library/Zend/Mime.php
+===================================================================
+--- library/Zend/Mime.php	(revision 23450)
++++ library/Zend/Mime.php	(working copy)
+@@ -126,14 +126,29 @@
+         $lineLength = self::LINELENGTH,
+         $lineEnd = self::LINEEND)
+     {
+-        $out = '';
+         $str = self::_encodeQuotedPrintable($str);
++        $str = self::_breakQuotedPrintableLines($str, $lineLength, $lineEnd);
++        return $str;
++    }
+ 
+-        // Split encoded text into separate lines
++    /**
++     * Split encoded quoted-printable text onto separate lines
++     *
++     * @param string $str
++     * @param integer $lineLength
++     * @param string $lineEnd
++     * @return string
++     */
++    protected static function _breakQuotedPrintableLines($str,
++            $lineLength = self::LINELENGTH,
++            $lineEnd = self::LINEEND)
++    {
++        $out = '';
+         while ($str) {
+             $ptr = strlen($str);
+             if ($ptr > $lineLength) {
+-                $ptr = $lineLength;
++                // limit to $lineLength - 1 to leave room for the soft '=' line break
++                $ptr = $lineLength - 1;
+             }
+ 
+             // Ensure we are not splitting across an encoded character
+@@ -165,6 +180,39 @@
+      */
+     private static function _encodeQuotedPrintable($str)
+     {
++        // PHP or extension functions are much faster, use if available
++        if (function_exists('quoted_printable_encode') ||
++            function_exists('imap_8bit')) {
++
++            if (function_exists('quoted_printable_encode')) {
++                $str = quoted_printable_encode($str);
++            } else {
++                $str = imap_8bit($str);
++            }
++
++            // consolidate on single line like internal encoding method.
++            // this allows later breaking on custom line lengths
++            $str = str_replace("=\r\n", '', $str);
++
++            // PHP methods skip encoding trailing whitespace,
++            // so trim it off because it wasn't encoded
++            $str = rtrim($str);
++
++            return $str;
++        } else {
++            return self::_encodeQuotedPrintableInternal($str);
++        }
++    }
++
++    /**
++     * Convert a string into quoted printable format using the internal (slow!)
++     * method.
++     *
++     * @param string $str
++     * @return string
++     */
++    protected static function _encodeQuotedPrintableInternal($str)
++    {
+         $str = str_replace('=', '=3D', $str);
+         $str = str_replace(self::$qpKeys, self::$qpReplaceValues, $str);
+         $str = rtrim($str);
+Index: documentation/manual/en/module_specs/Zend_Mime.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_Mime.xml	(revision 23450)
++++ documentation/manual/en/module_specs/Zend_Mime.xml	(working copy)
+@@ -187,6 +187,17 @@
+             </itemizedlist>
+         </para>
+     </sect2>
++
++    <sect2 id="zend.mime.mime.performance">
++        <title>Performance</title>
++
++        <para>
++           Enabling the PHP <acronym>IMAP</acronym> extension on PHP versions
++           prior to PHP 5.3.0 will noticeably speed up
++           <methodname>Zend_Mime::encodeQuotedPrintable()</methodname>.  This
++           is not necessary on PHP 5.3.0+.
++        </para>
++    </sect2>
+ </sect1>
+ <!--
+ vim:se ts=4 sw=4 et:

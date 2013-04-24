@@ -1,0 +1,117 @@
+<h2>ZF-4093: Adapter checks all fallback LDAP servers even if Zend_Ldap_Exception::LDAP_INVALID_CREDENTIALS returned</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-27T11:50:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-10-08T19:00:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Michael B Allen (miallen)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Auth_Adapter_Ldap</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have the following situation:</p>
+
+<p>3+ LDAP servers:
+ldap.server1.host = ldap-server1
+ldap.server2.host = ldap-server2
+ldap.server3.host = ldap-server3</p>
+
+<p>In my environment, user accounts are locked out after 3 invalid authentication attempts (intruder lockout).</p>
+
+<p>When using Zend_Auth_Adapter_Ldap with 3 (or more) configured LDAP servers, the adapter will attempt to use all of the servers even if the first returns Zend_Ldap_Exception::LDAP_INVALID_CREDENTIALS.</p>
+
+<p>If the number of fallback servers is greater or equal to the number of attempts allowed before intruder lockout, the user will be locked out on first authentication attempt if they have entered the wrong password..</p>
+
+<p>My resolution for this was the following (near line 239):</p>
+
+<pre class="highlight"><code>
+} else if ($err == Zend_Ldap_Exception::LDAP_INVALID_CREDENTIALS) {
+   $code = Zend_Auth_Result::FAILURE_CREDENTIAL_INVALID;
+   $message[0] = "Invalid credentails";
+   break; // stop, we don't want the adapter to fallback on other servers if the password was wrong, this can potentially cause an intruder lockout
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michael B Allen (miallen) on 2008-08-27T13:25:10.000+0000</p> 
+        <div class="body">
+            <p>That is only true when multiple servers are used for redundancy. If you are using multiple servers to support different domains the above logic would not be suitable.</p>
+
+<p>But clearly this is a problem in the redundancy case. What needs to happen is that the authenticate() loop needs to track which domains have returned LDAP_INVALID_CREDENTIALS and then ignore additional server options with the same accountDomainName.</p>
+
+<p>$invalidCredentials = array();
+foreach ($serverOptions as $options) {
+    $accountDomainName = $options['accountDomainName']
+    if (isset($invalidCredentials[$accountDomainName])) {
+        // invalid cred returned for this domain already, skip it ...
+        continue;
+    }</p>
+
+<pre><code>// try bind
+
+if ($err === Zend_Ldap_Exception::LDAP_INVALID_CREDENTIALS) {
+    $invalidCredentials[$accountDomainName] = true;
+}
+</code></pre>
+
+<p>}</p>
+
+<p>Also, note that servers might return different errors given a bad password. This will need to be researched.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael B Allen (miallen) on 2008-10-08T19:00:07.000+0000</p> 
+        <div class="body">
+            <p>Fixed in 11765.</p>
+
+<p>Multiple sets of server options with the same accountDomainName (actually an "authority name" determined by querying the domain options - or lack thereof) will be skipped if the username or credentials were already determined to be invalid with a server in the same domain.</p>
+
+<p>For example, if you have three sets of server options and all of them have accountDomainName = foo.net and the first server returns "Invalid credentials", the other servers will be skipped.</p>
+
+<p>Without this update, each server may be tried with a bad password and may trigger a password policy violation that could result in the account being locked out.</p>
+
+        </div>
+    </div>
+    </div>
+

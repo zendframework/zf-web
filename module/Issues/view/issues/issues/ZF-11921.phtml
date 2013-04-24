@@ -1,0 +1,123 @@
+<h2>ZF-11921: Race condition in plugin loader include file cache</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-12-01T10:10:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-21T00:46:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There seems to be a race condition in Zend_Loader_PluginLoader. The symptoms are there is a missing '&lt;?php' in the include file. I have analysed the code a bit and the following looks like a plausible explanation:</p>
+
+<p>The code that appends the files to include file cache is not atomic and in some cases this can cause &lt;?php to be omitted from the include file.</p>
+
+<p>I think roughly the following happens:</p>
+
+<p>a) Process 1 enters the routing, checks that file does not exist and adds '&lt;php' to the string
+b) Process 1 starts file_put_contents
+c) At the same time process 2 enters the routine, checks that file does not exist and gets the file contents</p>
+
+<p>If the C happens before file has been written the end results could end up being corrupted. This can be fixed by adding RW locking into the routine.</p>
+
+<p></p><pre class="highlight"><code>
+    protected static function _appendIncFile($incFile)
+    {
+        if (!file_exists(self::$_includeFileCache)) {
+            $file = '&lt;?php';
+        } else {
+            $file = file_get_contents(self::$_includeFileCache);
+        }
+        if (!strstr($file, $incFile)) {
+            $file .= "\ninclude_once '$incFile';";
+            file_put_contents(self::$_includeFileCache, $file);
+        }
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Yosh de Vos (yosh) on 2012-08-23T10:37:43.000+0000</p> 
+        <div class="body">
+            <p>I have the same problem.
+All worked fine in our development environment, but as soon as I deployed it to production the contents of plugin loader cache file is returned to the webbrowser because of the missing &lt;?php tag.</p>
+
+<p>Multiple requests try to generate the file at the same time causing problems. Locking the file should solve this problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lauri Elevant (clon) on 2012-11-21T00:46:58.000+0000</p> 
+        <div class="body">
+            <p>This bug seems to occur a few times a year, especially after new deployments. It is rather annoying as the site stays down until you delete the corrupted file.</p>
+
+<p>We seem to have fixed the race condition with a simple locking mechanism - see the code below. Anyone with the paperwork done can perhaps commit this.</p>
+
+<pre class="highlight"><code> 
+    
+        if ($stream = fopen(self::$_includeFileCache, 'c+')) {
+            
+            flock($stream, LOCK_EX);
+            
+            $file = stream_get_contents($stream);
+            if (empty($file)) {
+                $file = '&lt;?php';
+            }
+            
+            if (!strstr($file, $incFile)) {
+                $file .= "\ninclude_once '$incFile';";
+                fseek($stream, 0);
+                fwrite($stream, $file);
+            }
+            
+            flock($stream, LOCK_UN);
+            fclose($stream);
+            
+        }
+
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

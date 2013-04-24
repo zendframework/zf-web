@@ -1,0 +1,145 @@
+<h2>ZF-5670: Fix to Front Controller and ErrorHandler helper to work when throwing an exception in the router</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-01T20:17:06.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-28T13:15:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The design of Zend_Controller_Front::dispatch() has two levels of try/catch and handles exceptions thrown in routing separately from exceptions thrown during dispatch.  This means that exceptions thrown in the router will not be picked up by Zend_Controller_Plugin_ErrorHandler because the entire dispach loop never runs.</p>
+
+<p>It seems valid to be able to throw exceptions during routing; in fact, the API recommends throwing a Zend_Controller_Router_Exception.  But currently this prevents ErrorHandler from being able to reroute to the ErrorController.</p>
+
+<p>I have a working patch that corrects this behaviour (tested against ZF 1.7.3).</p>
+
+<p>It essentially wraps another try/catch around the routing functions, and alters ErrorHandler to check for exceptions in both preDispatch() and postDispatch().  preDispatch is needed to switch to the ErrorHandler before dispatching if an exception occurred during routing.</p>
+
+<p>Sorry this is not in a patch format, but it is easy to apply.  When I get some more time on this I'll create and upload a diff file, but in the meantime the code changes are reproduced below.</p>
+
+<ol><li>Replace lines 893 - 916 in Zend_Controller_Front with the following:</li>
+</ol><pre class="highlight"><code>
+            try {
+                /**
+                * Notify plugins of router startup
+                */
+                $this-&gt;_plugins-&gt;routeStartup($this-&gt;_request);
+
+                $router-&gt;route($this-&gt;_request);
+
+                /**
+                * Notify plugins of router completion
+                */
+                $this-&gt;_plugins-&gt;routeShutdown($this-&gt;_request);
+
+                /**
+                 * Notify plugins of dispatch loop startup
+                 */
+                $this-&gt;_plugins-&gt;dispatchLoopStartup($this-&gt;_request);
+
+            } catch (Exception $e) {
+                if ($this-&gt;throwExceptions()) {
+                    throw $e;
+                    }
+                $this-&gt;_response-&gt;setException($e);
+            }
+</code></pre>
+
+<ol><li>And add the following into Zend_Controller_Plugin_ErrorHandler (begins line 189)</li>
+</ol><pre class="highlight"><code>
+    /**
+     * preDispatch() plugin hook -- check for exceptions during routing and
+     * dispatches the error handler if necessary
+     *
+     * @see {@link Zend_Controller_Plugin_ErrorHandler::_handleException}
+     * @param  Zend_Controller_Request_Abstract $request
+     * @return void
+     */
+    public function preDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        $this-&gt;_handleException($request);
+    }
+
+
+    /**
+     * postDispatch() plugin hook -- check for exceptions during the dispatch
+     * loop and dispatches the error handler if necessary
+     *
+     * @see {@link Zend_Controller_Plugin_ErrorHandler::_handleException}
+     * @param  Zend_Controller_Request_Abstract $request
+     * @return void
+     */
+    public function postDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        $this-&gt;_handleException($request);
+    }
+
+    /**
+     * Check for exceptions and dispatch error handler if necessary
+     *
+     * If the 'noErrorHandler' front controller flag has been set,
+     * returns early.
+     *
+     * @param  Zend_Controller_Request_Abstract $request
+     * @return void
+     */
+    private function _handleException(Zend_Controller_Request_Abstract $request)
+    {
+        // ... code that used to be in postDispatch() goes in here verbatim
+    }
+
+</code></pre>
+
+<p>Note that the current code inside postDispatch() now does into the private _handleException()</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-28T13:15:28.000+0000</p> 
+        <div class="body">
+            <p>Is this still valid?</p>
+
+        </div>
+    </div>
+    </div>
+

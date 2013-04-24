@@ -1,0 +1,158 @@
+<h2>ZF-9946: Ordering (and/or reordering) of form elements does not work as expected after call to Zend_Form-&gt;_sort()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-04T05:13:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-05T04:45:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><em>Problem:</em>
+After a call to {{Zend_Form-&gt;_sort()}} the function {{Zend_Form_Element-&gt;setOrder()}} does not work anymore for elements already  in the form. (The function {{_sort()}} is called when iterating over the form.)
+This is a problem when for example you want to insert an element before or after an element you searched for (by iterating) in the form.</p>
+
+<p><em>Result:</em>
+Form elements without an order specified are implicitly given an order inside {{Zend_Form-&gt;_sort()}} and are placed in the {{Zend_Form-&gt;_order}} array. This enables overwriting of form elements while this is not clear to the user. This can be achieved by specifying an order for a new form element which has been implicitly taken by an element without an order set.
+This is not obvious to the user/developer.</p>
+
+<p><em>Reproduce:</em>
+Basic form:
+This only shows element 'elt_one'</p>
+
+<pre class="highlight"><code>
+$form = new Zend_Form();
+$form-&gt;addElement('text', 'elt_two', array('label' =&gt; 'Elt 2:'));
+foreach ($form as $f) {
+    // To trigger Zend_Form-&gt;_sort()
+}
+$form-&gt;addElement('text', 'elt_one', array('label' =&gt; 'Elt 1:'));
+$form-&gt;getElement('elt_one')-&gt;setOrder(0);
+echo $form;
+</code></pre>
+
+<p>A more "real-world" scenario:
+This gets sorted in the wrong order and deletes a form field (field 'elt6')</p>
+
+<pre class="highlight"><code>
+$form = new Zend_Form();
+$form-&gt;addElement('text', 'elt1', array('label' =&gt; 'Elt 1:'));
+$form-&gt;addElement('text', 'elt5', array('label' =&gt; 'Elt 5:'));
+$form-&gt;addElement('text', 'elt6', array('label' =&gt; 'Elt 6:'));
+foreach ($form as $f) {
+    // To trigger Zend_Form-&gt;_sort()
+    // One might iterate over the form to find a place where to insert a new element
+}
+$form-&gt;getElement('elt1')-&gt;setOrder(1);
+$form-&gt;getElement('elt5')-&gt;setOrder(5);
+$form-&gt;getElement('elt6')-&gt;setOrder(6);
+$form-&gt;addElement('text', 'elt2', array('label' =&gt; 'Elt 2:'))-&gt;getElement('elt2')-&gt;setOrder(2);
+$form-&gt;addElement('text', 'elt3', array('label' =&gt; 'Elt 3:'))-&gt;getElement('elt3')-&gt;setOrder(3);
+$form-&gt;addElement('text', 'elt4', array('label' =&gt; 'Elt 4:'))-&gt;getElement('elt4')-&gt;setOrder(4);
+echo $form;
+</code></pre>
+
+<p><em>Possible solution:</em>
+An implementation of {{Zend_Form-&gt;_sort()}} where it first orders the elements for which an order is set in the element itself and after that inserts the other elements in the first available empty spots.</p>
+
+<p>In Zend/Form.php line 3278:</p>
+
+<pre class="highlight"><code>
+protected function _sort()
+{
+    if ($this-&gt;_orderUpdated) {
+        $items = array();
+        $noOrderSet = array();
+        $index = 0;
+        foreach (array_keys($this-&gt;_order) as $key) {
+            $order = $this-&gt;{$key}-&gt;getOrder();
+            if (null === $order) {
+                $noOrderSet[] = $key;
+            } else {
+                $items[$order] = $key;
+            }
+        }
+
+        foreach ($noOrderSet as $key) {
+            while (isset($items[$index])) {
+                ++$index;
+            }
+            $items[$index] = $key;
+            ++$index;
+        }
+
+        $items = array_flip($items);
+        asort($items);
+        $this-&gt;_order = $items;
+        $this-&gt;_orderUpdated = false;
+    }
+}
+</code></pre>
+
+<p>While I think this is a better implementation, it still doesn't re-order the elements after something like:</p>
+
+<pre class="highlight"><code>
+$form-&gt;getElement('elt1')-&gt;setOrder(4);
+</code></pre>
+
+<p>Removing the {{"if ($this-&gt;_orderUpdated)"}} check in {{_sort()}} and order the elements every time would solve this but it's not efficient because {{_sort()}} is called quite a lot.
+Implementing something like {{Zend_Form-&gt;_needsOrderUpdate()}} might ease the performance hit a little.
+{{Zend_Form-&gt;_needsOrderUpdate()}} would check if elements have a set order, and if that order matches the order in the {{Zend_Form-&gt;_order}} array.</p>
+
+<p>To prevent having to do this check, the order should really be kept and changed in the Form object and not the Form_Element object. This would require quite a change in the API however.</p>
+
+<p>I would like to solve this issue myself, but I'm not sure which solution to pick (and whether it is to be solved at all)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-06-05T04:45:53.000+0000</p> 
+        <div class="body">
+            <p>Confirm, this is a problem, and as it cannot be resolved within 1.10.* branch
+i am postponing this atm. A possible solution requires either Zend_Form_Elements
+holding the instance of the form they are attached to, or a refactoring to set 
+the Order of the Elements through the Form they are attached to.</p>
+
+        </div>
+    </div>
+    </div>
+

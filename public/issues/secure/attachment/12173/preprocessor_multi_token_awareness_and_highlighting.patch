@@ -1,0 +1,225 @@
+Index: Search/Lucene/Search/Query.php
+===================================================================
+--- Search/Lucene/Search/Query.php	(Revision 17915)
++++ Search/Lucene/Search/Query.php	(Arbeitskopie)
+@@ -201,7 +201,12 @@
+         $doc = Zend_Search_Lucene_Document_Html::loadHTML($inputHTML, false, $defaultEncoding);
+         $highlighter->setDocument($doc);
+ 
+-        $this->_highlightMatches($highlighter);
++        
++        //$this->_highlightMatches($highlighter);
++        $terms = $this->getQueryTerms();
++        foreach ($terms as $term) {
++            $highlighter->highlight($term->text);
++        }
+ 
+         return $doc->getHTML();
+     }
+@@ -226,7 +231,11 @@
+         $doc = Zend_Search_Lucene_Document_Html::loadHTML($inputHTML);
+         $highlighter->setDocument($doc);
+ 
+-        $this->_highlightMatches($highlighter);
++        //$this->_highlightMatches($highlighter);
++        $terms = $this->getQueryTerms();
++        foreach ($terms as $term) {
++            $highlighter->highlight($term->text);
++        }
+ 
+         return $doc->getHtmlBody();
+     }
+Index: Search/Lucene/Search/Query/Preprocessing/Fuzzy.php
+===================================================================
+--- Search/Lucene/Search/Query/Preprocessing/Fuzzy.php	(Revision 17915)
++++ Search/Lucene/Search/Query/Preprocessing/Fuzzy.php	(Arbeitskopie)
+@@ -213,8 +213,38 @@
+         }
+ 
+         // Word is tokenized into several tokens
+-        require_once 'Zend/Search/Lucene/Search/QueryParserException.php';
+-        throw new Zend_Search_Lucene_Search_QueryParserException('Fuzzy search is supported only for non-multiple word terms');
++        $query = new Zend_Search_Lucene_Search_Query_Phrase();
++        $query->setBoost($this->getBoost());
++        $position = 0;
++        $termsadded = 0;
++        foreach ($tokens as $token) {
++
++            // Find matching terms to individual token fuzzy searches
++            $term  = new Zend_Search_Lucene_Index_Term($token->getTermText(), $this->_field);
++            $subquery = new Zend_Search_Lucene_Search_Query_Fuzzy($term, $this->_minimumSimilarity);
++            $subquery->setBoost($this->getBoost());
++
++            // Add all found terms for each wildcard into the corresponding positions of the phrase query
++            $terms = $subquery->rewrite($index)->getQueryTerms();
++            if ($termsadded == 1) {
++                $position += $token->getPositionIncrement();
++            }
++            foreach($terms as $term) {
++                $query->addTerm($term, $position);
++                $termsadded = 1;
++            }
++        }
++
++        if ($termsadded == 0) {
++            $this->_matches = array();
++            return new Zend_Search_Lucene_Search_Query_Insignificant();
++        }
++
++        // Get rewritten query. Important! It also fills terms matching container.
++        $rewrittenQuery = $query->rewrite($index);
++        $this->_matches = $query->getQueryTerms();
++
++        return $rewrittenQuery;
+     }
+ 
+     /**
+Index: Search/Lucene/Search/Query/Preprocessing/Term.php
+===================================================================
+--- Search/Lucene/Search/Query/Preprocessing/Term.php	(Revision 17915)
++++ Search/Lucene/Search/Query/Preprocessing/Term.php	(Arbeitskopie)
+@@ -157,10 +157,12 @@
+             $word = iconv($this->_encoding, 'UTF-8', $this->_word);
+             $wildcardsPattern = '/[*?]/u';
+             $subPatternsEncoding = 'UTF-8';
++            $utf8Support = 1;
+         } else {
+             $word = $this->_word;
+             $wildcardsPattern = '/[*?]/';
+             $subPatternsEncoding = $this->_encoding;
++            $utf8Support = 0;
+         }
+ 
+         $subPatterns = preg_split($wildcardsPattern, $word, -1, PREG_SPLIT_OFFSET_CAPTURE);
+@@ -168,29 +170,121 @@
+         if (count($subPatterns) > 1) {
+             // Wildcard query is recognized
+ 
+-            $pattern = '';
++            $patterns   = array('');
++            $subqueries = array();
++            $position   = 0;
+ 
+             foreach ($subPatterns as $id => $subPattern) {
+                 // Append corresponding wildcard character to the pattern before each sub-pattern (except first)
+                 if ($id != 0) {
+-                    $pattern .= $word[ $subPattern[1] - 1 ];
++                    foreach ($patterns as $key => $pattern) {
++                            $patterns[$key] .= $word[ $subPattern[1] - 1 ];
++                    }
+                 }
+ 
+                 // Check if each subputtern is a single word in terms of current analyzer
+                 $tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($subPattern[0], $subPatternsEncoding);
+-                if (count($tokens) > 1) {
+-                    require_once 'Zend/Search/Lucene/Search/QueryParserException.php';
+-                    throw new Zend_Search_Lucene_Search_QueryParserException('Wildcard search is supported only for non-multiple word terms');
++
++                // Find out if start of subpattern is also a forced token boundary
++                // (i.e. non-indexed character) in terms of current analyzer
++                /** @todo check for PCRE unicode support may be performed through Zend_Environment in some future */
++                $references=array();
++                if ($utf8Support) {
++                    preg_match('/^./u',$subPattern[0],$references);
++                } else {
++                    preg_match('/^./',$subPattern[0],$references);
+                 }
+-                foreach ($tokens as $token) {
+-                    $pattern .= $token->getTermText();
++                if (!count($references)) {
++                        $references = array('');
+                 }
++                // $references[0] is supposed to hold the first (possibly multi byte) character of $subPattern[0]
++                // if it is tokenized empty, (but the current subpattern is not empty) then the 
++                // current subpattern begins with a word boundary character in terms of current analyzer
++                // in this case, the pattern needs to be split at this point. Example: foo*_bar
++                $tokentest = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($references[0], $subPatternsEncoding);
++                if ($subPattern[0] != '' && count($tokentest) == 0) {
++                        // There might be several alternative patterns for the token string so far.
++                        // Save them all as queries in array
++                        foreach ($patterns as $pattern) {
++                            $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
++                            $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                            $query->setBoost($this->getBoost());
++                            $subqueries[] = array($query, $position);
++                        }
++                        $patterns = array('');
++                        $position++;
++                }
++
++                // Add to array of search-tokens for each token in analyzed string
++                foreach ($tokens as $num => $token) {
++                    if ($num == 0) {
++                        // The very first token, only adds to pattern string(s) as normal
++                        $oldpatterns = $patterns;
++                        foreach ($patterns as $key => $pattern) {
++                            $patterns[$key] .= $token->getTermText();
++                        }
++                    } else {
++                        // On additional tokens check whether they are marked as alternatives (positionIcrement==0)
++                        if ($token->getPositionIncrement() == 0) {
++                            // If so, create alternative patterns for this alternative
++                            foreach($oldpatterns as $oldpattern) {
++                                    $patterns[] = $oldpattern.$token->getTermText();
++                            }
++                        } else {
++                            // Otherwise store all previous patterns as wildcard queries in array
++                            foreach ($patterns as $pattern) {
++                                $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
++                                $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                                $query->setBoost($this->getBoost());
++                                $subqueries[] = array($query, $position);
++                            }
++                            // Increase the position in the phrase query
++                            $position += $token->getPositionIncrement();
++                            // And store this very current token as only alternative in pattern array
++                            $oldpatterns = array('');
++                            $patterns = array($token->getTermText());
++                        }
++                    }
++                }
+             }
++            
++            // If we ended up with more than one (sub)query, we need to assemble a phrase request.
++            if (count($subqueries) || count($patterns)>1) {
++                // The latest wildcard patterns have not been added to the array yet
++                foreach ($patterns as $pattern) {
++                    $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
++                    $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                    $query->setBoost($this->getBoost());
++                    $subqueries[] = array($query, $position);
++                }
+ 
+-            $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
+-            $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
+-            $query->setBoost($this->getBoost());
++                // Create a new Phrase query
++                $query = new Zend_Search_Lucene_Search_Query_Phrase();
++                $query->setBoost($this->getBoost());
++                $termsadded = 0;
+ 
++                // Add all found terms for each wildcard into the corresponding positions of the phrase query
++                foreach ($subqueries as &$subarray) {
++                    list($subquery, $position)=$subarray;
++                    $terms = $subquery->rewrite($index)->getQueryTerms();
++                    foreach($terms as $term) {
++                        $query->addTerm($term, $position);
++                        $termsadded = 1;
++                    }
++                }
++
++                // If none were found the entire query is insignificant.
++                if ($termsadded == 0) {
++                    $this->_matches = array();
++                    return new Zend_Search_Lucene_Search_Query_Insignificant();
++                }
++            } else {
++                // Single wildcard query. Behave as normal.
++                $term  = new Zend_Search_Lucene_Index_Term($patterns[0], $this->_field);
++                $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                $query->setBoost($this->getBoost());
++            }
++
+             // Get rewritten query. Important! It also fills terms matching container.
+             $rewrittenQuery = $query->rewrite($index);
+             $this->_matches = $query->getQueryTerms();

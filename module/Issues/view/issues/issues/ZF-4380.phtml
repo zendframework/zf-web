@@ -1,0 +1,155 @@
+<h2>ZF-4380: Zend_Db_Table upon view with insert rule (PostgreSQL) fails to obtain sequence id after the insert</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-25T11:03:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:15.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is a bit specific issue.</p>
+
+<p>We build CMS over the views in PostgreSQL, where the views are only tables used  from the CMS PHP code (for many reasons.)</p>
+
+<p>We have this view:</p>
+
+<pre class="highlight"><code>
+CREATE OR REPLACE VIEW test_view AS 
+ SELECT .....
+
+CREATE OR REPLACE RULE "_INSERT" AS
+ON INSERT TO test_view DO INSTEAD (
+    SELECT store_item(...) AS null_variable;
+    SELECT store_item_version(....) AS null_variable; /* advances sequence_version */
+    INSERT INTO moduletable_test (version_id, ...) VALUES (currval('sequence_version'::regclass)::integer, ...);
+);
+</code></pre>
+
+<p>(note that PERFORM stmt does not work when used in rules)</p>
+
+<p>With that, we have this class:</p>
+
+<pre class="highlight"><code>
+class CMS_Module_Test extends Zend_Db_Table_Abstract {
+    protected $_name = 'test_view';
+    protected $_primary = 'version_id';
+    protected $_rowClass = 'CMS_Item';
+    protected $_sequence = 'sequence_version';
+
+    (...)
+}
+</code></pre>
+
+<p>(note that I have simplified the current abstraction into one class)</p>
+
+<p>When we try to execute createRow and save() methods, the save fails on refreshing the row from database with this exception:
+bq. Cannot refresh row as parent is missing</p>
+
+<p>This is because of the order how the ZF saves new item:
+* Create empty row instance
+* fill-up and call save()
+* Obtain primary key value from sequence
+* Save the row with sending the sequence value
+* Refresh the row from database</p>
+
+<p>Since the database is designed to be a quite independent, we generate primary keys from sequences <em>in</em> database, not in the <em>php code</em> and therefore, it throws exception.</p>
+
+<p>h3. Workaround</p>
+
+<p>There is simple workaround  present in current version of CMS:</p>
+
+<pre class="highlight"><code>
+class CMS_Module_Test extends Zend_Db_Table_Abstract {
+    (...)
+    protected $_sequence = false; // manual override
+    (...)
+}
+
+class CMS_Item extends Zend_Db_Table_Row_Abstract {
+    protected $_tableClass = 'CMS_Module';
+
+    protected function _postInsert() {
+        parent::_postInsert();
+
+        // We get from the database the version_id
+        $this-&gt;version_id = $this-&gt;getTable()
+                                 -&gt;getAdapter()
+                                 -&gt;fetchOne("SELECT CURRVAL('sequence_version')");
+    }
+}
+</code></pre>
+
+<p>However, that <em>can</em> prevent the CMS_Item class being used for same purpose on <em>tables</em> (eg. project-specific ones), since it gets the version_id after the insert.
+In case that there would be more system-like logic in the postInsert function, extending and overriding would not come to result, since the system-specific logic have to be rewritten and that destroys whole OOP concept. This could be fixed by adding one class in between (and you can imagine the results of this.)</p>
+
+<p>Please note that when we use:
+bq. $<em>sequence = true;
+ZF generates the sequence name from the table name. That is <em>wrong</em> since we use _one sequence</em> for <em>many views</em></p>
+
+<p>h3. Proposed solution:</p>
+
+<pre class="highlight"><code>
+class CMS_Module extends Zend_Db_Table_Abstract {
+    protected $_sequence = 'sequence_version';
+    protected $_sequenceLoading = Zend_Db_Table_Abstract::SEQ_AFTER_INSERT; /* _BEFORE_ present and default --&gt; backward compatible */
+}
+</code></pre>
+
+<p>Or defaultly loading the sequence after the insert (which I believe was already discussed)</p>
+
+<p>h3.-Note that problem that cause this issue has already been reported in <a href="http://framework.zend.com/issues/browse/ZF-3454">ZF-3454</a>-
+(wrong, that task is similar, but none of proposed solutions would fix ZF-3454)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:15.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

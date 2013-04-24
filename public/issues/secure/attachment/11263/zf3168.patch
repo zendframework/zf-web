@@ -1,0 +1,118 @@
+Index: Adapter/Abstract.php
+===================================================================
+--- Adapter/Abstract.php	(revision 9306)
++++ Adapter/Abstract.php	(working copy)
+@@ -993,6 +993,10 @@
+         }
+     }
+ 
++    public function renderColumnsForZendDbSelect($columnsPart, $fromPart) {
++        return null;
++    }
++
+     /**
+      * Abstract Methods
+      */
+Index: Adapter/Oracle.php
+===================================================================
+--- Adapter/Oracle.php	(revision 9306)
++++ Adapter/Oracle.php	(working copy)
+@@ -609,5 +609,46 @@
+         }
+     }
+ 
+-}
+-
++    public function renderColumnsForZendDbSelect($columnsPart, $fromPart) {
++        $columns = array();
++        $countColumns = count($columnsPart);
++        for ($i=0;$i<$countColumns;$i++) {
++            list($correlationName, $column, $alias) = $columnsPart[$i];
++            if (isset($columnsPart[$i+1])) {
++                list($correlationNameN, $columnN, $aliasN) = $columnsPart[$i+1];
++            } else {
++                $correlationNameN = null;
++                $columnN = null;
++                $aliasN = null;
++            }
++            if ($column instanceof Zend_Db_Expr) {
++                $columns[] = $this->quoteColumnAs($column, $alias, true);
++            } else {
++                if ($column == Zend_Db_Select::SQL_WILDCARD) {
++                    $column = new Zend_Db_Expr(Zend_Db_Select::SQL_WILDCARD);
++                    $alias = null;
++                }
++                if (empty($correlationName)) {
++                    $columns[] = $this->quoteColumnAs($column, $alias, true);
++                } else {
++                    $table1JoinType = $fromPart[$correlationName]['joinType'];
++                    if ($correlationNameN !== null) {
++                        $table2JoinType = $fromPart[$correlationNameN]['joinType'];
++                    } else {
++                        $table2JoinType = null;
++                    }
++                    if ($table1JoinType == Zend_Db_Select::NATURAL_JOIN || $table2JoinType == Zend_Db_Select::NATURAL_JOIN) {
++                        $columns[] = $this->quoteColumnAs($column, $alias, true);
++                    } else {
++                        $columns[] = $this->quoteColumnAs(array($correlationName, $column), $alias, true);
++                    }
++                }
++            }
++        }
++        if (in_array('*', $columns)) {
++            return '*';
++        } else {
++            return implode(', ', $columns);
++        }
++    }
++}
+\ No newline at end of file
+Index: Select.php
+===================================================================
+--- Select.php	(revision 9306)
++++ Select.php	(working copy)
+@@ -940,25 +940,30 @@
+             return null;
+         }
+ 
+-        $columns = array();
+-        foreach ($this->_parts[self::COLUMNS] as $columnEntry) {
+-            list($correlationName, $column, $alias) = $columnEntry;
+-            if ($column instanceof Zend_Db_Expr) {
+-                $columns[] = $this->_adapter->quoteColumnAs($column, $alias, true);
+-            } else {
+-                if ($column == self::SQL_WILDCARD) {
+-                    $column = new Zend_Db_Expr(self::SQL_WILDCARD);
+-                    $alias = null;
+-                }
+-                if (empty($correlationName)) {
++        $adapterRenderColumns = $this->_adapter->renderColumnsForZendDbSelect($this->_parts[self::COLUMNS], $this->_parts[self::FROM]);
++
++        if ($adapterRenderColumns === null) {
++            $columns = array();
++            foreach ($this->_parts[self::COLUMNS] as $columnEntry) {
++                list($correlationName, $column, $alias) = $columnEntry;
++                if ($column instanceof Zend_Db_Expr) {
+                     $columns[] = $this->_adapter->quoteColumnAs($column, $alias, true);
+                 } else {
+-                    $columns[] = $this->_adapter->quoteColumnAs(array($correlationName, $column), $alias, true);
++                    if ($column == self::SQL_WILDCARD) {
++                        $column = new Zend_Db_Expr(self::SQL_WILDCARD);
++                        $alias = null;
++                    }
++                    if (empty($correlationName)) {
++                        $columns[] = $this->_adapter->quoteColumnAs($column, $alias, true);
++                    } else {
++                        $columns[] = $this->_adapter->quoteColumnAs(array($correlationName, $column), $alias, true);
++                    }
+                 }
+             }
++            return $sql .= ' ' . implode(', ', $columns);
++        } else {
++            return $sql .= ' ' . $adapterRenderColumns;
+         }
+-
+-        return $sql .= ' ' . implode(', ', $columns);
+     }
+ 
+     /**

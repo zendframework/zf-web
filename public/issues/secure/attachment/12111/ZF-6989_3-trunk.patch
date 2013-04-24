@@ -1,0 +1,341 @@
+Index: library/Zend/Paginator.php
+===================================================================
+--- library/Zend/Paginator.php	(revision 17259)
++++ library/Zend/Paginator.php	(working copy)
+@@ -475,15 +475,30 @@
+     }
+ 
+     /**
+-     * Returns the total number of items available.
++     * Returns the total number of items available.  Uses cache if caching is enabled.
+      *
+      * @return integer
+      */
+     public function getTotalItemCount()
+     {
+-        return count($this->getAdapter());
++        if ( !$this->_cacheEnabled() ) {
++            return count($this->getAdapter());
++        } else {
++            $cacheId = md5( $this->_adapter->getCacheIdentifier() . '_itemCount' );
++
++            $itemCount = self::$_cache->load($cacheId);
++
++            if ($itemCount === false) {
++                $itemCount = count($this->getAdapter());
++
++                self::$_cache->save( $itemCount, $cacheId, array( $this->_getCacheInternalId() ) );
++            }
++
++            return $itemCount;
++        }
+     }
+ 
++
+     /**
+      * Clear the page item cache.
+      *
+@@ -511,6 +526,22 @@
+     }
+ 
+     /**
++     * Clear the item count cache.
++     *
++     * @return Zend_Paginator
++     */
++    public function clearItemCountCache()
++    {
++        if (!$this->_cacheEnabled()) {
++            return $this;
++        }
++
++        self::$_cache->remove( md5( $this->_adapter->getCacheIdentifier() . '_itemCount' ) );
++
++        return $this;
++    }
++
++    /**
+      * Returns the absolute item number for the specified item.
+      *
+      * @param  integer $relativeItemNumber Relative item number
+@@ -982,17 +1013,17 @@
+      */
+     protected function _getCacheInternalId()
+     {
+-        return md5(serialize($this->getAdapter()) . $this->getItemCountPerPage());
++        return md5( $this->_adapter->getCacheIdentifier() . $this->getItemCountPerPage() );
+     }
+ 
+     /**
+-     * Calculates the page count.
+-     *
+-     * @return integer
+-     */
++    * Calculates the page count.
++    *
++    * @return integer
++    */
+     protected function _calculatePageCount()
+     {
+-        return (integer) ceil($this->getAdapter()->count() / $this->getItemCountPerPage());
++        return (integer) ceil($this->getTotalItemCount() / $this->getItemCountPerPage());
+     }
+ 
+     /**
+Index: library/Zend/Paginator/Adapter/Array.php
+===================================================================
+--- library/Zend/Paginator/Adapter/Array.php	(revision 17259)
++++ library/Zend/Paginator/Adapter/Array.php	(working copy)
+@@ -34,30 +34,50 @@
+ {
+     /**
+      * Array
+-     * 
++     *
+      * @var array
+      */
+     protected $_array = null;
+-    
++
+     /**
++     * Identifies this adapter for caching purposes.  This value will remain constant for
++     * the entire life of this adapter regardless of how many different pages are queried.
++     *
++     * @var string
++     */
++    protected $_cacheIdentifier = null;
++
++    /**
+      * Item count
+      *
+      * @var integer
+      */
+     protected $_count = null;
+-    
++
+     /**
+      * Constructor.
+-     * 
++     *
+      * @param array $array Array to paginate
+      */
+     public function __construct(array $array)
+     {
+         $this->_array = $array;
+         $this->_count = count($array);
++        $this->_cacheIdentifier = md5(serialize($this));
+     }
+ 
+     /**
++     * Returns the identifier that will represent this adapter in the cache if
++     * caching is enabled.
++     *
++     * @return string
++     */
++    public function getCacheIdentifier()
++    {
++        return $this->_cacheIdentifier;
++    }
++
++    /**
+      * Returns an array of items for a page.
+      *
+      * @param  integer $offset Page offset
+Index: library/Zend/Paginator/Adapter/DbSelect.php
+===================================================================
+--- library/Zend/Paginator/Adapter/DbSelect.php	(revision 17259)
++++ library/Zend/Paginator/Adapter/DbSelect.php	(working copy)
+@@ -50,6 +50,14 @@
+     const ROW_COUNT_COLUMN = 'zend_paginator_row_count';
+ 
+     /**
++     * Identifies this adapter for caching purposes.  This value will remain constant for
++     * the entire life of this adapter regardless of how many different pages are queried.
++     *
++     * @var string
++     */
++    protected $_cacheIdentifier = null;
++
++    /**
+      * The COUNT query
+      *
+      * @var Zend_Db_Select
+@@ -78,9 +86,20 @@
+     public function __construct(Zend_Db_Select $select)
+     {
+         $this->_select = $select;
++        $this->_cacheIdentifier = md5($select->assemble());
+     }
+ 
+     /**
++     * Retrieves the cache identifier
++     *
++     * @return string
++     */
++    public function getCacheIdentifier()
++    {
++        return $this->_cacheIdentifier;
++    }
++
++    /**
+      * Sets the total row count, either directly or through a supplied
+      * query.  Without setting this, {@link getPages()} selects the count
+      * as a subquery (SELECT COUNT ... FROM (SELECT ...)).  While this
+Index: library/Zend/Paginator/Adapter/Interface.php
+===================================================================
+--- library/Zend/Paginator/Adapter/Interface.php	(revision 17259)
++++ library/Zend/Paginator/Adapter/Interface.php	(working copy)
+@@ -35,7 +35,7 @@
+      * @return integer
+      */
+     //public function count();
+-    
++
+     /**
+      * Returns an collection of items for a page.
+      *
+@@ -44,4 +44,12 @@
+      * @return array
+      */
+     public function getItems($offset, $itemCountPerPage);
++
++    /**
++     * Returns the identifier that will represent this adapter in the cache if
++     * caching is enabled.
++     *
++     * @return string
++     */
++    public function getCacheIdentifier();
+ }
+\ No newline at end of file
+Index: library/Zend/Paginator/Adapter/Iterator.php
+===================================================================
+--- library/Zend/Paginator/Adapter/Iterator.php	(revision 17259)
++++ library/Zend/Paginator/Adapter/Iterator.php	(working copy)
+@@ -33,12 +33,20 @@
+ class Zend_Paginator_Adapter_Iterator implements Zend_Paginator_Adapter_Interface
+ {
+     /**
++     * Identifies this adapter for caching purposes.  This value will remain constant for
++     * the entire life of this adapter regardless of how many different pages are queried.
++     *
++     * @var string
++     */
++    protected $_cacheIdentifier = null;
++
++    /**
+      * Iterator which implements Countable
+-     * 
++     *
+      * @var Iterator
+      */
+     protected $_iterator = null;
+-    
++
+     /**
+      * Item count
+      *
+@@ -48,7 +56,7 @@
+ 
+     /**
+      * Constructor.
+-     * 
++     *
+      * @param  Iterator $iterator Iterator to paginate
+      * @throws Zend_Paginator_Exception
+      */
+@@ -59,15 +67,27 @@
+              * @see Zend_Paginator_Exception
+              */
+             require_once 'Zend/Paginator/Exception.php';
+-            
++
+             throw new Zend_Paginator_Exception('Iterator must implement Countable');
+         }
+ 
+         $this->_iterator = $iterator;
+         $this->_count = count($iterator);
++        $this->_cacheIdentifier = md5(serialize($this));
+     }
+ 
+     /**
++     * Returns the identifier that will represent this adapter in the cache if
++     * caching is enabled.
++     *
++     * @return string
++     */
++    public function getCacheIdentifier()
++    {
++        return $this->_cacheIdentifier;
++    }
++
++    /**
+      * Returns an iterator of items for a page, or an empty array.
+      *
+      * @param  integer $offset Page offset
+Index: library/Zend/Paginator/Adapter/Null.php
+===================================================================
+--- library/Zend/Paginator/Adapter/Null.php	(revision 17259)
++++ library/Zend/Paginator/Adapter/Null.php	(working copy)
+@@ -33,23 +33,43 @@
+ class Zend_Paginator_Adapter_Null implements Zend_Paginator_Adapter_Interface
+ {
+     /**
++     * Identifies this adapter for caching purposes.  This value will remain constant for
++     * the entire life of this adapter regardless of how many different pages are queried.
++     *
++     * @var string
++     */
++    protected $_cacheIdentifier = null;
++
++    /**
+      * Item count
+      *
+      * @var integer
+      */
+     protected $_count = null;
+-    
++
+     /**
+      * Constructor.
+-     * 
++     *
+      * @param array $count Total item count
+      */
+     public function __construct($count = 0)
+     {
+         $this->_count = $count;
++        $this->_cacheIdentifier = md5(serialize($this));
+     }
+ 
+     /**
++     * Returns the identifier that will represent this adapter in the cache if
++     * caching is enabled.
++     *
++     * @return string
++     */
++    public function getCacheIdentifier()
++    {
++        return $this->_cacheIdentifier;
++    }
++
++    /**
+      * Returns an array of items for a page.
+      *
+      * @param  integer $offset Page offset
+Index: tests/Zend/Paginator/_files/Zf4207.php
+===================================================================
+--- tests/Zend/Paginator/_files/Zf4207.php	(revision 17008)
++++ tests/Zend/Paginator/_files/Zf4207.php	(working copy)
+@@ -8,6 +8,11 @@
+         return 10;
+     }
+ 
++    public function getCacheIdentifier()
++    {
++        return md5(serialize($this));
++    }
++
+     public function getItems($pageNumber, $itemCountPerPage)
+     {
+         return new ArrayObject(range(1, 10));

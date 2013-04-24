@@ -1,0 +1,237 @@
+<h2>ZF-4202: Cannot view FirePHP logs in FireBug from AJAX requests</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-05T07:46:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-08T11:15:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christoph Dorn (cadorn)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Wildfire</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have used FirePHP for debugging AJAX Requests with the fb() function. With change to Version 1.6.0 I have removed all fb() function calls and use Zend_Log_Writer_Firebug. But when the AJAX call finishes, I do not see any Log from FirePHP. Does it depend on different behaviour in the Front Controller between normal requests and AJAX requests? I use to send the result as JSON with Zend_Controller_Action_Helper_Json.</p>
+
+<pre class="highlight"><code>
+$this-&gt;getHelper('Json')-&gt;sendJson($foo);
+</code></pre>
+
+<p>In FireBug I get the following error on the "Server" tab: "X-FirePHP-Data" response header not found in request response!</p>
+
+<p><em>Cause:</em> See ZF-4134.</p>
+
+<p><em>Workaround:</em></p>
+
+<pre class="highlight"><code>
+$json = $this-&gt;getHelper('Json');
+$json-&gt;suppressExit = true;
+$json-&gt;sendJson($foo);
+Zend_Wildfire_Channel_HttpHeaders::getInstance()-&gt;flush();
+$json-&gt;getResponse()-&gt;sendResponse();
+exit;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-05T08:30:14.000+0000</p> 
+        <div class="body">
+            <p>It should work the same for AJAX and other requests.</p>
+
+<p>Can you send me your bootstrap file for the ajax requests?</p>
+
+<p>You may need to add ob_start() before you print your AJAX response so the headers will still get set at the end of the request.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dennis Becker (radhad) on 2008-09-08T00:45:54.000+0000</p> 
+        <div class="body">
+            <p>Setting "ob_start()" does not change anything. Here is my Bootstrap file:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+//error_reporting(E_ALL|E_STRICT);
+
+/**
+ * classes.php sets the includepath for this application and loads Framework related classes
+ *
+ */
+include 'classes.php';
+
+// How to switch layout for registration? quite simple :-)
+$layout = Zend_Layout::startMvc(array(
+    'layoutPath' =&gt; '../application/layouts/scripts',
+    'layout' =&gt; 'standard',
+    'mvcSuccessfulActionOnly' =&gt; false,
+));
+$view = $layout-&gt;getView();
+$view-&gt;setEncoding('utf-8');
+$view-&gt;doctype('HTML4_STRICT');
+
+$frontController = Zend_Controller_Front::getInstance();
+$frontController-&gt;throwExceptions(false);
+$frontController-&gt;addModuleDirectory('../application/modules');
+$frontController-&gt;registerPlugin(new PluginLoader());
+
+$frontController-&gt;dispatch();
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T01:18:06.000+0000</p> 
+        <div class="body">
+            <p>If you are using the above bootstrap then it will not work as the Firebug log writer is not initialized.</p>
+
+<p>I have tested it with the JSON Helper and it is working fine as long as you have the writer initialized.</p>
+
+<p>See here for more info: <a href="http://www.christophdorn.com/Blog/2008/09/02/firephp-and-zend-framework-16/">http://christophdorn.com/Blog/2008/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dennis Becker (radhad) on 2008-09-08T02:55:40.000+0000</p> 
+        <div class="body">
+            <p>I forgot to post my LoggingPlugin which creates the different Logwriter. Look at the following code. This Plugin gets loaded on every request from the PluginLoader Plugin</p>
+
+<pre class="highlight"><code>
+class LoggingPlugin extends Zend_Controller_Plugin_Abstract
+{
+    public function routeShutdown(Zend_Controller_Request_Abstract $request)
+    {
+        $config = Zend_Registry::get('Zend_Config');
+        $logger = new Zend_Log();
+
+        // read config options for Log Writers
+        foreach ($config['logging']['writer'] as $writer)
+        {
+            if((bool)$writer['active'] == true)
+            {
+                switch ($writer['type'])
+                {
+                    // different file writers are possible
+                    case 'file':
+                        {
+                            $fileWriter = new Zend_Log_Writer_Stream($writer['logpath'].$writer['logfile'], 'a+');
+                            $fileWriter-&gt;addFilter(new Zend_Log_Filter_Priority((int)$writer['level']));
+                            $logger-&gt;addWriter($fileWriter);
+
+                            break;
+                        }
+                    case 'firebug':
+                        {
+                            require_once 'Zend/Log/Writer/Firebug.php';
+                                
+                            $firebugWriter = new Zend_Log_Writer_Firebug();
+                            $firebugWriter-&gt;addFilter(new Zend_Log_Filter_Priority((int)$writer['level'])); // Don't know if this works
+
+                            // use an own instance of Zend_Log for FirePHP because of different debugging
+                            $firebugLogger = new Zend_Log($firebugWriter);
+                            Zend_Registry::set('FirePHP', $firebugLogger);
+
+                            break;
+                        }
+                }
+            }
+        }
+
+        Zend_Registry::set('Zend_Log', $logger);
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T10:38:09.000+0000</p> 
+        <div class="body">
+            <p>I have tested it with a plugin like your setup and it is working.
+I think the only way for me to troubleshoot this for you is with a stripped down demo app.</p>
+
+<p>The Zend_Log_Filter_Priority should work as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T10:56:27.000+0000</p> 
+        <div class="body">
+            <p>I think your problem is related to: ZF-4134</p>
+
+<p>I was using</p>
+
+<pre class="highlight"><code>
+$this-&gt;view-&gt;json('Sample Json Data');
+</code></pre>
+
+<p>in my action controller but I guess that is not the same thing.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T11:03:33.000+0000</p> 
+        <div class="body">
+            <p>As a workaround you can do this:</p>
+
+<pre class="highlight"><code>
+$this-&gt;getHelper('Json')-&gt;suppressExit = true;
+$this-&gt;getHelper('Json')-&gt;sendJson($foo);
+Zend_Wildfire_Channel_HttpHeaders::getInstance()-&gt;flush();
+$this-&gt;getHelper('Json')-&gt;getResponse()-&gt;sendResponse();
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T11:07:11.000+0000</p> 
+        <div class="body">
+            <p>Sorry, forgot "exit" at the end.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-09-08T11:15:45.000+0000</p> 
+        <div class="body">
+            <p>Duplicate of ZF-4134.</p>
+
+        </div>
+    </div>
+    </div>
+

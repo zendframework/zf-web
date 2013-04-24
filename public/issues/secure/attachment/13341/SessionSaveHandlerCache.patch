@@ -1,0 +1,401 @@
+Index: tests/Zend/Session/SaveHandler/AllTests.php
+===================================================================
+--- tests/Zend/Session/SaveHandler/AllTests.php	(revision 23123)
++++ tests/Zend/Session/SaveHandler/AllTests.php	(working copy)
+@@ -27,6 +27,7 @@
+ }
+ 
+ require_once 'Zend/Session/SaveHandler/DbTableTest.php';
++require_once 'Zend/Session/SaveHandler/CacheTest.php';
+ 
+ /**
+  * @category   Zend
+@@ -63,6 +64,8 @@
+             $suite->addTestSuite('Zend_Session_SaveHandler_DbTableTest');
+         }
+ 
++        $suite->addTestSuite('Zend_Session_SaveHandler_CacheTest');
++
+         return $suite;
+     }
+ }
+Index: tests/Zend/Session/SaveHandler/CacheTest.php
+===================================================================
+--- tests/Zend/Session/SaveHandler/CacheTest.php	(revision 0)
++++ tests/Zend/Session/SaveHandler/CacheTest.php	(revision 0)
+@@ -0,0 +1,189 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Session
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * Test helper
++ */
++require_once dirname(__FILE__) . '/../../../TestHelper.php';
++
++/**
++ * @see Zend_Session_SaveHandler_Cache
++ */
++require_once 'Zend/Session/SaveHandler/Cache.php';
++
++/**
++ * Unit testing for Zend_Session_SaveHandler_Cache include all tests for
++ * regular session handling
++ *
++ * @category   Zend
++ * @package    Zend_Session
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @group      Zend_Session
++ * @group      Zend_Db_Table
++ */
++class Zend_Session_SaveHandler_CacheTest extends PHPUnit_Framework_TestCase
++{
++    /**
++     * @var Zend_Cache_Core
++     */
++    protected $_cache;
++
++    /**
++     * @var array
++     */
++    protected $_testData = array(
++        'key1' => 'value1',
++    );
++
++    /**
++     * Array to collect used Zend_Session_SaveHandler_Cache objects, so they are not
++     * destroyed before all tests are done and session is not closed
++     *
++     * @var array
++     */
++    protected $_usedSaveHandlers = array();
++
++    /**
++     * Setup performed prior to each test method
++     *
++     * @return void
++     */
++    public function setUp()
++    {
++        $this->_cache = Zend_Cache::factory(
++            'Core',
++            'Sqlite',
++            array(
++                'automatic_serialization' => true
++            ),
++            array(
++                'cache_db_complete_path' => tempnam(sys_get_temp_dir(), 'zfcachetest')
++            )
++        );
++    }
++
++    /**
++     * Tear-down operations performed after each test method
++     *
++     * @return void
++     */
++    public function tearDown()
++    {
++        if ($this->_cache instanceof Zend_Cache_Core) {
++            $this->_cache = null;
++        }
++    }
++
++    public function testNoExceptionWhenGivenCorrectCache()
++    {
++        $this->_usedSaveHandlers[] =
++            $saveHandler = new Zend_Session_SaveHandler_Cache();
++        $saveHandler->setCache($this->_cache);
++
++        $this->assertSame($this->_cache, $saveHandler->getCache());
++    }
++
++    public function testSessionSaving()
++    {
++        $this->_usedSaveHandlers[] =
++            $saveHandler = new Zend_Session_SaveHandler_Cache();
++        $saveHandler->setCache($this->_cache);
++        Zend_Session::setSaveHandler($saveHandler);
++        Zend_Session::start();
++        $id = Zend_Session::getId();
++
++        /**
++         * @see Zend_Session_Namespace
++         */
++        require_once 'Zend/Session/Namespace.php';
++
++        $session = new Zend_Session_Namespace('SaveHandler');
++        $session->testArray = $this->_testData;
++
++        session_write_close();
++        Zend_Session::writeClose();
++        unset($session);
++
++        Zend_Session::start();
++        $session = new Zend_Session_Namespace('SaveHandler');
++
++        $this->assertSame($session->testArray, $this->_testData, 'Data was not saved properly');
++    }
++
++    public function testReadWrite()
++    {
++        $this->_usedSaveHandlers[] =
++            $saveHandler = new Zend_Session_SaveHandler_Cache();
++        $saveHandler->setCache($this->_cache);
++
++        $id = '242';
++
++        $this->assertTrue($saveHandler->write($id, serialize($this->_testData)));
++
++        $this->assertSame($this->_testData, unserialize($saveHandler->read($id)));
++    }
++
++    public function testReadWriteComplex()
++    {
++        $this->_usedSaveHandlers[] =
++            $saveHandler = new Zend_Session_SaveHandler_Cache();
++        $saveHandler->setCache($this->_cache);
++
++        $saveHandler->open('savepath', 'sessionname');
++
++        $id = '242';
++
++        $this->assertTrue($saveHandler->write($id, serialize($this->_testData)));
++
++        $this->assertSame($this->_testData, unserialize($saveHandler->read($id)));
++    }
++
++    public function testReadWriteTwice()
++    {
++        $this->_usedSaveHandlers[] =
++            $saveHandler = new Zend_Session_SaveHandler_Cache();
++        $saveHandler->setCache($this->_cache);
++
++        $id = '242';
++
++        $this->assertTrue($saveHandler->write($id, serialize($this->_testData)));
++
++        $this->assertSame($this->_testData, unserialize($saveHandler->read($id)));
++
++        $this->assertTrue($saveHandler->write($id, serialize($this->_testData)));
++
++        $this->assertSame($this->_testData, unserialize($saveHandler->read($id)));
++    }
++}
++
++/**
++ * This class is used by Zend_Session_SaveHandler_AllTests to produce one skip message when sqlite is unavailable
++ */
++class Zend_Session_SaveHandler_CacheTestSkip extends PHPUnit_Framework_TestCase
++{
++    public function testNothing()
++    {
++        $this->markTestSkipped('The pdo_sqlite extension must be available and enabled for this test');
++    }
++}
+
+Property changes on: tests/Zend/Session/SaveHandler/CacheTest.php
+___________________________________________________________________
+Added: svn:keywords
+   + "Date Author Revision"
+Added: svn:eol-style
+   + native
+
+Index: library/Zend/Session/SaveHandler/Cache.php
+===================================================================
+--- library/Zend/Session/SaveHandler/Cache.php	(revision 0)
++++ library/Zend/Session/SaveHandler/Cache.php	(revision 0)
+@@ -0,0 +1,165 @@
++<?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-webat this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Session
++ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++/**
++ * @see Zend_Session
++ */
++require_once 'Zend/Session.php';
++
++/**
++ * @see Zend_Config
++ */
++require_once 'Zend/Config.php';
++
++/**
++ * @see Zend_Cache
++ */
++require_once 'Zend/Cache.php';
++
++/**
++ * Zend_Session_SaveHandler_Cache
++ *
++ * @category   Zend
++ * @package    Zend_Session
++ * @subpackage SaveHandler
++ * @copyright  Copyright (c) 2010 CaringBridge. (http://www.caringbridge.org)
++ */
++class Zend_Session_SaveHandler_Cache
++    implements Zend_Session_SaveHandler_Interface
++{
++
++    /**
++     * Zend Cache
++     * @var Zend_Cache
++     */
++    protected $_cache;
++
++    /**
++     * Destructor
++     *
++     * @return void
++     */
++    public function __destruct()
++    {
++        Zend_Session::writeClose();
++    }
++
++    /**
++     * Set Cache
++     *
++     * @param Zend_Cache_Core $cache
++     * @return Zend_Session_SaveHandler_Cache
++     */
++    public function setCache(Zend_Cache_Core $cache)
++    {
++        $this->_cache = $cache;
++    }
++
++    /**
++     * Get Cache
++     * 
++     * @return Zend_Cache_Core
++     */
++    public function getCache()
++    {
++        return $this->_cache;
++    }
++
++    /**
++     * Open Session
++     *
++     * @param string $save_path
++     * @param string $name
++     * @return boolean
++     */
++    public function open($save_path, $name)
++    {
++        $this->_sessionSavePath = $save_path;
++        $this->_sessionName     = $name;
++
++        return true;
++    }
++
++    /**
++     * Close session
++     *
++     * @return boolean
++     */
++    public function close()
++    {
++        return true;
++    }
++
++    /**
++     * Read session data
++     *
++     * @param string $id
++     * @return string
++     */
++    public function read($id)
++    {
++        if (!$data = $this->_cache->load($id)) {
++            return null;
++        }
++        return $data;
++    }
++
++    /**
++     * Write session data
++     *
++     * @param string $id
++     * @param string $data
++     * @return boolean
++     */
++    public function write($id, $data)
++    {
++        return $this->_cache->save(
++            $data,
++            $id,
++            array(),
++            Zend_Session::getOptions('gc_maxlifetime')
++        );
++    }
++
++    /**
++     * Destroy session
++     *
++     * @param string $id
++     * @return boolean
++     */
++    public function destroy($id)
++    {
++        return $this->_cache->remove($id);
++    }
++
++    /**
++     * Garbage Collection
++     *
++     * @param int $maxlifetime
++     * @return true
++     */
++    public function gc($maxlifetime)
++    {
++        return true;
++    }
++
++}
+
+Property changes on: library/Zend/Session/SaveHandler/Cache.php
+___________________________________________________________________
+Added: svn:keywords
+   + "Date Author Revision"
+Added: svn:eol-style
+   + native
+

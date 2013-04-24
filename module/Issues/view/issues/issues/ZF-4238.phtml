@@ -1,0 +1,144 @@
+<h2>ZF-4238: Infinite loop when connection is closed</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-10T09:27:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-21T11:14:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.1 (01/Dec/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4561">ZF-4561</a></li>
+            <li><a href="/issues/browse/ZF-4393">ZF-4393</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11638/zend_http_client_infinite_loop_on_timeout_fix.patch">zend_http_client_infinite_loop_on_timeout_fix.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When I use Zend_Http_Client it occasionally seems to get stuck in an infinite loop.  When I perform an strace on the offending process I see the following system calls being called in an infinite loop:</p>
+
+<pre class="literal">
+poll([{fd=6, events=POLLIN|POLLERR|POLLHUP, revents=POLLIN|POLLHUP}], 1, 300000) = 1
+recvfrom(6, "", 8192, MSG_DONTWAIT, NULL, NULL) = 0
+poll([{fd=6, events=POLLIN|POLLERR|POLLHUP, revents=POLLIN|POLLHUP}], 1, 300000) = 1
+recvfrom(6, "", 8192, MSG_DONTWAIT, NULL, NULL) = 0
+poll([{fd=6, events=POLLIN|POLLERR|POLLHUP, revents=POLLIN|POLLHUP}], 1, 300000) = 1
+recvfrom(6, "", 8192, MSG_DONTWAIT, NULL, NULL) = 0
+poll([{fd=6, events=POLLIN|POLLERR|POLLHUP, revents=POLLIN|POLLHUP}], 1, 300000) = 1
+recvfrom(6, "", 8192, MSG_DONTWAIT, NULL, NULL) = 0
+...
+</pre>
+
+<p>I noticed that Zend_Http_Client_Adapter_Socket::read() does not check whether the socket has been closed while it reads a response.  My hypothesis is that when a connection is closed while read() is in the process of reading the response, it gets stuck in an infinite loop as it is never able to finish reading $left_to_read bytes.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alex Adriaanse (alexadriaanse) on 2008-09-10T09:36:41.000+0000</p> 
+        <div class="body">
+            <p>While I was reviewing Zend_Http_Client_Adapter_Socket::read(), I also noticed that it has lines like {{while ($line = @fgets($this-&gt;socket))}} and {{while ($buff = @fread($this-&gt;socket, 8192))}}.  Due to the loose comparisons performed by these statements, I'd imagine that when fgets() and fread() return a string such as "0" the read is aborted prematurely.  In addition to adding feof() checks, these conditions should probably be rewritten as {{(... === false)}} and/or {{(... === '')}}.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2008-10-11T04:41:47.000+0000</p> 
+        <div class="body">
+            <p>I added additional failure checks in changeset 11864 and an additional test to make sure lines with '0' or '' are not wrongly evaluated as FALSE. 
+In order to fully confirm that this issue is fixed I need either a clear reproduction, or you can test with the latest revision and see if this still happens.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-10-11T13:17:56.000+0000</p> 
+        <div class="body">
+            <p>That seems ZF-4560 is caused by this problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2008-10-12T02:48:53.000+0000</p> 
+        <div class="body">
+            <p>I added some additional feof() checks to fix ZF-4560.</p>
+
+<p>It seems that fread() / fgets() do not always return false when at EOF, and you need to manually check for EOF or it will just keep reading. This is the case when there is no content-length or "transfer-encoding: chunked" response, and you just need to read until the end of file, which is the case with some responses from the AudioScrobbler servers and maybe from other servers as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-10-12T04:03:53.000+0000</p> 
+        <div class="body">
+            <p>It seems it's resolved with r11886 commit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-10-12T04:28:54.000+0000</p> 
+        <div class="body">
+            <p>The Unit Test file: /trunk/tests/Zend/Http/Client/_files/ZF4238-zerolineresponse.txt is missing, unit tests fail:</p>
+
+<p>testZF4238FalseLinesInResponse()
+testHttpAuthBasic()</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:09:58.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alex Adriaanse (alexadriaanse) on 2008-11-13T18:19:56.000+0000</p> 
+        <div class="body">
+            <p>If the connection times out while Zend_Http_Client_Adapter_Socket is reading from the socket, it will still go into an infinite loop.  I am attaching a patch that appears to fix this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2008-12-04T04:09:02.000+0000</p> 
+        <div class="body">
+            <p>I try to solve this issue at SVN r13013.</p>
+
+<p>I will happy if I receive any reviews.</p>
+
+        </div>
+    </div>
+    </div>
+

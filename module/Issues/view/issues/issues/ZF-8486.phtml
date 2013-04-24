@@ -1,0 +1,194 @@
+<h2>ZF-8486: Zend_Db_Table-&gt;getRow() fails due to incorrect check in seek method</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-07T02:25:44.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-18T14:23:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.1 (30/Nov/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13086/Abstract.php">Abstract.php</a></li>
+            <li><a href="/issues/secure/attachment/12770/ZF-8486_unit-test.diff">ZF-8486_unit-test.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Db_Table for fetching data from certain row from DB table Zend Framework ncorrectly checks range of available/seekable positions in Zend_Db_Table_Rowset_Abstract::seek() on line 323 and throws exception "Illegal index is ...".</p>
+
+<p>The solution is to change condition which triggers exception with fixing comparison from grather or equal to grather.</p>
+
+<p>BEFORE:</p>
+
+<p>if ($position &lt; 0 || $position &gt;= $this-&gt;_count) { ...</p>
+
+<p>AFTER:</p>
+
+<p>if ($position &lt; 0 || $position &gt; $this-&gt;_count) { ...</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stephan &quot;Bladed&quot; de Souza (bladed) on 2010-01-12T03:04:06.000+0000</p> 
+        <div class="body">
+            <p>The issue still exists on 1.9.7, already checked!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicolas Grevet (nyko18) on 2010-01-29T05:27:27.000+0000</p> 
+        <div class="body">
+            <p>This happens when you apply a foreach (for example) on a rowset and then try to get a particular row of this same rowset. After the foreach, the Iterator index is left at the end, after the last element (max(index)+1). The getRow() method fails to seek back to the former index because it simply doesn't exists in the Iterator. Happens in 1.10.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stephan &quot;Bladed&quot; de Souza (bladed) on 2010-02-02T10:29:17.000+0000</p> 
+        <div class="body">
+            <p>Still exists on 1.10.0</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-02-04T07:20:03.000+0000</p> 
+        <div class="body">
+            <p>I'm looking into this today</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-02-08T08:13:55.000+0000</p> 
+        <div class="body">
+            <p>The issue is actually not in seek(), seek() seems to be preforming the proper checks.  I think the problem you are experiencing is using getRow().</p>
+
+<p>Currently, when you iterate over a rowset, after iteration the internal pointer is set to point beyond the final row of the rowset.  While this pauses no general issue with iteration, it will cause an issue when you call getRow($count-1, false), where false is whether or not to seek() BACK to the pointers original position, which of course if invalid.</p>
+
+<p>I'll have to research if having a pointer point beyond the bounds after iteration is really what we want.  In the mean time, try to rewind() the rowset after use to avoid any issues with getRow() trying to seek to an invalid position.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-02-19T12:46:09.000+0000</p> 
+        <div class="body">
+            <p>Adding patch for unit test.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by kalyanraj (kalyanraj) on 2010-05-19T11:36:16.000+0000</p> 
+        <div class="body">
+            <p>The fix for the illegal index is 
+        if ($seek == true) {
+            $this-&gt;seek($key);
+        }</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stephan &quot;Bladed&quot; de Souza (bladed) on 2010-05-19T12:39:35.000+0000</p> 
+        <div class="body">
+            <p>The problem is a simple out of range checking, as proposed on the issue.</p>
+
+<p>If you has a Rowset with 4 rows and you check the last on a while loop will assume:</p>
+
+<pre class="literal"> 
+$this-&gt;_count = 4 // The last index is 3 (count - 1)
+$position = 4 // The now working last index, not count - 1
+</pre>
+
+<p>The script:</p>
+
+<pre class="literal"> 
+if ($position &lt; 0 || $position &gt;= $this-&gt;_count) {
+</pre>
+
+<p>The result on Issue</p>
+
+<pre class="literal"> 
+if (4 &lt; 0 || 4 &gt;= 4) { 
+TRUE
+</pre>
+
+<p>Proposed</p>
+
+<pre class="literal"> 
+if ($position &lt; 0 || $position &gt; $this-&gt;_count) {
+</pre>
+
+<p>The result</p>
+
+<pre class="literal"> 
+if (4 &lt; 0 || 4 &gt; 4) { 
+FALSE
+</pre>
+
+<p>It NOT throws an Exception and assuming the last pos is 4, and not 3 ( count - 1 ).</p>
+
+<p>And Ralph, do the unit-testing with proposed one, and check! I repeat myself: Its a simple "out of range", the count value is NEVER the last index!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-18T14:14:24.000+0000</p> 
+        <div class="body">
+            <p>I will agree that calling getRow() after an iteration throwing an exception is a bug.  The problem is this: iteration happens, the pointer is left if an invalid state (basically the last element plus 1)- which is the correct behavior in PHP.  The problem comes in that getRow() is (wrongly) attempting to leverage seeking and current() to find the desired row.  THIS is the wrong thing to do, especially since it will try to restore the seek position after it is done.  Since the seek position was invalid to begin off with, it will throw an exception when attempting to restore the seek position to the invalid state.</p>
+
+<p>When you say this:</p>
+
+<pre class="highlight"><code>
+if ($position &lt; 0 || $position &gt; $this-&gt;_count) {
+</code></pre>
+
+<p>is what should be done, this is wrong.  The last valid position is the count - 1, which is why the right hand side is $position &gt;= $this-&gt;_count.  In other words, if the count is 4, the last valid position is index 3, not 4.  This is why we want the exception to be thrown.  Put yet another way, the valid range for seek() is 0 to N-1,  Not 1 to N.</p>
+
+<p>I have a fix none-the-less.  Will apply soon.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-18T14:23:02.000+0000</p> 
+        <div class="body">
+            <p>Fixed at r23379 in trunk and at r23380 in release branch 1.11</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,88 @@
+Index: tests/Zend/Acl/AclTest.php
+===================================================================
+--- tests/Zend/Acl/AclTest.php	(révision 18530)
++++ tests/Zend/Acl/AclTest.php	(copie de travail)
+@@ -692,6 +692,28 @@
+     }
+ 
+     /**
++     * Ensures ability to query Zend_Acl against multiple role at once for given
++     * privilege(s) on given ressource
++     *
++     * @return void
++     */
++    public function testMultipleRolesPrivileges()
++    {
++        $this->_acl->addRole(new Zend_Acl_Role('admin'))
++             ->allow('admin',null,array('read','write'));
++        $this->_acl->addRole(new Zend_Acl_Role('staff'))
++             ->allow('staff',null,'read');
++
++        $this->assertTrue($this->_acl->isAllowed('admin', null, 'write'));
++        $this->assertFalse($this->_acl->isAllowed('staff', null, 'write'));
++        $this->assertTrue($this->_acl->isAllowed(array('staff', 'admin'), null, 'write'));
++
++        $this->_acl->deny('admin', null, 'write');
++        $this->assertFalse($this->_acl->isAllowed(array('staff', 'admin'), null, 'write'));
++
++    }
++
++    /**
+      * Ensures that assertions on privileges work properly for a particular Role
+      *
+      * @return void
+Index: library/Zend/Acl.php
+===================================================================
+--- library/Zend/Acl.php	(révision 18530)
++++ library/Zend/Acl.php	(copie de travail)
+@@ -704,10 +704,13 @@
+     }
+ 
+     /**
+-     * Returns true if and only if the Role has access to the Resource
++     * Returns true if and only if the Role (or one of the Roles) has access to the Resource
+      *
+      * The $role and $resource parameters may be references to, or the string identifiers for,
+-     * an existing Resource and Role combination.
++     * an existing Resource and Role combination. It is also possible to pass an array of
++     * such (instances, references or string) to specify multiple Roles to check privilege
++     * against. In this case, true will be returned as of ONE of the Role is granted privilege,
++     * otherwise the method will return false.
+      *
+      * If either $role or $resource is null, then the query applies to all Roles or all Resources,
+      * respectively. Both may be null to query whether the ACL has a "blacklist" rule
+@@ -724,6 +727,25 @@
+      * and its respective parents are checked similarly before the lower-priority parents of
+      * the Role are checked.
+      *
++     * @param  Zend_Acl_Role_Interface|string|array     $role
++     * @param  Zend_Acl_Resource_Interface|string $resource
++     * @param  string                             $privilege
++     * @return boolean
++     */
++    public function isAllowed($role = null, $resource = null, $privilege = null)
++    {
++        $roles = (!is_array($role)) ? array($role) : $role;
++        foreach($roles as $role) {
++            if($this->_isAllowed($role, $resource, $privilege)) return true;
++        }
++        // none of given Roles were granted privilege to ressource...
++        return false;
++    }
++
++
++    /**
++     * Returns true if and only if the Role has access to the Resource
++     *
+      * @param  Zend_Acl_Role_Interface|string     $role
+      * @param  Zend_Acl_Resource_Interface|string $resource
+      * @param  string                             $privilege
+@@ -731,7 +753,7 @@
+      * @uses   Zend_Acl_Role_Registry::get()
+      * @return boolean
+      */
+-    public function isAllowed($role = null, $resource = null, $privilege = null)
++    protected function _isAllowed($role = null, $resource = null, $privilege = null)
+     {
+         // reset role & resource to null
+         $this->_isAllowedRole = $this->_isAllowedResource = null;

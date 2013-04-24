@@ -1,0 +1,148 @@
+Index: BootstrapAbstract.php
+===================================================================
+--- BootstrapAbstract.php	(revision 17952)
++++ BootstrapAbstract.php	(working copy)
+@@ -46,6 +46,11 @@
+     protected $_classResources;
+ 
+     /**
++     * @var array Internal resource methods (resource/method pairs)
++     */
++    protected $_classResourceOptions;
++
++    /**
+      * @var object Resource container
+      */
+     protected $_container;
+@@ -57,7 +62,7 @@
+ 
+     /**
+      * Flattened (lowercase) option keys used for lookups
+-     * 
++     *
+      * @var array
+      */
+     protected $_optionKeys = array();
+@@ -88,6 +93,11 @@
+     protected $_started = array();
+ 
+     /**
++     * @var array Stack of resources that are running, current last
++     */
++    protected $_currentClassResources = array();
++
++    /**
+      * Constructor
+      *
+      * Sets application object, initializes options, and prepares list of
+@@ -117,6 +127,7 @@
+         $options = array_change_key_case($options, CASE_LOWER);
+         $this->_optionKeys = array_merge($this->_optionKeys, array_keys($options));
+ 
++        $resources = $this->getClassResourceNames();
+         $methods = get_class_methods($this);
+         foreach ($methods as $key => $method) {
+             $methods[$key] = strtolower($method);
+@@ -138,7 +149,12 @@
+                 $this->$method($value);
+             } elseif ('resources' == $key) {
+                 foreach ($value as $resource => $resourceOptions) {
+-                    $this->registerPluginResource($resource, $resourceOptions);
++                	$resourceOptions = array_change_key_case($resourceOptions, CASE_LOWER);
++	                if(in_array(strtolower($resource), $resources)) {
++	                	$this->_configureClassResource($resource, $resourceOptions);
++	                } else {
++                    	$this->registerPluginResource($resource, $resourceOptions);
++	                }
+                 }
+             }
+         }
+@@ -152,6 +168,9 @@
+      */
+     public function getOptions()
+     {
++    	if($classResource = $this->_getCurrentClassResource()) {
++    		return $this->_options['resources'][$classResource];
++    	}
+         return $this->_options;
+     }
+ 
+@@ -163,6 +182,11 @@
+      */
+     public function hasOption($key)
+     {
++    	$key = strtolower($key);
++    	if($classResource = $this->_getCurrentClassResource()) {
++    		return array_key_exists($key, $this->_options['resources'][$classResource]);
++    	}
++
+         return in_array($key, $this->_optionKeys);
+     }
+ 
+@@ -247,10 +271,53 @@
+     public function getClassResourceNames()
+     {
+         $resources = $this->getClassResources();
+-        return array_keys($resources);
++	    return array_keys($resources);
+     }
+ 
++    protected function _getCurrentClassResource()
++    {
++    	if(empty($this->_currentClassResources)) {
++    		return false;
++    	}
++
++    	end($this->_currentClassResources);
++    	return current($this->_currentClassResources);
++    }
++
+     /**
++     * Disables a classResource
++     *
++     * @return void
++     */
++    public function disableClassResource($name)
++    {
++    	if(isset($this->_classResources[$name])) {
++    		unset($this->_classResources[$name]);
++    	}
++    }
++
++    /**
++     * Configure a classResource
++     *
++     * @param  string $resource
++     * @param  mixed  $options
++     * @return void
++     * @throws Zend_Application_Bootstrap_Exception When invalid resource is provided
++     */
++    protected function _configureClassResource($resource, $options = null)
++    {
++        if (!isset($this->_classResources[$resource])) {
++            throw new Zend_Application_Bootstrap_Exception('Invalid resource provided to ' . __METHOD__);
++        }
++
++        if( isset($options['disabled']) ) {
++        	$this->disableClassResource($resource);
++        } else {
++        	$this->_classResourceOptions[$resource] = $options;
++        }
++    }
++
++    /**
+      * Register a new resource plugin
+      *
+      * @param  string|Zend_Application_Resource_Resource $resource
+@@ -658,9 +725,11 @@
+         $classResources = $this->getClassResources();
+         if (array_key_exists($resourceName, $classResources)) {
+             $this->_started[$resourceName] = true;
++            array_push($this->_currentClassResources, $resourceName);
+             $method = $classResources[$resourceName];
+             $return = $this->$method();
+             unset($this->_started[$resourceName]);
++            array_pop($this->_currentClassResources);
+             $this->_markRun($resource);
+ 
+             if (null !== $return) {

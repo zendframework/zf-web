@@ -1,0 +1,222 @@
+<h2>ZF-10448: Cache Zend_Navigation not working</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-09-14T03:51:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-01T08:24:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8228">ZF-8228</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Dears,</p>
+
+<p>This issue is more or less the same as ZF-6746.</p>
+
+<p>Since Zend_Navigation use spl_object_hash to generate an id for the page, if you cache a Zend_Navigation object, once the cache is loaded, the navigation is broken because spl_object_hash generation unique id for the instance of php.
+See also <a href="http://stackoverflow.com/questions/1370130/zend-navigation-caching">http://stackoverflow.com/questions/1370130/…</a></p>
+
+<p>Possible fix (to test): don't use spl_object_id but md5(serialize(array(...))) representing the object.
+The active property must be saved as false and the parents property must be saved as null because the parents may changed once you add a page.</p>
+
+<p>I will join the patch but should be improved and well tested.</p>
+
+<p>Thank you for your hard work on the Zend Framework.</p>
+
+<p>Best regards,</p>
+
+<p>Raphaël Dehousse</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Raphael Dehousse (thymus) on 2010-09-14T03:56:34.000+0000</p> 
+        <div class="body">
+            <p>Really strange, I cannot add a file (don't see any link to do that)</p>
+
+<p>I paste the patch here then</p>
+
+<pre class="highlight"><code>
+Index: Page.php
+===================================================================
+--- Page.php    (revision 22938)
++++ Page.php    (working copy)
+@@ -1065,7 +1065,29 @@
+      */
+     public final function hashCode()
+     {
+-        return spl_object_hash($this);
++        return md5(
++            serialize(
++                array_merge(
++                    $this-&gt;getCustomProperties(),
++                    array(
++                        'label'     =&gt; $this-&gt;getlabel(),
++                        'id'        =&gt; $this-&gt;getId(),
++                        'class'     =&gt; $this-&gt;getClass(),
++                        'title'     =&gt; $this-&gt;getTitle(),
++                        'target'    =&gt; $this-&gt;getTarget(),
++                        'rel'       =&gt; $this-&gt;getRel(),
++                        'rev'       =&gt; $this-&gt;getRev(),
++                        'order'     =&gt; $this-&gt;getOrder(),
++                        'resource'  =&gt; $this-&gt;getResource(),
++                        'privilege' =&gt; $this-&gt;getPrivilege(),
++                        'active'    =&gt; false,
++                        'visible'   =&gt; $this-&gt;isVisible(),
++                        'type'      =&gt; get_class($this),
++                        'pages'     =&gt; null,
++                    )
++                )
++            )
++        );
+     }
+ 
+     /**
+
+</code></pre>
+
+<p>Best regards,</p>
+
+<p>Raphaël Dehousse</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-05T14:21:57.000+0000</p> 
+        <div class="body">
+            <p>Bad idea!</p>
+
+<pre class="highlight"><code>
+$hash = $page-&gt;hashCode();
+
+if (array_key_exists($hash, $this-&gt;_index)) {
+    // page is already in container
+    return $this;
+}
+
+// adds page to container and sets dirty flag
+$this-&gt;_pages[$hash] = $page;
+</code></pre>
+
+<pre class="highlight"><code>
+public function testContainerWithTwoSamePages()
+{
+    $container = new Zend_Navigation(array(
+        array(
+            'label' =&gt; 'foo',
+            'uri'   =&gt; 'foo',
+            'bar'   =&gt; 'baz',
+        ),
+        array(
+            'label' =&gt; 'foo',
+            'uri'   =&gt; 'foo',
+            'bar'   =&gt; 'baz',
+        ),
+    ));
+
+    $found = array();
+    foreach ($container as $page) {
+        $found[] = $page-&gt;toArray();
+    }
+
+    $this-&gt;assertSame(2, count($found));
+}
+</code></pre>
+
+<p>Fail!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-05T16:20:20.000+0000</p> 
+        <div class="body">
+            <p>Maybe the <a href="">www.php.net/manual/en/class.splobjectstorage.php</a>" rel="nofollow"&gt;SplObjectStorage class is a possible variant. I will look into this (including the performance).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Raphael Dehousse (thymus) on 2011-07-12T15:09:59.000+0000</p> 
+        <div class="body">
+            <p>Hello,</p>
+
+<p>The user would have to define a different id for the page then.
+Sth has to be different between the pages, otherwise, what could be the interest?</p>
+
+<p>Thank you for looking for a solution ;)</p>
+
+<p>Regards,</p>
+
+<p>Raphaël Dehousse</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-08-13T17:05:57.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+Sth has to be different between the pages, otherwise, what could be the interest?
+{quote}
+It breaks the test from "Zend_Navigation_ContainerTest":</p>
+
+<pre class="highlight"><code>
+public function testAddPageShouldWorkWithPageInstance()
+{
+    $pageOptions = array(
+        'label' =&gt; 'From array 1',
+        'uri' =&gt; '#array'
+    );
+
+    $nav = new Zend_Navigation(array($pageOptions));
+
+    $page = Zend_Navigation_Page::factory($pageOptions);
+    $nav-&gt;addPage($page);
+
+    $this-&gt;assertEquals(2, count($nav));
+}
+</code></pre>
+
+<p>;)</p>
+
+        </div>
+    </div>
+    </div>
+

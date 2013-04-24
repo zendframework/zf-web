@@ -1,0 +1,336 @@
+<h2>ZF-9467: Zend_Form getErrors() incorrect handling when !$subform-&gt;isArray()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-18T10:16:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-16T12:46:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3917">ZF-3917</a></li>
+            <li><a href="/issues/browse/ZF-5222">ZF-5222</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Form getErrors() does not handle Form Structure correctly,
+when calling getErrors($name = null) without parameter, and having
+a Form or a SubForm set isArray(false);</p>
+
+<pre class="highlight"><code>
+foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+    $fErrors = $this-&gt;_attachToArray($subForm-&gt;getErrors(), $subForm-&gt;getElementsBelongTo());
+    // the result
+    if (!$subForm-&gt;isArray()) {
+        $fErrors === array('' =&gt; array('foo' =&gt; ...
+    }
+    // because
+    if (!$subForm-&gt;isArray()) {
+        null === $subForm-&gt;getElementsBelongTo()
+    }
+}
+</code></pre>
+
+<p>I cleaned the method a bit as well, before Patch</p>
+
+<pre class="highlight"><code>
+    public function getErrors($name = null)
+    {
+        $errors = array();
+        if ((null !== $name) &amp;&amp; isset($this-&gt;_elements[$name])) {
+            $errors = $this-&gt;getElement($name)-&gt;getErrors();
+        } elseif ((null !== $name) &amp;&amp; isset($this-&gt;_subForms[$name])) {
+            $errors = $this-&gt;getSubForm($name)-&gt;getErrors();
+        } else {
+            foreach ($this-&gt;_elements as $key =&gt; $element) {
+                $errors[$key] = $element-&gt;getErrors();
+            }
+            foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+                $fErrors = $this-&gt;_attachToArray($subForm-&gt;getErrors(), $subForm-&gt;getElementsBelongTo());
+                $errors = array_merge($errors, $fErrors);
+            }
+        }
+        return $errors;
+    }
+</code></pre>
+
+<p>// Update
+I have learned while fixing [ZF-9586] and from [ZF-5222], that interferencing
+SubForm Names and Segments of elementsBelongTo cause data loss, when using
+array_merge instead of array_merge_recursive, so i updated this issue to
+reflect that too.</p>
+
+<p>And after Patch</p>
+
+<pre class="highlight"><code>
+    public function getErrors($name = null, $suppressArrayNotation = false)
+    {
+        $errors = array();
+        if (null !== $name) {
+            if (isset($this-&gt;_elements[$name])) {
+                return $this-&gt;getElement($name)-&gt;getErrors();
+            } else if (isset($this-&gt;_subForms[$name])) {
+                return $this-&gt;getSubForm($name)-&gt;getErrors(null, true);
+            }
+        }
+        
+        foreach ($this-&gt;_elements as $key =&gt; $element) {
+            $errors[$key] = $element-&gt;getErrors();
+        }
+        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+            $merge = array();
+            if (!$subForm-&gt;isArray()) {
+                $merge[$key] = $subForm-&gt;getErrors();
+            } else {
+                $merge = $this-&gt;_attachToArray($subForm-&gt;getErrors(null, true),
+                                               $subForm-&gt;getElementsBelongTo());
+            }
+            $errors = array_merge_recursive($errors, $merge);
+        }
+
+        if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray()) {
+            $errors = $this-&gt;_attachToArray($errors, $this-&gt;getElementsBelongTo());
+        }
+
+        return $errors;
+    }
+</code></pre>
+
+<p>The Test as a whole</p>
+
+<pre class="highlight"><code>    public function _setup9350()
+    {
+        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')            // foo[foo]
+                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo') // foo[foo][foo]
+                        -&gt;foo-&gt;setIsArray(false)
+                             -&gt;addElement('text', 'foo')             // foo[foo][foo][foo]
+                             -&gt;foo-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('foo Value'));
+
+        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'baz') // foo[foo][baz]
+                   -&gt;baz-&gt;setIsArray(false)
+                        -&gt;addSubForm(new Zend_Form_SubForm(), 'baz')
+                        -&gt;baz-&gt;setElementsBelongTo('baz[baz]')       // foo[foo][baz][baz][baz]
+                             -&gt;addElement('text', 'baz')             // foo[foo][baz][baz][baz][baz]
+                             -&gt;baz-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('baz Value'));
+
+        // This is appending a different named SubForm and setting
+        // elementsBelongTo to a !isArray() Subform name from same level
+        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'quo')
+                        -&gt;quo-&gt;setElementsBelongTo('foo')            // foo[foo][foo] !!!!
+                             -&gt;addElement('text', 'quo')             // foo[foo][foo][quo]
+                             -&gt;quo-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('quo Value'));
+        
+        // This is setting elementsBelongTo point into the middle of 
+        // a chain of another SubForms elementsBelongTo
+        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'duh')
+                   -&gt;duh-&gt;setElementsBelongTo('foo[zoo]')            // foo[zoo] !!!!
+                        -&gt;addElement('text', 'zoo')                  // foo[zoo][zoo]
+                        -&gt;zoo-&gt;addValidator('Identical',
+                                            false,
+                                            array('zoo Value'));
+
+        // This is !isArray SubForms Name equal to the last segment
+        // of another SubForms elementsBelongTo
+        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'iek')
+                   -&gt;iek-&gt;setElementsBelongTo('foo')                 // foo !!!!
+                        -&gt;addSubForm(new Zend_Form_SubForm(), 'zoo') // foo[zoo] !!!!
+                        -&gt;zoo-&gt;setIsArray(false)
+                             -&gt;addElement('text', 'iek')             // foo[zoo][iek]
+                             -&gt;iek-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('iek Value'));
+
+        $data = array('valid'   =&gt; array('foo' =&gt;
+                                         array('foo' =&gt;
+                                               array('foo' =&gt;
+                                                     array('foo' =&gt; 'foo Value',
+                                                           'quo' =&gt; 'quo Value'),
+                                                     'baz' =&gt; 
+                                                     array('baz' =&gt; 
+                                                           array('baz' =&gt;
+                                                                 array('baz' =&gt; 'baz Value')))),
+                                               'zoo' =&gt;
+                                               array('zoo' =&gt; 'zoo Value',
+                                                     'iek' =&gt; 'iek Value'))),
+                      'invalid' =&gt; array('foo' =&gt;
+                                         array('foo' =&gt;
+                                               array('foo' =&gt;
+                                                     array('foo' =&gt; 'foo Invalid',
+                                                           'quo' =&gt; 'quo Value'),
+                                                     'baz' =&gt; 
+                                                     array('baz' =&gt; 
+                                                           array('baz' =&gt;
+                                                                 array('baz' =&gt; 'baz Value')))),
+                                               'zoo' =&gt;
+                                               array('zoo' =&gt; 'zoo Value',
+                                                     'iek' =&gt; 'iek Invalid'))),
+                      'partial' =&gt; array('foo' =&gt;
+                                         array('foo' =&gt;
+                                               array('baz' =&gt; 
+                                                     array('baz' =&gt; 
+                                                           array('baz' =&gt;
+                                                                 array('baz' =&gt; 'baz Value'))),
+                                                    'foo' =&gt; 
+                                                     array('quo' =&gt; 'quo Value')),
+                                               'zoo' =&gt;
+                                               array('zoo' =&gt; 'zoo Value'))));
+        return $data;
+    }
+
+    public function testGetErrorsWithElementsBelongTo()
+    {
+        $data = $this-&gt;_setup9350();
+        $this-&gt;form-&gt;isValid($data['invalid']);
+        $errors = $this-&gt;form-&gt;getErrors();
+
+        $this-&gt;assertTrue(isset($errors['foo']['foo']['foo']['foo']));
+        $this-&gt;assertTrue(isset($errors['foo']['zoo']['iek']));
+    }
+</code></pre>
+
+<p>And finally the patch which fixes the issue, with Unit Test</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php    (Revision 21732)
++++ tests/Zend/Form/FormTest.php    (Arbeitskopie)
+@@ -1579,7 +1621,17 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function testGetErrorsWithElementsBelongTo()
++    {
++        $data = $this-&gt;_setup9350();
++        $this-&gt;form-&gt;isValid($data['invalid']);
++        $errors = $this-&gt;form-&gt;getErrors();
+ 
++        $this-&gt;assertTrue(isset($errors['foo']['foo']['foo']['foo']));
++        $this-&gt;assertTrue(isset($errors['foo']['zoo']['iek']));
++    }
++
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php   (Revision 21732)
++++ library/Zend/Form.php   (Arbeitskopie)
+@@ -2271,22 +2272,35 @@
+      * @param  string $name
+      * @return array
+      */
+-    public function getErrors($name = null)
++    public function getErrors($name = null, $suppressArrayNotation = false)
+     {
+         $errors = array();
+-        if ((null !== $name) &amp;&amp; isset($this-&gt;_elements[$name])) {
+-            $errors = $this-&gt;getElement($name)-&gt;getErrors();
+-        } elseif ((null !== $name) &amp;&amp; isset($this-&gt;_subForms[$name])) {
+-            $errors = $this-&gt;getSubForm($name)-&gt;getErrors();
+-        } else {
+-            foreach ($this-&gt;_elements as $key =&gt; $element) {
+-                $errors[$key] = $element-&gt;getErrors();
++        if (null !== $name) {
++            if (isset($this-&gt;_elements[$name])) {
++                return $this-&gt;getElement($name)-&gt;getErrors();
++            } else if (isset($this-&gt;_subForms[$name])) {
++                return $this-&gt;getSubForm($name)-&gt;getErrors(null, true);
+             }
+-            foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+-                $fErrors = $this-&gt;_attachToArray($subForm-&gt;getErrors(), $subForm-&gt;getElementsBelongTo());
+-                $errors = array_merge($errors, $fErrors);
++        }
++        
++        foreach ($this-&gt;_elements as $key =&gt; $element) {
++            $errors[$key] = $element-&gt;getErrors();
++        }
++        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
++            $merge = array();
++            if (!$subForm-&gt;isArray()) {
++                $merge[$key] = $subForm-&gt;getErrors();
++            } else {
++                $merge = $this-&gt;_attachToArray($subForm-&gt;getErrors(null, true),
++                                               $subForm-&gt;getElementsBelongTo());
+             }
++            $errors = array_merge_recursive($errors, $merge);
+         }
++
++        if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray()) {
++            $errors = $this-&gt;_attachToArray($errors, $this-&gt;getElementsBelongTo());
++        }
++
+         return $errors;
+     }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-01T04:31:09.000+0000</p> 
+        <div class="body">
+            <p>Ready for review and commit</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-02T00:23:14.000+0000</p> 
+        <div class="body">
+            <p>Updated UnitTest</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-16T12:46:13.000+0000</p> 
+        <div class="body">
+            <p>Patch applied to trunk and 1.10 release branch.</p>
+
+        </div>
+    </div>
+    </div>
+

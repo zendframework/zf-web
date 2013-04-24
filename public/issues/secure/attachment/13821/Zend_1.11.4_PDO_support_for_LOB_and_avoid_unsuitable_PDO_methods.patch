@@ -1,0 +1,82 @@
+fix type issues (e.g. PostgreSQL/FALSE is encoded as empty string "''" instead of "false") by avoiding unsuitable PDO methods in Zend_Db_Statement_Pdo
+also provide support for LOB on resource arguments
+
+--- a/library/Zend/Db/Statement/Pdo.php
++++ b/library/Zend/Db/Statement/Pdo.php
+@@ -87,6 +87,27 @@ class Zend_Db_Statement_Pdo extends Zend_Db_Statement implements IteratorAggrega
+     }
+ 
+     /**
++     * Determine the PDO type of a value.
++     *
++     * @param mixed $value The value.
++     * @return int The value's PDO type.
++     */
++    protected function _getType($value)
++    {
++        if (is_bool($value)) {
++            return PDO::PARAM_BOOL;
++        } elseif ($value === null) {
++            return PDO::PARAM_NULL;
++        } elseif (is_integer($value)) {
++            return PDO::PARAM_INT;
++        } elseif (is_resource($value)) {
++            return PDO::PARAM_LOB;
++        } else {
++            return PDO::PARAM_STR;
++        }
++    }
++
++    /**
+      * Binds a parameter to the specified variable name.
+      *
+      * @param mixed $parameter Name the parameter, either integer or string.
+@@ -101,15 +122,7 @@ class Zend_Db_Statement_Pdo extends Zend_Db_Statement implements IteratorAggrega
+     {
+         try {
+             if ($type === null) {
+-                if (is_bool($variable)) {
+-                    $type = PDO::PARAM_BOOL;
+-                } elseif ($variable === null) {
+-                    $type = PDO::PARAM_NULL;
+-                } elseif (is_integer($variable)) {
+-                    $type = PDO::PARAM_INT;
+-                } else {
+-                    $type = PDO::PARAM_STR;
+-                }
++                $type = $this->_getType($variable);
+             }
+             return $this->_stmt->bindParam($parameter, $variable, $type, $length, $options);
+         } catch (PDOException $e) {
+@@ -137,10 +150,9 @@ class Zend_Db_Statement_Pdo extends Zend_Db_Statement implements IteratorAggrega
+ 
+         try {
+             if ($type === null) {
+-                return $this->_stmt->bindValue($parameter, $value);
+-            } else {
+-                return $this->_stmt->bindValue($parameter, $value, $type);
++                $type = $this->_getType($value);
+             }
++            return $this->_stmt->bindValue($parameter, $value, $type);
+         } catch (PDOException $e) {
+             require_once 'Zend/Db/Statement/Exception.php';
+             throw new Zend_Db_Statement_Exception($e->getMessage(), $e->getCode(), $e);
+@@ -225,10 +237,15 @@ class Zend_Db_Statement_Pdo extends Zend_Db_Statement implements IteratorAggrega
+     {
+         try {
+             if ($params !== null) {
+-                return $this->_stmt->execute($params);
+-            } else {
+-                return $this->_stmt->execute();
++                foreach ($params as $parameter => $value) {
++                    if (is_int($parameter)) {
++                        $this->bindValue($parameter + 1, $value);
++                    } else {
++                        $this->bindValue($parameter, $value);
++                    }
++                }
+             }
++            return $this->_stmt->execute();
+         } catch (PDOException $e) {
+             require_once 'Zend/Db/Statement/Exception.php';
+             throw new Zend_Db_Statement_Exception($e->getMessage(), (int) $e->getCode(), $e);

@@ -1,0 +1,101 @@
+Index: library/Zend/Db/Statement.php
+===================================================================
+--- library/Zend/Db/Statement.php	(revision 24511)
++++ library/Zend/Db/Statement.php	(working copy)
+@@ -181,30 +181,22 @@
+         $d = $this->_adapter->quoteIdentifier('a');
+         $d = $d[0];
+ 
+-        // get the value used as an escaped delimited id quote,
+-        // e.g. \" or "" or \`
+-        $de = $this->_adapter->quoteIdentifier($d);
+-        $de = substr($de, 1, 2);
+-        $de = str_replace('\\', '\\\\', $de);
+-
+         // get the character for value quoting
+         // this should be '
+         $q = $this->_adapter->quote('a');
+         $q = $q[0];
+ 
+-        // get the value used as an escaped quote,
+-        // e.g. \' or ''
+-        $qe = $this->_adapter->quote($q);
+-        $qe = substr($qe, 1, 2);
+-        $qe = str_replace('\\', '\\\\', $qe);
+-
+         // get a version of the SQL statement with all quoted
+         // values and delimited identifiers stripped out
+-        // remove "foo\"bar"
+-        $sql = preg_replace("/$q($qe|\\\\{2}|[^$q])*$q/", '', $sql);
+-        // remove 'foo\'bar'
++        // remove quoted identifiers
++        if (!empty($d)) {
++            $rx = "{$d}.*?(?<!(((?<![{$d}\\\\]){$d})|((?<!\\\\)\\\\))){$d}(?!{$d})";
++            $sql = preg_replace("/$rx/s", '', $sql);
++        }
++        // remove quoted values
+         if (!empty($q)) {
+-            $sql = preg_replace("/$q($qe|[^$q])*$q/", '', $sql);
++            $rx = "{$q}.*?(?<!(((?<![{$q}\\\\]){$q})|((?<!\\\\)\\\\))){$q}(?!{$q})";
++            $sql = preg_replace("/$rx/s", '', $sql);
+         }
+ 
+         return $sql;
+Index: tests/Zend/Db/Statement/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Statement/TestCommon.php	(revision 24511)
++++ tests/Zend/Db/Statement/TestCommon.php	(working copy)
+@@ -871,4 +871,53 @@
+         $this->assertNotNull($statement->getDriverStatement());
+         return $statement;
+     }
++
++    /**
++     * @group ZF-7911
++     */
++    public function testStripQuotedWorksProperly()
++    {
++        $stmt = new ZF7911_Statement($this->_db);
++        $this->assertEquals('table', $stmt->stripQuoted('table'));
++
++        // get the character for value quoting
++        // this should be '
++        $q = $this->_db->quote('a');
++        $q = $q[0];
++        
++        $this->assertEquals("",$stmt->stripQuoted("{$q}table{$q}"));
++        $this->assertEquals("",$stmt->stripQuoted("{$q}strange:table{$q}"));
++        $this->assertEquals("table{$q}",$stmt->stripQuoted("{$q}strange{$q}table{$q}"));
++        $this->assertEquals("",$stmt->stripQuoted("{$q}strange{$q}{$q}table{$q}"));
++        $this->assertEquals("table{$q}",$stmt->stripQuoted("{$q}strange{$q}{$q}{$q}table{$q}"));
++        $this->assertEquals("",$stmt->stripQuoted("{$q}strange\\{$q}table{$q}"));
++        $this->assertEquals("table{$q}",$stmt->stripQuoted("{$q}strange\\{$q}{$q}table{$q}"));
++        $this->assertEquals("table{$q}",$stmt->stripQuoted("{$q}strange\\{$q}{$q}{$q}table{$q}"));
++        
++        // get the character for delimited id quotes,
++        // this is usually " but in MySQL is `
++        $d = $this->_db->quoteIdentifier('a');
++        $d = $d[0];
++        
++        $this->assertEquals("",$stmt->stripQuoted("{$d}table{$d}"));
++        $this->assertEquals("",$stmt->stripQuoted("{$d}strange:table{$d}"));
++        $this->assertEquals("table{$d}",$stmt->stripQuoted("{$d}strange{$d}table{$d}"));
++        $this->assertEquals("",$stmt->stripQuoted("{$d}strange{$d}{$d}table{$d}"));
++        $this->assertEquals("table{$d}",$stmt->stripQuoted("{$d}strange{$d}{$d}{$d}table{$d}"));
++        $this->assertEquals("",$stmt->stripQuoted("{$d}strange\\{$d}table{$d}"));
++        $this->assertEquals("table{$d}",$stmt->stripQuoted("{$d}strange\\{$d}{$d}table{$d}"));
++        $this->assertEquals("table{$d}",$stmt->stripQuoted("{$d}strange\\{$d}{$d}{$d}table{$d}"));
++    }
+ }
++
++class ZF7911_Statement extends Zend_Db_Statement_Pdo
++{
++    public function __construct($adapter) {
++        $this->_adapter = $adapter;        
++    }
++    
++    public function stripQuoted($sql)
++    {
++        return $this->_stripQuoted($sql);
++    }
++}

@@ -1,0 +1,162 @@
+<h2>ZF-10601: Zend_Application_Bootstrap loads not used Classes</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-10-26T07:46:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-05T08:51:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+            <li>Zend_Application_Resource</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When requesting the Application to bootstrap only one resource,</p>
+
+<pre class="highlight"><code>
+all of the plugin resources referenced in application.ini will be loaded but not executed.
+</code></pre>
+
+<p>lists them for example Frontcontroller.
+I dont think that is necessary.
+\
+\
+<em>[UPDATE]</em>
+The application.ini holds configuration values for more than one resource, lets call them "one" and "two". When we only bootstrap resource "one" we expect that only the resource class for "one" is loaded.</p>
+
+<pre class="literal">
+Zend_Application_Bootstrap_BootstrapAbstract
+  bootstrap('one')
+    _bootstrap('one')
+      _executeResource('one')
+        _getClassResources()
+        _hasPluginResource('one')
+          _getPluginResource('one')
+</pre>
+
+<p>the calls go down to <em>getPluginResource()</em> wich will lookup if the ONE resource has been loaded and instantiated. If not it will trigger a loop to load ALL resources.</p>
+
+<pre class="highlight"><code>
+...
+  foreach ($this-&gt;_pluginResources as $plugin =&gt; $spec) {
+    if (false !== $pluginName = $this-&gt;_loadPluginResource($plugin, $spec)) {
+      if (0 === strcasecmp($resource, $pluginName)) {
+        return $this-&gt;_pluginResources[$pluginName];
+      }
+      continue;
+    }
+  ...
+  }
+...
+</code></pre>
+
+<p>wich will lead to unneccesary includes.</p>
+
+<pre class="literal">
+            $this-&gt;_loadPluginResource('one')
+            $this-&gt;_loadPluginResource('two')
+            ...
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-26T12:51:58.000+0000</p> 
+        <div class="body">
+            <p>Zend_Application_Bootstrap always loads the Frontcontroller resource, unless you override this functionality, so it's a bad test. Are there resource classes other than the Multidb and Frontcontroller resources being loaded? If so, can you share your configuration, as well as how you're calling Zend_Application?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-10-27T00:05:58.000+0000</p> 
+        <div class="body">
+            <p>I don't use the 'Standard' one, i extended the abstract class to create a generic bootstrap. Other resources are loaded too. This generic bootstrap has some extended features it would be cumbersome to explain it all. Instead i will update the description with details to what i think is the root cause in the abstract class.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-11-03T02:39:46.000+0000</p> 
+        <div class="body">
+            <p>Actually, the updated description is uncool too. I've found a work-right-around by using only lowercase identifiers, thats what _getPluginResource expects. However, if you follow the documentation youre pretty much left with the default behaviour of a monolithic startup.</p>
+
+<p>resources.<em>multidb</em>...
+$application-&gt;bootstrap(array('<em>multidb</em>'))</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2011-08-05T08:51:03.000+0000</p> 
+        <div class="body">
+            <p>I am currently converting an pre-application project to Zend_Application, plus our own extensions. I got curious if this issue is still a problem. Now i got a unit test for it, wich one could just add to the test case.</p>
+
+<pre class="highlight"><code>
+    public function testZF10601()
+    {
+        // set options
+        $this-&gt;application-&gt;setOptions(array(
+            'resources' =&gt; array(
+                // notice the lower c
+                'Frontcontroller' =&gt; array(),
+                'Db' =&gt; array(
+                    'adapter' =&gt; 'Pdo_Sqlite',
+                    'params' =&gt; array(
+                        'dbname' =&gt; ':memory:'
+                    )
+                )
+            )
+        ));
+        // notice the capital C and that Db is missing
+        $this-&gt;application-&gt;bootstrap(array('FrontController'));
+        // test
+        $this-&gt;assertFalse(
+            in_array('Zend_Application_Resource_Db', get_declared_classes()),
+            'Db Resource loaded'
+        );
+    }
+</code></pre>
+
+<p>I tested Zend_Application as well as _Our__Application, both worked as expected, no unwanted classes are loaded.</p>
+
+<p>So i'd like this issue to be closed.</p>
+
+        </div>
+    </div>
+    </div>
+

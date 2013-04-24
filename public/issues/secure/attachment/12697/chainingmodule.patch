@@ -1,0 +1,130 @@
+Index: library/Zend/Controller/Router/Route/Chain.php
+===================================================================
+--- library/Zend/Controller/Router/Route/Chain.php	(revision 20785)
++++ library/Zend/Controller/Router/Route/Chain.php	(working copy)
+@@ -79,8 +79,8 @@
+         foreach ($this->_routes as $key => $route) {
+             if ($key > 0 && $matchedPath !== null) {
+                 $separator = substr($subPath, 0, strlen($this->_separators[$key]));
+-
+-                if ($separator !== $this->_separators[$key]) {
++                
++                if ($separator !== $this->_separators[$key] && !(get_class($route) === "Zend_Controller_Router_Route_Module" && $key === (count($this->_routes)-1))) {
+                     return false;
+                 }
+ 
+Index: tests/Zend/Controller/Router/Route/ModuleTest.php
+===================================================================
+--- tests/Zend/Controller/Router/Route/ModuleTest.php	(revision 20785)
++++ tests/Zend/Controller/Router/Route/ModuleTest.php	(working copy)
+@@ -102,7 +102,15 @@
+         $this->assertTrue(isset($values['module']));
+         $this->assertEquals('mod', $values['module']);
+     }
+-
++    public function testDefaultMatch()
++    {
++        $values = $this->route->match('');
++        $this->assertType('array', $values);
++        $this->assertTrue(isset($values['module']));
++        $this->assertEquals('defact', $values['action']);
++        $this->assertEquals('defctrl', $values['controller']);
++        $this->assertEquals('default', $values['module']);
++    }
+     public function testModuleAndControllerMatch()
+     {
+         $values = $this->route->match('mod/con');
+Index: tests/Zend/Controller/Router/Route/ChainTest.php
+===================================================================
+--- tests/Zend/Controller/Router/Route/ChainTest.php	(revision 20785)
++++ tests/Zend/Controller/Router/Route/ChainTest.php	(working copy)
+@@ -53,6 +53,9 @@
+ /** Zend_Controller_Request_Http */
+ require_once 'Zend/Controller/Request/Http.php';
+ 
++/** Zend_Controller_Dispatcher_Standard */
++require_once 'Zend/Controller/Dispatcher/Standard.php';
++
+ /** Zend_Uri_Http */
+ require_once 'Zend/Uri/Http.php';
+ 
+@@ -184,7 +187,7 @@
+         $this->assertEquals(1, $res['foo']);
+         $this->assertEquals(2, $res['bar']);
+     }
+-
++    
+     public function testChainingModule()
+     {
+         $foo = new Zend_Controller_Router_Route_Static('foo', array('foo' => 'bar'));
+@@ -200,7 +203,36 @@
+         $this->assertEquals('baz', $res['action']);
+         $this->assertEquals('val', $res['var']);
+     }
++    
++    public function testChainingDynamicModuleDefaultModuleMatch()
++    {
++        $foo = new Zend_Controller_Router_Route(':dynamic');
++        $dispatcher = new Zend_Controller_Router_ChainTest_Dispatcher();
++        $request = new Zend_Controller_Router_ChainTest_Request('http://www.zend.com/foo');
++        $bar = new Zend_Controller_Router_Route_Module(array(),$dispatcher,$request);
++        $chain = $foo->chain($bar);
+ 
++        $res = $chain->match($request);
++        $this->assertEquals('foo', $res['dynamic']);
++        $this->assertEquals('defctrl', $res['controller']);
++        $this->assertEquals('defact', $res['action']);
++        $this->assertEquals('default', $res['module']);
++    }
++    public function testChainingDynamicModuleWithCtrl()
++    {
++        $foo = new Zend_Controller_Router_Route(':dynamic');
++        $dispatcher = new Zend_Controller_Router_ChainTest_Dispatcher();
++        $request = new Zend_Controller_Router_ChainTest_Request('http://www.zend.com/foo/ctrl');
++        $bar = new Zend_Controller_Router_Route_Module(array(),$dispatcher,$request);
++
++        $chain = $foo->chain($bar);
++
++        $res = $chain->match($request);
++        $this->assertEquals('foo', $res['dynamic']);
++        $this->assertEquals('ctrl', $res['controller']);
++        $this->assertEquals('defact', $res['action']);
++        $this->assertEquals('default', $res['module']);
++    }
+     public function testVariableOmittingWhenPartial()
+     {
+         $foo = new Zend_Controller_Router_Route(':foo', array('foo' => 'foo'));
+@@ -426,8 +458,8 @@
+         $router = new Zend_Controller_Router_Rewrite();
+         $front = Zend_Controller_Front::getInstance();
+         $front->resetInstance();
+-        $front->setDispatcher(new Zend_Controller_Router_RewriteTest_Dispatcher());
+-        $front->setRequest(new Zend_Controller_Router_RewriteTest_Request());
++        $front->setDispatcher(new Zend_Controller_Router_ChainTest_Dispatcher());
++        $front->setRequest(new Zend_Controller_Router_ChainTest_Request());
+         $router->setFrontController($front);
+ 
+         $router->addConfig(new Zend_Config($routes));
+@@ -683,6 +715,22 @@
+     }
+ }
+ 
++/**
++ * Zend_Controller_RouterTest_Dispatcher
++ */
++class Zend_Controller_Router_ChainTest_Dispatcher extends Zend_Controller_Dispatcher_Standard
++{
++    public function getDefaultControllerName()
++    {
++        return 'defctrl';
++    }
++
++    public function getDefaultAction()
++    {
++        return 'defact';
++    }
++}
++
+ if (PHPUnit_MAIN_METHOD == "Zend_Controller_Router_Route_ChainTest::main") {
+     Zend_Controller_Router_Route_ChainTest::main();
+ }

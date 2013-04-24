@@ -1,0 +1,176 @@
+--- tests/Zend/Json/Server/ResponseTest.php	(revision 23263)
++++ tests/Zend/Json/Server/ResponseTest.php	(working copy)
+@@ -136,11 +136,11 @@
+         }
+     }
+ 
+-    public function testResponseShouldBeAbleToCastToJson()
++    public function testResponseShouldBeAbleToCastToJsonV1()
+     {
+         $this->response->setResult(true)
+                        ->setId('foo')
+-                       ->setVersion('2.0');
++                       ->setVersion('1.0');
+         $json = $this->response->toJson();
+         $test = Zend_Json::decode($json);
+ 
+@@ -148,20 +148,21 @@
+         $this->assertTrue(array_key_exists('result', $test));
+         $this->assertTrue(array_key_exists('error', $test));
+         $this->assertTrue(array_key_exists('id', $test));
+-        $this->assertTrue(array_key_exists('jsonrpc', $test));
++        $this->assertFalse(array_key_exists('jsonrpc', $test));
+ 
+         $this->assertTrue($test['result']);
+         $this->assertEquals($this->response->getId(), $test['id']);
+-        $this->assertEquals($this->response->getVersion(), $test['jsonrpc']);
++        $this->assertEquals($this->response->getError(), null);
+     }
+ 
+-    public function testResponseShouldCastErrorToJsonIfIsError()
++    public function testResponseShouldCastErrorToJsonIfIsErrorV1()
+     {
+         $error = new Zend_Json_Server_Error();
+         $error->setCode(Zend_Json_Server_Error::ERROR_INTERNAL)
+               ->setMessage('error occurred');
+         $this->response->setId('foo')
+                        ->setResult(true)
++                       ->setVersion('1.0')
+                        ->setError($error);
+         $json = $this->response->toJson();
+         $test = Zend_Json::decode($json);
+@@ -176,9 +177,10 @@
+         $this->assertEquals($error->getMessage(), $test['error']['message']);
+     }
+ 
+-    public function testCastToStringShouldCastToJson()
++    public function testCastToStringShouldCastToJsonV1()
+     {
+         $this->response->setResult(true)
++                       ->setVersion('1.0')
+                        ->setId('foo');
+         $json = $this->response->__toString();
+         $test = Zend_Json::decode($json);
+@@ -192,6 +194,65 @@
+         $this->assertTrue($test['result']);
+         $this->assertEquals($this->response->getId(), $test['id']);
+     }
++    
++    public function testResponseShouldBeAbleToCastToJsonV2()
++    {
++        $this->response->setResult(true)
++                       ->setId('foo')
++                       ->setVersion('2.0');
++        $json = $this->response->toJson();
++        $test = Zend_Json::decode($json);
++
++        $this->assertTrue(is_array($test));
++        $this->assertTrue(array_key_exists('result', $test));
++        $this->assertFalse(array_key_exists('error', $test));
++        $this->assertTrue(array_key_exists('id', $test));
++        $this->assertTrue(array_key_exists('jsonrpc', $test));
++
++        $this->assertTrue($test['result']);
++        $this->assertEquals($this->response->getId(), $test['id']);
++        $this->assertEquals($this->response->getVersion(), $test['jsonrpc']);
++    }
++
++    public function testResponseShouldCastErrorToJsonIfIsErrorV2()
++    {
++        $error = new Zend_Json_Server_Error();
++        $error->setCode(Zend_Json_Server_Error::ERROR_INTERNAL)
++              ->setMessage('error occurred');
++        $this->response->setId('foo')
++                       ->setResult(true)
++                       ->setVersion('2.0')
++                       ->setError($error);
++        $json = $this->response->toJson();
++        $test = Zend_Json::decode($json);
++
++        $this->assertTrue(is_array($test));
++        $this->assertFalse(array_key_exists('result', $test));
++        $this->assertTrue(array_key_exists('id', $test));
++        $this->assertTrue(array_key_exists('jsonrpc', $test));
++
++        $this->assertEquals($this->response->getId(), $test['id']);
++        $this->assertEquals($error->getCode(), $test['error']['code']);
++        $this->assertEquals($error->getMessage(), $test['error']['message']);
++    }
++    
++    public function testCastToStringShouldCastToJsonV2()
++    {
++        $this->response->setResult(true)
++                       ->setId('foo')
++                       ->setVersion('2.0');
++        $json = $this->response->__toString();
++        $test = Zend_Json::decode($json);
++
++        $this->assertTrue(is_array($test));
++        $this->assertTrue(array_key_exists('result', $test));
++        $this->assertFalse(array_key_exists('error', $test));
++        $this->assertTrue(array_key_exists('id', $test));
++        $this->assertTrue(array_key_exists('jsonrpc', $test));
++
++        $this->assertTrue($test['result']);
++        $this->assertEquals($this->response->getId(), $test['id']);
++    }
+ }
+ 
+ // Call Zend_Json_Server_ResponseTest::main() if this source file is executed directly.
+Index: library/Zend/Json/Server/Response.php
+===================================================================
+--- library/Zend/Json/Server/Response.php	(revision 23263)
++++ library/Zend/Json/Server/Response.php	(working copy)
+@@ -171,18 +171,41 @@
+      */
+     public function toJson()
+     {
+-        if ($this->isError()) {
+-            $response = array(
+-                'result' => null,
+-                'error'  => $this->getError()->toArray(),
+-                'id'     => $this->getId(),
+-            );
++        // Follow the original response if the JSON-RPC
++        // version is not 2.0
++        if ($this->_version != '2.0') {
++            if ($this->isError()) {
++                $response = array(
++                    'result' => null,
++                    'error'  => $this->getError()->toArray(),
++                    'id'     => $this->getId(),
++                );
++            } else {
++                $response = array(
++                    'result' => $this->getResult(),
++                    'id'     => $this->getId(),
++                    'error'  => null,
++                );
++            }
+         } else {
+-            $response = array(
+-                'result' => $this->getResult(),
+-                'id'     => $this->getId(),
+-                'error'  => null,
+-            );
++            /*
++             * From the JSON-RPC 2.0 specification
++             * http://groups.google.com/group/json-rpc/web/json-rpc-2-0
++             *
++             *   "Exactly one of result or error MUST be specified.
++             *    It's not allowed to specify both or none."
++             */
++            if ($this->isError()) {
++                $response = array(
++                    'error'  => $this->getError()->toArray(),
++                    'id'     => $this->getId(),
++                );
++            } else {
++                $response = array(
++                    'result' => $this->getResult(),
++                    'id'     => $this->getId(),
++                );
++            }
+         }
+ 
+         if (null !== ($version = $this->getVersion())) {

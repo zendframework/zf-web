@@ -1,0 +1,154 @@
+<h2>ZF-3926: Zend_Form_Element settings 'zfBreakChainOnFailure' property</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-11T11:11:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-08-22T15:18:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>    </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Form_Element is setting the propery 'zfBreakChainOnFailure' on the validators passed to it:</p>
+
+<pre><code>    if ($validator instanceof Zend_Validate_Interface) {
+        $name = get_class($validator);
+
+        if (!isset($validator-&gt;zfBreakChainOnFailure)) {
+            $validator-&gt;zfBreakChainOnFailure = $breakChainOnFailure;
+        }
+</code></pre>
+
+<p>Not only that setting arbitrary properties on objects isn't nice, it might not work. For example when Zend_Form is added as a validator to a form element (I use it for subforms, and it should work since it implements the interface), you get:</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Form_Exception' with message 'Only form elements and groups may be overloaded; variable of type "boolean" provided' in library/Zend/Form.php</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-11T11:18:20.000+0000</p> 
+        <div class="body">
+            <p>You're commenting on two separate issues.</p>
+
+<p>Your second issue has to do with the fact that you're incorrectly adding the validator to the form; that exception occurs when you add anything other than an element, display group, or sub form to the form using overloading, such as this:</p>
+
+<pre class="highlight"><code>
+$form-&gt;validator = $validator;
+</code></pre>
+
+<p>As you do not provide a reproduce case but only the exception message, I can only assume the above is what you were doing.</p>
+
+<p>Regarding the zfBreakChainOnFailure property, PHP allows for the creation of arbitrary public members, and this was a trick we could use <em>now</em> without needing to alter the current validator interface (which would have created a BC break). We will alter the interface in later releases, likely with 2.0, but this methodology will persist until then.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-08-11T11:28:41.000+0000</p> 
+        <div class="body">
+            <p>Please re-read the description more carefully.</p>
+
+<p>I'm not trying to assign a validator to the form, but to a Zend_Form_Element. And the validator is a (nested) Zend_Form (I don't use subforms because of other reasons).</p>
+
+<p>But this is not relevent. This can also break other validators. And it might interfere if a single validator is used in multiple places!</p>
+
+<p>It can be fixed easily by storing the zfBreakChainOnFailure flag inside the object that needs it (Zend_Form_Element in this case) and not just sticking it to the validators, e.g. with an array:</p>
+
+<p>$this-&gt;_breakOnFailure[$validator]</p>
+
+<p>instead of</p>
+
+<p>$validator-&gt;zfBreakChainOnFailure</p>
+
+<p>Please consider this seriously, as it may cause problems and is trivial to fix.</p>
+
+<p>Jaka</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-11T12:29:53.000+0000</p> 
+        <div class="body">
+            <p>Can you please post a reproduce case? It sounds like you're attaching a form as a validator for an element? If that's the case, I honestly see this as a fringe case, though I'll consider a change.</p>
+
+<p>Additionally, attaching the same validator to multiple elements is discouraged, as validators often require and store state information.</p>
+
+<p>Finally, you're oversimplifying the "triviality" of the fix. By setting the flag on the validator itself, we are able to process the validator chain as a simple array, which also allows us to export the validation chain for later serialization. If we store the flag in the element with the validator, we make a much more complex, less performant API. If we instead require that the validator have a published flag for this, we would need to break the Interface -- which leads to a BC break for anybody who has created their own validators.</p>
+
+<p>Regardless, at this point I will not entertain a change to the functionality unless you can provide a reasonable use case that demonstrates the issue. Right now, I only have a <em>description</em> of a failing use case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-08-12T15:02:31.000+0000</p> 
+        <div class="body">
+            <p>I don't understand why storing the flag in the element would be less performant.</p>
+
+<p>Couldn't Zend_Form_Element::$_validators contain, instead of:
+array($name =&gt; $instance)
+this:
+array($name =&gt; array("breakChain"=&gt;$break, "instance"=&gt;$instance));</p>
+
+<p>I'm almost certain this doesn't affect performance, but don't know if it interferes with serialization that you mentioned.</p>
+
+<p>As for the use case... it's probably pretty uncommon, I admit, but it may affect others with other use cases whose validators don't support setting the property. But if you're really interested, here's mine:</p>
+
+<ul><li><p>I have extended the functionality of the ViewHelper decorator to support isArray for any view helper (users can click "add value" to add arbitrarily many, say, TextInputs or dates, or "remove value". Using javascript, of course.) and some other cool stuff. Screenshot:
+<a href="http://mt14.quickshareit.com/share/picture41330c.png">http://mt14.quickshareit.com/share/…</a></p></li>
+<li><p>I want subforms, but the way they're implemented doesn't work for me, since Zend_Form's isArray works quite differently than Zend_Form_Element's isArray. Additionaly, I just don't want to treat "simple" elements differently from complex/compound (form) elements.</p></li>
+<li><p>So I made Zend_Form_Element_Form (yes! :P). It accepts a form, and displays it as an element of another form.</p></li>
+<li><p>If the Zend_Form_Element_Form is valid naturally depends on whether the contained Zend_Form is valid. So I wanted to use the form itself as a validator. Which broke, because of the zfBreakChainOnFailure.</p></li>
+</ul><p>I easily avoided this by creating My_Validate_Form, which merely wraps the form and allows setting of the flag, but the point is that I should be able to just use Zend_Form directly, given that it implements Zend_Form_Interface.</p>
+
+<p>End result, working perfectly in ~100 lines of custom code:
+<a href="http://mt14.quickshareit.com/share/picture2714ac.png">http://mt14.quickshareit.com/share/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-22T15:18:10.000+0000</p> 
+        <div class="body">
+            <p>Again, there are some design and BC issues that led to the current implementation. We're not going to change it at this time.</p>
+
+<p>If you can find a way to refactor the component that is 100% BC with the current implementation <em>and</em> can demonstrate a compelling reason to make the changes, please create a proposal for us to review (not an issue).</p>
+
+        </div>
+    </div>
+    </div>
+

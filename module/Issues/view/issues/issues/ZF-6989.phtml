@@ -1,0 +1,516 @@
+<h2>ZF-6989: Zend_Paginator DbSelect should not use Select object in serialization</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-11T14:19:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-05T02:33:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Michael Moussa (mmoussa)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+            <li>state:need-feedback</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11318">ZF-11318</a></li>
+            <li><a href="/issues/browse/ZF-9947">ZF-9947</a></li>
+            <li><a href="/issues/browse/ZF-10447">ZF-10447</a></li>
+            <li><a href="/issues/browse/ZF-7379">ZF-7379</a></li>
+            <li><a href="/issues/browse/ZF-7366">ZF-7366</a></li>
+            <li><a href="/issues/browse/ZF-11668">ZF-11668</a></li>
+            <li><a href="/issues/browse/ZF-8019">ZF-8019</a></li>
+            <li><a href="/issues/browse/ZF-8731">ZF-8731</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13111/CacheBug.diff">CacheBug.diff</a></li>
+            <li><a href="/issues/secure/attachment/14685/ZF-6989-4.patch">ZF-6989-4.patch</a></li>
+            <li><a href="/issues/secure/attachment/14706/ZF-6989-5.patch">ZF-6989-5.patch</a></li>
+            <li><a href="/issues/secure/attachment/12969/ZF-6989.patch">ZF-6989.patch</a></li>
+            <li><a href="/issues/secure/attachment/12062/ZF-6989_1.patch">ZF-6989_1.patch</a></li>
+            <li><a href="/issues/secure/attachment/12098/ZF-6989_2-1.8.4.patch">ZF-6989_2-1.8.4.patch</a></li>
+            <li><a href="/issues/secure/attachment/12097/ZF-6989_2-trunk.patch">ZF-6989_2-trunk.patch</a></li>
+            <li><a href="/issues/secure/attachment/12111/ZF-6989_3-trunk.patch">ZF-6989_3-trunk.patch</a></li>
+            <li><a href="/issues/secure/attachment/14694/ZF-6989_runtests.log">ZF-6989_runtests.log</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Db_Profiler_Firebug there are a few properties that store microtime values which when serializing the DbSelect adapter cause it to produce a different hash value each time. Because this hash value is used to identify what cached data to load, Zend_Cache is unable to find any cache associated to this identifier.</p>
+
+<p>The solution is to use __sleep() or Serializable interface</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-07-07T11:11:21.000+0000</p> 
+        <div class="body">
+            <p>right. We can use __sleep at any object join point. In PaginatorDbSelectAdapter, or in Zend_Db_Select, or again in Zend_Db_Adapter_Abstract , or last in Zend_Db_Profiler.</p>
+
+<p>I suggest using the Serializable interface on the Zend_Paginator_Adapter_DBSelect.
+Patch attached</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-07-07T12:16:26.000+0000</p> 
+        <div class="body">
+            <p>Makes sense.  My vote is for the Serializable interface.</p>
+
+<p>But I don't think the submitted patch actually addresses all use cases for Serializable.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-07-07T12:37:26.000+0000</p> 
+        <div class="body">
+            <p>Could you give more information, or complete the patch please ?
+Thx</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2009-07-23T09:00:41.000+0000</p> 
+        <div class="body">
+            <p>I'm sorry, but the patch did not make any difference.</p>
+
+<p>True, by serializing the <em>Zend_Db_Select</em> object, we are taking the <em>Zend_Paginator_Adapter_DbSelect</em> out of the equation, but <em>Zend_Db_Select</em>'s state still changes between the time that <em>Zend_Paginator</em> tries to load the cached entry (with an incorrect cacheId as a result) and the time that it actually saves the cacheId.</p>
+
+<pre class="highlight"><code>
+public function getItems($offset, $itemCountPerPage)
+{
+    $this-&gt;_select-&gt;limit($itemCountPerPage, $offset); // the problem is here
+
+    return $this-&gt;_select-&gt;query()-&gt;fetchAll();
+}
+</code></pre>
+
+<p>The above function is called by <em>Zend_Paginator</em> if <em>Zend_Paginator</em> fails to find a cached entry for the page we're trying to load.  Once getItems(...) is called, it is making a change to the state of the <em>Zend_Db_Select</em> object.  The object's query changes from (basically) "select * from table" to "select * from table limit &lt;etc...&gt;", which is going to result in a different cacheId when it attempts to save it.</p>
+
+<p>The solution would be to set the limit <em>before</em> trying to load the entry from the cache.</p>
+
+<p>I don't have time right now to code a proper solution to demonstrate the fix, but I will share the quick "proof of concept" hack on the <em>serialize()</em> method to show that a proper implementation of what I've described above would solve this problem.</p>
+
+<pre class="highlight"><code>
+public function serialize()
+{
+    $this-&gt;_select-&gt;limit(10, 0); // hacky proof-of-concept. works only for page 1, 10 items
+
+    return (string)$this-&gt;_select;
+}
+</code></pre>
+
+<p>Now, when <em>Zend_Paginator</em> tries to serialize the object, it will be serializing the object in the same state it will be in <em>after</em> the data is retrieved, meaning we'll get the same cacheId at load time and at save time.</p>
+
+<p>For a permanent fix, I would suggest a <em>setItems($offset, $itemCountPerPage)</em> method signature in <em>Zend_Paginator_Adapter_Interface</em>.  This method would need to be called prior to attempting to generate a cache key.  For the Array, Iterator, and Null adapters, the implementation can be empty (since retrieving the items does not change the state of any of the object's internals).  The DbSelect and DbTableSelect implementations could simply be a call to <em>$this-&gt;_select-&gt;limit($itemCountPerPage, $offset)</em>.  Once that's done, the serialization of the _select object should be the same before and after the items are retrieved.</p>
+
+<p>Unfortunately, even though that solves the problem (even with Zend_Db_Profiler turned on), Zend_Paginator doesn't cache the <em>zend_paginator_rowcount</em>, so it's still going to make an unnecessary connection to the database every time.  For smaller applications this might not be a problem, but for high traffic applications that are trying to avoid the overhead of making DB connections when it is not necessary will find this consequence unacceptable.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2009-07-23T11:54:44.000+0000</p> 
+        <div class="body">
+            <p>I have developed a solution and would like to share it in hopes of it being incorporated in a future release.</p>
+
+<p><em>Zend_Paginator_Adapter_Interface</em> contains a new function signature for <em>getCacheIdentifier()</em> which must be implemented by the adapter classes.  I've included an implementation of the method for all adapters.</p>
+
+<p>For <em>Zend_Paginator_Adapter_DbSelect</em>, I've defined the cache identifier to be a hash of the fully assembled <em>initial</em> select statement.  The initial select statement will not change from request to request (unless of course the data is different, in which case you'd want a different cache identifier).  I use -&gt;assemble() instead of serializing the whole select object because the solution would stop functioning when Zend_Db_Profiler is in use.  That, and assembling the query is undoubtedly faster than serializing the entire object.</p>
+
+<p>For the other adapters, the implementation is similar, but trivial.  I just do a hash of a serialization of $this in the constructor since there's no database adapter or anything like that in use.  The setting of the cache identifier should, however, be the last thing that the constructor does.</p>
+
+<p>I've provided a patch for both the latest development trunk and for release 1.8.4, which is what I'm using for my current project.  All existing Paginator-related unit tests passed{color:red}<em>{color} in both the trunk and release 1.8.4.
+{color:red}
+I implemented getCacheIdentifier() in */tests/Zend/Paginator/_files/Zf4207.php</em>.  No other modifications were necessary.
+{color}</p>
+
+<p>I will leave it up to someone with commit rights to write any additional unit tests if it is deemed necessary.</p>
+
+<p>Please let me know if this solution is acceptable.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-07-23T12:06:37.000+0000</p> 
+        <div class="body">
+            <p>Ok I exactly see the problem which then gets bigger than I thought.</p>
+
+<p>Your patch seems OK but have you talked to any Zend liaison before commiting it ? You introduce a BC break, as any user who inherited any of Paginator adapters will meet a break. Also any user who just made a custom adapter by implementing the interface would now meet the same BC break. That needs a Zend liaison approvement, and a documentation part must be written. Also, we cannot introduce exceptionnal BC break in minor releases but only in mini ones (as I know)</p>
+
+<p>About useless DB connection, I dont see the problem, rowcount is only calculated when count() is invoked on the DBSelectAdapter, which is not the case in a normal iteration use case over Zend_Paginator having cache enabled, is it ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2009-07-23T12:45:49.000+0000</p> 
+        <div class="body">
+            <p>I did not commit anything (I don't have commit access).  I just supplied the patch as a possible fix for someone with commit access to pick up and run with (and of course inviting any valid critique).</p>
+
+<p>This shouldn't cause a BC break for users who inherited any Paginator adapters.  My patch implements <em>getCacheIdentifier()</em> for all adapters, so their subclasses would inherit the implementation as well.</p>
+
+<p>However, you are correct that this will cause a BC break for users who implemented the interface themselves, as they'd now have one more method to implement.  Implementation, however, would be fairly trivial and easy to explain in documentation.</p>
+
+<p>Regarding your last comment, though, needless invocations of count() actually <em>is</em> the case because Zend_Paginator is not caching counts correctly either.  Even with my patch, the profiler is recording a query to the database during every iteration.  For a highly trafficked application, an unnecessary DB connection and query with every request could create problems.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-07-23T13:33:15.000+0000</p> 
+        <div class="body">
+            <p>Ok no problem, just a misunderstood ;-)
+We need a Zend review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-07-23T14:17:23.000+0000</p> 
+        <div class="body">
+            <p>Any patch that adds a method to the interface breaks BC. Any custom adapter would need to implement this new method (assuming that adapter is not subclassing an existing Paginator adapter). Have to catch a flight today, so need to continue packing, so can't read all and come up with a solution atm. Sorry :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2009-07-28T12:14:59.000+0000</p> 
+        <div class="body">
+            <p>I mentioned in my previous patch post that, although my patch addresses the problem of the pages not being cached, there is still a problem with item counts not being cached.</p>
+
+<p>In a highly trafficked application that is attempting to avoid unnecessary connections to a database, hitting the DB to get an item count when all possible items are cached already may not be desirable (and is definitely not desirable for the application I'm working on now, which was my inspiration to submit these fixes).</p>
+
+<p>I have further modified Zend_Paginator and attached ZF-6989_<em>3</em>-trunk.patch, which also addresses the item count not being cached.  It is built upon the previous patch, so this will still introduce a BC break and needs to be reviewed by Zend in order to be released safely.</p>
+
+<p>To clear the item count from the cache, use the new clearItemCountCache() method.</p>
+
+<p>If you cannot wait until ZF is patched to include this fix, you can do what I did and just extend Zend_Paginator and Zend_Paginator_Adapter_DbTableSelect and add the new functions yourself.</p>
+
+<p>If there are any questions on the patch, please let me know.  I hope someone will put this to good use!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2009-11-02T09:47:47.000+0000</p> 
+        <div class="body">
+            <p>This is still broken in 1.9.5.</p>
+
+<p>The patch I posted (ZF-6989_3-trunk.patch) has been working fine for me in my project to fix the caching issue.</p>
+
+<p>Can someone please review it and indicate if there's any likelihood that it will be included in a future release?</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fran (zfran) on 2010-04-01T13:35:38.000+0000</p> 
+        <div class="body">
+            <p>This is still broken in 1.10.2 too. I don't think that any adapter should be modified. Zend_Paginator is who is relying in that adapters internal state doesn't change, so the the fix should go in there. I'm going to attach a patch that address this issue that way.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fran (zfran) on 2010-04-01T13:36:50.000+0000</p> 
+        <div class="body">
+            <p>Fix the issue and plus fixes a little typo.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-26T04:17:45.000+0000</p> 
+        <div class="body">
+            <p>applied the patch in a modified version to not break tests, please tests
+r22302</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Szurovecz János (szjani) on 2010-05-26T14:33:07.000+0000</p> 
+        <div class="body">
+            <p>I checked this url: <a href="http://framework.zend.com/code/browse/Zend_Framework/standard/trunk/library/Zend/Paginator.php?r1=22299&amp;r2=22302">http://framework.zend.com/code/browse/…</a>
+I think this is wrong. Internal ID will depend on the class name of the adapter and the return value of getItemCountPerPage(). If I use more than one cached paginator with the same adapter and getItemCountPerPage() returns with same values, the result is that cached values will be mixed.
+May I be wrong?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fran (zfran) on 2010-05-26T15:01:27.000+0000</p> 
+        <div class="body">
+            <p>I agree with Szurovecz János, the adapter class isn't a good idea for internal id.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-26T22:15:52.000+0000</p> 
+        <div class="body">
+            <p>applied a different patch on r22307</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-26T22:18:58.000+0000</p> 
+        <div class="body">
+            <p>changed fix version</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Szurovecz János (szjani) on 2010-05-27T14:50:56.000+0000</p> 
+        <div class="body">
+            <p>It is still buggy. I'm afraid you can't fix this bug by changing one line of code.
+This bug returns with many adapters, not only with DBSelect (actually I'm not using DBSelect adapter).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Szurovecz János (szjani) on 2010-05-27T14:51:52.000+0000</p> 
+        <div class="body">
+            <p>I uploaded CacheBug.diff.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-31T00:58:02.000+0000</p> 
+        <div class="body">
+            <p>I think you miss understood the problem here. The Paginator doesnt Cache GLOBALLY the calls to the adapter. he just cache the internal state to skip double internal calls. I tested your tests with the original code and my code the only different between my and the old code is, that i not just serialize the object (because with firephp setup, the internal ste can be changed during runtime, ie. logging) and i used the php spl api to get the correct object hash to for cache id generation.</p>
+
+<p>You test says, run my pagination class and after that all new instances of my adapter and the specific call to execute should be cached. Thats not true. That wasnt in the past and this isn a good way also for the future. This is a core function class that the caching that you need should be in your code (Zend_Cache*Frontend or Function).</p>
+
+<p>So this bug is fixed with just one line of code. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-31T00:58:55.000+0000</p> 
+        <div class="body">
+            <p>this issue is fixed, if something other happens please create a new bug and assign to me</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2010-05-31T01:15:39.000+0000</p> 
+        <div class="body">
+            <p>Marco,</p>
+
+<p>I appreciate you taking on the issues for Zend_Paginator, however, please do follow proper issue tracker procedure :)
+When closing an issue, please indicate in which revision number you patched the component in the branch, and in which revision number you merged the patch back to trunk.</p>
+
+<p>Cheers,</p>
+
+<p>Jurriën</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2010-05-31T01:20:46.000+0000</p> 
+        <div class="body">
+            <p>Also, please add a unit test to cover the changes in the patch, and try committing a patch in one go, rather than splitting it up over several commits.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Szurovecz János (szjani) on 2010-05-31T12:26:40.000+0000</p> 
+        <div class="body">
+            <p>Dear Marco Kaiser,</p>
+
+<p>If you're using cache, Zend_Paginator::getItemsByPage() checks that the data is in cache or not. If it is (A), then returns with it and doesn't call the getItems() method of adapter object. If data isn't in cache, it calls getItems() and stores the result in cache (B).</p>
+
+<p>If you want to speed-up your paginator with cache, you have to ensure that cache id is the same in (A) and in (B). I created two paginators and two adapters (with same datas!) because I wanted to simulate two requests. Result of first request is slow and after execution it will be cached, second result is fast beacause it is in cache, so getItems() method of the adapter won't be called. My unit test asserts that this method won't be called at second time.</p>
+
+<p>Can you explain me, how can I speed-up my paginator adapter with cache posted in my .diff file?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-31T13:29:54.000+0000</p> 
+        <div class="body">
+            <p>public function getItemsByPage($pageNumber)
+this means the function is not called statically so the paginator has on every instanciation a NEW own adapter instance and the cacheing creation should not depend on the internal state of the adapter itself because this can leads in side effects. i dont know the roadmap for this components but i think this can only be fixed if the interface will be extended more to ask the adapter for a unique cache id or the current state. This leads into a BC break and can only be made with ZF 2.0.</p>
+
+<pre class="highlight"><code>
+$x = new Foo();
+$y = new Foo();
+$x-&gt;bar();
+$y-&gt;bar();
+</code></pre>
+
+<p>this should not be happen in a cached call internally on $y-&gt;bar()</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Szurovecz János (szjani) on 2010-05-31T14:22:49.000+0000</p> 
+        <div class="body">
+            <p>The paginator cache is completely useless with this approach. The solution is in <a href="http://framework.zend.com/issues/secure/attachment/12111/ZF-6989_3-trunk.patch">http://framework.zend.com/issues/secure/…</a>. Paginator is useful with REST clients, database queries, etc. Caching is really important in this cases, and many of us want to caching page items in more than one request. I don't understand, why do we have to wait a whole year to integrate the fix and why did you mark this issue fixed if it is not.</p>
+
+<p>Sorry, but I don't understand your sample code.</p>
+
+<p>(Sorry for my bad english.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-06-01T01:07:11.000+0000</p> 
+        <div class="body">
+            <p>The patch breaks the BC. It implicied that the adapter interface should be changed. This is not yet possible.
+Also i think adapter call should not be internally cached, write it in your servie layer (controller, etc).</p>
+
+<p>Sorry but i fixed only the problem that was described in this ticket. zend_db adapter with enabled zend profiling creates wrong cache id.</p>
+
+<p>If you wish this new cache features please open a new feature request and write it down in the wiki for the zf2</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Meißner (meisii) on 2010-08-11T05:37:26.000+0000</p> 
+        <div class="body">
+            <p>@Marco Kaiser: You are right, the ID is now generated correctly. However, for each request a different one. I could solve the problem as I have removed spl_object_hash() from your solution. Now the caching really works!</p>
+
+<p>For the practical test is recommended the description from here:
+<a href="http://framework.zend.com/issues/browse/ZF-8019">http://framework.zend.com/issues/browse/ZF-8019</a> (see the output checking)</p>
+
+<p>Here the new code:</p>
+
+<pre class="highlight"><code>
+protected function _getCacheInternalId()
+{
+    return md5(serialize(array(
+        $this-&gt;getAdapter(), $this-&gt;getItemCountPerPage())));
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ionut Dinu (tunder) on 2010-09-09T05:55:27.000+0000</p> 
+        <div class="body">
+            <p>This is still buggy in version 1.10.8</p>
+
+<ol><li><p>the getItemsByPage($pageNumber) function calls $this-&gt;_getCacheId($pageNumber) in self::$_cache-&gt;load which generates and id. the cache is not found and the rest of code get executed. $this-&gt;_adapter-&gt;getItems is called which alters the adapter content. then $this-&gt;_getCacheId($pageNumber) is called again in self::$_cache-&gt;save which generates another cache id that is stored in the cache, and the cycle starts over.</p></li>
+<li><p>if the adapter is DbSelect or DbTable and the profiler is on the cache id is changed with every request.</p></li>
+</ol><p>The solution, as i see it, without breaking the BC and based on Michael Moussa ideea would be to create and extend an abstract class that implements the interface and all adapters extend this new abstract class. Then getCacheIdentifier function can be implemented in all default, Zend Framework provided, adapters and for the people that implemented the interface themselves the code will still work.</p>
+
+<p>Best regards</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Culak (fr0z3nk0) on 2011-08-15T13:25:22.000+0000</p> 
+        <div class="body">
+            <p>Yep still buggy in release-1.11.7 (using version from svn tag).</p>
+
+<p>I think what's happening is:
+when saving result to cache _getCacheInternalId uses select object to generate id. This select object does have LIMIT and OFFSET set (Zend_Paginator line 788 adds that to select).
+Later when paginator tries to get results from cache _getCacheInternalId returns different id because it does not contain LIMIT and OFFSET.</p>
+
+<p>So even if you get rid of profiler which was causing this select object to be different on every request due to adding microtimes to certain properties it still doesn't work because of above mentioned issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-05T14:35:11.000+0000</p> 
+        <div class="body">
+            <p>Reopened due to comments</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2011-10-09T08:23:24.000+0000</p> 
+        <div class="body">
+            <p>Please see [^ZF-6989-4.patch] for what should solve this issue without breaking BC.</p>
+
+<p>For caching to work, the cache IDs must be consistent between requests for otherwise identical statements.  This bug is occurring because the internal state of the database adapter objects, upon which the cache IDs are based, changes on every page request due to the database connection within the DbSelect object.</p>
+
+<p>{{Zend_PaginatorTest::testPaginatorGeneratesSameCacheIdentifierForDbSelectAdaptersWithIdenticalSqlStatements()}} ensures that the above inconsistency doesn't happen.  If you run that new test without applying any of my other changes, it will fail because the mock classes force a subtle change in the dbAdapter class (that would not affect the resultset) to mimic what is happening in reality.</p>
+
+<p>The fix, as in my previous patches, is to base the cache ID for the DbSelect adapter on the assembled SQL of the DbSelect  object.</p>
+
+<p>To avoid breaking BC, the {{getCacheIdentifier()}} method from my previous patches is not present in the Interface - it is only in the DbSelect paginator adapter, and the Paginator class will make sure that the method exists before using it.  If it doesn't exist, it will use the existing cache ID generation implementation (which actually works fine for the other paginator adapter types).</p>
+
+<p>That should take care of everything.  If anybody spots any issues or there's some other reason this can't be integrated, please let me know so I can address it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-17T02:50:44.000+0000</p> 
+        <div class="body">
+            <p>@Michael
+I applied your patch to a clean checkout of SVN trunk, ran the unit tests, and got 11 failures and 22 errors (log attached (ZF-6989_runtests.log)).  Could you do the same and let me know if your result differs?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2011-10-17T14:08:16.000+0000</p> 
+        <div class="body">
+            <p>Adam,</p>
+
+<p>Odd - the ScrollingStyle tests run fine separately (phpunit Zend/Paginator/ScrollingStyle/ or phpunit --filter ).</p>
+
+<p>I'll take a look and get back to you.  This may be difficult to debug since the tests do not fail in isolation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2011-10-30T04:42:37.000+0000</p> 
+        <div class="body">
+            <p>Adam,</p>
+
+<p>[^ZF-6989-5.patch] applies my fixes and does not cause any of the tests in the Zend_Paginator group to fail.  Please give that one a try.</p>
+
+<p>Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-08T12:29:18.000+0000</p> 
+        <div class="body">
+            <p>Your fix looks good to me, and all unit tests now pass.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Moussa (mmoussa) on 2011-11-19T19:07:54.000+0000</p> 
+        <div class="body">
+            <p>Thanks Adam.  Is there anything else I need to do for this to be incorporated?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-05T02:31:47.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24754</p>
+
+        </div>
+    </div>
+    </div>
+

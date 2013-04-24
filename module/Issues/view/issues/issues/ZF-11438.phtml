@@ -1,0 +1,175 @@
+<h2>ZF-11438: Zend Date 2038</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-06-03T16:17:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-02T19:16:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+            <li>zend_date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Though Zend_Date claims to solve the 2038 issue, when I do:</p>
+
+<p>$date = new Zend_Date();
+$date-&gt;addMonth(350);</p>
+
+<p>I get a date in 1970.</p>
+
+<p>With my limited knowledge of the ZF internals I tracked this down to Zend_Date_DateObject in the (internal) function mktime() where a check is made on $year being between 1901 and 2038. But with months &gt; 12 this would not be the right check resulting in the native mktime() function receiving a date &gt; 2038.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-03T16:31:31.000+0000</p> 
+        <div class="body">
+            <p>Could you provide an example?</p>
+
+<p>I attempted to reproduce your issue:</p>
+
+<pre class="highlight"><code>
+/**
+ * @group ZF-11438
+ */
+public function testAddMonthsDoesNotCauseDateToFallVictimTo2038Bug()
+{
+    $date = new Zend_Date();
+    $date-&gt;addMonth(350);
+    $this-&gt;assertEquals('2040',date("Y", $date-&gt;getTimestamp()));
+}
+</code></pre>
+
+<p>However, this test passes when run against SVN trunk.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Timmo Henseler (zensys) on 2011-08-19T18:11:45.000+0000</p> 
+        <div class="body">
+            <p>Sorry to have left this so long, on my system (Ubuntu 11.04, PHP Version 5.3.5-1ubuntu7.2, ZF 1.11.10) this test does not pass. There I was stuck, but looking at the below snippet of the internal mktime function of Zend_Date_DateObject I understand my negative result:</p>
+
+<pre class="highlight"><code>protected function mktime($hour, $minute, $second, $month, $day, $year, $gmt = false)
+    {
+        // complete date but in 32bit timestamp - use PHP internal
+        if ((1901 &lt; $year) and ($year &lt; 2038)) {
+
+            $oldzone = @date_default_timezone_get();
+            // Timezone also includes DST settings, therefor substracting the GMT offset is not enough
+            // We have to set the correct timezone to get the right value
+            if (($this-&gt;_timezone != $oldzone) and ($gmt === false)) {
+                date_default_timezone_set($this-&gt;_timezone);
+            }
+            $result = ($gmt) ? @gmmktime($hour, $minute, $second, $month, $day, $year)
+                             :   @mktime($hour, $minute, $second, $month, $day, $year);
+            date_default_timezone_set($oldzone);
+
+            return $result;
+        }
+</code></pre>
+
+<p>This checks for the $year argument but not for the total result of adding months, $years and the other arguments. Unless I miss some subtilities in other parts of the code, this is clearly a bug imho.</p>
+
+<p>E.g. php mktime(0,0,0,350,0,2011) returns false on my system - as does mktime(0,0,0,11,0,2038) but not mktime(0,0,0,1,0,2038) - but  these arguments pass the test to qualify for the internal php mktime in the function above. This would not be noticed in most cases because either the year needs to be close to 2038 or the number of months needs to be equivalent to a large number of years, as in my case (I use Zend_Date for actuarial calculations where these extreme cases are not unusual).</p>
+
+<p>Still this does explain why your assertEquals passes ...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Timmo Henseler (zensys) on 2011-08-19T18:15:34.000+0000</p> 
+        <div class="body">
+            <p>Last line of my previous comment should of course be:</p>
+
+<p>Still this does NOT explain why your assertEquals passes ...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaun Freeman (vincentbluff) on 2011-09-03T21:39:33.000+0000</p> 
+        <div class="body">
+            <p>Are you using a 32bit OS or 64bit OS as I checked this on Ubuntu 64bit and got:</p>
+
+<p>$date = new Zend_Date();
+$date-&gt;addMonth(350);</p>
+
+<p>= 3 Nov 2040 22:35:45</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaun Freeman (vincentbluff) on 2011-09-03T21:44:53.000+0000</p> 
+        <div class="body">
+            <p>Sorry I forgot year 2038+ dates do not work on 32bit machines</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Timmo Henseler (zensys) on 2011-09-04T07:14:07.000+0000</p> 
+        <div class="body">
+            <p>32 bit Ubuntu</p>
+
+<p>I now use the following workaround:</p>
+
+<p>// convert months to years to avoid 2038 bug in addMonth()
+$years = 0;<br />
+if (11 &lt; $months) {
+    $years = floor ($months / 12);
+    $months -= 12 * $years;
+}</p>
+
+<p>with the expected result (date somewhere in 2040)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vasyl (vasylp) on 2012-03-02T19:16:07.000+0000</p> 
+        <div class="body">
+            <p>I reported absolutely the same issue few months earlier, but no response:
+<a href="http://framework.zend.com/issues/browse/ZF-11289?page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#issue-tabs">http://framework.zend.com/issues/browse/…</a></p>
+
+<p>In description I suggested the solution of this issue. Hope it will help to somebody.
+For me it works like a charm after mine modifications within internal mktime.</p>
+
+        </div>
+    </div>
+    </div>
+

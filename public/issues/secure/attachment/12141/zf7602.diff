@@ -1,0 +1,163 @@
+Index: library/Zend/Paginator.php
+===================================================================
+--- library/Zend/Paginator.php	(revision 17353)
++++ library/Zend/Paginator.php	(working copy)
+@@ -30,6 +30,11 @@
+ require_once 'Zend/Json.php';
+ 
+ /**
++ * @see Zend_Paginator_AdapterAggregate
++ */
++require_once 'Zend/Paginator/AdapterAggregate.php';
++
++/**
+  * @category   Zend
+  * @package    Zend_Paginator
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+@@ -261,40 +266,45 @@
+     public static function factory($data, $adapter = self::INTERNAL_ADAPTER,
+                                    array $prefixPaths = null)
+     {
+-        if ($adapter == self::INTERNAL_ADAPTER) {
+-            if (is_array($data)) {
+-                $adapter = 'Array';
+-            } else if ($data instanceof Zend_Db_Table_Select) {
+-                $adapter = 'DbTableSelect';
+-            } else if ($data instanceof Zend_Db_Select) {
+-                $adapter = 'DbSelect';
+-            } else if ($data instanceof Iterator) {
+-                $adapter = 'Iterator';
+-            } else if (is_integer($data)) {
+-                $adapter = 'Null';
+-            } else {
+-                $type = (is_object($data)) ? get_class($data) : gettype($data);
++        if($data instanceof Zend_Paginator_AdapterAggregate) {
++            $adapterInstance = $data->getPaginatorAdapter();
++        } else {
++            if ($adapter == self::INTERNAL_ADAPTER) {
++                if (is_array($data)) {
++                    $adapter = 'Array';
++                } else if ($data instanceof Zend_Db_Table_Select) {
++                    $adapter = 'DbTableSelect';
++                } else if ($data instanceof Zend_Db_Select) {
++                    $adapter = 'DbSelect';
++                } else if ($data instanceof Iterator) {
++                    $adapter = 'Iterator';
++                } else if (is_integer($data)) {
++                    $adapter = 'Null';
++                } else {
++                    $type = (is_object($data)) ? get_class($data) : gettype($data);
+ 
+-                /**
+-                 * @see Zend_Paginator_Exception
+-                 */
+-                require_once 'Zend/Paginator/Exception.php';
++                    /**
++                     * @see Zend_Paginator_Exception
++                     */
++                    require_once 'Zend/Paginator/Exception.php';
+ 
+-                throw new Zend_Paginator_Exception('No adapter for type ' . $type);
++                    throw new Zend_Paginator_Exception('No adapter for type ' . $type);
++                }
+             }
+-        }
+ 
+-        $pluginLoader = self::getAdapterLoader();
++            $pluginLoader = self::getAdapterLoader();
+ 
+-        if (null !== $prefixPaths) {
+-            foreach ($prefixPaths as $prefix => $path) {
+-                $pluginLoader->addPrefixPath($prefix, $path);
++            if (null !== $prefixPaths) {
++                foreach ($prefixPaths as $prefix => $path) {
++                    $pluginLoader->addPrefixPath($prefix, $path);
++                }
+             }
++
++            $adapterClassName = $pluginLoader->load($adapter);
++            $adapterInstance = new $adapterClassName($data);
+         }
+ 
+-        $adapterClassName = $pluginLoader->load($adapter);
+-
+-        return new self(new $adapterClassName($data));
++        return new self($adapterInstance);
+     }
+ 
+     /**
+@@ -409,11 +419,21 @@
+     }
+ 
+     /**
+-     * Constructor.
++     * @param Zend_Paginator_Adapter_Interface|Zend_Paginator_AdapterAggregate
+      */
+-    public function __construct(Zend_Paginator_Adapter_Interface $adapter)
++    public function __construct($adapter)
+     {
+-        $this->_adapter = $adapter;
++        if($adapter instanceof Zend_Paginator_Adapter_Interface) {
++            $this->_adapter = $adapter;
++        } elseif($adapter instanceof Zend_Paginator_AdapterAggregate) {
++            $this->_adapter = $adapter->getPaginatorAdapter();
++        } else {
++            require_once "Zend/Paginator/Exception.php";
++            throw new Zend_Paginator_Exception(
++                "Zend_Paginator only accepts instances of the type 'Zend_Paginator_Adapter_Interface' or ".
++                "'Zend_Paginator_AdapterAggregate'."
++            );
++        }
+ 
+         $config = self::$_config;
+ 
+
+Index: tests/Zend/PaginatorTest.php
+===================================================================
+--- tests/Zend/PaginatorTest.php	(revision 17353)
++++ tests/Zend/PaginatorTest.php	(working copy)
+@@ -894,9 +894,42 @@
+         $this->assertEquals(9, $this->_paginator->getItem(-2, 1));
+         $this->assertEquals(101, $this->_paginator->getItem(-1, -1));
+     }
++
++    public function testAcceptAndHandlePaginatorAdapterAggregateDataInFactory()
++    {
++        $p = Zend_Paginator::factory(new Zend_Paginator_TestArrayAggregate());
++
++        $this->assertEquals(1, count($p));
++        $this->assertType('Zend_Paginator_Adapter_Array', $p->getAdapter());
++        $this->assertEquals(4, count($p->getAdapter()));
++    }
++
++    public function testAcceptAndHandlePaginatorAdapterAggreageInConstructor()
++    {
++        $p = new Zend_Paginator(new Zend_Paginator_TestArrayAggregate());
++
++        $this->assertEquals(1, count($p));
++        $this->assertType('Zend_Paginator_Adapter_Array', $p->getAdapter());
++        $this->assertEquals(4, count($p->getAdapter()));
++    }
++
++    public function testInvalidDataInConstructor_ThrowsException()
++    {
++        $this->setExpectedException("Zend_Paginator_Exception");
++
++        $p = new Zend_Paginator(array());
++    }
+ }
+ 
++class Zend_Paginator_TestArrayAggregate implements Zend_Paginator_AdapterAggregate
++{
++    public function getPaginatorAdapter()
++    {
++        return new Zend_Paginator_Adapter_Array(array(1, 2, 3, 4));
++    }
++}
++
+ // Call Zend_PaginatorTest::main() if this source file is executed directly.
+ if (PHPUnit_MAIN_METHOD === 'Zend_PaginatorTest::main') {
+     Zend_PaginatorTest::main();
+-}
++}
+\ No newline at end of file

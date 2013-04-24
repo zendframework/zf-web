@@ -1,0 +1,277 @@
+<h2>ZF-699: empty() and isset() on view properties are broken when the property is false or null</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-12-29T16:42:36.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-19T13:07:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.7.0 (18/Jan/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have a lot of "if (empty($this-&gt;foo)):" in my views and after upgrading from 0.2 to 0.6 some of them didn't work anymore.</p>
+
+<pre class="highlight"><code>
+$view = new Zend_View();
+
+$view-&gt;foo = false;
+var_dump(isset($view-&gt;foo)); // returns true
+var_dump(empty($view-&gt;foo)); // returns false, should return true
+
+$view-&gt;bar = null;
+var_dump(isset($view-&gt;bar)); // returns true, should return false
+var_dump(empty(($view-&gt;bar)); // returns false, should return true
+</code></pre>
+
+<p>I've been able to fix it by changing the flag (the second parameter) in the call to the parent constructor in Zend_View_Abstract from 2 (ArrayObject::ARRAY_AS_PROPS) to 0, and reimplementing some of the methods to retain the same functionality of the Zend_View object when using the assign() method, var_dump and foreach.</p>
+
+<pre class="highlight"><code>
+public function __construct($config = array())
+{
+    // ...
+
+    // parent::__construct(array(), 0);
+    // which can then just be
+    parent::__construct();
+}
+
+public function __set($key, $val)
+{
+    $this-&gt;offsetSet($key, $val);
+}
+
+public function __get($key)
+{
+    return $this-&gt;offsetGet($key);
+}
+
+public function __isset($key)
+{
+    return $this-&gt;offsetExists($key) and $this-&gt;offsetGet($key) !== null;
+}
+</code></pre>
+
+<p>Here are some potential tests:</p>
+
+<pre class="highlight"><code>
+$view = new Zend_View();
+        
+$this-&gt;assertFalse(isset($view-&gt;notSet));
+$this-&gt;assertTrue(empty($view-&gt;notSet));
+
+$view-&gt;foo = null;
+$this-&gt;assertFalse(isset($view-&gt;foo));
+$this-&gt;assertTrue(empty($view-&gt;foo));
+
+$view-&gt;bar = false;
+$this-&gt;assertTrue(isset($view-&gt;bar));
+$this-&gt;assertTrue(empty($view-&gt;bar));
+
+$view-&gt;assign('assigned', 'val');
+$this-&gt;assertEquals($view-&gt;assigned, 'val');
+
+$view-&gt;assign('falseVal', false);
+$this-&gt;assertTrue(isset($view-&gt;falseVal));
+$this-&gt;assertTrue(empty($view-&gt;falseVal));
+
+$view-&gt;assign('nullVal', null);
+$this-&gt;assertFalse(isset($view-&gt;nullVal));
+$this-&gt;assertTrue(empty($view-&gt;nullVal));
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marin Krkac (mkrkac) on 2006-12-30T04:52:56.000+0000</p> 
+        <div class="body">
+            <p>I forgot to mention that I'm using PHP 5.2.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-05T12:13:08.000+0000</p> 
+        <div class="body">
+            <p>I actually already have __set/__get/__isset defined as you describe. However, if I remove the ARRAY_AS_PROPS flag, I break the functionality that I was originally fixing with this solution -- basically, the ability to do the following:</p>
+
+<pre class="highlight"><code>
+$view-&gt;foo = array();
+$view-&gt;foo[] = 42;
+</code></pre>
+
+<p>What's interesting is that if I define a class like this:</p>
+
+<pre class="highlight"><code>
+class View
+{
+    public $foo = false;
+    public $bar = null;
+    public $baz = '';
+}
+</code></pre>
+
+<p>empty() works fine with each property, but using ArrayObject, it does not; I'm actually thinking this is a bug in ArrayObject, but I'll need to find a workaround.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marin Krkac (mkrkac) on 2007-01-06T14:12:01.000+0000</p> 
+        <div class="body">
+            <p>I've never used ArrayObject before, so I don't know if this is a bug or a feature.</p>
+
+<p>Does Zend_View need to support array access?</p>
+
+<pre class="highlight"><code>
+$view = new Zend_View();
+$view['foo'] = 'bar';
+</code></pre>
+
+<p>If not, here is an idea for a workaround:</p>
+
+<pre class="highlight"><code>
+class Zend_View_Abstract extends ArrayObject
+{  
+    public function __construct()
+    {
+        parent::__construct(array(), ArrayObject::STD_PROP_LIST);
+    }
+    
+    public function assign($key, $val)
+    {
+        $this-&gt;$key = $val;
+    }
+    
+    public function count()
+    {
+        return $this-&gt;getIterator()-&gt;count();
+    }
+    
+    public function getIterator()
+    {
+        $r = new ReflectionObject($this);
+        return new Zend_View_Iterator($this, new ArrayIterator($r-&gt;getProperties()));
+    }
+
+    public function getVars()
+    {
+        $result = array();
+        $r = new ReflectionObject($this);
+        foreach ($r-&gt;getProperties() as $p) {
+            if ($p-&gt;class == 'ArrayObject') {
+                $result[$p-&gt;name] = $this-&gt;{$p-&gt;name};
+            }
+        }
+
+        return $result;
+    }
+
+    public function clearVars()
+    {
+        $r = new ReflectionObject($this);
+        foreach ($r-&gt;getProperties() as $p) {
+            if ($p-&gt;class == 'ArrayObject') {
+                unset($this-&gt;{$p-&gt;name});
+            }
+        }
+    }
+}
+
+class Zend_View_Iterator extends FilterIterator
+{
+    protected $_view;
+    
+    public function __construct(Zend_View $view, Iterator $iterator)
+    {
+        $this-&gt;_view = $view;
+        parent::__construct($iterator);
+    }
+    
+    public function accept()
+    {
+        return $this-&gt;current(true)-&gt;class == 'ArrayObject';
+    }
+    
+    public function current($real = false)
+    {
+        if ($real) {
+            return parent::current();
+        }
+        $current = parent::current();
+        return $this-&gt;_view-&gt;{$current-&gt;name};
+    }
+}
+</code></pre>
+
+<p>This passes all the tests, but the overloaded methods (__get(), __set(), __isset(), __unset()) need to be removed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-06T16:40:53.000+0000</p> 
+        <div class="body">
+            <p>Resolved in revision 2644. Instead of extending ArrayObject, __set() now checks for array values and recasts them to ArrayObject. This allows both behaviours -- empty() and $view-&gt;foo[] to work correctly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marin Krkac (mkrkac) on 2007-01-07T08:21:54.000+0000</p> 
+        <div class="body">
+            <p>I've tried that when I was looking for a workaround. I've seen it in a comment by Gunar Scholz in ZF-298. But, unfortunately, this creates a regression (just like fixing {{$this-&gt;foo<a href="http://bugs.php.net/bug.php?id=36930">] = 42}} broke isset() and empty()).</a></p>
+
+<pre class="highlight"><code>
+$view = new Zend_View();
+$view-&gt;foo = array();
+$this-&gt;assertTrue(is_array($view-&gt;foo)); // fails
+</code></pre>
+
+<p>Which, [apparently, is not a bug. But people don't care how Zend_View is implemented. If they put an array in a view, I think they would expect is_array() to work.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-19T13:07:48.000+0000</p> 
+        <div class="body">
+            <p>Bookkeeping. Closing old issues and assigning them to the person who ultimately resolved the issue.</p>
+
+        </div>
+    </div>
+    </div>
+

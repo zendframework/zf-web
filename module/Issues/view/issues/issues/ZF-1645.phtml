@@ -1,0 +1,273 @@
+<h2>ZF-1645: createRow() should omit identity columns from data</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-28T11:45:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-01-23T18:32:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.1 (30/Jul/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10621/Abstract.php">Abstract.php</a></li>
+            <li><a href="/issues/secure/attachment/10610/Abstract.php">Abstract.php</a></li>
+            <li><a href="/issues/secure/attachment/10611/Db2Test.php">Db2Test.php</a></li>
+            <li><a href="/issues/secure/attachment/10622/TestCommon.php">TestCommon.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The createRow() method takes a $data array as a parameter.  It is used as the data for the prepared statement execution.</p>
+
+<p>Before execution, the array is extended to include all the columns in the table.  If there is no data for a particular column, it is left blank, essentially null.</p>
+
+<p>The statement is then prepared and the data is passed into the statement for execution.</p>
+
+<p>When the primary key is automatically generated, an extra column is needlessly prepared and at worst, it can cause the saving of the row to fail.  This is the case for DB2 as seen in failing test case:</p>
+
+<p>testTableRowSaveInsert()</p>
+
+<p>The patch in /library/Zend/Db/Table/Abstract.php createRow() provided checks to see if the primary key column has data in it.  If it doesn't it is assumed it is automatically generated and it is unset from the $data array so that it is not included in statement preparation:</p>
+
+<pre class="highlight"><code>
+/**
+ * If the primary key will be generated automatically,
+ * do not include it as parameter marker for statement
+ * preparation
+ */
+$primary = (array) $this-&gt;_primary;
+$pkIdentity = $primary[(int)$this-&gt;_identity];
+if (!isset($data[$pkIdentity])) {    
+     unset($data[$pkIdentity]);   
+}
+</code></pre>
+
+<p>I will upload the patch class for review.</p>
+
+<p>I also have the fixed DB2 test case to reflect this change and I will also upload it.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-06-28T12:20:32.000+0000</p> 
+        <div class="body">
+            <p>Contains the patch for the Zend_Db_Table class createRow()</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-06-28T12:22:07.000+0000</p> 
+        <div class="body">
+            <p>If patch is accepted, associated test for DB2 can be modified so that the test is not skipped.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-28T21:31:51.000+0000</p> 
+        <div class="body">
+            <p>Reformat summary a bit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-29T13:15:57.000+0000</p> 
+        <div class="body">
+            <p>Patch has been applied in revision 5502.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tim Steiner (spam38) on 2007-07-03T08:58:37.000+0000</p> 
+        <div class="body">
+            <p>Unfortunately, this patch has created a new issue.</p>
+
+<p>Any attempt to access a primary key field of a new row that has not yet been saved will result in an exception:
+Specified column "primaryKey" is not in the row.</p>
+
+<p>Code to reproduce:
+$row = $tableClass-&gt;fetchNew();
+echo $row-&gt;primaryKey;</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by George Miroshnikov (laggyluke) on 2007-07-05T08:42:05.000+0000</p> 
+        <div class="body">
+            <p>I've got the same issue as Tim Steiner.
+My practice was to use "if ($item-&gt;id)..." to find out if we've just created this row or we are editing existing row.
+Replacing it with "if (!isset($item-&gt;id))..." would probably work, but it feels wrong that simply trying to access primary key field of the new, not yet saved row throws an exception.</p>
+
+<p>Could you please re-open this bug for another patch?
+Looks like it would be better to check for null primary key during save(), not createRow().
+I don't have a DB2 instance to test it, but patch should be trivial.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-05T11:07:26.000+0000</p> 
+        <div class="body">
+            <p>I agree, this issue needs a different solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-07-05T11:24:37.000+0000</p> 
+        <div class="body">
+            <p>Those were my thoughts too: to move the logic to the last possible moment before a save, so this most likely will be in the Zend_Db_Table insert() method.</p>
+
+<p>I can explore a bit and upload a patch for review later today.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-07-05T16:54:11.000+0000</p> 
+        <div class="body">
+            <p>I went ahead and moved the logic from the createRow() method to the insert() method in Zend_Db_Table_Abstract.  It is unset only if the primary key array slot exists and it is empty.</p>
+
+<p>This check occurs right before the call to the adapter insert() method.</p>
+
+<pre class="highlight"><code>
+/**
+ * If the primary key can be generated automatically, and no value was 
+ * specified in the user-supplied data, then omit it from the tuple.
+ */
+  if (array_key_exists($pkIdentity, $data) &amp;&amp; $data[$pkIdentity] === null) {
+     unset($data[$pkIdentity]);   
+  }
+</code></pre>
+
+<p>The unit tests run clean with this modification.</p>
+
+<p>Please let me know if this works out or if you have any additional comments.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-07-05T16:57:58.000+0000</p> 
+        <div class="body">
+            <p>I modified the Row class unit test: testTableRowSaveInsert()</p>
+
+<p>When the row is created, it checks that the primary key is there and that it is null.  I am not sure this adds much value, but it would have caught the problem that the original patch caused.</p>
+
+<p>Please use it if you think it is useful.</p>
+
+<pre class="highlight"><code>
+try {
+           $row3 = $table-&gt;createRow($data);
+           
+           $this-&gt;assertNull($row3-&gt;bug_id); // added this assert
+            
+           $row3-&gt;save();
+            $this-&gt;assertEquals(5, $row3-&gt;bug_id);
+            $this-&gt;assertEquals($data['bug_description'], $row3-&gt;bug_description);
+            $this-&gt;assertEquals($data['bug_status'], $row3-&gt;bug_status);
+        } catch (Zend_Exception $e) {
+            $this-&gt;fail("Caught exception of type \"".get_class($e)."\" where no exception was expected.  Exception message: \"".$e-&gt;getMessage()."\"\n");
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-07-13T07:28:06.000+0000</p> 
+        <div class="body">
+            <p>Could this be upgraded to critical? I've just had two separate instances where this has caused a major disruption in my applications and there was no real documented change in behaviour for this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-13T10:11:17.000+0000</p> 
+        <div class="body">
+            <p>Upgraded to Blocker.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-07-13T12:35:59.000+0000</p> 
+        <div class="body">
+            <p>Bil, et al.,</p>
+
+<p>The patch I submitted last week moved this check from createRow() to insert().  It seems to address the original problem while not breaking existing apps.  Can you please review and apply, if you feel it is a viable solution?</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-17T16:36:03.000+0000</p> 
+        <div class="body">
+            <p>Committed change in trunk in revision 5730.</p>
+
+<p>After y'all review the change and confirm that it has fixed the problem, I'll commit the fix in the ZF 1.0.1 branch too.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-18T14:48:09.000+0000</p> 
+        <div class="body">
+            <p>Committed change in trunk in revision 5730.</p>
+
+<p>Committed change in release-1.0 branch in revision 5748.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-08-10T20:06:47.000+0000</p> 
+        <div class="body">
+            <p>Reopening.  People are still reporting issues related to this change.  I will make sure to create thorough unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-08-20T14:27:55.000+0000</p> 
+        <div class="body">
+            <p>Both users who reported this fault confirm that it was due to a mistake in their custom table class that overrides Zend_Db_Table::insert().  They need to use {{return parent::insert(...)}} in their code, and they were merely calling {{parent::insert(...)}}.</p>
+
+<p>So I'm re-closing this bug, given that it was truly fixed in ZF 1.0.1 and 1.1.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-01-23T18:32:34.000+0000</p> 
+        <div class="body">
+            <p>Updating Fix Version to follow issue tracker conventions.</p>
+
+        </div>
+    </div>
+    </div>
+

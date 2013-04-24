@@ -1,0 +1,194 @@
+<h2>ZF-1511: registerAutoload() registers parent loader, not loader for extended class</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-07T09:46:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC3 (23/Jun/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<h2>1. Problem</h2>
+
+<p>just a thought about Zend_Loader::registerAutoload() and a custom Loader extending Zend_Loader. Take the following example as written in the docs :</p>
+
+<pre class="highlight"><code>
+class My_Loader extends Zend_Loader {
+  public static function loadClass($class, $dirs) {
+    echo " you'll never see that message due to a bug ";
+  }
+}
+</code></pre>
+
+<p>then try :</p>
+
+<pre class="highlight"><code>
+Zend_Loader::registerAutoload('My_Loader');
+new DummyClassThatIsSupposedToLaunchMyLoaderLoadClass();
+</code></pre>
+
+<p>the resulting method loadClass is called on Zend_Loader and not on My_Loader</p>
+
+<p>simply debug it with :</p>
+
+<pre class="highlight"><code>
+var_dump(spl_autoload_functions());
+</code></pre>
+
+<p>which will gives</p>
+
+<pre class="highlight"><code>
+[0][0] =&gt; 'Zend_Loader'  &lt;====== Zend_Loader? why ? 
+[0][1] =&gt; 'autoload'
+</code></pre>
+
+<p>instead of</p>
+
+<pre class="highlight"><code>
+[0][0] =&gt; 'My_Loader'    &lt;======= Expected : My_Loader !
+[0][1] =&gt; 'autoload'
+</code></pre>
+
+<p>and Zend_Loader::autoload() with call self::loadClass() == Zend_Loader::loadClass() which is not expected</p>
+
+<h2>2. Reason</h2>
+
+<ul><li>Behaviour of PHP5 static methods
+When Zend_Loader::registerAutoload() executes the following code</li>
+</ul><pre class="highlight"><code>
+spl_autoload_register(array('My_Loader', 'autoload'));
+</code></pre>
+
+<p>it takes the static method Zend_Loader::autoload() instead of My_Loader::autoload()</p>
+
+<h2>3. Possible workaround</h2>
+
+<p>Don't really have a clean solution, hope you'll find a better one :</p>
+
+<p>static method 'autoload' has to be overidden in extended loader classes.</p>
+
+<pre class="highlight"><code>
+class My_Loader extends Zend_Loader {
+  public static function autoload( ... ) {
+    parent::autoload();
+  }
+}
+</code></pre>
+
+<h2>4. Note</h2>
+
+<p>Try to include a note in the documentation, it can save a lot of time. (I guess static methods behaviour is not well understood) 
+(I'm wondering if it's possible to change that behaviour in PHP5? could be really useful for ActiveRecord implementation...)</p>
+
+<p>Thanks</p>
+
+<p>Seb</p>
+
+<p>PS : tested on ZFRC1.0 + PHP5.2.3 CLI + FC6.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sébastien Vanvelthem (belgattitude) on 2007-06-07T10:22:29.000+0000</p> 
+        <div class="body">
+            <p>My workaround is not working, I probably missed something. Too much static methods in that class, it seems that I cannot inherit from Zend_Loader.
+Hope you'll find a way.</p>
+
+<p>Thanks</p>
+
+<p>Seb</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-07T11:25:53.000+0000</p> 
+        <div class="body">
+            <p>Assign to Bill Karwin.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-12T17:44:32.000+0000</p> 
+        <div class="body">
+            <p>Reformat summary, description</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-12T19:01:30.000+0000</p> 
+        <div class="body">
+            <p>The solution is that your extended Loader class must implement <em>both</em> {{autoload()}} and {{loadClass()}}.  Further, the {{autoload()}} method must call {{self::loadClass()}} so that it calls the static method in the current class.  If you delegate to the parent, then the parent's {{autoload()}} method references <em>its</em> {{self::loadClass()}} method.</p>
+
+<pre class="highlight"><code>
+class Zend_Loader_MyOverloader extends Zend_Loader
+{
+    public static function loadClass($class, $dirs = null)
+    {
+        parent::loadClass($class, $dirs);
+    }
+
+    public static function autoload($class)
+    {
+        try {
+            self::loadClass($class);
+            return $class;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-12T19:14:56.000+0000</p> 
+        <div class="body">
+            <p>Tests and updated documentation committed in revision 5271.</p>
+
+        </div>
+    </div>
+    </div>
+

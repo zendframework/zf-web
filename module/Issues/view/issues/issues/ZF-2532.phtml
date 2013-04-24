@@ -1,0 +1,178 @@
+<h2>ZF-2532: Wrong encoded of the subject, if the subject is longer than Zend_Mime::LINELENGTH.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-01-31T00:57:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-10-06T08:41:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Nico Edtinger (nico)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1688">ZF-1688</a></li>
+            <li><a href="/issues/browse/ZF-3912">ZF-3912</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11247/ZF-2532.patch">ZF-2532.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In Zend_Mail::_encodeHeader() and Zend_Mail::setSubject().</p>
+
+<p>Now, it is:
+=?utf-8?Q?mikespook=20=E9=82=80=E8=AB=8B=E6=82=A8=E9=80=B2=E5=85=A5=20ecbattle.net=20=E7=?=9A=84=E4=B8=96=E7=95=8C=E5=85=A7?=</p>
+
+<p>But should be:
+=?utf-8?Q?mikespook=20=E9=82=80=E8=AB=8B=E6=82=A8=E9=80=B2=E5=85=A5=20ecbattle.net=20=E7=?=
+=?utf-8?Q?9A=84=E4=B8=96=E7=95=8C=E5=85=A7?=</p>
+
+<p>And if I modify the code in Zend/Mail.php line: 392.</p>
+
+<pre><code>protected function _encodeHeader($value)
+{
+  if (Zend_Mime::isPrintable($value)) {
+      return $value;
+  } else {
+      $quotedValue = Zend_Mime::encodeQuotedPrintable($value);
+      $quotedValue = str_replace(array('?', ' '), array('=3F', '=20'), $quotedValue);
+      return '=?' . $this-&gt;_charset . '?Q?' . $quotedValue . '?=';
+  }
+}
+</code></pre>
+
+<p>to:</p>
+
+<pre><code>protected function _encodeHeader($value)
+{
+  if (Zend_Mime::isPrintable($value)) {
+      return $value;
+  } else {
+      $quotedValue = Zend_Mime::encodeQuotedPrintable($value, 200);
+      $quotedValue = str_replace(array('?', ' '), array('=3F', '=20'), $quotedValue);
+      return '=?' . $this-&gt;_charset . '?Q?' . $quotedValue . '?=';
+  }
+}
+</code></pre>
+
+<p>there will be no problem. but if it is longer than 200, the subject will be showed hash.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Xing Xing (mikespook) on 2008-01-31T00:59:21.000+0000</p> 
+        <div class="body">
+            <p>In the version 1.5, it also has this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ovidiu Curcan (covidiu) on 2008-02-19T12:12:59.000+0000</p> 
+        <div class="body">
+            <p>I ran into the same probkem while trying to send a newsletter. I came up with a quick &amp; dirty fix (see below). It's a bit of a hack and it only works for the subject (not for other headers). Problems go deeper.</p>
+
+<p>Patch to be applied agains ZF 1.0.3:</p>
+
+<pre class="highlight"><code>
+--- Zend/Mail.php   2007-09-08 17:59:21.000000000 +0300
++++ Zend/Mail.php   2008-02-17 13:12:32.000000000 +0200
+@@ -389,8 +389,9 @@
+       if (Zend_Mime::isPrintable($value)) {
+           return $value;
+       } else {
+-          $quotedValue = Zend_Mime::encodeQuotedPrintable($value);
++          $quotedValue = Zend_Mime::encodeQuotedPrintable($value, 60);
+           $quotedValue = str_replace(array('?', ' '), array('=3F', '=20'), $quotedValue);
++          $quotedValue = str_replace("=\n", "?=\n=?". $this-&gt;_charset . '?Q?', $quotedValue);
+           return '=?' . $this-&gt;_charset . '?Q?' . $quotedValue . '?=';
+       }
+     }
+@@ -577,7 +578,14 @@
+         if ($this-&gt;_subject === null) {
+             $subject = strtr($subject,"\r\n\t",'???');
+             $this-&gt;_subject = $this-&gt;_encodeHeader($subject);
+-            $this-&gt;_storeHeader('Subject', $this-&gt;_subject);
++            $subjectPieces = explode("\n", $this-&gt;_subject);
++            $this-&gt;_storeHeader('Subject', $subjectPieces[0]);
++            unset($subjectPieces[0]);
++            if ($subjectPieces) {
++                foreach ($subjectPieces as $piece) {
++                    $this-&gt;_storeHeader('Subject', $piece, true);
++                }
++            }
+         } else {
+             throw new Zend_Mail_Exception('Subject set twice');
+         }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T15:48:52.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and categorize/assign as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Dempster (letssurf) on 2008-04-18T16:43:09.000+0000</p> 
+        <div class="body">
+            <p>From what I could work out, a problem with encoding occurs when the subject line is greater than 75 chars and UTF8 chars of 2 or more bytes are being used. The subject line then needs to be split on to multiple lines if this split occurs in the middle of a quoted printable character i.e. between byte one and two the subject line breaks.</p>
+
+<p>The easiest solution would be to use php iconv_mime_encode, but I found this to have a problem for quoted printable (Q Encoded) subject lines that where quote long. This is a bug in php it's self.</p>
+
+<p>I've supplied a patch which is as far as I've gotten with the problem so far. I've tried to reproduce what iconv_mimie_encode would do for the Q encoding scheme. I think more evaluation testing and input is needed.</p>
+
+<p>Also I've started to make the encoding technique usable by addTo for users whom have an alias in UTF8 encoded characters.</p>
+
+<p>I've so far tested that this works with Thunderbird and Gmail (with what I understand the standards to be).</p>
+
+<p>More feedback please.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Myszak (zfmyszak) on 2008-06-12T23:44:10.000+0000</p> 
+        <div class="body">
+            <p>hello.
+In my opinion the bug is in the '_storeHeader()' method of Zend_Mail class.
+I don't know why is there a instruction: $value = strtr($value,"\r\n\t",'???'); ?
+The specification of ARPA (RFC 2822) don't accept char '?' for divide a header. 
+You should change that instruction to replace char '?'  for another.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,371 @@
+<h2>ZF-8446: Zend_Filter_Input: Custom NotEmpty error message &quot;inherited&quot; by other NotEmpty validators</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-02T09:21:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-26T18:23:26.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter_Input</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11142">ZF-11142</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13824/Input.php.patch">Input.php.patch</a></li>
+            <li><a href="/issues/secure/attachment/13825/InputTest.php.patch">InputTest.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Setting a custom error message for a NotEmpty validator in Zend_Filter_Input results in that custom error message being used for all following NotEmpty validators (if those validators don't themselves have custom error messages).</p>
+
+<p>h3. Using Zend_Validate_NotEmpty</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require 'Zend/Debug.php';
+require 'Zend/Filter/Input.php';
+require 'Zend/Validate/NotEmpty.php';
+
+$data = array(
+    'field1' =&gt; '',
+    'field2' =&gt; ''
+);
+
+$validators = array(
+    'field1' =&gt; array(
+        new Zend_Validate_NotEmpty(),
+        Zend_Filter_Input::MESSAGES =&gt; array(
+            array(
+                Zend_Validate_NotEmpty::IS_EMPTY =&gt; '\'field1\' is required'
+            )
+        )
+    ),
+
+    'field2' =&gt; array(
+        new Zend_Validate_NotEmpty()
+    )
+);
+
+$input = new Zend_Filter_Input( null, $validators, $data );
+
+if( !$input-&gt;isValid() ) {
+    Zend_Debug::dump( $input-&gt;getMessages() );
+}
+</code></pre>
+
+<pre class="highlight"><code>
+array(2) {
+  ["field1"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(20) "'field1' is required"
+  }
+  ["field2"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(36) "Value is required and can't be empty"
+  }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+array(2) {
+  ["field1"] =&gt; array(1) {
+    ["isEmpty"] =&gt; array(1) {
+      ["isEmpty"] =&gt; string(20) "'field1' is required"
+    }
+  }
+  ["field2"] =&gt; array(1) {
+    ["isEmpty"] =&gt; array(1) {
+      ["isEmpty"] =&gt; string(20) "'field1' is required"
+    }
+  }
+}
+</code></pre>
+
+<p>(The nested "isEmpty" arrays seem to be another issue with the customization of the NotEmpty error messages. Possibly related.)</p>
+
+<p>This issue exists even when removing the NotEmpty validator from 'field2', falling back to Zend_Filter_Input's "built-in" NotEmpty validator.</p>
+
+<p>Custom error messages for other validator types don't seem to suffer from this problem.</p>
+
+<p>h3. Using Zend_Validate_EmailAddress</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require 'Zend/Debug.php';
+require 'Zend/Filter/Input.php';
+require 'Zend/Validate/EmailAddress.php';
+
+$data = array(
+    'field1' =&gt; 'foo',
+    'field2' =&gt; 'bar'
+);
+
+$validators = array(
+    'field1' =&gt; array(
+        new Zend_Validate_EmailAddress(),
+        Zend_Filter_Input::MESSAGES =&gt; array(
+            array(
+                Zend_Validate_EmailAddress::INVALID_FORMAT =&gt; 'Improperly formatted email address \'%value%\' in \'field1\''
+            )
+        )
+    ),
+
+    'field2' =&gt; array(
+        new Zend_Validate_EmailAddress()
+    )
+);
+
+$input = new Zend_Filter_Input( null, $validators, $data );
+
+if( !$input-&gt;isValid() ) {
+    Zend_Debug::dump( $input-&gt;getMessages() );
+}
+</code></pre>
+
+<pre class="highlight"><code>
+array(2) {
+  ["field1"] =&gt; array(1) {
+    ["emailAddressInvalidFormat"] =&gt; string(52) "Improperly formatted email address 'foo' in 'field1'"
+  }
+  ["field2"] =&gt; array(1) {
+    ["emailAddressInvalidFormat"] =&gt; string(74) "'bar' is not a valid email address in the basic format local-part@hostname"
+  }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ryan Lange (ryan.lange) on 2009-12-02T13:20:48.000+0000</p> 
+        <div class="body">
+            <p>Hmm... part of the issue here seems to be the fact that Zend_Filter_Input inserts its internal NotEmpty validator at the front of the validator chain and sets it to break the chain on failure.</p>
+
+<pre class="highlight"><code>
+921: $validatorChain = new Zend_Validate();
+922: $validatorChain-&gt;addValidator($notEmptyValidator, true /* Always break on failure */);
+923: $validatorChain-&gt;addValidator($validatorRule[self::VALIDATOR_CHAIN]);
+</code></pre>
+
+<p>A quick fix is to not break the chain on failure:</p>
+
+<pre class="highlight"><code>
+921: $validatorChain = new Zend_Validate();
+922: $validatorChain-&gt;addValidator($notEmptyValidator);
+923: $validatorChain-&gt;addValidator($validatorRule[self::VALIDATOR_CHAIN]);
+</code></pre>
+
+<p>The unfortunate side-effect of this is that, with the sample code in my OP, two NotEmpty validators are run on each value. It appears to work correctly because the "isEmpty" key gets reassigned by the second NotEmpty validator, which will be the developer-assigned one.</p>
+
+<p>This also doesn't actually solve the "inheritance" issue for fields that rely on the internal NotEmpty validator.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require 'Zend/Debug.php';
+require 'Zend/Filter/Input.php';
+require 'Zend/Validate/NotEmpty.php';
+
+$data = array(
+    'field1' =&gt; '',
+    'field2' =&gt; '',
+    'field3' =&gt; ''
+);
+
+$validators = array(
+    'field1' =&gt; array(
+        new Zend_Validate_NotEmpty(),
+        Zend_Filter_Input::MESSAGES =&gt; array(
+            array(
+                Zend_Validate_NotEmpty::IS_EMPTY =&gt; '\'field1\' is required'
+            )
+        )
+    ),
+
+    'field2' =&gt; array(
+    ),
+
+    'field3' =&gt; array(
+    )
+);
+
+$input = new Zend_Filter_Input( null, $validators, $data );
+
+if( !$input-&gt;isValid() ) {
+    Zend_Debug::dump( $input-&gt;getMessages() );
+}
+</code></pre>
+
+<pre class="highlight"><code>
+array(2) {
+  ["field1"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(20) "'field1' is required"
+  }
+  ["field2"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(50) "You must give a non-empty value for field 'field2'"
+  }
+  ["field3"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(50) "You must give a non-empty value for field 'field3'"
+  }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+array(2) {
+  ["field1"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(20) "'field1' is required"
+  }
+  ["field2"] =&gt; array(1) {
+    ["isEmpty"] =&gt; array(1) {
+      ["isEmpty"] =&gt; string(20) "'field1' is required"
+    }
+  }
+  ["field3"] =&gt; array(1) {
+    ["isEmpty"] =&gt; array(1) {
+      ["isEmpty"] =&gt; string(20) "'field1' is required"
+    }
+  }
+}
+</code></pre>
+
+<p>The reason for this appears to be the following code:</p>
+
+<pre class="highlight"><code>
+780: if ($validator instanceof Zend_Validate_NotEmpty) {
+781:     $this-&gt;_defaults[self::NOT_EMPTY_MESSAGE] = $value;
+782: }
+</code></pre>
+
+<p>This simply takes the custom message of each developer-assigned NotEmpty validator and makes it the default empty message for Zend_Filter_Input. When a field has no NotEmpty validator of its own, and is empty, the internal NotEmpty validator ends up returning the custom message of the last, developer-assigned NotEmpty validator.</p>
+
+<p>(Additionally, given the first sample code in my OP, $value will be an array here. This explains the nested "isEmpty" arrays I pointed out in the output in the OP.)</p>
+
+<p>The fix here is to simply remove lines 780-782 (global defaults should never be transparently overwritten anyway). This fix, in conjunction with the minor fix to line 922, appears to fix the issues I've mentioned here. (NOTE: I've only done limited testing so far. This may create other issues I haven't come across yet. The potential double-run of NotEmpty validators I mentioned above is still an issue, though.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Lange (ryan.lange) on 2009-12-02T13:34:00.000+0000</p> 
+        <div class="body">
+            <p>I apologize for talking to myself here, but...</p>
+
+<p>On second thought, my suggested change to line 922 in my previous comment completely undoes the entire reason for having the ALLOW_EMPTY option, since the entire validator chain will now run regardless of the emptiness of the value.</p>
+
+<p>Hmm... I'll wait for additional comments.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-27T21:01:36.000+0000</p> 
+        <div class="body">
+            <p>I linked this issue, there is a patch available in the linked issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-27T21:02:36.000+0000</p> 
+        <div class="body">
+            <p>The patch is in the related issue. So far I found three issues reporting the same problem with the inherited error messages.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-28T10:14:27.000+0000</p> 
+        <div class="body">
+            <p>Fix is in svn now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Lange (ryan.lange) on 2011-03-28T20:14:09.000+0000</p> 
+        <div class="body">
+            <p>I can confirm that the patch attached to ZF-11142 does indeed fix the inherited error message issue. The nested error message issue is still present, but since that now appears to be unrelated[1], I think this issue can be considered closed. I don't seem to have permission to update the status myself, though, so someone else will have to do the honors.</p>
+
+<p>Thanks, Bart!</p>
+
+<p>--
+[1] If a separate issue doesn't already exist for this, I'll go ahead and create one.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-28T20:21:53.000+0000</p> 
+        <div class="body">
+            <p>Closed by permission of the reporter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-08T08:08:51.000+0000</p> 
+        <div class="body">
+            <p>Reopening to attach patches for the nested error message.</p>
+
+<p>As usual, I will leave this issue open for a week for the community and the component owner to review the patches.</p>
+
+<p>If no one has complained after a week, I will commit the patch for the component and the patch for the UnitTest.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-08T08:10:05.000+0000</p> 
+        <div class="body">
+            <p>Added the patches.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-08T08:11:15.000+0000</p> 
+        <div class="body">
+            <p>Changed to minor, because these patches are only to fix the nested error messages. The other issue, with the inherited error messages, is already fixed in svn.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-12T11:22:53.000+0000</p> 
+        <div class="body">
+            <p>The fix for the nested error messages is in svn now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-26T18:23:26.000+0000</p> 
+        <div class="body">
+            <p>Fixed in ZF2 with GH-268</p>
+
+        </div>
+    </div>
+    </div>
+

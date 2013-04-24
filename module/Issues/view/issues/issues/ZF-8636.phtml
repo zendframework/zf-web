@@ -1,0 +1,237 @@
+<h2>ZF-8636: Zend_Session with saveHandler db and Multi-Column Primary Key</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-26T18:13:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-02-24T01:56:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.0 (02/Nov/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6868">ZF-6868</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,
+like explained there : <a href="http://framework.zend.com/manual/en/zend.session.savehandler.dbtable.html">http://framework.zend.com/manual/en/…</a> and there <a href="http://framework.zend.com/manual/en/zend.application.available-resources.html#zend.application.available-resources.session">http://framework.zend.com/manual/en/…</a></p>
+
+<p>When I'm using the multi-column primary key I have a problem : 
+{quote}
+<br /><b>Fatal error</b>:  Uncaught exception 'Zend_Session_Exception' with message 'Zend_Session::start() - ..../library/Zend/Db/Table/Abstract.php(Line:900): Error #8 Undefined offset:  1 Array
+..../library/Zend/Db/Table/Abstract.php(Line:900): Error #8 Undefined offset:  1 Array
+..../library/Zend/Session/SaveHandler/DbTable.php(Line:528): Error #8 Undefined index:  session_id Array
+..../library/Zend/Session/SaveHandler/DbTable.php(Line:539): Error #8 Undefined index:  session_id Array
+..../library/Zend/Session/SaveHandler/DbTable.php(Line:528): Error #8 Undefined index:  save_path Array
+..../library/Zend/Session/SaveHandler/DbTable.php(Line:539): Err in <b>..../library/Zend/Session.php</b> on line <b>493</b><br />
+{quote}</p>
+
+<p>When I do the save with a PHP array of config, the problem doesn't exist.
+When I convert the ini config in an array with -&gt;toArray(); I find some associative key that were not needed and make the session bugged.
+"
+To make this working I implements in the start of application (Zend_Application) this "anti-bug solution", it's uggly but it's a kind of solution while it will be fixed :</p>
+
+<pre class="highlight"><code>
+            if (isset($options['resources']['session']['saveHandler']['options']['primaryAssignment']))
+            {
+                $tmp = $options['resources']['session']['saveHandler']['options']['primary'];
+                unset($options['resources']['session']['saveHandler']['options']['primary']);
+                foreach ($tmp as $v)
+                    $options['resources']['session']['saveHandler']['options']['primary'][] = $v;
+    
+                $tmp = $options['resources']['session']['saveHandler']['options']['primaryAssignment'];
+                unset($options['resources']['session']['saveHandler']['options']['primaryAssignment']);
+                foreach ($tmp as $v)
+                    $options['resources']['session']['saveHandler']['options']['primaryAssignment'][] = $v;
+            }
+</code></pre>
+
+<p>I take the database structure from the manual :</p>
+
+<pre class="highlight"><code>
+CREATE TABLE `session` (
+    `session_id` char(32) NOT NULL,
+    `save_path` varchar(32) NOT NULL,
+    `name` varchar(32) NOT NULL DEFAULT '',
+    `modified` int,
+    `lifetime` int,
+    `session_data` text,
+    PRIMARY KEY (`Session_ID`, `save_path`, `name`)
+);
+</code></pre>
+
+<p>And used an ini file to load all config :</p>
+
+<pre class="highlight"><code>
+resources.db.adapter = "Pdo_Mysql"
+resources.db.params.host = "localhost"
+resources.db.params.username = "root"
+resources.db.params.password = "root"
+resources.db.params.dbname = "biblio"
+resources.db.params.date_format = "YYYY-MM-ddTHH:mm:ss"
+resources.db.isDefaultTableAdapter = true
+
+resources.session.save_path = APPLICATION_PATH "/../data/session"
+resources.session.use_only_cookies = true
+resources.session.remember_me_seconds = 864000
+resources.session.saveHandler.class = "Zend_Session_SaveHandler_DbTable"
+resources.session.saveHandler.options.name = "session"
+resources.session.saveHandler.options.primary.session_id = "session_id"
+resources.session.saveHandler.options.primary.save_path = "save_path"
+resources.session.saveHandler.options.primary.name = "name"
+resources.session.saveHandler.options.primaryAssignment.sessionId = "sessionId"
+resources.session.saveHandler.options.primaryAssignment.sessionSavePath = "sessionSavePath"
+resources.session.saveHandler.options.primaryAssignment.sessionName = "sessionName"
+resources.session.saveHandler.options.modifiedColumn = "modified"
+resources.session.saveHandler.options.dataColumn = "session_data"
+resources.session.saveHandler.options.lifetimeColumn = "lifetime"
+</code></pre>
+
+<p>When I'm boostrap I load db first :</p>
+
+<pre class="highlight"><code>
+    protected function _initDb()
+    {
+        //config
+        $config = new Zend_Config($this-&gt;getOptions());
+        //connexion
+        try
+        {
+            $db = Zend_Db::factory($config-&gt;resources-&gt;db);
+            $db-&gt;getConnection();
+        }
+        catch (Exception $e)
+        {
+            exit( $e-&gt;getMessage() );
+        }
+
+        // on save la connexion
+        Zend_Registry::set( 'db', $db );
+        Zend_Db_Table::setDefaultAdapter($db);
+
+        return $db;
+    }
+
+    protected function _initSession()
+    {
+        $this-&gt;bootstrap('db');
+        Zend_Session::start($this-&gt;getOptions());
+        //...
+    }
+</code></pre>
+
+<p>I used :
+ * mysql 5.1.37
+ * php 5.2.10</p>
+
+<p>If you need more information ask!</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Nikolay Mogulev (katalonec) on 2010-04-13T07:30:54.000+0000</p> 
+        <div class="body">
+            <p>other temp solution
+resources.session.saveHandler.options.primary.0 = "session_id"
+resources.session.saveHandler.options.primary.1 = "save_path"
+resources.session.saveHandler.options.primary.2 = "name"
+resources.session.saveHandler.options.primaryAssignment.0 = "sessionId"
+resources.session.saveHandler.options.primaryAssignment.1 = "sessionSavePath"
+resources.session.saveHandler.options.primaryAssignment.2 = "sessionName"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2010-04-23T00:44:12.000+0000</p> 
+        <div class="body">
+            <p>@Nikolay Mogulev: Thanks, your solution seems to solve this. This is also present in ZF-1.10.1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-04-23T12:45:44.000+0000</p> 
+        <div class="body">
+            <p>This is a problem in documentation <a href="http://framework.zend.com/manual/en/zend.application.available-resources.html#zend.application.available-resources.session">Zend_Application_Resource_Session</a>.</p>
+
+<p>Exists several reported with the same problem ZF-6868, ZF-7000 and ZF-9599.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcus Stöhr (marcus.stoehr) on 2010-05-17T03:00:48.000+0000</p> 
+        <div class="body">
+            <p>When using the obove fix, the following exception is being thrown:</p>
+
+<p>Fatal error: Exception thrown without a stack frame in Unknown on line 0</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-10-20T10:06:09.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r23177</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fernando Soto (ferso) on 2010-12-01T13:42:55.000+0000</p> 
+        <div class="body">
+            <p>I find my error with this, my problem is the fields in the database aren't  primary key, is need for this configuration, You need  add to primary key session_id, save_path, name fields</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ivo van Beek (ivo@pcworkshop.nl) on 2012-02-18T17:50:25.000+0000</p> 
+        <div class="body">
+            <p>Despite the message that this issue is resolved in version 1.11.0, I recently downloaded version 1.11.11 and I'm experiencing the same problem under the exact same circumstances.</p>
+
+<p>The solution of Nikolay Mogulev works.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2012-02-24T01:56:46.000+0000</p> 
+        <div class="body">
+            <p>This is problem of documentation just check to see that this was been corrected ;).
+See <a href="http://framework.zend.com/manual/en/zend.application.available-resources.html#zend.application.available-resources.session">http://framework.zend.com/manual/en/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

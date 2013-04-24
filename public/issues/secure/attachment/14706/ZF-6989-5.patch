@@ -1,0 +1,262 @@
+Index: tests/Zend/PaginatorTest.php
+===================================================================
+--- tests/Zend/PaginatorTest.php	(revision 24545)
++++ tests/Zend/PaginatorTest.php	(working copy)
+@@ -85,6 +85,11 @@
+ require_once 'Zend/Filter/Callback.php';
+ 
+ /**
++ * @see Zend_Paginator_Adapter_DbSelect
++ */
++require_once 'Zend/Paginator/Adapter/DbSelect.php';
++
++/**
+  * @category   Zend
+  * @package    Zend_Paginator
+  * @subpackage UnitTests
+@@ -1031,6 +1036,91 @@
+ 
+         $this->_restorePaginatorDefaults();
+     }
++
++    /**
++    * @group ZF-6989
++    */
++    public function testCurrentItemCountIsRetrievedFromCacheIfCachingIsEnabled()
++    {
++    	$dbAdapter = $this->getMockForAbstractClass('Zend_Db_Adapter_Abstract', array(''), '', false);
++    	$select    = new Zend_Db_Select($dbAdapter);
++    	$select->from('ZF_6989');
++    
++    	$paginatorAdapter = new Zend_Paginator_Adapter_DbSelect($select);
++    	$paginatorAdapter->setRowCount(6989);
++    
++    	$paginator       = new Zend_Paginator_TestCache($paginatorAdapter);
++    	$expectedCacheId = md5($paginator->getCacheInternalId() . '_itemCount');
++    
++    	$cache = $this->getMock('Zend_Cache_Core', array('load'), array(), '', false);
++    	$cache->expects($this->once())
++    	       ->method('load')
++    	       ->with($expectedCacheId)
++    	       ->will($this->returnValue(6989));
++    
++    	$paginator->setCacheEnabled(true)
++    	          ->setCache($cache);
++    
++    	$this->assertSame(6989, $paginator->getTotalItemCount(), 'Total item count incorrect!');
++    }
++    
++    /**
++     * @group ZF-6989
++     */
++    public function testPaginatorGeneratesSameCacheIdentifierForDbSelectAdaptersWithIdenticalSqlStatements()
++    {
++        $dbAdapterOne = $this->getMockForAbstractClass('Zend_Db_Adapter_Abstract', array(''),
++                                                       __FUNCTION__ . 'DbAdapterOne', false);
++        $selectOne    = new Zend_Db_Select($dbAdapterOne);
++        $selectOne->from('ZF_6989');
++
++        $paginatorAdapterOne = new Zend_Paginator_Adapter_DbSelect($selectOne);
++        $paginatorAdapterOne->setRowCount(6989);
++
++        $paginatorOne = new Zend_Paginator_TestCache($paginatorAdapterOne);
++
++        $dbAdapterTwo = $this->getMockForAbstractClass('Zend_Db_Adapter_Abstract', array(''), 
++                                                       __FUNCTION__ . 'DbAdapterTwo', false);
++        $selectTwo = new Zend_Db_Select($dbAdapterTwo);
++        $selectTwo->from('ZF_6989');
++   
++        $paginatorAdapterTwo = new Zend_Paginator_Adapter_DbSelect($selectTwo);
++        $paginatorAdapterTwo->setRowCount(6989);
++
++        $paginatorTwo = new Zend_Paginator_TestCache($paginatorAdapterTwo);
++
++        $this->assertSame($paginatorOne->getCacheInternalId(), $paginatorTwo->getCacheInternalId(),
++                          'DbSelect adapters with identical select statements should have the same cache internal IDs!');
++    }
++    
++    /**
++    * @group ZF-6989
++    */
++    public function testPaginatorGeneratesSameCacheIdentifierForDbTableSelectAdaptersWithIdenticalSqlStatements()
++    {
++        $dbAdapterOne = $this->getMockForAbstractClass('Zend_Db_Adapter_Abstract', array(''),
++                                                       __FUNCTION__ . 'DbAdapterOne', false);
++        $selectOne    = new Zend_Db_Select($dbAdapterOne);
++        $selectOne->from('ZF_6989');
++    
++        $paginatorAdapterOne = new Zend_Paginator_Adapter_DbSelect($selectOne);
++        $paginatorAdapterOne->setRowCount(6989);
++    
++        $paginatorOne = new Zend_Paginator_TestCache($paginatorAdapterOne);
++    
++        $dbAdapterTwo = $this->getMockForAbstractClass('Zend_Db_Adapter_Abstract', array(''), 
++                                                       __FUNCTION__ . 'DbAdapterTwo', false);
++        $selectTwo = new Zend_Db_Select($dbAdapterTwo);
++        $selectTwo->from('ZF_6989');
++         
++        $paginatorAdapterTwo = new Zend_Paginator_Adapter_DbSelect($selectTwo);
++        $paginatorAdapterTwo->setRowCount(6989);
++    
++        $paginatorTwo = new Zend_Paginator_TestCache($paginatorAdapterTwo);
++    
++        $this->assertSame($paginatorOne->getCacheInternalId(), $paginatorTwo->getCacheInternalId(),
++                              'DbSelect adapters with identical select statements should have the same cache internal IDs!');
++    }
+ }
+ 
+ class Zend_Paginator_TestArrayAggregate implements Zend_Paginator_AdapterAggregate
+@@ -1041,6 +1131,22 @@
+     }
+ }
+ 
++/**
++ * Wrapper around Zend_Paginator to provide access to cache internal ID method 
++ * for testing purposes.
++ */
++class Zend_Paginator_TestCache extends Zend_Paginator
++{
++    /**
++     * Returns the cache internal ID.
++     * @return string
++     */
++    public function getCacheInternalId()
++    {
++        return $this->_getCacheInternalId();
++    }
++}
++
+ // Call Zend_PaginatorTest::main() if this source file is executed directly.
+ if (PHPUnit_MAIN_METHOD === 'Zend_PaginatorTest::main') {
+     Zend_PaginatorTest::main();
+Index: tests/Zend/Paginator/Adapter/DbSelectTest.php
+===================================================================
+--- tests/Zend/Paginator/Adapter/DbSelectTest.php	(revision 24545)
++++ tests/Zend/Paginator/Adapter/DbSelectTest.php	(working copy)
+@@ -99,6 +99,21 @@
+         parent::tearDown();
+     }
+ 
++    /**
++     * @group ZF-6989
++     */
++    public function testCacheIdentifierIsHashOfAssembledSelect()
++    {
++        $dbAdapter = $this->getMockForAbstractClass('Zend_Db_Adapter_Abstract', array(''), '', false);
++        $select    = new Zend_Db_Select($dbAdapter);
++        $select->from('ZF_6989');
++
++        $paginatorAdapter = new Zend_Paginator_Adapter_DbSelect($select);
++
++        $this->assertSame(md5($select->assemble()), $paginatorAdapter->getCacheIdentifier(),
++                          'Cache identifier incorrect!');
++    }
++    
+     public function testGetsItemsAtOffsetZero()
+     {
+         $actual = $this->_adapter->getItems(0, 10);
+Index: library/Zend/Paginator/Adapter/DbSelect.php
+===================================================================
+--- library/Zend/Paginator/Adapter/DbSelect.php	(revision 24545)
++++ library/Zend/Paginator/Adapter/DbSelect.php	(working copy)
+@@ -71,6 +71,14 @@
+     protected $_rowCount = null;
+ 
+     /**
++     * Identifies this adapter for caching purposes.  This value will remain constant for
++     * the entire life of this adapter regardless of how many different pages are queried.
++     *
++     * @var string
++     */
++    protected $_cacheIdentifier = null;
++
++    /**
+      * Constructor.
+      *
+      * @param Zend_Db_Select $select The select query
+@@ -78,9 +86,20 @@
+     public function __construct(Zend_Db_Select $select)
+     {
+         $this->_select = $select;
++        $this->_cacheIdentifier = md5($select->assemble());
+     }
+ 
+     /**
++     * Returns the cache identifier.
++     * 
++     * @return string
++     */
++    public function getCacheIdentifier()
++    {
++        return $this->_cacheIdentifier;
++    }
++    
++    /**
+      * Sets the total row count, either directly or through a supplied
+      * query.  Without setting this, {@link getPages()} selects the count
+      * as a subquery (SELECT COUNT ... FROM (SELECT ...)).  While this
+Index: library/Zend/Paginator.php
+===================================================================
+--- library/Zend/Paginator.php	(revision 24545)
++++ library/Zend/Paginator.php	(working copy)
+@@ -524,13 +524,26 @@
+     }
+ 
+     /**
+-     * Returns the total number of items available.
++     * Returns the total number of items available.  Uses cache if caching is enabled.
+      *
+      * @return integer
+      */
+     public function getTotalItemCount()
+     {
+-        return count($this->getAdapter());
++        if (!$this->_cacheEnabled()) {
++            return count($this->getAdapter());
++        } else {
++            $cacheId   = md5($this->_getCacheInternalId(). '_itemCount');            
++            $itemCount = self::$_cache->load($cacheId);
++
++            if ($itemCount === false) {
++                $itemCount = count($this->getAdapter());
++
++                self::$_cache->save($itemCount, $cacheId, array($this->_getCacheInternalId()));
++            }
++            
++            return $itemCount;
++        }
+     }
+ 
+     /**
+@@ -1044,10 +1057,18 @@
+      */
+     protected function _getCacheInternalId()
+     {
+-        return md5(serialize(array(
+-            $this->getAdapter(),
+-            $this->getItemCountPerPage()
+-        )));
++        $adapter = $this->getAdapter();
++        
++        if (method_exists($adapter, 'getCacheIdentifier')) {
++            return md5(serialize(array(
++                $adapter->getCacheIdentifier(), $this->getItemCountPerPage()
++            )));
++        } else {
++            return md5(serialize(array(
++                $adapter,
++                $this->getItemCountPerPage()
++            )));
++        }
+     }
+ 
+     /**
+@@ -1057,7 +1078,7 @@
+      */
+     protected function _calculatePageCount()
+     {
+-        return (integer) ceil($this->getAdapter()->count() / $this->getItemCountPerPage());
++        return (integer) ceil($this->getTotalItemCount() / $this->getItemCountPerPage());
+     }
+ 
+     /**

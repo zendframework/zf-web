@@ -1,0 +1,165 @@
+<h2>ZF-6455: Zend_Application allows loading 2 configs and disallow module bootstrap &quot;config&quot;</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-28T15:08:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:18.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I dont know, if its really a issue. To me it seems a strange behaviour, but its at least an undocumented feature ;)</p>
+
+<pre class="highlight"><code>        if (null !== $options) {
+            if (is_string($options)) {
+                $options = $this-&gt;_loadConfig($options);
+            } elseif ($options instanceof Zend_Config) {
+                $options = $options-&gt;toArray();
+            } elseif (!is_array($options)) {
+                throw new Zend_Application_Exception('Invalid options provided; must be location of config file, a config object, or an array');
+            }
+
+            $this-&gt;setOptions($options);
+        }</code></pre>
+
+<p>if $options is a string, the config will be loaded from file and then given to setOptions().</p>
+
+<pre class="highlight"><code>        if (!empty($options['config'])) {
+            $options += $this-&gt;_loadConfig($options['config']);
+        }</code></pre>
+
+<p>If there is a key 'config' in the file Ive loaded before, setOptions() tries to load a second config file.</p>
+
+<p>On the other hand, if there is a module 'config' with a module-bootstrap, its not configurable, because Zend_Application finds the key 'config' and tries to load ... something.</p>
+
+<pre class="highlight"><code>
+    Test
+    </code></pre>
+
+<p>```</p>
+
+<p>The other predefined values 'includepaths', 'autoloadernamespaces', 'bootstrap', 'resources' and so on are also not useable as modules with module-bootstrap.</p>
+
+<p>Version is trunk rev 15242</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-04-29T01:32:19.000+0000</p> 
+        <div class="body">
+            <p>Matthew, I'd suggest a "module" key in the root options which childs are handled like module bootstrap options in the parent. The current way of defining module specific bootstrap options should stay, but this one would be a fallback which can be used when somebody has modules which conflict with our reserved keys.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sebastian Krebs (kingcrunch) on 2009-04-29T06:26:35.000+0000</p> 
+        <div class="body">
+            <p>I would like to see the this :)</p>
+
+<p>Meanwhile I found, that the other behaviour -- the "second config file" -- is quiet useful, even if its only useable, when the second constructor argument is a string. This allows something like this</p>
+
+<pre class="highlight"><code>
+configs/dev.xml</code></pre>
+
+<pre class="highlight"><code>
+
+  </code></pre>
+
+<p>Currently its not working as expected caused by another bug:
+<a href="http://framework.zend.com/issues/browse/ZF-6459">http://framework.zend.com/issues/browse/ZF-6459</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-04-29T06:38:32.000+0000</p> 
+        <div class="body">
+            <p>The actual idea behind the config option-key  was, that you can specify specific options via an array, but additionally load a config file. But nice that it also finds other useful cases.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sebastian Krebs (kingcrunch) on 2009-04-29T07:53:12.000+0000</p> 
+        <div class="body">
+            <p>If you pass an array to the constructor the "hack" wont work, because it load a config file only once (in _loadConfig()). It can confuse somebody, if he will change a string-to-a-file to a array later and wondering, that the "additional file" is not loaded anymore.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marek (xorock) on 2009-05-31T04:43:34.000+0000</p> 
+        <div class="body">
+            <p>My question is why are You working with arrays not objects? I think _loadConfig() should additionally write protected $_config variable with reference to loaded $config or return merged data. Currently there is no way to get configuration file in it's original state - there is only getOptions() method with options already transformed to array. I think some of us might need this for further prcoessing and pushing data:</p>
+
+<pre class="highlight"><code>
+protected function _initConfig() {
+    $config = new Zend_Config($this-&gt;getOptions());
+    Zend_Registry::set('config', $config);
+  }
+</code></pre>
+
+<p>back to Zend_Config is really stupid.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-31T09:19:28.000+0000</p> 
+        <div class="body">
+            <p>We're using arrays as it makes it easier to do comparisons, and to manipulate the keys in order to do comparisons; additionally, it offers better compatibility throughout various framework components.</p>
+
+<p>First, in Zend_Application, keys are case insensitive. However, because Zend_Config uses object properties, the keys are case sensitive. This makes it difficult, if not impossible, to test accurately for the existence of given keys. As a result, in our tests, we found there were many cases where existing keys were simply not matched. Casting to an array and storing as an array internally ensures we can transform those keys and do case insensitive matching.</p>
+
+<p>Second, many framework accept an array of options to the constructor and/or a factory. Many also accept Zend_Config objects, but in all such cases, also accept arrays. It's thus easier to simply cast to an array within Zend_Application, as the arrays will be able to be used with any component.</p>
+
+<p>Finally, the reason that you can pass a "config" key to the Zend_Application options is to allow you to provide local overrides of the keys in your configuration file. These are, clearly, going to be passed as an array -- which means that any value in $_config as you propose would be non-representative of the actual configuration.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:18.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

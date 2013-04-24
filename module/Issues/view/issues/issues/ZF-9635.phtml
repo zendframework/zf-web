@@ -1,0 +1,452 @@
+<h2>ZF-9635: Zend_Validate_File_MimeType overrides default PHP fileinfo behavior</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-07T12:23:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-09-16T01:21:05.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10461">ZF-10461</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I would like to propose an improvement to Zend_Validate_File_MimeType as the current method of setting the magic files seems over-complicated and doesn't work on all distributions. On my Mac and on several other Linux distributions, the mime type for images is returned as 'application/octet-stream'.</p>
+
+<p>I first noticed the issue on my Mac OS X 10.5.X (Leopard) running Zend Server w/PHP 5.3.1. If I replaced my /usr/share/file/magic* files with those from Mac OS X 10.6.X (Snow Leopard), the problem went away. My Ubuntu instance with PHP 5.2.10 or 5.3.2 worked fine as it has updated libmagic1 package. However, our production systems use RHEL with compiled PHP 5.2.13 or 5.3.2, but the libmagic files there seem very outdated, causing the validator to fail for Images.</p>
+
+<p>Moreover, Zend_Validate_File_MimeType doesn't allow you to use the finfo_open function with the second parameter set to the default of NULL. All distributions I've tried seem to work when the magic file is not specified.</p>
+
+<p>The patch below changes Zend_Validate_File_MimeType to work more like Zend_File_Transfer_Adapter_Abstract...it doesn't have any complex logic to automatically find a magic file, if the user sets one, it uses it. Otherwise, it does finfo_open w/o specifying a magic file:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+/**
+ * Zend Framework
+ *
+ * LICENSE
+ *
+ * This source file is subject to the new BSD license that is bundled
+ * with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please send an email
+ * to license@zend.com so we can send you a copy immediately.
+ *
+ * @category  Zend
+ * @package   Zend_Validate
+ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (<a href="http://www.zend.com">http://www.zend.com</a>)
+ * @license   <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>     New BSD License
+ * @version   $Id: MimeType.php 21472 2010-03-11 22:16:55Z thomas $
+ */
+
+/**
+ * @see Zend_Validate_Abstract
+ */
+require_once 'Zend/Validate/Abstract.php';
+
+/**
+ * Validator for the mime type of a file
+ *
+ * @category  Zend
+ * @package   Zend_Validate
+ * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (<a href="http://www.zend.com">http://www.zend.com</a>)
+ * @license   <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>     New BSD License
+ */
+class Zend_Validate_File_MimeType extends Zend_Validate_Abstract
+{
+    /**#@+
+     * @const Error type constants
+     */
+    const FALSE_TYPE   = 'fileMimeTypeFalse';
+    const NOT_DETECTED = 'fileMimeTypeNotDetected';
+    const NOT_READABLE = 'fileMimeTypeNotReadable';
+    /**#@-*/
+
+    /**
+     * @var array Error message templates
+     */
+    protected $_messageTemplates = array(
+        self::FALSE_TYPE   =&gt; "File '%value%' has a false mimetype of '%type%'",
+        self::NOT_DETECTED =&gt; "The mimetype of file '%value%' could not be detected",
+        self::NOT_READABLE =&gt; "File '%value%' can not be read",
+    );
+
+    /**
+     * @var array
+     */
+    protected $_messageVariables = array(
+        'type' =&gt; '_type'
+    );
+
+    /**
+     * @var string
+     */
+    protected $_type;
+
+    /**
+     * Mimetypes
+     *
+     * If null, there is no mimetype
+     *
+     * @var string|null
+     */
+    protected $_mimetype;
+
+    /**
+     * Magicfile to use
+     *
+     * @var string|null
+     */
+    protected $_magicfile;
+
+    /**
+     * Option to allow header check
+     *
+     * @var boolean
+     */
+    protected $_headerCheck = false;
+
+    /**
+     * Sets validator options
+     *
+     * Mimetype to accept
+     *
+     * @param  string|array $mimetype MimeType
+     * @return void
+     */
+    public function __construct($mimetype)
+    {
+        if ($mimetype instanceof Zend_Config) {
+            $mimetype = $mimetype-&gt;toArray();
+        } elseif (is_string($mimetype)) {
+            $mimetype = explode(',', $mimetype);
+        } elseif (!is_array($mimetype)) {
+            require_once 'Zend/Validate/Exception.php';
+            throw new Zend_Validate_Exception("Invalid options to validator provided");
+        }
+
+        if (isset($mimetype['magicfile'])) {
+            $this-&gt;setMagicFile($mimetype['magicfile']);
+            unset($mimetype['magicfile']);
+        }
+
+        if (isset($mimetype['headerCheck'])) {
+            $this-&gt;enableHeaderCheck($mimetype['headerCheck']);
+            unset($mimetype['headerCheck']);
+        }
+
+        $this-&gt;setMimeType($mimetype);
+    }
+
+    /**
+     * Returns the actual set magicfile
+     *
+     * @return string
+     */
+    public function getMagicFile()
+    {
+        return $this-&gt;_magicfile;
+    }
+
+    /**
+     * Sets the magicfile to use
+     * if null, the MAGIC constant from php is used
+     * if the MAGIC file is errorous, no file will be set
+     *
+     * @param  string $file
+     * @throws Zend_Validate_Exception When finfo can not read the magicfile
+     * @return Zend_Validate_File_MimeType Provides fluid interface
+     */
+    public function setMagicFile($file)
+    {
+        if (isset($file)) {
+            $this-&gt;_magicfile = (string)$file;
+        }
+        return $this;
+    }
+
+    /**
+     * Returns the Header Check option
+     *
+     * @return boolean
+     */
+    public function getHeaderCheck()
+    {
+        return $this-&gt;_headerCheck;
+    }
+
+    /**
+     * Defines if the http header should be used
+     * Note that this is unsave and therefor the default value is false
+     *
+     * @param  boolean $checkHeader
+     * @return Zend_Validate_File_MimeType Provides fluid interface
+     */
+    public function enableHeaderCheck($headerCheck = true)
+    {
+        $this-&gt;_headerCheck = (boolean) $headerCheck;
+        return $this;
+    }
+
+    /**
+     * Returns the set mimetypes
+     *
+     * @param  boolean $asArray Returns the values as array, when false an concated string is returned
+     * @return string|array
+     */
+    public function getMimeType($asArray = false)
+    {
+        $asArray   = (bool) $asArray;
+        $mimetype = (string) $this-&gt;_mimetype;
+        if ($asArray) {
+            $mimetype = explode(',', $mimetype);
+        }
+
+        return $mimetype;
+    }
+
+    /**
+     * Sets the mimetypes
+     *
+     * @param  string|array $mimetype The mimetypes to validate
+     * @return Zend_Validate_File_Extension Provides a fluent interface
+     */
+    public function setMimeType($mimetype)
+    {
+        $this-&gt;_mimetype = null;
+        $this-&gt;addMimeType($mimetype);
+        return $this;
+    }
+
+    /**
+     * Adds the mimetypes
+     *
+     * @param  string|array $mimetype The mimetypes to add for validation
+     * @return Zend_Validate_File_Extension Provides a fluent interface
+     */
+    public function addMimeType($mimetype)
+    {
+        $mimetypes = $this-&gt;getMimeType(true);
+
+        if (is_string($mimetype)) {
+            $mimetype = explode(',', $mimetype);
+        } elseif (!is_array($mimetype)) {
+            require_once 'Zend/Validate/Exception.php';
+            throw new Zend_Validate_Exception("Invalid options to validator provided");
+        }
+
+        if (isset($mimetype['magicfile'])) {
+            unset($mimetype['magicfile']);
+        }
+
+        foreach ($mimetype as $content) {
+            if (empty($content) || !is_string($content)) {
+                continue;
+            }
+            $mimetypes[] = trim($content);
+        }
+        $mimetypes = array_unique($mimetypes);
+
+        // Sanity check to ensure no empty values
+        foreach ($mimetypes as $key =&gt; $mt) {
+            if (empty($mt)) {
+                unset($mimetypes[$key]);
+            }
+        }
+
+        $this-&gt;_mimetype = implode(',', $mimetypes);
+
+        return $this;
+    }
+
+    /**
+     * Defined by Zend_Validate_Interface
+     *
+     * Returns true if the mimetype of the file matches the given ones. Also parts
+     * of mimetypes can be checked. If you give for example "image" all image
+     * mime types will be accepted like "image/gif", "image/jpeg" and so on.
+     *
+     * @param  string $value Real file to check for mimetype
+     * @param  array  $file  File data from Zend_File_Transfer
+     * @return boolean
+     */
+    public function isValid($value, $file = null)
+    {
+        if ($file === null) {
+            $file = array(
+                'type' =&gt; null,
+                'name' =&gt; $value
+            );
+        }
+
+        // Is file readable ?
+        require_once 'Zend/Loader.php';
+        if (!Zend_Loader::isReadable($value)) {
+            return $this-&gt;_throw($file, self::NOT_READABLE);
+        }
+
+        if (class_exists('finfo', false)) {
+            $const = defined('FILEINFO_MIME_TYPE') ? FILEINFO_MIME_TYPE : FILEINFO_MIME;
+            if (!empty($this-&gt;_magicfile)) {
+                $finfo = @finfo_open($const, $this-&gt;_magicfile);
+            }
+
+            if (empty($finfo)) {
+                $finfo = @finfo_open($const);
+            }
+
+            if ($finfo !== false) {
+                $this-&gt;_type = finfo_file($finfo, $value);
+            }
+
+            unset($finfo);
+        }
+
+        if (empty($this-&gt;_type) &amp;&amp;
+            (function_exists('mime_content_type') &amp;&amp; ini_get('mime_magic.magicfile'))) {
+                $this-&gt;_type = mime_content_type($value);
+        }
+
+        if (empty($this-&gt;_type) &amp;&amp; $this-&gt;_headerCheck) {
+            $this-&gt;_type = $file['type'];
+        }
+
+        if (empty($this-&gt;_type)) {
+            return $this-&gt;_throw($file, self::NOT_DETECTED);
+        }
+
+        $mimetype = $this-&gt;getMimeType(true);
+        if (in_array($this-&gt;_type, $mimetype)) {
+            return true;
+        }
+
+        $types = explode('/', $this-&gt;_type);
+        $types = array_merge($types, explode('-', $this-&gt;_type));
+        $types = array_merge($types, explode(';', $this-&gt;_type));
+        foreach($mimetype as $mime) {
+            if (in_array($mime, $types)) {
+                return true;
+            }
+        }
+
+        return $this-&gt;_throw($file, self::FALSE_TYPE);
+    }
+
+    /**
+     * Throws an error of the given type
+     *
+     * @param  string $file
+     * @param  string $errorType
+     * @return false
+     */
+    protected function _throw($file, $errorType)
+    {
+        $this-&gt;_value = $file['name'];
+        $this-&gt;_error($errorType);
+        return false;
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-04-07T12:43:42.000+0000</p> 
+        <div class="body">
+            <p>According to documentation and API you could simply set the option
+"magicfile" to FALSE
+which leads to finfo_open to be called without the magicfile parameter.</p>
+
+<p>And there ARE distributions which are delivered with a broken finfo implementation. That was the original reason why we implemented this feature.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-04-07T13:02:12.000+0000</p> 
+        <div class="body">
+            <p>Closing as won't fix as this already works and is documented</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicholas Calugar (njcalugar) on 2010-04-07T14:47:08.000+0000</p> 
+        <div class="body">
+            <p>Thomas,</p>
+
+<p>Thanks for your quick reply.</p>
+
+<p>I don't see this in documentation or in API. The current implementation is not as you have stated, setting the option "magicfile" to false causes $this-&gt;_magicfile to be NULL, then during validation (isValid function), getMagicFile is called, and when $this-&gt;_magicfile is null, getMagicFile loops over the array $this-&gt;_magicFiles. Code that shows this:</p>
+
+<pre class="highlight"><code>
+&lt;?php 
+require_once 'Zend/Validate/File/IsImage.php';
+
+foreach (glob("/Users/calugarn/Desktop/OM Creatives/*") as $filename) {
+    $validator = new Zend_Validate_File_IsImage();
+    $validator-&gt;setMagicFile(false);
+    echo $filename . ": ";
+    echo ($validator-&gt;isValid($filename))?'Yes':'No';
+    echo "\n";
+}
+</code></pre>
+
+<p>I have yet to experience problems with fileinfo on any distribution if the magicfile is not passed to finfo_open and I don't understand why the default Zend Framework behavior should be to loop over an array of possible locations. This is slow.</p>
+
+<p>PHP / fileinfo extension provides a way to set the magic file by setting an environment variable: "If not specified, the MAGIC environment variable is used" (<a href="http://us.php.net/manual/en/function.finfo-open.php">http://us.php.net/manual/en/…</a>). This default behavior should suffice. Please review and consider my original code.</p>
+
+<p>Thanks,</p>
+
+<p>-Nick</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dmitry Barsukov (dm.barsukov@gmail.com) on 2010-09-16T01:12:53.000+0000</p> 
+        <div class="body">
+            <p>I'm absolute agree with Nicholas. The problem on line 332 in class Zend_Validate_File_MimeType.
+This call of method getMagicFile absolutely wont needed. As you can setup magicfile by hand with setMagicFile. Anyway implementation on getMagicFile blocks way to use fopen without setting magicfile as described below. If you setMagicFile as false, method set it as null always, but in method getMagicFile if _magicfile property is null than method searches over _magicFiles array this is problem. In this case you can not set empty magicfile anyway.</p>
+
+        </div>
+    </div>
+    </div>
+

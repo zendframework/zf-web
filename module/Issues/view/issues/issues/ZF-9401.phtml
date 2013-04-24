@@ -1,0 +1,222 @@
+<h2>ZF-9401: Zend_Form numerical names</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-11T03:51:00.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-16T13:17:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Form will not guess the numerical names we give to Forms
+and Elements and hardcode it in, so there is really no need
+for this restriction.</p>
+
+<pre class="highlight"><code>
+class NumericalMembers
+{
+    public $numerical = 0;
+
+    public function __construct($value)
+    {
+        $this-&gt;{$this-&gt;numerical} = $value;
+        var_dump($this-&gt;{$this-&gt;numerical});
+    }
+}
+$n = new NumericalMembers('you See');
+// string(7) "you See"
+</code></pre>
+
+<p>There are several comparisons whithin Zend_Form* which prevent
+numerical names for Subitems of Forms.</p>
+
+<p>This fix will clean the comparisons in a way that it only checks
+against appropriate empty Values, empty in a sense of !==null
+&amp;&amp; !==''.</p>
+
+<p>This is the patch for the class Zend_Form, Unit Tests included</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php    (Revision 21857)
++++ tests/Zend/Form/FormTest.php    (Arbeitskopie)
+@@ -1579,7 +1579,69 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function _setup9401()
++    {
++        $sub0 = 0;
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), $sub0)
++                   -&gt;$sub0-&gt;setElementsBelongTo('f[2]')
++                          -&gt;addElement('text', 'foo')
++                          -&gt;foo-&gt;addValidator('Identical',
++                                              false,
++                                              array('foo Value'));
+ 
++        $this-&gt;form-&gt;$sub0-&gt;addSubForm(new Zend_Form_SubForm(), $sub0)
++                          -&gt;$sub0-&gt;addElement('text', 'quo')
++                                 -&gt;quo-&gt;addValidator('Identical',
++                                                     false,
++                                                     array('quo Value'));
++
++        $data = array('valid' =&gt; array('f' =&gt;
++                                       array(2 =&gt;
++                                             array('foo' =&gt; 'foo Value',
++                                                   0 =&gt;
++                                                   array('quo' =&gt; 'quo Value')))),
++                      'invalid' =&gt; array('f' =&gt;
++                                         array(2 =&gt;
++                                               array('foo' =&gt; 'foo Invalid',
++                                                     0 =&gt;
++                                                     array('quo' =&gt; 'quo Value')))),
++                      'partial' =&gt; array('f' =&gt;
++                                         array(2 =&gt;
++                                               array(0 =&gt;
++                                                     array('quo' =&gt; 'quo Value')))));
++        return $data;                      
++    }
++    
++    public function testGetErrorsNumericalSubForms()
++    {
++        $data = $this-&gt;_setup9401();
++        $this-&gt;form-&gt;isValid($data['invalid']);
++        $err = $this-&gt;form-&gt;getErrors();
++        $this-&gt;assertTrue(is_array($err['f'][2]['foo']) &amp;&amp; !empty($err['f'][2]['foo']));
++    }
++    
++    public function testGetMessagesNumericalSubForms()
++    {
++        $data = $this-&gt;_setup9401();
++        $this-&gt;form-&gt;isValid($data['invalid']);
++        $msg = $this-&gt;form-&gt;getMessages();
++        $this-&gt;assertTrue(is_array($msg['f'][2]['foo']) &amp;&amp; !empty($msg['f'][2]['foo']));
++    }
++
++    public function testGetValuesNumericalSubForms()
++    {
++        $data = $this-&gt;_setup9401();
++        $this-&gt;form-&gt;populate($data['valid']);
++        $this-&gt;assertEquals($this-&gt;form-&gt;getValues(), $data['valid']);
++    }
++
++    public function testGetValidValuesNumericalSubForms()
++    {
++        $data = $this-&gt;_setup9401();
++        $this-&gt;assertEquals($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
++    }
++
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php   (Revision 21857)
++++ library/Zend/Form.php   (Arbeitskopie)
+@@ -842,7 +842,7 @@
+     public function setName($name)
+     {
+         $name = $this-&gt;filterName($name);
+-        if (('0' !== $name) &amp;&amp; empty($name)) {
++        if ('' === (string)$name) {
+             require_once 'Zend/Form/Exception.php';
+             throw new Zend_Form_Exception('Invalid name provided; must contain only valid variable characters and be non-empty');
+         }
+@@ -1416,7 +1416,7 @@
+     {
+         $origName = $this-&gt;getElementsBelongTo();
+         $name = $this-&gt;filterName($array, true);
+-        if (empty($name)) {
++        if ('' === $name) {
+             $name = null;
+         }
+         $this-&gt;_elementsBelongTo = $name;
+@@ -1468,7 +1468,7 @@
+     {
+         if ((null === $this-&gt;_elementsBelongTo) &amp;&amp; $this-&gt;isArray()) {
+             $name = $this-&gt;getName();
+-            if (!empty($name)) {
++            if ('' !== (string)$name) {
+                 return $name;
+             }
+         }
+@@ -1761,7 +1761,7 @@
+     {
+         if (null === $name) {
+             $name = $group-&gt;getName();
+-            if (empty($name)) {
++            if ('' === (string)$name) {
+                 require_once 'Zend/Form/Exception.php';
+                 throw new Zend_Form_Exception('Invalid display group added; requires name');
+             }
+@@ -1953,7 +1953,7 @@
+      */
+     protected function _getArrayName($value)
+     {
+-        if (empty($value) || !is_string($value)) {
++        if (!is_string($value) || '' === $value) {
+             return $value;
+         }
+ 
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-15T11:04:32.000+0000</p> 
+        <div class="body">
+            <p>added Patch including Unit Tests</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-16T13:17:03.000+0000</p> 
+        <div class="body">
+            <p>Patch applied to trunk and 1.10 release branch</p>
+
+        </div>
+    </div>
+    </div>
+

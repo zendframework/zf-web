@@ -1,0 +1,168 @@
+Index: tests/Zend/Application/Resource/ViewTest.php
+===================================================================
+--- tests/Zend/Application/Resource/ViewTest.php	(revision 22824)
++++ tests/Zend/Application/Resource/ViewTest.php	(working copy)
+@@ -121,10 +121,97 @@
+     public function testDoctypeIsSet()
+     {
+         $options = array('doctype' => 'XHTML1_FRAMESET');
+-	$resource = new Zend_Application_Resource_View($options);
++        $resource = new Zend_Application_Resource_View($options);
+         $resource->init();
+         $view  = $resource->getView();
+-	$this->assertEquals('XHTML1_FRAMESET', $view->doctype()->getDoctype());
++        $this->assertEquals('XHTML1_FRAMESET', $view->doctype()->getDoctype());
++    }
++
++    /**
++     * @group ZF-10343
++     */
++    public function testContentTypeIsSet()
++    {
++        $contentType = 'text/html; charset=UTF-8';
++        $options = array('contentType' => $contentType);
++        $resource = new Zend_Application_Resource_View($options);
++        $headMetaHelper = $resource->init()->headMeta();
++ 
++        $actual = null;
++        $container = $headMetaHelper->getContainer();
++        foreach ($container as $item) {
++            if ('Content-Type' == $item->{$item->type}) {
++                $actual = $item->content;
++                break;
++            }
++        }
++
++        $this->assertEquals($contentType, $actual);
++
++        Zend_View_Helper_Placeholder_Registry::getRegistry()
++            ->deleteContainer('Zend_View_Helper_HeadMeta');
++    }
++    
++    /**
++     * @group ZF-10343
++     */
++    public function testSetMetaCharsetForHtml5()
++    {
++        $charset = 'UTF-8';
++        $options = array(
++            'doctype' => 'HTML5',
++            'charset' => $charset,
++        );
++        $resource = new Zend_Application_Resource_View($options);
++        $view = $resource->init();
++        $headMetaHelper = $view->headMeta();
++
++        $actual = null;
++        $container = $headMetaHelper->getContainer();
++        foreach ($container as $item) {
++            if ('charset' == $item->type) {
++                $actual = $item->charset;
++                break;
++            }
++        }
++
++        $this->assertTrue($view->doctype()->isHtml5());
++        $this->assertEquals($charset, $actual);
++
++        $registry = Zend_View_Helper_Placeholder_Registry::getRegistry();
++        $registry->deleteContainer('Zend_View_Helper_HeadMeta');
++        $registry->deleteContainer('Zend_View_Helper_Doctype');
++    }
++	
++    /**
++     * @group ZF-10343
++     */
++    public function testSetMetaCharsetShouldOnlyAvailableForHtml5()
++    {
++    	$charset = 'UTF-8';
++        $options = array(
++            'doctype' => 'XHTML1_STRICT',
++            'charset' => $charset,
++        );
++        $resource = new Zend_Application_Resource_View($options);
++        $view = $resource->init();
++        $headMetaHelper = $view->headMeta();
++
++        $actual = null;
++        $container = $headMetaHelper->getContainer();
++        foreach ($container as $item) {
++            if ('charset' == $item->type) {
++                $actual = $item->charset;
++                break;
++            }
++        }
++
++        $this->assertFalse($view->doctype()->isHtml5());
++        $this->assertNull($actual);
++
++        $registry = Zend_View_Helper_Placeholder_Registry::getRegistry();
++        $registry->deleteContainer('Zend_View_Helper_HeadMeta');
++        $registry->deleteContainer('Zend_View_Helper_Doctype');
+     }
+ }
+ 
+Index: documentation/manual/en/module_specs/Zend_Application-AvailableResources-View.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_Application-AvailableResources-View.xml	(revision 22824)
++++ documentation/manual/en/module_specs/Zend_Application-AvailableResources-View.xml	(working copy)
+@@ -30,4 +30,39 @@
+ resources.view.basePath = APPLICATION_PATH "/views/"
+ ]]></programlisting>
+     </example>
++
++    <sect3 id="zend.application.available-resources.view.contentType">
++        <title>Defining content type and encoding to use</title>
++
++         <para>
++             If you want to obtain more information about values, see <link 
++             linkend="zend.view.helpers.html#zend.view.helpers.initial.headmeta">HeadMeta Helper
++             </link>.
++         </para>
++
++         <example id="zend.application.available-resources.view.contentTypeExample">
++             <title>Sample content type and encoding configuration</title>
++
++             <para>
++                 The following snippet shows how to set a meta Content-Type.
++             </para>
++
++            <programlisting language="ini"><![CDATA[
++resources.view.contentType = "text/html; charset=UTF-8"
++]]></programlisting>
++         </example>
++
++        <example id="zend.application.available-resources.view.charsetExample">
++            <title>Sample encoding configuration for a HTML5 document</title>
++
++            <para>
++                The following snippet shows how to set a meta charset in HTML5-style.
++            </para>
++
++            <programlisting language="ini"><![CDATA[
++resources.view.doctype = "HTML5"
++resources.view.charset = "UTF-8"
++]]></programlisting>
++        </example>
++     </sect3>
+ </sect2>
+Index: library/Zend/Application/Resource/View.php
+===================================================================
+--- library/Zend/Application/Resource/View.php	(revision 22797)
++++ library/Zend/Application/Resource/View.php	(working copy)
+@@ -69,8 +69,14 @@
+             $options = $this->getOptions();
+             $this->_view = new Zend_View($options);
+ 
+-            if(isset($options['doctype'])) {
++            if (isset($options['doctype'])) {
+                 $this->_view->doctype()->setDoctype(strtoupper($options['doctype']));
++                if (isset($options['charset']) && $this->_view->doctype()->isHtml5()) {
++                    $this->_view->headMeta()->setCharset($options['charset']);
++                }
++            }
++            if (isset($options['contentType'])) {
++                $this->_view->headMeta()->appendHttpEquiv('Content-Type', $options['contentType']);
+             }
+         }
+         return $this->_view;

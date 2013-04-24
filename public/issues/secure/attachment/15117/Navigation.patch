@@ -1,0 +1,342 @@
+Index: library/Zend/View/Helper/Navigation/HelperAbstract.php
+===================================================================
+--- library/Zend/View/Helper/Navigation/HelperAbstract.php	(revision 24859)
++++ library/Zend/View/Helper/Navigation/HelperAbstract.php	(working copy)
+@@ -72,6 +72,20 @@
+     protected $_indent = '';
+ 
+     /**
++     * Prefix for IDs when they are normalized
++     *
++     * @var string|null
++     */
++    protected $_prefixForId = null;
++
++    /**
++     * Skip current prefix for IDs when they are normalized (flag)
++     *
++     * @var bool
++     */
++    protected $_skipPrefixForId = false;
++
++    /**
+      * Translator
+      *
+      * @var Zend_Translate_Adapter
+@@ -274,6 +288,50 @@
+     }
+ 
+     /**
++     * Sets prefix for IDs when they are normalized
++     *
++     * @param   string $prefix                              Prefix for IDs
++     * @return  Zend_View_Helper_Navigation_HelperAbstract  fluent interface, returns self
++     */
++    public function setPrefixForId($prefix)
++    {
++        if (is_string($prefix)) {
++            $this->_prefixForId = trim($prefix);
++        }
++
++        return $this;
++    }
++
++    /**
++     * Returns prefix for IDs when they are normalized
++     *
++     * @return string   Prefix for
++     */
++    public function getPrefixForId()
++    {
++        if (null === $this->_prefixForId) {
++            $prefix             = get_class($this);
++            $this->_prefixForId = strtolower(
++                    trim(substr($prefix, strrpos($prefix, '_')), '_')
++                ) . '-';
++        }
++
++        return $this->_prefixForId;
++    }
++
++    /**
++     * Skip the current prefix for IDs when they are normalized
++     *
++     * @param  bool $flag
++     * @return Zend_View_Helper_Navigation_HelperAbstract  fluent interface, returns self
++     */
++    public function skipPrefixForId($flag = true)
++    {
++        $this->_skipPrefixForId = (bool) $flag;
++        return $this;
++    }
++
++    /**
+      * Sets translator to use in helper
+      *
+      * Implements {@link Zend_View_Helper_Navigation_Helper::setTranslator()}.
+@@ -800,17 +858,22 @@
+     /**
+      * Normalize an ID
+      *
+-     * Overrides {@link Zend_View_Helper_HtmlElement::_normalizeId()}.
++     * Extends {@link Zend_View_Helper_HtmlElement::_normalizeId()}.
+      *
+-     * @param  string $value
+-     * @return string
++     * @param  string $value    ID
++     * @return string           Normalized ID
+      */
+     protected function _normalizeId($value)
+-    {
+-        $prefix = get_class($this);
+-        $prefix = strtolower(trim(substr($prefix, strrpos($prefix, '_')), '_'));
++    {        
++        if (false === $this->_skipPrefixForId) {
++            $prefix = $this->getPrefixForId();
+ 
+-        return $prefix . '-' . $value;
++            if (strlen($prefix)) {
++                return $prefix . $value;
++            }
++        }
++
++        return parent::_normalizeId($value);
+     }
+ 
+     // Static methods:
+Index: library/Zend/View/Helper/Navigation/Menu.php
+===================================================================
+--- library/Zend/View/Helper/Navigation/Menu.php	(revision 24859)
++++ library/Zend/View/Helper/Navigation/Menu.php	(working copy)
+@@ -45,6 +45,13 @@
+     protected $_ulClass = 'navigation';
+ 
+     /**
++     * Unique identifier (id) for the ul element
++     *
++     * @var string
++     */
++    protected $_ulId = null;
++
++    /**
+      * Whether only active branch should be rendered
+      *
+      * @var bool
+@@ -116,6 +123,33 @@
+     }
+ 
+     /**
++     * Sets unique identifier (id) to use for the first 'ul' element when
++     * rendering
++     *
++     * @param  string|null  $ulId                Unique identifier (id) to set
++     * @return Zend_View_Helper_Navigation_Menu  fluent interface, returns self
++     */
++    public function setUlId($ulId)
++    {
++        if (is_string($ulId)) {
++            $this->_ulId = $ulId;
++        }
++
++        return $this;
++    }
++
++    /**
++     * Returns unique identifier (id) to use for the first 'ul' element when
++     * rendering
++     *
++     * @return string|null  Unique identifier (id); Default is 'null'
++     */
++    public function getUlId()
++    {
++        return $this->_ulId;
++    }
++
++    /**
+      * Sets a flag indicating whether only active branch should be rendered
+      *
+      * @param  bool $flag                        [optional] render only active
+@@ -295,6 +329,12 @@
+             $options['ulClass'] = $this->getUlClass();
+         }
+ 
++        if (isset($options['ulId']) && $options['ulId'] !== null) {
++            $options['ulId'] = (string) $options['ulId'];
++        } else {
++            $options['ulId'] = $this->getUlId();
++        }
++
+         if (array_key_exists('minDepth', $options)) {
+             if (null !== $options['minDepth']) {
+                 $options['minDepth'] = (int) $options['minDepth'];
+@@ -307,6 +347,7 @@
+             $options['minDepth'] = 0;
+         }
+ 
++        // Maximum depth
+         if (array_key_exists('maxDepth', $options)) {
+             if (null !== $options['maxDepth']) {
+                 $options['maxDepth'] = (int) $options['maxDepth'];
+@@ -342,13 +383,16 @@
+      * @param  string                    $indent     initial indentation
+      * @param  int|null                  $minDepth   minimum depth
+      * @param  int|null                  $maxDepth   maximum depth
++     * @param  string|null               $ulId       unique identifier (id) for
++     *                                               first UL
+      * @return string                                rendered menu
+      */
+     protected function _renderDeepestMenu(Zend_Navigation_Container $container,
+                                           $ulClass,
+                                           $indent,
+                                           $minDepth,
+-                                          $maxDepth)
++                                          $maxDepth,
++                                          $ulId)
+     {
+         if (!$active = $this->findActive($container, $minDepth - 1, $maxDepth)) {
+             return '';
+@@ -367,9 +411,23 @@
+             $active['page'] = $active['page']->getParent();
+         }
+ 
+-        $ulClass = $ulClass ? ' class="' . $ulClass . '"' : '';
+-        $html = $indent . '<ul' . $ulClass . '>' . self::EOL;
++        $attribs = array(
++            'class' => $ulClass,
++            'id'    => $ulId,
++        );
+ 
++        // We don't need a prefix for the menu ID (backup)
++        $skipValue = $this->_skipPrefixForId;
++        $this->skipPrefixForId();
++
++        $html = $indent . '<ul'
++                        . $this->_htmlAttribs($attribs)
++                        . '>'
++                        . self::EOL;
++
++        // Reset prefix for IDs
++        $this->_skipPrefixForId = $skipValue;
++
+         foreach ($active['page'] as $subPage) {
+             if (!$this->accept($subPage)) {
+                 continue;
+@@ -394,7 +452,10 @@
+      * @param  int|null                  $minDepth    minimum depth
+      * @param  int|null                  $maxDepth    maximum depth
+      * @param  bool                      $onlyActive  render only active branch?
+-     * @param  bool                      $expandSibs  render siblings of active branch nodes?
++     * @param  bool                      $expandSibs  render siblings of active
++     *                                                branch nodes?
++     * @param  string|null               $ulId        unique identifier (id) for
++     *                                                first UL
+      * @return string
+      */
+     protected function _renderMenu(Zend_Navigation_Container $container,
+@@ -403,7 +464,8 @@
+                                    $minDepth,
+                                    $maxDepth,
+                                    $onlyActive,
+-                                   $expandSibs)
++                                   $expandSibs,
++                                   $ulId)
+     {
+         $html = '';
+ 
+@@ -442,7 +504,7 @@
+                         $accept = true;
+                     }
+                 }
+-            	if (!$isActive && !$accept) {
++                if (!$isActive && !$accept) {
+                     continue;
+                 }
+             } else if ($onlyActive && !$isActive) {
+@@ -473,13 +535,27 @@
+             $myIndent = $indent . str_repeat('        ', $depth);
+ 
+             if ($depth > $prevDepth) {
++                $attribs = array();
++
+                 // start new ul tag
+-                if ($ulClass && $depth ==  0) {
+-                    $ulClass = ' class="' . $ulClass . '"';
+-                } else {
+-                    $ulClass = '';
++                if (0 == $depth) {
++                    $attribs = array(
++                        'class' => $ulClass,
++                        'id'    => $ulId,
++                    );
+                 }
+-                $html .= $myIndent . '<ul' . $ulClass . '>' . self::EOL;
++
++                // We don't need a prefix for the menu ID (backup)
++                $skipValue = $this->_skipPrefixForId;
++                $this->skipPrefixForId();
++
++                $html .= $myIndent . '<ul'
++                                   . $this->_htmlAttribs($attribs)
++                                   . '>'
++                                   . self::EOL;
++
++                // Reset prefix for IDs
++                $this->_skipPrefixForId = $skipValue;
+             } else if ($prevDepth > $depth) {
+                 // close li/ul tags until we're at current depth
+                 for ($i = $prevDepth; $i > $depth; $i--) {
+@@ -548,7 +624,8 @@
+                                               $options['ulClass'],
+                                               $options['indent'],
+                                               $options['minDepth'],
+-                                              $options['maxDepth']);
++                                              $options['maxDepth'],
++                                              $options['ulId']);
+         } else {
+             $html = $this->_renderMenu($container,
+                                        $options['ulClass'],
+@@ -556,7 +633,8 @@
+                                        $options['minDepth'],
+                                        $options['maxDepth'],
+                                        $options['onlyActiveBranch'],
+-                                       $options['expandSiblingNodesOfActiveBranch']);
++                                       $options['expandSiblingNodesOfActiveBranch'],
++                                       $options['ulId']);
+         }
+ 
+         return $html;
+@@ -581,7 +659,7 @@
+      *                                               render. Default is to render
+      *                                               the container registered in
+      *                                               the helper.
+-     * @param  string                    $ulClass    [optional] CSS class to
++     * @param  string|null               $ulClass    [optional] CSS class to
+      *                                               use for UL element. Default
+      *                                               is to use the value from
+      *                                               {@link getUlClass()}.
+@@ -590,11 +668,14 @@
+      *                                               spaces. Default is to use
+      *                                               the value retrieved from
+      *                                               {@link getIndent()}.
++     * @param  string|null               $ulId       [optional] Unique identifier
++     *                                               (id) use for UL element
+      * @return string                                rendered content
+      */
+     public function renderSubMenu(Zend_Navigation_Container $container = null,
+                                   $ulClass = null,
+-                                  $indent = null)
++                                  $indent = null,
++                                  $ulId   = null)
+     {
+         return $this->renderMenu($container, array(
+             'indent'           => $indent,
+@@ -602,7 +683,8 @@
+             'minDepth'         => null,
+             'maxDepth'         => null,
+             'onlyActiveBranch' => true,
+-            'renderParents'    => false
++            'renderParents'    => false,
++            'ulId'             => $ulId,
+         ));
+     }
+ 

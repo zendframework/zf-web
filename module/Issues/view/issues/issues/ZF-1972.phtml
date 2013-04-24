@@ -1,0 +1,226 @@
+<h2>ZF-1972: Loader should validate class names</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-09-19T17:59:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-11-25T13:13:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Loader should check that class names passed to it do not contain path characters (like "/" and "\") and maybe also other "bad" characters. This would help to protect code that uses user data as part of the class name (e.g., MVC) from being tricked into accessing files that they should not.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-09-20T08:15:13.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~bkarwin] to initiate issue review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-10-17T15:28:46.000+0000</p> 
+        <div class="body">
+            <p>Changing to 'Unassigned'</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jordan Ryan Moore (jordanryanmoore) on 2007-12-04T17:37:10.000+0000</p> 
+        <div class="body">
+            <p>Adding this somewhere before {{$path}} is defined in {{Zend_Loader::loadClass()}} would work:</p>
+
+<p>{{$class = preg_replace('/[a-zA-Z0-9_\x7f-\xff]/', '', $class);}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jordan Ryan Moore (jordanryanmoore) on 2007-12-13T11:23:25.000+0000</p> 
+        <div class="body">
+            <p>Patch:</p>
+
+<pre class="highlight"><code>
+Index: /library/Zend/Loader.php
+===================================================================
+--- /library/Zend/Loader.php    (revision 7100)
++++ /library/Zend/Loader.php    (working copy)
+@@ -66,6 +66,8 @@
+             $dirs = (array) $dirs;
+         }
+ 
++        // remove invalid class name characters
++        $class = preg_replace('/[a-zA-Z0-9_\x7f-\xff]/', '', $class);
+         // autodiscover the path from the class name
+         $path = str_replace('_', DIRECTORY_SEPARATOR, $class);
+         if ($path != $class) {
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-22T09:11:57.000+0000</p> 
+        <div class="body">
+            <p>loadClass() uses the _securityCheck() method internally which already performs these checks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ovidiu EFTIMIE (eovidiu) on 2008-11-25T09:26:06.000+0000</p> 
+        <div class="body">
+            <p>I have tried this code 
+$className = 'Mypackage_Filter_'.ucfirst(strtolower($_GET['module']));
+try{
+   Zend_Loader::loadClass($className);
+}catch(Zend_Exception $e){
+   echo $e-&gt;getMessage();
+}</p>
+
+<p>and when passed something like module=../../otherfile  in the url, it will automatically include the file. It seems that the _securitiCheck() is not correctly applied.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-25T09:53:08.000+0000</p> 
+        <div class="body">
+            <p>The security check is for filenames, not for classes. loadClass() normalizes the class name to an appropriate file name; securityCheck() simply checks that no invalid filesystem characters are used in the path provided, and both '.' and '/' are valid characters.</p>
+
+<p>That said, '.' and '/' are not valid characters for class names, and PHP will fail the class_exists() check within loadClass(), raising an exception.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ovidiu EFTIMIE (eovidiu) on 2008-11-25T10:02:40.000+0000</p> 
+        <div class="body">
+            <p>Hi Mathew,
+Actually the class_exists and interface_exists will not fail. I've just run the debugger on that . It all comes to passing the wrong file name to _securityCheck function</p>
+
+<pre class="highlight"><code>
+$classNameAfterloadClassFunction = 'Mypackage\Filter\../../../checkpoint.php';
+
+if (preg_match('/[^a-z0-9\\/\\\\_.-]/i', $classNameAfterloadClassFunction)) {
+            throw new Zend_Exception('Security check: Illegal character in filename');
+}else{
+    echo "no exception";
+}
+die();
+</code></pre>
+
+<p>I'm on win xp sp2 / php 5.24 / apache 2.2.4.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-25T10:39:42.000+0000</p> 
+        <div class="body">
+            <p>Okay, let me run this by you. I have the following:</p>
+
+<pre class="highlight"><code>
+$className = 'Zend_Acl/../../../../../../tmp/foo';
+Zend_Loader::loadClass($className);
+</code></pre>
+
+<p>In side foo.php, I have the following:</p>
+
+<pre class="highlight"><code>
+echo "This got executed\n";
+</code></pre>
+
+<p>If I execute the original script, I get the following:</p>
+
+<pre class="highlight"><code>
+This got executed
+PHP Fatal error:  Uncaught exception 'Zend_Exception' with message 'File "Zend/Acl/../../../../../../tmp/foo.php" does not exist or class "Zend_Acl/../../../../../../tmp/foo" was not found in the file' in /home/matthew/git/framework-standard/trunk/library/Zend/Loader.php:88
+Stack trace:
+#0 /home/matthew/tmp/test.php(18): Zend_Loader::loadClass('Zend_Acl/../../...')
+#1 {main}
+  thrown in /home/matthew/git/framework-standard/trunk/library/Zend/Loader.php on line 88
+
+Zend_Exception: File "Zend/Acl/../../../../../../tmp/foo.php" does not exist or class "Zend_Acl/../../../../../../tmp/foo" was not found in the file in /home/matthew/git/framework-standard/trunk/library/Zend/Loader.php on line 88
+
+Call Stack:
+    0.0002      51000   1. {main}() /home/matthew/tmp/test.php:0
+    0.0009      98644   2. Zend_Loader::loadClass() /home/matthew/tmp/test.php:18
+</code></pre>
+
+<p>If I change foo.php to create the following:</p>
+
+<pre class="highlight"><code>
+class Zend_Acl/../../../../../../tmp/foo
+{
+}
+</code></pre>
+
+<p>I instead get this:</p>
+
+<pre class="highlight"><code>
+PHP Parse error:  syntax error, unexpected '/', expecting '{' in /home/matthew/tmp/foo.php on line 2
+PHP Stack trace:
+PHP   1. {main}() /home/matthew/tmp/test.php:0
+PHP   2. Zend_Loader::loadClass() /home/matthew/tmp/test.php:18
+
+Parse error: syntax error, unexpected '/', expecting '{' in /home/matthew/tmp/foo.php on line 2
+
+Call Stack:
+    0.0002      51000   1. {main}() /home/matthew/tmp/test.php:0
+    0.0009      98644   2. Zend_Loader::loadClass() /home/matthew/tmp/test.php:18
+</code></pre>
+
+<p>What I'm driving at here is that loadClass() is going to generate either an exception because the class does not exist, or a parse error because invalid characters were used to define the class name.</p>
+
+<p>What <em>YOU</em> are trying to get across is that Zend_Loader::loadClass() allows a user to include an arbitrary file. This will be true if you use include/require or their *_once variants by themselves as it is. The question is whether or not we should add a check for invalid class name characters or path separators prior to calling the include. While I can see value in this, it also adds significant overhead to Zend_Loader, particularly as we already have the _securityCheck() method running as well. (If you don't believe this adds up, try running a typical ZF app through a debugger sometime.)</p>
+
+<p>_securityCheck() is for determining valid filesystem characters -- removing '/' or '.' from that would make it basically unusable. The only way to prevent this is to add an additional check to the class name -- which, as noted, would be more overhead.</p>
+
+<p>I'm going to reopen the issue and mark it as postponed, as I need to discuss it with a few others prior to making a decision.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ovidiu EFTIMIE (eovidiu) on 2008-11-25T13:13:59.000+0000</p> 
+        <div class="body">
+            <p>You completely described my issue :). The file I was using (checkpoint.php) generates an rss feed, so the error was added to the generated file but not displayed by Firefox (only viewable in view source).</p>
+
+        </div>
+    </div>
+    </div>
+

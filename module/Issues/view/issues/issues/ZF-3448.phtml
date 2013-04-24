@@ -1,0 +1,295 @@
+<h2>ZF-3448: Zend_Db_Adapter_Abstract::quote() does not properly handle ENUM values...</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-11T13:54:31.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-31T09:07:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The logic for quoting fields in Zend_Db_Adapter_Abstract::quote() is insufficient to address fields of type ENUM that employ numeric values, even when the explicit data type is passed as the second argument. For example, a field in SQL with type "ENUM('1','0','-1')" should always quote values, particularly numeric values, before assembling a query, but this <em>never</em> occurs for numeric values, resulting with inaccurate queries. Casting the value of the field to string within PHP is a useful workaround for this issue, as Zend_Db_Adapter_Abstract no longer treats it as a numeric value.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-06-28T08:59:12.000+0000</p> 
+        <div class="body">
+            <p>Zend_Db doesn't appear to properly handle enumerated types at all!</p>
+
+<p>In a call to db-&gt;update($table,$data,$where) any enumerated values are not written to the database even though the $data array contains values for the enumerated type fields. (the data values have been previously passed through db-&gt;quote() )</p>
+
+<p>Same holds true for db-&gt;insert(), no enumerated types are written to the database</p>
+
+<p>Database = MySql
+Driver/Adapter = Pdo_Mysql</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2008-06-28T09:09:02.000+0000</p> 
+        <div class="body">
+            <p>You're right to include your comment on this issue, then... MySQL silently ignores values for fields that it doesn't understand or don't match its field definitions... Try setting a too-long value to a VARCHAR field to see what I'm talking about...</p>
+
+<p>Does this only affect ENUM's that contain numeric values for you? I don't notice the same behavior with TINYINT. I have a patch to extract and submit, if it will be reviewed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-06-28T09:10:28.000+0000</p> 
+        <div class="body">
+            <p>Additional note.  Actually a blank value is written to the database for an enumerated value.  Create a table with a enum value that defaults to one of its allowed values.  Insert a record to the table, without setting a value for the enum field.  It will default to whatever you set it on the database.  Now update the record, this time passing a value for the enum field.  It will get overwritten with a blank.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-06-28T09:14:56.000+0000</p> 
+        <div class="body">
+            <p>David said "Does this only affect ENUM's that contain numeric values for you"</p>
+
+<p>I tend not to use numeric values for enums so don't experience that particular issue.  I use string values e.g.</p>
+
+<p>CREATE TABLE IF NOT EXISTS <code>syst_test</code> (
+  <code>pid</code> int(11) NOT NULL auto_increment,
+  <code>uVal</code> int(11) NOT NULL,
+  <code>strVal</code> varchar(30) default NULL,
+  <code>dateVal</code> date default NULL,
+  <code>textVal</code> text,
+  <code>floatVal</code> float default NULL,
+  <code>enumVal</code> enum('one','two') default NULL,
+  <code>rowSts</code> enum('active','suspended','defunct') NOT NULL default 'active' COMMENT 'Row Status',
+  <code>rowUid</code> int(11) NOT NULL default '0' COMMENT 'Last Edited By',
+  <code>rowDt</code> timestamp NOT NULL default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP COMMENT 'Edit Datetime',
+  PRIMARY KEY  (<code>pid</code>),
+  UNIQUE KEY <code>uVal</code> (<code>uVal</code>)
+) ENGINE=MyISAM  DEFAULT CHARSET=latin1 AUTO_INCREMENT=10 ;</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-06-28T09:21:23.000+0000</p> 
+        <div class="body">
+            <p>A little further delving seems to reveal that the Zend layer is doing everything you would expect.  It properly puts quotes around an enum value.  It is when the pdo layer is called to do the update that the value disappears.  So it my be PDO, not Zend_Db at fault.  Can't debug PDO in Zend Studio, so can get no further :-(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2008-06-28T09:57:16.000+0000</p> 
+        <div class="body">
+            <p>We haven't had the issue you're describing with string values and ENUM fields at all, Ashley, only those fields that contain a numeric ENUM value. Our solution has just been to cast the number to a string value, ie :</p>
+
+<pre class="highlight"><code>
+-- Sample Schema in Database 'test'
+CREATE TABLE IF NOT EXISTS 'enum_test' (
+'one_or_zero' ENUM('1','0') DEFAULT '1',
+'true_or_false' ENUM('true','false) DEFAULT 'false',
+) ENGINE=InnoDB DEFAULT CHARSET=utf8-bin ;
+
+INSERT INTO 'enum_test' VALUES 
+( '1', 'true' ),
+( '1', 'false' ),
+( '0', 'true' ),
+( '1', 'false' );
+</code></pre>
+
+<pre class="highlight"><code>
+$Adapter = Zend_Db::factory('Pdo_Mysql', array('host' =&gt; 'localhost', 'user' =&gt; 'root', 'dbname' =&gt; 'test');
+
+// Expected - integer: 2
+Zend_Debug::dump( 
+    $Adapter-&gt;select()-&gt;from('enum_test', array('count' =&gt; 'COUNT(*)'))
+        -&gt;where('one_or_zero = ?', 1)
+        -&gt;query()-&gt;fetchColumn() 
+);
+// Actual - integer: 0
+
+// Expected - integer: 2
+Zend_Debug::dump( 
+    $Adapter-&gt;select()-&gt;from('enum_test', array('count' =&gt; 'COUNT(*)'))
+        -&gt;where('one_or_zero = ?',  (string) 1)
+        -&gt;query()-&gt;fetchColumn()
+);
+// Actual - integer: 2
+</code></pre>
+
+<p>What you're describing - correct me if wrong - is something like the following:</p>
+
+<pre class="highlight"><code>
+// Same as above...
+
+// Expected - integer 1 (number of rows affected)
+Zend_Debug::dump(
+    $Adapter-&gt;insert(array('true_or_false' =&gt; 'true'))
+);
+// Actual - integer 1
+
+// Expected - integer 3 (2 originals plus newly inserted value)
+Zend_Debug::dump(
+    $Adapter-&gt;select()-&gt;from('enum_test', array('count' =&gt; 'COUNT(*)'))
+        -&gt;where('true_or_false = ?', 'true')
+        -&gt;query()-&gt;fetchColumn()
+);
+// Actual - integer 0 (query got messed up somewhere...!)
+</code></pre>
+
+<p>What's version of PHP you're using, as this may be the culprit instead.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-06-28T10:06:24.000+0000</p> 
+        <div class="body">
+            <p>I had a spare minute so I checked to see if anything different happened by changing the adapter to Mysqli.  It didn't - still doen't work.</p>
+
+<p>However just to prove it isn't MySql, I ran the following bare bones mysql query:</p>
+
+<pre><code>    $db = mysql_connect('localhost','MyDb','MyDb');
+    $sql = "update syst_test set enumVal = 'two' where pid = 10";
+    $ret = mysql_db_query('MyDb',$sql,$db);
+</code></pre>
+
+<p>That works just fine, the enum value gets updated.</p>
+
+<p>So it's not SQL.  If changing adapters proves anything, its not the adapter.  Ergo it's Zend_Db.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Kitson (akzincdig) on 2008-06-28T10:13:32.000+0000</p> 
+        <div class="body">
+            <p>I'm using PHP 5.2.3</p>
+
+<p>"$Adapter-&gt;insert(array('true_or_false' =&gt; 'true'))"
+     Yep, that's about right</p>
+
+<p>(got t go now - will catch up 2morrow.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-04T13:17:30.000+0000</p> 
+        <div class="body">
+            <p>Reassigning to Ralph since he's the new maintainer of Zend_Db</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2009-03-02T12:21:52.000+0000</p> 
+        <div class="body">
+            <p>Can I just submit a patch for this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-12-21T12:55:19.000+0000</p> 
+        <div class="body">
+            <p>Yes, I would like to see a patch- do you have one that addresses this issue?</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2010-04-01T13:51:27.000+0000</p> 
+        <div class="body">
+            <p>I have a patch for this issue, but as there are no tests for the Abstract class, I haven't run the tests on every driver. With some direction there, I could do so, however. Please advise. Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-17T15:32:24.000+0000</p> 
+        <div class="body">
+            <p>Can you attache the issue to this ticket?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2011-02-17T16:58:48.000+0000</p> 
+        <div class="body">
+            <p>I don't quite follow, Ralph. What do you mean by "attach the issue to this ticket"...?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-17T17:34:11.000+0000</p> 
+        <div class="body">
+            <p>Ha, sorry. I mean patch. You said you had a patch for this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Leopold Chmielewski (poldekch) on 2011-03-07T06:00:16.000+0000</p> 
+        <div class="body">
+            <p>David, can you post a patch for this issue, I urgently need it...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Rogers (al_the_x) on 2011-03-07T09:11:11.000+0000</p> 
+        <div class="body">
+            <p>Leo,</p>
+
+<p>I'll try to dig that up and send it your way. I think that I isolated the issue to Zend_Db_Table when I last worked on this, since only Table instances have the metadata about the column to know how to coerce the values. I originally tried to mod Zend_Db_Adapter_Mysql, but without the metadata... Anyway. I'll put a patch together this week.</p>
+
+<p>David</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-03-28T19:18:21.000+0000</p> 
+        <div class="body">
+            <p>Any progress on the patch?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stephane Mennesson (smennesson) on 2011-04-26T15:32:58.000+0000</p> 
+        <div class="body">
+            <p>Hello
+I'm experiencing the same problem with Zend 1.11.4
+A temporary solution for users that can't wait for the patch is to use Zend_Db_Expr:
+$Adapter-&gt;insert(array('true_or_false' =&gt; new Zend_Db_Expr("'true'")))</p>
+
+        </div>
+    </div>
+    </div>
+

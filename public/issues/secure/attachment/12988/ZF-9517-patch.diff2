@@ -1,0 +1,95 @@
+Index: tests/Zend/Json/ServerTest.php
+===================================================================
+--- tests/Zend/Json/ServerTest.php	(revision 21843)
++++ tests/Zend/Json/ServerTest.php	(working copy)
+@@ -322,6 +322,48 @@
+         $this->assertEquals('bar', $result[2]);
+     }
+ 
++    public function testHandleShouldAllowNamedParamsInAnyOrder1()
++    {
++        $this->server->setClass('Zend_Json_ServerTest_Foo')
++                     ->setAutoEmitResponse( false );
++        $request = $this->server->getRequest();
++        $request->setMethod('bar')
++                ->setParams( array( 
++                    'three' => 3,
++                    'two'   => 2,
++                    'one'   => 1
++                ))
++                ->setId( 'foo' );
++        $response = $this->server->handle();
++        $result = $response->getResult();
++
++        $this->assertTrue( is_array( $result ) );
++        $this->assertEquals( 1, $result[0] );
++        $this->assertEquals( 2, $result[1] );
++        $this->assertEquals( 3, $result[2] );
++    }
++
++    public function testHandleShouldAllowNamedParamsInAnyOrder2()
++    {
++        $this->server->setClass('Zend_Json_ServerTest_Foo')
++                     ->setAutoEmitResponse( false );
++        $request = $this->server->getRequest();
++        $request->setMethod('bar')
++                ->setParams( array( 
++                    'three' => 3,
++                    'one'   => 1,
++                    'two'   => 2,
++                ) )
++                ->setId( 'foo' );
++        $response = $this->server->handle();
++        $result = $response->getResult();
++
++        $this->assertTrue( is_array( $result ) );
++        $this->assertEquals( 1, $result[0] );
++        $this->assertEquals( 2, $result[1] );
++        $this->assertEquals( 3, $result[2] );
++    }
++
+     public function testHandleRequestWithErrorsShouldReturnErrorResponse()
+     {
+         $this->server->setClass('Zend_Json_ServerTest_Foo')
+Index: library/Zend/Json/Server.php
+===================================================================
+--- library/Zend/Json/Server.php	(revision 21843)
++++ library/Zend/Json/Server.php	(working copy)
+@@ -526,6 +526,37 @@
+             $params = $this->_getDefaultParams($params, $serviceParams);
+         }
+ 
++        //Make sure named parameters are passed in correct order
++        if( is_string( key( $params ) ) ) {
++
++            $callback = $invocable->getCallback();
++            if( 'function' == $callback->getType() ) {
++                $reflection = new ReflectionFunction( $callback->getFunction() );
++                $refParams  = $reflection->getParameters();
++            } else {
++                
++                $reflection = new ReflectionMethod( 
++                    $callback->getClass(),
++                    $callback->getMethod()
++                );
++                $refParams = $reflection->getParameters();
++            }
++
++            $newParams = array();
++            foreach( $reflection->getParameters() as $refParam ) {
++                if( isset( $params[ $refParam->getName() ] ) ) {
++                    $newParams[ $refParam->getName() ] = $params[ $refParam->getName() ];
++                } elseif( $refParam->isOptional() ) {
++                    $newParams[ $refParam->getName() ] = null;
++                } else {
++                    throw new Zend_Server_Exception( 
++                        'Missing required parameter: ' . $refParam->getName() 
++                    ); 
++                }
++            }
++            $params = $newParams;
++        }
++
+         try {
+             $result = $this->_dispatch($invocable, $params);
+         } catch (Exception $e) {

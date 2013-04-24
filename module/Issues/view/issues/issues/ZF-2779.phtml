@@ -1,0 +1,219 @@
+<h2>ZF-2779: chmod in Zend_Search_Lucene_Storage_Directory_Filesystem causes problems</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-01T16:12:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-01-21T06:45:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1429">ZF-1429</a></li>
+            <li><a href="/issues/browse/ZF-3500">ZF-3500</a></li>
+            <li><a href="/issues/browse/ZF-2744">ZF-2744</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11331/Zend_Search_Lucene_Storage_Directory_Filesystem.patch">Zend_Search_Lucene_Storage_Directory_Filesystem.patch</a></li>
+            <li><a href="/issues/secure/attachment/11708/Zend_Search_Lucene_Storage_Directory_Filesystem.RL.patch">Zend_Search_Lucene_Storage_Directory_Filesystem.RL.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>[reference issue ZF-1429]
+Only file owners can chmod files.  Since the apache user is usually a restricted user, with no shell, it's difficult to fire off cron jobs to update indexes out of band.  This means that typically another user should do this.  But the other user needs to take over ownership of the index files, and in that case, apache can no longer read the indexes and search breaks.</p>
+
+<p>I don't see a problem with ZSL checking to see if the files are writable because that level of permission can be assigned to a group (apache user + indexer user).  In that case, search only needs to check if the files are readable, no?</p>
+
+<p>I haven't seen any reason for ZSL to chmod files (am I missing something?), and doing so breaks good OS admin practices.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-03-05T16:59:57.000+0000</p> 
+        <div class="body">
+            <p>File privileges are changed only at a file creation time. That guarantees we have current user as file owner at chmod() call time.</p>
+
+<p>Right privileges for new files can be specified using Zend_Search_Lucene_Storage_Directory_Filesystem::setDefaultFilePermissions($mode) call (<a href="http://framework.zend.com/manual/en/zend.search.lucene.index-creation.html#zend.search.lucene.index-creation.permissions">http://framework.zend.com/manual/en/…</a>).</p>
+
+<p>This method should be used if someone wants to override default index files permissions (e.g. give read access only for owner). That may be necessary for some cases.</p>
+
+<p>Probably I don't see where the problem is.  Please describe it in more details.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Markus Fischer (mfischer) on 2008-03-05T17:07:28.000+0000</p> 
+        <div class="body">
+            <p>[copied comment from ZF-1429]</p>
+
+<p>Please reconsider your thoughts on forcing the use of chmod.</p>
+
+<p>In restrictive environments it is completely valid that a non-owner of the lucene index files has proper write permissions to write but still is not owner. And, as you're ware, chmod can only be issued by the owner of the files. Group ownership is not considered.</p>
+
+<p>I would strongly advice to remove this patch in its entirety. Zend_Search_Lucene should not deal with permission in anyway itself. This should be left to the environment it is running in, and especially under Unix systems this is easily done by making sure the proper umask is set.</p>
+
+<p>If this is not an option, please at least consider the ability to disable the call to chmod().</p>
+
+<p>Here is an example scenario of mine:
+The index is created from a non www-data user. When I do this and access the index from within the web, I get</p>
+
+<p>Error: chmod(): Operation not permitted in includes/Zend/Search/Lucene/Storage/Directory/Filesystem.php on line 189</p>
+
+<h1>0 includes/Zend/Search/Lucene/LockManager.php(85): Zend_Search_Lucene_Storage_Directory_Filesystem-&gt;createFile('read.lock.file')</h1>
+
+<h1>1 includes/Zend/Search/Lucene.php(410): Zend_Search_Lucene_LockManager::obtainReadLock(Object(Zend_Search_Lucene_Storage_Directory_Filesystem))</h1>
+
+<h1>2 includes/App/Search.php(252): Zend_Search_Lucene-&gt;__construct('/var/www/netcar...')</h1>
+
+<h1>3 http/suche/index2.php(59): App_Search-&gt;search('milbe', 0)</h1>
+
+<h1>4 {main}</h1>
+
+<p>However, there's actually no technical reason why a chmod() call is needed here. The permissions are completely fine as they're and it should not concern the web application that it is not the owner of some of the files. Still the write permissions to create the file are there.</p>
+
+<p>thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-03-05T17:46:24.000+0000</p> 
+        <div class="body">
+            <p>Aha! I see.</p>
+
+<p>The problem is in the several files used for index access synchronization. These files may be recreated (also by index 'readers'). All other index files are not updated during their lifetime, so chmod() is applied only to just created files and shouldn't make a problem in the case you described.</p>
+
+<p>Reasons not to use chmod() at all are clear. But I am not sure we have other ways to provide right (user defined) permissions for index files.
+umask is applied to all files created by application and non-index files permissions may differ from what we need for index files. In addition to this umask() usage may cause problems under multithreaded environment (<a href="http://www.php.net/manual/en/function.umask.php">http://www.php.net/manual/en/function.umask.php</a>) :(</p>
+
+<p>I see only one use case for applying different permissions to index files now. It's giving or restricting index read/write access for everyone... but, I think, we need these possibilities.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Markus Fischer (mfischer) on 2008-03-07T17:24:25.000+0000</p> 
+        <div class="body">
+            <p>Thanks for your reply, good to see this issue hasn't fell of the radar ;)</p>
+
+<p>What if setting up proper permissions is just left out completely of Z_S_L? I mean in the whole Java Lucene library there isn't a single bit of permission handling code. Why do we need it in PHP?</p>
+
+<p>I didn't mean that Z_S_L should take care of the umask from within PHP but the environment under which Z_S_L is operating should do so. There's probably a real-life problem with my suggestion I don't see (and why this change from ZF-1429 has been introduced) but I can't see this limits.</p>
+
+<p>thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:31:42.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabrice Terrasson (fterrasson) on 2008-06-09T08:03:43.000+0000</p> 
+        <div class="body">
+            <p>Got the same issue stated at response #2 (Markus Fischer - 05/Mar/08 05:07 PM). Another user created Lucene index but web search form query prints :</p>
+
+<p>exception 'Zend_Search_Lucene_Exception' with message 'chmod() [function.chmod]: Operation not permitted' in /home/fabrice/library/Zend/Search/Lucene/Storage/Directory/Filesystem.php:189
+Stack trace:</p>
+
+<h1>0 /home/fabrice/library/Zend/Search/Lucene/LockManager.php(85): Zend_Search_Lucene_Storage_Directory_Filesystem-&gt;createFile('read.lock.file')</h1>
+
+<h1>1 /home/fabrice/library/Zend/Search/Lucene.php(410): Zend_Search_Lucene_LockManager::obtainReadLock(Object(Zend_Search_Lucene_Storage_Directory_Filesystem))</h1>
+
+<h1>2 /home/fabrice/library/Zend/Search/Lucene.php(186): Zend_Search_Lucene-&gt;__construct('/home/fabrice/p...', false)</h1>
+
+<h1>3 /home/fabrice/public_html/fabrice-tests/minisite/application/default/controllers/RechercheController.php(34): Zend_Search_Lucene::open('/home/fabrice/p...')</h1>
+
+<h1>4 /home/fabrice/library/Zend/Controller/Action.php(502): RechercheController-&gt;indexAction()</h1>
+
+<h1>5 /home/fabrice/library/Zend/Controller/Dispatcher/Standard.php(293): Zend_Controller_Action-&gt;dispatch('indexAction')</h1>
+
+<h1>6 /home/fabrice/library/Zend/Controller/Front.php(914): Zend_Controller_Dispatcher_Standard-&gt;dispatch(Object(Zend_Controller_Request_Http), Object(Zend_Controller_Response_Http))</h1>
+
+<h1>7 /home/fabrice/public_html/fabrice-tests/minisite/html/index.php(101): Zend_Controller_Front-&gt;dispatch()</h1>
+
+<h1>8 {main}</h1>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabrice Terrasson (fterrasson) on 2008-06-12T00:50:46.000+0000</p> 
+        <div class="body">
+            <p>Tristan Celder sent me this patch, thanks him !</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jack Bates (jablko) on 2008-07-12T19:46:52.000+0000</p> 
+        <div class="body">
+            <p>Our project is glad to use Zend_Search_Lucene: <a href="http://code.google.com/p/qubit-toolkit/">http://code.google.com/p/qubit-toolkit/</a></p>
+
+<ul><li>however we also encountered this issue: <a href="http://groups.google.com/group/qubit-dev/browse_thread/thread/b664af4613eda0a8">http://groups.google.com/group/qubit-dev/…</a></li>
+</ul><p>In our case, it is an exception if we cannot read / write to one of the index files, but if we can read / write to the file, it is not an exception if we cannot chmod() it.</p>
+
+<p>Since normally all the files in our project have the correct permissions, though they may be owned by a user other than Apache, I think it would solve our problem if, in the case that chmod() fails, Zend_Search_Lucene only threw an exception if the file permissions did not already match $_defaultFilePermissions</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-07-25T08:47:18.000+0000</p> 
+        <div class="body">
+            <p>Fixed.</p>
+
+<p>Thenks for all for really productive discussion around the problem!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:30.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robert Lemke (robert) on 2009-01-21T06:44:30.000+0000</p> 
+        <div class="body">
+            <p>The current solution still gives us some headaches because in the development context of our application even PHP notices are converted into exceptions (with good reason) and if the app is used via CLI and web, we've got a problem.</p>
+
+<p>So, why not add a check for the file owner? See the second patch for a version which works for us.</p>
+
+        </div>
+    </div>
+    </div>
+

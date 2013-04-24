@@ -1,0 +1,249 @@
+<h2>ZF-9551: Zend_Form isValidPartial Errors when validating a SubForm with an equal named Element</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-26T15:49:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-03-31T09:23:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When adding a SubForm to Form and adding An Element to that SubForm
+which has the same name as the SubForm, isValidPartial will error with 
+1) Zend_Form_FormTest::testIsValidPartialEqualSubFormAndElementName
+Invalid argument supplied for foreach()</p>
+
+<p>/var/www/FRAMEWORKS/PHP/ZF/trunk/library/Zend/Form.php:2080
+/var/www/FRAMEWORKS/PHP/ZF/trunk/library/Zend/Form.php:2090
+/var/www/FRAMEWORKS/PHP/ZF/trunk/tests/Zend/Form/FormTest.php:1487</p>
+
+<p>Based on what i have learned from patching the related issue in isValid
+i updatet the patch below, for the description why the Error occures
+see [ZF-9348]</p>
+
+<p>To make the method isValidPartial() more readable and to be able
+to apply a solution the same way as above i changed the iteration from</p>
+
+<pre class="highlight"><code>
+foreach($data as $key =&gt; $val) {
+    if (null !== $this-&gt;getElement($key)) {
+        // validate Element
+    }
+    if (null !== $this-&gt;getSubForm($key)) {
+        $form-&gt;isValidPartial($data[$key]);
+    }
+}
+foreach($nonValidatedSubForms as $form) {
+    $form-&gt;isValidPartial($data);
+}
+</code></pre>
+
+<p>into</p>
+
+<pre class="highlight"><code>
+foreach ($this-&gt;getElements() as $key =&gt; $element) {
+     if (isset($data[$key])) {
+         // validate Element
+     }
+}
+foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+     if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) { // Why !$form-&gt;isArray() see @[ZF-9348]
+         $form-&gt;isValidPartial($data[$key]);
+     } else {
+         $form-&gt;isValidPartial($data);
+     }
+}
+</code></pre>
+
+<p>Which in my Opinion is basically the same.</p>
+
+<p>In Full Notation Before Patch</p>
+
+<pre class="highlight"><code>
+
+        foreach ($data as $key =&gt; $value) {
+            if (null !== ($element = $this-&gt;getElement($key))) {
+                if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                    $element-&gt;setTranslator($translator);
+                }
+                $valid = $element-&gt;isValid($value, $data) &amp;&amp; $valid;
+            } elseif (null !== ($subForm = $this-&gt;getSubForm($key))) {
+                if (null !== $translator &amp;&amp; !$subForm-&gt;hasTranslator()) {
+                    $subForm-&gt;setTranslator($translator);
+                }
+                $valid = $subForm-&gt;isValidPartial($data[$key]) &amp;&amp; $valid;
+                $validatedSubForms[] = $key;
+            }
+        }
+        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+            if (!in_array($key, $validatedSubForms)) {
+                if (null !== $translator &amp;&amp; !$subForm-&gt;hasTranslator()) {
+                    $subForm-&gt;setTranslator($translator);
+                }
+
+                $valid = $subForm-&gt;isValidPartial($data) &amp;&amp; $valid;
+            }
+        }
+</code></pre>
+
+<p>And After Patch</p>
+
+<pre class="highlight"><code>
+        foreach ($this-&gt;getElements() as $key =&gt; $element) {
+            if (isset($data[$key])) {
+                if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                    $element-&gt;setTranslator($translator);
+                }
+                $valid = $element-&gt;isValid($data[$key], $data) &amp;&amp; $valid;
+            }
+        }
+        foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+            if (null !== $translator &amp;&amp; !$form-&gt;hasTranslator()) {
+                $form-&gt;setTranslator($translator);
+            }
+            if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
+                $valid = $form-&gt;isValidPartial($data[$key]) &amp;&amp; $valid;
+            } else {
+                $valid = $form-&gt;isValidPartial($data) &amp;&amp; $valid;
+            }
+        }
+</code></pre>
+
+<p>This tested patch fixes the issue, Unit Test included</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21667)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1473,7 +1473,25 @@
+         $this-&gt;assertTrue($this-&gt;form-&gt;isValid($data));
+     }
+ 
++    public function testIsValidPartialEqualSubFormAndElementName()
++    {
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
++                   -&gt;foo-&gt;addElement('text', 'foo')
++                        -&gt;foo-&gt;setRequired(true)
++                             -&gt;addValidator('Identical',
++                                            false,
++                                            array('Foo Value'));
++        $foo = array('foo' =&gt;
++                     array('foo' =&gt; 'Foo Value'));
+ 
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValidPartial($foo));
++
++        $this-&gt;form-&gt;foo-&gt;setIsArray(false);
++
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValidPartial($foo));
++    } 
++
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21667)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -2077,30 +2077,24 @@
+ 
+         $translator        = $this-&gt;getTranslator();
+         $valid             = true;
+-        $validatedSubForms = array();
+ 
+-        foreach ($data as $key =&gt; $value) {
+-            if (null !== ($element = $this-&gt;getElement($key))) {
++        foreach ($this-&gt;getElements() as $key =&gt; $element) {
++            if (isset($data[$key])) {
+                 if (null !== $translator &amp;&amp; !$element-&gt;hasTranslator()) {
+                     $element-&gt;setTranslator($translator);
+                 }
+-                $valid = $element-&gt;isValid($value, $data) &amp;&amp; $valid;
+-            } elseif (null !== ($subForm = $this-&gt;getSubForm($key))) {
+-                if (null !== $translator &amp;&amp; !$subForm-&gt;hasTranslator()) {
+-                    $subForm-&gt;setTranslator($translator);
+-                }
+-                $valid = $subForm-&gt;isValidPartial($data[$key]) &amp;&amp; $valid;
+-                $validatedSubForms[] = $key;
++                $valid = $element-&gt;isValid($data[$key], $data) &amp;&amp; $valid;
+             }
+         }
+-        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+-            if (!in_array($key, $validatedSubForms)) {
+-                if (null !== $translator &amp;&amp; !$subForm-&gt;hasTranslator()) {
+-                    $subForm-&gt;setTranslator($translator);
+-                }
+-
+-                $valid = $subForm-&gt;isValidPartial($data) &amp;&amp; $valid;
++        foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
++            if (null !== $translator &amp;&amp; !$form-&gt;hasTranslator()) {
++                $form-&gt;setTranslator($translator);
+             }
++            if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
++                $valid = $form-&gt;isValidPartial($data[$key]) &amp;&amp; $valid;
++            } else {
++                $valid = $form-&gt;isValidPartial($data) &amp;&amp; $valid;
++            }
+         }
+ 
+         $this-&gt;_errorsExist = !$valid;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-29T05:54:22.000+0000</p> 
+        <div class="body">
+            <p>Updatet the Test, it checks now against $form-&gt;setIsArray(false) as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-03-31T09:23:34.000+0000</p> 
+        <div class="body">
+            <p>Patch applied in trunk and 1.10 release branch.</p>
+
+        </div>
+    </div>
+    </div>
+

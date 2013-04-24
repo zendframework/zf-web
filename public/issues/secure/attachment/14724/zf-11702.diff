@@ -1,0 +1,154 @@
+Index: tests/Zend/Config/_files/listconstants.yaml
+===================================================================
+--- tests/Zend/Config/_files/listconstants.yaml	(revision 0)
++++ tests/Zend/Config/_files/listconstants.yaml	(revision 0)
+@@ -0,0 +1,4 @@
++production:
++    paths:
++        - ZEND_CONFIG_YAML_TEST_PATH
++        - ZEND_CONFIG_YAML_TEST_PATH/library/test
+Index: tests/Zend/Config/_files/listbooleans.yaml
+===================================================================
+--- tests/Zend/Config/_files/listbooleans.yaml	(revision 0)
++++ tests/Zend/Config/_files/listbooleans.yaml	(revision 0)
+@@ -0,0 +1,51 @@
++production:
++    usingLowerCasedYes:
++        - yes
++    usingTitleCasedYes:
++        - Yes
++    usingCapitalYes:
++        - YES
++    usingLowerY:
++        - y
++    usingUpperY:
++        - Y
++
++    usingLowerCasedNo:
++        - no
++    usingTitleCasedNo:
++        - No
++    usingCapitalNo:
++        - NO
++    usingLowerN:
++        - n
++    usingUpperN:
++        - N
++
++    usingLowerCasedTrue:
++        - true
++    usingTitleCasedTrue:
++        - True
++    usingCapitalTrue:
++        - TRUE
++
++    usingLowerCasedFalse:
++        - false
++    usingTitleCasedFalse:
++        - False
++    usingCapitalFalse:
++        - FALSE
++
++    usingLowerCasedOn:
++        - on
++    usingTitleCasedOn:
++        - On
++    usingCapitalOn:
++        - ON
++
++    usingLowerCasedOff:
++        - off
++    usingTitleCasedOff:
++        - Off
++    usingCapitalOff:
++        - OFF
++
+Index: tests/Zend/Config/YamlTest.php
+===================================================================
+--- tests/Zend/Config/YamlTest.php	(revision 24553)
++++ tests/Zend/Config/YamlTest.php	(working copy)
+@@ -48,6 +48,8 @@
+         $this->_constantsConfig           = dirname(__FILE__) . '/_files/constants.yaml';
+         $this->_yamlInlineCommentsConfig  = dirname(__FILE__) . '/_files/inlinecomments.yaml';
+         $this->_yamlIndentedCommentsConfig  = dirname(__FILE__) . '/_files/indentedcomments.yaml';
++        $this->_yamlListConstantsConfig     = dirname(__FILE__) . '/_files/listconstants.yaml';
++        $this->_listBooleansConfig          = dirname(__FILE__) . '/_files/listbooleans.yaml';
+     }
+ 
+     public function testLoadSingleSection()
+@@ -354,4 +356,54 @@
+         );
+     }
+     
++    /**
++     * @group ZF-11702
++     */
++    public function testAllowsConstantsInLists()
++    {
++        if (!defined('ZEND_CONFIG_YAML_TEST_PATH')) {
++            define('ZEND_CONFIG_YAML_TEST_PATH', 'testing');
++        }        
++        $config = new Zend_Config_Yaml($this->_yamlListConstantsConfig, 'production');
++
++        $this->assertEquals(ZEND_CONFIG_YAML_TEST_PATH, $config->paths->{0});
++        $this->assertEquals(ZEND_CONFIG_YAML_TEST_PATH . '/library/test', $config->paths->{1});
++    }
++    
++    /**
++     * @group ZF-11702
++     */
++    public function testAllowsBooleansInLists()
++    {
++        $config = new Zend_Config_Yaml($this->_listBooleansConfig, 'production');
++
++        $this->assertTrue($config->usingLowerCasedYes->{0});
++        $this->assertTrue($config->usingTitleCasedYes->{0});
++        $this->assertTrue($config->usingCapitalYes->{0});
++        $this->assertTrue($config->usingLowerY->{0});
++        $this->assertTrue($config->usingUpperY->{0});
++
++        $this->assertFalse($config->usingLowerCasedNo->{0});
++        $this->assertFalse($config->usingTitleCasedNo->{0});
++        $this->assertFalse($config->usingCapitalNo->{0});
++        $this->assertFalse($config->usingLowerN->{0});
++        $this->assertFalse($config->usingUpperN->{0});
++
++        $this->assertTrue($config->usingLowerCasedTrue->{0});
++        $this->assertTrue($config->usingTitleCasedTrue->{0});
++        $this->assertTrue($config->usingCapitalTrue->{0});
++
++        $this->assertFalse($config->usingLowerCasedFalse->{0});
++        $this->assertFalse($config->usingTitleCasedFalse->{0});
++        $this->assertFalse($config->usingCapitalFalse->{0});
++
++        $this->assertTrue($config->usingLowerCasedOn->{0});
++        $this->assertTrue($config->usingTitleCasedOn->{0});
++        $this->assertTrue($config->usingCapitalOn->{0});
++
++        $this->assertFalse($config->usingLowerCasedOff->{0});
++        $this->assertFalse($config->usingTitleCasedOff->{0});
++        $this->assertFalse($config->usingCapitalOff->{0});
++    }
++    
+ }
+Index: library/Zend/Config/Yaml.php
+===================================================================
+--- library/Zend/Config/Yaml.php	(revision 24553)
++++ library/Zend/Config/Yaml.php	(working copy)
+@@ -336,7 +336,15 @@
+                 // item in the list:
+                 // - FOO
+                 if (strlen($line) > 2) {
+-                    $config[] = substr($line, 2);
++                    $value = substr($line, 2);
++                    if (preg_match('/^(t(rue)?|on|y(es)?)$/i', $value)) {
++                        $value = true;
++                    } elseif (preg_match('/^(f(alse)?|off|n(o)?)$/i', $value)) {
++                        $value = false;
++                    } elseif (!self::$_ignoreConstants) {
++                         $value = self::_replaceConstants($value);
++                    }
++                    $config[] = $value;
+                 } else {
+                     $config[] = self::_decodeYaml($currentIndent + 1, $lines);
+                 }

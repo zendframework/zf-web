@@ -1,0 +1,190 @@
+Index: tests/Zend/Http/CookieTest.php
+===================================================================
+--- tests/Zend/Http/CookieTest.php	(revision 20255)
++++ tests/Zend/Http/CookieTest.php	(working copy)
+@@ -93,6 +93,48 @@
+     }
+ 
+     /**
++     * Make sure we get the correct value if it was set through fromString()
++     *
++     * @param        string $value
++     * @dataProvider validCookieValueProvider
++     */
++    public function testGetRawValueFromString($val)
++    {
++        // Because ';' has special meaning in the cookie, strip it out for this test.
++        $val = str_replace(';', '', $val);
++        $cookie = Zend_Http_Cookie::fromString('cookie=' . $val . '; domain=example.com', null, false);
++        $this->assertEquals($val, $cookie->getValue());
++    }
++
++    /**
++     * Make sure we get the correct value if it was set through fromString()
++     *
++     * @param        string $value
++     * @dataProvider validCookieValueProvider
++     */
++    public function testGetRawValueFromStringToString($val)
++    {
++        // Because ';' has special meaning in the cookie, strip it out for this test.
++        $val = str_replace(';', '', $val);
++        $cookie = Zend_Http_Cookie::fromString('cookie=' . $val . '; domain=example.com', null, false);
++        $this->assertEquals('cookie=' . $val . ';', (string)$cookie);
++    }
++
++    /**
++     * Make sure we get the correct value if it was set through fromString()
++     *
++     * @param        string $value
++     * @dataProvider validCookieValueProvider
++     */
++    public function testGetValueFromStringEncodedToString($val)
++    {
++        // Because ';' has special meaning in the cookie, strip it out for this test.
++        $val = str_replace(';', '', $val);
++        $cookie = Zend_Http_Cookie::fromString('cookie=' . $val . '; domain=example.com', null, true);
++        $this->assertEquals('cookie=' . urlencode($val) . ';', (string)$cookie);
++    }
++
++    /**
+      * Make sure we get the correct domain when it's set in the cookie string
+      *
+      * @dataProvider validCookieWithInfoProvider
+@@ -440,6 +482,7 @@
+             array('space cookie'),
+             array('!@#$%^*&()* ][{}?;'),
+             array("line\n\rbreaks"),
++            array("0000j8CydACPu_-J9bE8uTX91YU:12a83ks4k"), // value from: Alexander Cheshchevik's comment on issue: ZF-1850
+ 
+             // Long cookie value - 2kb
+             array(str_repeat(md5(time()), 64))
+Index: tests/Zend/Http/Client/StaticTest.php
+===================================================================
+--- tests/Zend/Http/Client/StaticTest.php	(revision 20255)
++++ tests/Zend/Http/Client/StaticTest.php	(working copy)
+@@ -608,7 +608,8 @@
+         'keepalive'       => false,
+         'storeresponse'   => true,
+         'strict'          => true,
+-        'output_stream'	  => false,
++        'output_stream'   => false,
++        'encodecookies'   => true,
+     );
+ }
+ 
+Index: library/Zend/Http/Cookie.php
+===================================================================
+--- library/Zend/Http/Cookie.php	(revision 20255)
++++ library/Zend/Http/Cookie.php	(working copy)
+@@ -89,6 +89,13 @@
+     protected $secure;
+ 
+     /**
++     * Whether the cookie value has been encoded/decoded
++     *
++     * @var boolean
++     */
++    protected $encodeValue;
++
++    /**
+      * Cookie object constructor
+      *
+      * @todo Add validation of each one of the parameters (legal domain, etc.)
+@@ -258,7 +265,10 @@
+      */
+     public function __toString()
+     {
+-        return $this->name . '=' . urlencode($this->value) . ';';
++        if ($this->encodeValue) {
++            return $this->name . '=' . urlencode($this->value) . ';';
++        }
++        return $this->name . '=' . $this->value . ';';
+     }
+ 
+     /**
+@@ -266,14 +276,16 @@
+      * (for example the value of the Set-Cookie HTTP header)
+      *
+      * @param string $cookieStr
+-     * @param Zend_Uri_Http|string $ref_uri Reference URI for default values (domain, path)
++     * @param Zend_Uri_Http|string $refUri Reference URI for default values (domain, path)
++     * @param boolean $encodeValue Weither or not the cookie's value should be
++     *                             passed through urlencode/urldecode
+      * @return Zend_Http_Cookie A new Zend_Http_Cookie object or false on failure.
+      */
+-    public static function fromString($cookieStr, $ref_uri = null)
++    public static function fromString($cookieStr, $refUri = null, $encodeValue = true)
+     {
+         // Set default values
+-        if (is_string($ref_uri)) {
+-            $ref_uri = Zend_Uri_Http::factory($ref_uri);
++        if (is_string($refUri)) {
++            $refUri = Zend_Uri_Http::factory($refUri);
+         }
+ 
+         $name    = '';
+@@ -290,12 +302,14 @@
+         // Get the name and value of the cookie
+         list($name, $value) = explode('=', trim(array_shift($parts)), 2);
+         $name  = trim($name);
+-        $value = urldecode(trim($value));
++        if ($encodeValue) {
++            $value = urldecode(trim($value));
++        }
+ 
+         // Set default domain and path
+-        if ($ref_uri instanceof Zend_Uri_Http) {
+-            $domain = $ref_uri->getHost();
+-            $path = $ref_uri->getPath();
++        if ($refUri instanceof Zend_Uri_Http) {
++            $domain = $refUri->getHost();
++            $path = $refUri->getPath();
+             $path = substr($path, 0, strrpos($path, '/'));
+         }
+ 
+@@ -342,7 +356,9 @@
+         }
+ 
+         if ($name !== '') {
+-            return new self($name, $value, $domain, $expires, $path, $secure);
++            $ret = new self($name, $value, $domain, $expires, $path, $secure);
++            $ret->encodeValue = ($encodeValue) ? true : false;
++            return $ret;
+         } else {
+             return false;
+         }
+Index: library/Zend/Http/Client.php
+===================================================================
+--- library/Zend/Http/Client.php	(revision 20255)
++++ library/Zend/Http/Client.php	(working copy)
+@@ -117,7 +117,8 @@
+         'keepalive'       => false,
+         'storeresponse'   => true,
+         'strict'          => true,
+-        'output_stream'	  => false,
++        'output_stream'   => false,
++        'encodecookies'   => true,
+     );
+ 
+     /**
+@@ -640,7 +641,7 @@
+             return $this;
+         }
+ 
+-        if ($value !== null) {
++        if ($value !== null and $this->config['encodecookies']) {
+             $value = urlencode($value);
+         }
+ 
+@@ -648,7 +649,9 @@
+             if ($cookie instanceof Zend_Http_Cookie) {
+                 $this->cookiejar->addCookie($cookie);
+             } elseif (is_string($cookie) && $value !== null) {
+-                $cookie = Zend_Http_Cookie::fromString("{$cookie}={$value}", $this->uri);
++                $cookie = Zend_Http_Cookie::fromString("{$cookie}={$value}",
++                                                       $this->uri,
++                                                       $this->config['encodecookies']);
+                 $this->cookiejar->addCookie($cookie);
+             }
+         } else {

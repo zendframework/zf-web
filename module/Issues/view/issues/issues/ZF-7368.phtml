@@ -1,0 +1,306 @@
+<h2>ZF-7368: Chain route fails to match with an optional route at the end</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-23T11:21:59.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-17T12:29:00.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.4 (03/Mar/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benoît Durand (intiilapa)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller_Router</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8812">ZF-8812</a></li>
+            <li><a href="/issues/browse/ZF-9030">ZF-9030</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13371/ChainTest.php.diff">ChainTest.php.diff</a></li>
+            <li><a href="/issues/secure/attachment/13609/patch.diff">patch.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Chained routes with optional params are not matched</p>
+
+<p>Static route: "blog"
+           route: ":page"
+               - This route has default page variable specified as 1</p>
+
+<p>Should match:
+    - /blog
+    - /blog/
+    - /blog/1
+    - /blog/2/</p>
+
+<p>Currently doesn't match:
+    - /blog
+    - /blog/</p>
+
+<p>It does not match this in the chain class due to checking of the separator to ensure it matches what was set internally. The problem is since it's optional, the separator doesn't exist to check it with the array....</p>
+
+<p>At first glance, adding "$separator !== false &amp;&amp;" to the if statement seems to fix it, but I have not run the unit tests.</p>
+
+<pre class="highlight"><code>
+    public function match($request, $partial = null)
+    {
+        $path    = trim($request-&gt;getPathInfo(), '/');
+        $subPath = $path;
+        $values  = array();
+
+        foreach ($this-&gt;_routes as $key =&gt; $route) {
+            if ($key &gt; 0 &amp;&amp; $matchedPath !== null) {
+                $separator = substr($subPath, 0, strlen($this-&gt;_separators[$key]));
+                
+                if ($separator !== false &amp;&amp; $separator !== $this-&gt;_separators[$key]) {
+                    return false;                
+                }
+                
+                $subPath = substr($subPath, strlen($separator));
+            }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexander Mazalov (alex347) on 2009-09-29T07:15:57.000+0000</p> 
+        <div class="body">
+            <p>I have the same problem, but I think the soultion must be something like this:
+1) add this line before if statement
+if ($separator === false)  $separator='';
+or
+2) remove line: $path    = trim($request-&gt;getPathInfo(), '/');</p>
+
+<p>then it works for my case:
+I'm using urls like
+/search/query/
+/search/query/page3.html
+1) 
+        $routerPage = new Zend_Controller_Router_Route_Regex(<br />
+                                                '/(page(\d+).html)?',
+                                                array(
+                                                ),
+                                                array(
+                                                    2 =&gt; 'page'
+                                                )
+                                            );</p>
+
+<pre><code>    $routerSearch = new Zend_Controller_Router_Route(  
+                                            'search/:query',
+                                            array(
+                                                'controller' =&gt; 'list',
+                                                'action' =&gt; 'search'
+                                            ),
+                                            array(
+                                                'query' =&gt; '[^/]+'
+                                            )
+                                        );  
+
+    $chainedRouterSearch = $routerSearch-&gt;chain($routerPage, '');
+    $router-&gt;addRoute('search', $chainedRouterSearch);
+</code></pre>
+
+<p>2)  Separator is '/' , removed from '(page(\d+).html)?'
+        $routerPage = new Zend_Controller_Router_Route_Regex(<br />
+                                                '(page(\d+).html)?',
+                                                array(
+                                                ),
+                                                array(
+                                                    2 =&gt; 'page'
+                                                )
+                                            );</p>
+
+<pre><code>    $routerSearch = new Zend_Controller_Router_Route(  
+                                            'search/:query',
+                                            array(
+                                                'controller' =&gt; 'list',
+                                                'action' =&gt; 'search'
+                                            ),
+                                            array(
+                                                'query' =&gt; '[^/]+'
+                                            )
+                                        );  
+
+    $chainedRouterSearch = $routerSearch-&gt;chain($routerPage, '/');
+    $router-&gt;addRoute('search', $chainedRouterSearch);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Mazalov (alex347) on 2009-09-29T07:28:44.000+0000</p> 
+        <div class="body">
+            <p>I have the same problem, but I think the soultion must be something like this:
+1) add this line before if statement
+if ($separator === false) $separator='';
+or
+2) remove line: $path = trim($request-&gt;getPathInfo(), '/');</p>
+
+<p>then it works for my case:
+I'm using urls like
+/search/query/
+/search/query/page3.html</p>
+
+<p>1)</p>
+
+<pre class="highlight"><code>
+        $routerPage = new Zend_Controller_Router_Route_Regex(  
+                                                '(/page(\d+)\.html)?',
+                                                array(
+                                                ),
+                                                array(
+                                                    2 =&gt; 'page'
+                                                )
+                                            );      
+                                            
+        $routerSearch = new Zend_Controller_Router_Route(  
+                                                'search/:query',
+                                                array(
+                                                    'controller' =&gt; 'list',
+                                                    'action' =&gt; 'search'
+                                                ),
+                                                array(
+                                                    'query' =&gt; '[^/]+'
+                                                )
+                                            );  
+
+        $chainedRouterSearch = $routerSearch-&gt;chain($routerPage, '');
+        $router-&gt;addRoute('search', $chainedRouterSearch);
+</code></pre>
+
+<p>2) Separator is '/' , removed from '(page(\d+).html)?'</p>
+
+<pre class="highlight"><code>
+        $routerPage = new Zend_Controller_Router_Route_Regex(  
+                                                '(page(\d+)\.html)?',
+                                                array(
+                                                ),
+                                                array(
+                                                    2 =&gt; 'page'
+                                                )
+                                            );      
+                                            
+        $routerSearch = new Zend_Controller_Router_Route(  
+                                                'search/:query',
+                                                array(
+                                                    'controller' =&gt; 'list',
+                                                    'action' =&gt; 'search'
+                                                ),
+                                                array(
+                                                    'query' =&gt; '[^/]+'
+                                                )
+                                            );  
+
+        $chainedRouterSearch = $routerSearch-&gt;chain($routerPage, '/');
+        $router-&gt;addRoute('search', $chainedRouterSearch); </code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Edward Surov (zooh) on 2009-11-11T11:49:45.000+0000</p> 
+        <div class="body">
+            <p>I have the same problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-03-02T03:28:02.000+0000</p> 
+        <div class="body">
+            <p>This is exactly the same problem I have reported in bug ZF-9030 only that deals with a module router at the end. But the problem remains... While creating the patch reported in that bug I actually never realised the problem also occurs with 'normal' optional parameters.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2010-10-21T10:20:59.000+0000</p> 
+        <div class="body">
+            <p>I would have assumed this issue to be solved along ZF-7848, ZF-8812 and ZF-9030, but there is still something wrong with matching to the default value. I wrote these two unit test (attachment) which of the first one does not pass:</p>
+
+<p>Zend_Controller_Router_Route_ChainTest::testChainingStaticDynamicMatchToDefaultValue
+Failed asserting that  matches expected </p>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-21T10:48:23.000+0000</p> 
+        <div class="body">
+            <p>I'll look at this for the 1.11.1 release. Thanks for the unit tests -- those definitely help better isolate the issue!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-01-22T01:08:42.000+0000</p> 
+        <div class="body">
+            <p>I have located the issue. The attached patch includes both the fix and the tests. I suggest that the maintainer of this component or the reviewer would check the patch if they came up with more elegant solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2011-02-16T07:04:09.000+0000</p> 
+        <div class="body">
+            <p>Patch accepted, but I have no time right now to merge it, can somebody else take that part?</p>
+
+<p>There is one tiny CS violation in the patch tho, where it says:</p>
+
+<pre class="highlight"><code>
+             }
+             // Empty variable? Replace with the default value.
+             elseif ($return[$var] == '' || $return[$var] === null) {
+</code></pre>
+
+<p>But it should be:</p>
+
+<pre class="highlight"><code>
+             } elseif ($return[$var] == '' || $return[$var] === null) {
+                 // Empty variable? Replace with the default value.
+</code></pre>
+
+<p>Also, the patch partly contains tabs instead of 4-space groups, that should be fixed as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benoît Durand (intiilapa) on 2011-02-16T11:09:07.000+0000</p> 
+        <div class="body">
+            <p>@Ben, sure I can.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benoît Durand (intiilapa) on 2011-02-17T12:28:54.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r23711</p>
+
+        </div>
+    </div>
+    </div>
+

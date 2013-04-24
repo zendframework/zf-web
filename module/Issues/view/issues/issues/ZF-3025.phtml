@@ -1,0 +1,237 @@
+<h2>ZF-3025: Invalid bind-variable position  when colon used in quoted parameter (using Mysqli)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-02T11:15:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-03-04T10:22:09.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>zf-caretaker-adamlundrigan</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2059">ZF-2059</a></li>
+            <li><a href="/issues/browse/ZF-7911">ZF-7911</a></li>
+            <li><a href="/issues/browse/ZF-5063">ZF-5063</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11215/statement.diff">statement.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>$db-&gt;query("SELECT <code>foo</code>.<code>bar</code> FROM <code>xxx</code> WHERE (zzz = 'a\'b+c:d')");</p>
+
+<p>This query was build using Db_Select
+single quote was properly escaped and passed to fetch method where it failed</p>
+
+<p>The message is: 'Invalid bind-variable position ':d'</p>
+
+<p>From what I can tell the :d was mistaken for named parameter 
+it only happens if the single quote was present in the same parameter
+after removing it the query is processed correctly
+$db-&gt;query("SELECT <code>foo</code>.<code>bar</code> FROM <code>xxx</code> WHERE (zzz = 'ab+c:d')");</p>
+
+<p>using Mysqli adapter</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-04-03T03:28:43.000+0000</p> 
+        <div class="body">
+            <p>Another example</p>
+
+<pre class="highlight"><code>
+$db-&gt;query("REPLACE INTO foo (aaa) VALUES (('a\'s aa '),('rv:1.8.1.11'))");
+</code></pre>
+
+<p>escaped single quote in first parameter confuses the code
+'Zend_Db_Statement_Exception' with message 'Invalid bind-variable position ':1'</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-04-03T03:42:12.000+0000</p> 
+        <div class="body">
+            <p>One more example with zend select</p>
+
+<pre class="highlight"><code>
+$db-&gt;select()-&gt;from('foo', 'bar')-&gt;where('xxx = ?', "as'as:x")-&gt;query();
+</code></pre>
+
+<p>Invalid bind-variable position ':x'</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ota Mares (ota) on 2008-04-03T03:57:58.000+0000</p> 
+        <div class="body">
+            <p>The same happens when a qurestion mark is used as value.</p>
+
+<p>```</p>
+
+<p>Result: SQLSTATE[HY093]: Invalid parameter number: no parameters were bound</p>
+
+<p>I think this is not fixable because of the nature of pdo querys. A workaround is to use parametrized querys instead of the zend_db quoting features.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-04-03T04:33:39.000+0000</p> 
+        <div class="body">
+            <p>The same query works fine with plain mysqli, I believe the problem lies in ZF code where placeholders are parsed</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sven Herrmann (sherrmann) on 2008-04-09T12:55:54.000+0000</p> 
+        <div class="body">
+            <p>Problem is caused by a typo in DB/Statement.php</p>
+
+<p>Attached Patch to fix this</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:20:27.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-05-02T06:24:33.000+0000</p> 
+        <div class="body">
+            <p>Sven's patch seems to fix the problem, can it make its way into trunk please?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-05-09T04:29:12.000+0000</p> 
+        <div class="body">
+            <p>I found another case  when this happens and attached patch doesn't help this time.</p>
+
+<p>A multi insert query with escaped quote and backslash (it's fine with just a quote):</p>
+
+<pre class="highlight"><code>
+REPLACE INTO foo VALUES 
+('rv:1.8.1.2) \'\\'), 
+('rv:1.8.1.7) ')
+</code></pre>
+
+<p>I put debug code around $sql = $this-&gt;_stripQuoted($sql); in Zend_Db_Statement::_parseParameters($sql) and it looks like that function fails to remove those quoted elements, instead the whole first row of values is gone and the second one is intact so later it triggers an exception because it contains ":1"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-05-09T07:50:46.000+0000</p> 
+        <div class="body">
+            <p>Ok, the problem is the ending \  - escaped backlash was preventing this regex "/'(\'|[^'])<em>'/" from matching ending quote
+I modified the expression to ignore matching backslashes : "/'(\'|\{2}|[^'])</em>'/"</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Db/Statement.php
+===================================================================
+--- .   (revision 9404)
++++ .   (working copy)
+@@ -187,7 +187,7 @@
+         $sql = preg_replace("/$d($de|[^$d])*$d/", '', $sql);
+         // remove 'foo\'bar'
+         if (!empty($q)) {
+-            $sql = preg_replace("/$q($qe|[^$q])*$q/", '', $sql);
++            $sql = preg_replace("/$q($qe|\\\\{2}|[^$q])*$q/", '', $sql);
+         }
+ 
+         return $sql;
+</code></pre>
+
+<p>Maybe someone can verify and commit it</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-06-19T05:22:03.000+0000</p> 
+        <div class="body">
+            <p>Resolved in trunk r9727</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-21T08:47:14.000+0000</p> 
+        <div class="body">
+            <p>It seems that this issue is not fixed properly. The patch proposed by Karol Grecki was not applied correctly. Instead of the second preg_replace, the first one was replaced.</p>
+
+<p>I've added a patch to <a href="http://framework.zend.com/issues/browse/ZF-5063">http://framework.zend.com/issues/browse/ZF-5063</a> that will put back (a modified version of) the original replacement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-05T14:38:38.000+0000</p> 
+        <div class="body">
+            <p>Is this still an issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dominik Blunk (dblunk) on 2012-07-09T14:46:03.000+0000</p> 
+        <div class="body">
+            <p>I think this issue is still unresolved (tested with 1.12.0rc1). The following code will throw an error "Invalid bind-variable name ':2'"</p>
+
+<pre class="literal">
+$data = $dbAdapter-&gt;quote(serialize(array('alpha', 'omega')));
+$sql = sprintf("insert into `import` (field_value) VALUES (%s)", $data);
+$results = $dbAdapter-&gt;query($sql);
+</pre>
+
+<p>When removing the quoted " the query works:</p>
+
+<pre class="literal">
+$data = $dbAdapter-&gt;quote(serialize(array('alpha', 'omega')));
+$data = str_replace('\"', '"', $data);
+$sql = sprintf("insert into `import` (field_value) VALUES (%s)", $data);
+$results = $dbAdapter-&gt;query($sql);
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mateusz Juściński (luinnar) on 2013-03-04T10:22:09.000+0000</p> 
+        <div class="body">
+            <p>Please reopen this issue. I have the same problem with serialized data on ZF 1.12.2.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,271 @@
+diff -urN orig-Service/Yahoo/SiteExplorerResult.php siteexplorer-Service/Yahoo/SiteExplorerResult.php
+--- orig-Service/Yahoo/SiteExplorerResult.php	Thu Jan  1 01:00:00 1970
++++ siteexplorer-Service/Yahoo/SiteExplorerResult.php	Tue Jul 18 15:37:29 2006
+@@ -0,0 +1,52 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Service
++ * @subpackage Yahoo
++ * @copyright  Copyright (c) 2006 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++
++/**
++ * @todo coding standards: naming of instance variables
++ * @category   Zend
++ * @package    Zend_Service
++ * @subpackage Yahoo
++ * @copyright  Copyright (c) 2006 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Service_Yahoo_SiteExplorerResult extends Zend_Service_Yahoo_Result {
++
++    /**
++     * @todo docblock
++     */
++    protected $_namespace = "urn:yahoo:srch";
++
++    
++    /**
++     * @todo dockblock
++     */
++    public function __construct(DomElement $result) {
++        $this->_fields = array('Summary','MimeType','ModificationDate');
++        parent::__construct($result);
++
++        $this->_xpath = new DOMXPath($result->ownerDocument);
++    	$this->_xpath->registerNamespace("yh", $this->_namespace);
++
++        $this->CacheUrl = (string) $this->_xpath->query("//yh:Cache/yh:Url/text()")->item(0)->data;
++        $this->CacheSize = (string) $this->_xpath->query("//yh:Cache/yh:Size/text()")->item(0)->data;
++    }
++}
+diff -urN orig-Service/Yahoo/SiteExplorerResultSet.php siteexplorer-Service/Yahoo/SiteExplorerResultSet.php
+--- orig-Service/Yahoo/SiteExplorerResultSet.php	Thu Jan  1 01:00:00 1970
++++ siteexplorer-Service/Yahoo/SiteExplorerResultSet.php	Tue Jul 18 15:37:08 2006
+@@ -0,0 +1,44 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Service
++ * @subpackage Yahoo
++ * @copyright  Copyright (c) 2006 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++
++/**
++ * @category   Zend
++ * @package    Zend_Service
++ * @subpackage Yahoo
++ * @copyright  Copyright (c) 2006 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Service_Yahoo_SiteExplorerResultSet extends Zend_Service_Yahoo_ResultSet {
++    /**
++     * @todo docblock
++     */
++    protected $_namespace = "urn:yahoo:srch";
++
++
++    /**
++     * @todo docblock
++     */
++    public function current()
++    {
++        return new Zend_Service_Yahoo_SiteExplorerResult($this->_results->item($this->_currentItem));
++    }
++}
+diff -urN orig-Service/Yahoo.php siteexplorer-Service/Yahoo.php
+--- orig-Service/Yahoo.php	Tue Jul 18 10:48:56 2006
++++ siteexplorer-Service/Yahoo.php	Tue Jul 18 15:37:48 2006
+@@ -81,6 +81,16 @@
+ require_once 'Zend/Service/Yahoo/WebResultSet.php';
+ 
+ /**
++ * Zend_Service_YahooSiteExplorerResult
++ */
++require_once 'Zend/Service/Yahoo/SiteExplorerResult.php';
++
++/**
++ * Zend_Service_YahooSiteExplorerResultSet
++ */
++require_once 'Zend/Service/Yahoo/SiteExplorerResultSet.php';
++
++/**
+  * Zend_Filter
+  */
+ require_once 'Zend/Filter.php';
+@@ -317,6 +327,80 @@
+     }
+ 
+     /**
++     * Query siteexplorer.search.yahoo.com for Page Data.  A basic query
++     * consists simply of a URL.  Additional options that can be
++     * specified consist of:
++     * 'results'      => int  How many results to return, max is 50
++     * 'start'        => int  The start offset for search results
++     * 'domain_only'  => int  Exclude sub-domains
++     *
++     * @param string $query  the query being run
++     * @param array $options  any optional parameters
++     * @return Zend_Service_Yahoo_SiteExplorerResultSet  The return set
++     */
++    public function PageDataSearch($query, $options = NULL)
++    {
++        static $default_options = array('results'     => 10,
++                                        'start'       => 1,
++                                        'domain_only' => '');
++
++        $options = $this->_prepareOptions($query, $options, $default_options);
++        $this->_validatePageDataSearch($options);
++
++        $response = $this->_rest->restGet('/SiteExplorerService/V1/pageData', $options);
++
++        if ($response->isError()) {
++        	throw new Zend_Service_Exception('An error occurred sending request. Status code: ' .
++        	                                 $response->getStatus());
++        }
++
++        $dom = new DOMDocument();
++        $dom->loadXML($response->getBody());
++
++        self::_checkErrors($dom);
++
++        return new Zend_Service_Yahoo_SiteExplorerResultSet($dom);
++    }
++
++    /**
++     * Query siteexplorer.search.yahoo.com for Inbound Links.  A basic query
++     * consists simply of a URL.  Additional options that can be
++     * specified consist of:
++     * 'results'      => int     How many results to return, max is 50
++     * 'start'        => int     The start offset for search results
++     * 'entire_site'  => int     Include whole site
++     * 'omit_inlinks' => string  Limit the scope of the search
++     *
++     * @param string $query  the query being run
++     * @param array $options  any optional parameters
++     * @return Zend_Service_Yahoo_SiteExplorerResultSet  The return set
++     */
++    public function InboundLinksSearch($query, $options = NULL)
++    {
++        static $default_options = array('results'      => 10,
++                                        'start'        => 1,
++                                        'entire_site'  => '',
++                                        'omit_inlinks' => '');
++
++        $options = $this->_prepareOptions($query, $options, $default_options);
++        $this->_validateInboundLinksSearch($options);
++
++        $response = $this->_rest->restGet('/SiteExplorerService/V1/inlinkData', $options);
++
++        if ($response->isError()) {
++        	throw new Zend_Service_Exception('An error occurred sending request. Status code: ' .
++        	                                 $response->getStatus());
++        }
++
++        $dom = new DOMDocument();
++        $dom->loadXML($response->getBody());
++
++        self::_checkErrors($dom);
++
++        return new Zend_Service_Yahoo_SiteExplorerResultSet($dom);
++    }
++
++    /**
+      * Validate Local Search Options
+      *
+      * @param array $options
+@@ -506,6 +590,65 @@
+                                                                     'txt', 'xls'));
+         $this->_validateInArray('license', $options['license'], array('any', 'cc_any', 'cc_commercial',
+                                                                       'cc_modifiable'));
++    }
++
++
++    /**
++     * Validate PageData Search Options
++     *
++     * @param array $options
++     */
++    protected function _validatePageDataSearch($options)
++    {
++        $valid_options = array('appid', 'query', 'results', 'start', 'domain_only');
++        if (!is_array($options)) {
++            return;
++        }
++
++        $this->_compareOptions($options, $valid_options);
++
++        if (isset($options['results'])) {
++            if (!Zend_Filter::isBetween($options['results'], 1, 20, true)) {
++                throw new Zend_Service_Exception($options['results'] . ' is not valid for the "results" option.');
++            }
++        }
++        if (isset($options['start'])) {
++            if (!Zend_Filter::isBetween($options['start'], 1, 1000, true)) {
++                throw new Zend_Service_Exception($options['start'] . ' is not valid for the "start" option.');
++            }
++        }
++
++        $this->_validateInArray('domain_only', $options['domain_only'], array('', '1'));
++    }
++
++    /**
++     * Validate Inbound Links Search Options
++     *
++     * @param array $options
++     */
++    protected function _validateInboundLinksSearch($options)
++    {
++        $valid_options = array('appid', 'query', 'results', 'start', 'entire_site', 'omit_inlinks');
++        if (!is_array($options)) {
++            return;
++        }
++
++        $this->_compareOptions($options, $valid_options);
++
++        if (isset($options['results'])) {
++            if (!Zend_Filter::isBetween($options['results'], 1, 20, true)) {
++                throw new Zend_Service_Exception($options['results'] . ' is not valid for the "results" option.');
++            }
++        }
++        if (isset($options['start'])) {
++            if (!Zend_Filter::isBetween($options['start'], 1, 1000, true)) {
++                throw new Zend_Service_Exception($options['start'] . ' is not valid for the "start" option.');
++            }
++        }
++
++        $this->_validateInArray('entire_site', $options['entire_site'], array('', '1'));
++
++        $this->_validateInArray('omit_inlinks', $options['omit_inlinks'], array('', 'domain', 'subdomain'));
+     }
+ 
+ 

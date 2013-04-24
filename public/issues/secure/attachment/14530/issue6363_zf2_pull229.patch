@@ -1,0 +1,116 @@
+Index: tests/Zend/Validate/HostnameTest.php
+===================================================================
+--- tests/Zend/Validate/HostnameTest.php	(revision 24254)
++++ tests/Zend/Validate/HostnameTest.php	(working copy)
+@@ -402,15 +402,26 @@
+     }
+ 
+     /**
+-     * Ensure that a trailing "." in a hostname (but not ip) is permitted
++     * Ensure that a trailing "." in a local hostname is permitted
+      *
+      * @group ZF-6363
+      */
+     public function testTrailingDot()
+     {
+-        $this->assertTrue($this->_validator->isValid('example.com.'));
+-        $this->assertFalse($this->_validator->isValid('example.com..'));
+-        $this->assertFalse($this->_validator->isValid('1.2.3.4.'));
++        $valuesExpected = array(
++            array(Zend_Validate_Hostname::ALLOW_ALL, true, array('example.', 'example.com.', '~ex%20ample.com.')),
++            array(Zend_Validate_Hostname::ALLOW_ALL, false, array('example..',)),
++            array(Zend_Validate_Hostname::ALLOW_ALL, true, array('1.2.3.4.')),
++            array(Zend_Validate_Hostname::ALLOW_DNS, false, array('example..', '~ex%20ample..')),
++            array(Zend_Validate_Hostname::ALLOW_LOCAL, true, array('example.', 'example.com.')),
++        );
++
++        foreach ($valuesExpected as $element) {
++            $validator = new Zend_Validate_Hostname($element[0]);
++            foreach ($element[2] as $input) {
++                $this->assertEquals($element[1], $validator->isValid($input), implode("\n", $validator->getMessages()) . $input);
++            }
++        }
+     }
+     
+     /**
+Index: library/Zend/Validate/Hostname.php
+===================================================================
+--- library/Zend/Validate/Hostname.php	(revision 24254)
++++ library/Zend/Validate/Hostname.php	(working copy)
+@@ -100,12 +100,12 @@
+     /**
+      * Allows all types of hostnames
+      */
+-    const ALLOW_ALL   = 7;
++    const ALLOW_URI = 8;
+ 
+     /**
+      * Allows all types of hostnames
+      */
+-    const ALLOW_URI = 8;
++    const ALLOW_ALL = 15;
+ 
+     /**
+      * Array of valid top-level-domains
+@@ -495,7 +495,6 @@
+      */
+     public function isValid($value)
+     {
+-
+         if (!is_string($value)) {
+             $this->_error(self::INVALID);
+             return false;
+@@ -503,7 +502,6 @@
+ 
+         $this->_setValue($value);
+         // Check input against IP address schema
+-        
+         if (preg_match('/^[0-9a-f:.]*$/i', $value) &&
+             $this->_options['ip']->setTranslator($this->getTranslator())->isValid($value)) {
+             if (!($this->_options['allow'] & self::ALLOW_IP)) {
+@@ -521,16 +519,29 @@
+         //     necessary to distinguish between the complete domain name and
+         //     some local domain.
+         //     
+-        // Strip trailing '.' since it is not necessary to validate a non-IP
+-        // hostname.
+-        //
+         // (see ZF-6363)
+-        if (substr($value, -1) === '.') {
+-            $value = substr($value, 0, strlen($value)-1);
++        
++        // Local hostnames are allowed to be partitial (ending '.')
++        if ($this->_options['allow'] & self::ALLOW_LOCAL) {
++            if (substr($value, -1) === '.') {
++                $value = substr($value, 0, -1);
++                if (substr($value, -1) === '.') {
++                    // Empty hostnames (ending '..') are not allowed
++                    $this->_error(self::INVALID_LOCAL_NAME);
++                    return false;
++                }
++            }
+         }
+-        
++
++        $domainParts = explode('.', $value);
++
++        // Prevent partitial IP V4 adresses (ending '.')
++        if ((count($domainParts) == 4) && preg_match('/^[0-9.a-e:.]*$/i', $value) &&
++            $this->_options['ip']->setTranslator($this->getTranslator())->isValid($value)) {
++            $this->_error(self::INVALID_LOCAL_NAME);
++        }
++
+         // Check input against DNS hostname schema
+-        $domainParts = explode('.', $value);
+         if ((count($domainParts) > 1) && (strlen($value) >= 4) && (strlen($value) <= 254)) {
+             $status = false;
+ 
+@@ -651,7 +662,7 @@
+         }
+ 
+         // Check input against local network name schema; last chance to pass validation
+-        $regexLocal = '/^(([a-zA-Z0-9\x2d]{1,63}\x2e)*[a-zA-Z0-9\x2d]{1,63}){1,254}$/';
++        $regexLocal = '/^(([a-zA-Z0-9\x2d]{1,63}\x2e)*[a-zA-Z0-9\x2d]{1,63}[\x2e]{0,1}){1,254}$/';
+         $status = @preg_match($regexLocal, $value);
+ 
+         // If the input passes as a local network name, and local network names are allowed, then the

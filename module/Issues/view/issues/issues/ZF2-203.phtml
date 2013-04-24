@@ -1,0 +1,103 @@
+<h2>ZF2-203: Zend\Db\Metadata\Metadata doesn't work for Postgresql databases</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-03-07T21:11:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-17T16:32:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you do {{new Zend\Db\Metadata\Metadata($adapter)}} and pass a PDO Adapter connected to a Postgresql database, you get an error:</p>
+
+<p>{{PHP Fatal error:  Uncaught exception 'Exception' with message 'cannot create source from adapter' in vendor/ZendFramework/library/Zend/Db/Metadata/Metadata.php:74}}</p>
+
+<p>This is because {{createSourceFromAdapter}} uses {{$adapter-&gt;getPlatform()-&gt;getName()}}, which for Postgresql is SQL92 and this is not an option in the switch statement. Postgresql has an information schema that provides the correct information (as far as I can tell), so you could just update the switch to use {{new Source\InformationSchemaMetadata($adapter)}} for Postgresql as well as SQLServer.</p>
+
+<p>Unfortunately, this doesn't work because the queries against the information schema that are run by {{Zend\Db\Metadata\Source\InformationSchemaMetadata}} all use {{$platform-&gt;quoteIdentifier}} around the table names, column names and the schema name. This fails for Postgresql because the actual names are all lowercase, whereas they are specified in uppercase in the queries. Obviously the quoted uppercase objects don't match any objects in the database and the query fails.</p>
+
+<p>There are a number of possible solutions:
+* Remove all the quoting from the queries. Postgresql will happily find the correct lowercase object from the unquoted uppercase name. Assuming that SQLServer (the only other database using {{Zend\Db\Metadata\Source\InformationSchemaMetadata}}) will also work like this, this seems like the best solution. This is what I have done in my fork of zf2 and I can push a branch back to GitHub and create a pull request if you want. However, I can't test against SQLServer, which is why I haven't assumed this is the preferred solution.
+* Leave the quoting but make all the schema, table and column names lowercase. I suspect that this would break SQLServer, although I haven't tried.
+* Refactor {{Zend\Db\Metadata\Source\InformationSchemaMetadata}} to allow (slightly) different queries for SQLServer and Postgresql.</p>
+
+<p>If you like option 1 and I push my branch to GitHub, can someone test it against SQLServer?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2012-03-08T08:58:25.000+0000</p> 
+        <div class="body">
+            <p>After further investigation, this won't be that simple! After you remove the identifier quoting, the queries work but the metadata isn't populated because the class expects the result set to contain the uppercase column name, e.g.</p>
+
+<pre class="highlight"><code>
+if (!isset($columnByTableInfos<a href="http://framework.zend.com/wiki/display/ZFDEV2/RFC+-+Zend+Db">$row['TABLE_NAME']])) {
+                $columnByTableInfos[$row['TABLE_NAME']] = array();
+            }
+</a></code></pre>
+
+<p>Therefore, we either need a separate Source\Pgsql or we need to allow the case folding to be configured.</p>
+
+<p>In any case, it would be useful if {{Metadata\Metadata}} allowed a source to be injected (as implied by the [RFC so that we could provide a customized one if necessary (I've got my own schema metadata tables with more details than information_schema, e.g. prompt, is_displayed, display_type, etc.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rodolfo Bibolotti (rockdolfolk) on 2012-07-01T03:57:21.000+0000</p> 
+        <div class="body">
+            <p>The problem continues in the SELECT because Zend/Db uses quotes to define it:</p>
+
+<p>LINE 1: SELECT "zf2tutorial.album".* FROM "zf2tutorial.album"
+                                          ^
+I tested the line in postgres and the error is for the quotes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2012-07-11T14:52:09.000+0000</p> 
+        <div class="body">
+            <p>Fixed in beta5.</p>
+
+        </div>
+    </div>
+    </div>
+

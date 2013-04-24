@@ -1,0 +1,91 @@
+Index: tests/Zend/Http/Client/_files/testUploads.php
+===================================================================
+--- tests/Zend/Http/Client/_files/testUploads.php	(revision 16853)
++++ tests/Zend/Http/Client/_files/testUploads.php	(working copy)
+@@ -2,6 +2,12 @@
+ 
+ if (! empty($_FILES)) {
+ 	foreach ($_FILES as $name => $file) {
+-		echo $name . " " . $file['name'] . " " . $file['type'] . " " . $file['size'] . "\n";
++	    if (is_array($file['name'])) {
++	        foreach($file['name'] as $k => $v) {
++                echo "$name $v {$file['type'][$k]} {$file['size'][$k]}\n";
++            }
++	    } else {
++	        echo "$name {$file['name']} {$file['type']} {$file['size']}\n";
++	    }
+ 	}
+ }
+\ No newline at end of file
+Index: tests/Zend/Http/Client/SocketTest.php
+===================================================================
+--- tests/Zend/Http/Client/SocketTest.php	(revision 16853)
++++ tests/Zend/Http/Client/SocketTest.php	(working copy)
+@@ -778,11 +778,35 @@
+     }
+ 
+     /**
++     * Test that one can upload multiple files with the same form name, as an 
++     * array
++     *
++     * @link http://framework.zend.com/issues/browse/ZF-5744
++     */
++    public function testMutipleFilesWithSameFormNameZF5744()
++    {
++        $rawData = 'Some test raw data here...';
++        
++        $this->client->setUri($this->baseuri . 'testUploads.php');
++        
++        $files = array('file1.txt', 'file2.txt', 'someotherfile.foo');
++        
++        $expectedBody = '';
++        foreach($files as $filename) {
++            $this->client->setFileUpload($filename, 'uploadfile[]', $rawData, 'text/plain');
++            $expectedBody .= "uploadfile $filename text/plain " . strlen($rawData) . "\n";
++        }
++        
++        $res = $this->client->request('POST');
++
++        $this->assertEquals($expectedBody, $res->getBody(), 'Response body does not include expected upload parameters');
++    }
++    
++    /**
+      * Test that lines that might be evaluated as boolean false do not break
+      * the reading prematurely.
+      *
+      * @see http://framework.zend.com/issues/browse/ZF-4238
+-     *
+      */
+     public function testZF4238FalseLinesInResponse()
+     {
+Index: library/Zend/Http/Client.php
+===================================================================
+--- library/Zend/Http/Client.php	(revision 16853)
++++ library/Zend/Http/Client.php	(working copy)
+@@ -691,7 +691,12 @@
+         // Force enctype to multipart/form-data
+         $this->setEncType(self::ENC_FORMDATA);
+ 
+-        $this->files[$formname] = array(basename($filename), $ctype, $data);
++        $this->files[] = array(
++            'formname' => $formname, 
++            'filename' => basename($filename), 
++            'ctype'    => $ctype, 
++            'data'     => $data
++        );
+ 
+         return $this;
+     }
+@@ -1058,9 +1063,9 @@
+                     }
+ 
+                     // Encode files
+-                    foreach ($this->files as $name => $file) {
+-                        $fhead = array(self::CONTENT_TYPE => $file[1]);
+-                        $body .= self::encodeFormData($boundary, $name, $file[2], $file[0], $fhead);
++                    foreach ($this->files as $file) {
++                        $fhead = array(self::CONTENT_TYPE => $file['ctype']);
++                        $body .= self::encodeFormData($boundary, $file['formname'], $file['data'], $file['filename'], $fhead);
+                     }
+ 
+                     $body .= "--{$boundary}--\r\n";

@@ -1,0 +1,204 @@
+Index: library/Zend/Tool/Project/Context/Zf/BootstrapFile.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Zf/BootstrapFile.php	(revision 18924)
++++ library/Zend/Tool/Project/Context/Zf/BootstrapFile.php	(working copy)
+@@ -46,8 +46,16 @@
+      */
+     protected $_filesystemName = 'Bootstrap.php';
+ 
++    /**
++     * @var string
++     */
++    protected $_bootstrapClassName = "Bootstrap";
++
++    /**
++     *
++     * @var Zend_Application
++     */
+     protected $_applicationInstance = null;
+-    protected $_bootstrapInstance = null;
+ 
+     /**
+      * getName()
+@@ -59,6 +67,23 @@
+         return 'BootstrapFile';
+     }
+ 
++    /**
++     * @return array
++     */
++    public function getPersistentAttributes()
++    {
++        $attribs = array();
++        if($this->_bootstrapClassName != "Bootstrap") {
++            $attribs['bootstrapClassName'] = $this->_bootstrapClassName;
++        }
++        return $attribs;
++    }
++    
++    public function setBootstrapClassName($bootstrapClassName)
++    {
++        $this->_bootstrapClassName = $bootstrapClassName;
++    }
++
+     public function init()
+     {
+         parent::init();
+@@ -72,13 +97,13 @@
+ 
+         if ($applicationConfigFile->getContext()->exists()) {
+             define('APPLICATION_PATH', $applicationDirectory->getPath());
+-            $applicationOptions = array();
+-            $applicationOptions['config'] = $applicationConfigFile->getPath();
++            
++            $applicationOptions = $applicationConfigFile->getPath();
+ 
+             $this->_applicationInstance = new Zend_Application(
+                 'development',
+                 $applicationOptions
+-                );
++            );
+         }
+     }
+ 
+@@ -100,4 +125,14 @@
+ 
+         return $codeGenFile->generate();
+     }
++
++    /**
++     * Return the Zend Application instance of this project context.
++     *
++     * @return Zend_Application
++     */
++    public function getApplicationInstance()
++    {
++        return $this->_applicationInstance;
++    }
+ }
+Index: library/Zend/Tool/Project/Context/Filesystem/File.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Filesystem/File.php	(revision 18924)
++++ library/Zend/Tool/Project/Context/Filesystem/File.php	(working copy)
+@@ -36,9 +36,14 @@
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+-abstract class Zend_Tool_Project_Context_Filesystem_File extends Zend_Tool_Project_Context_Filesystem_Abstract
++class Zend_Tool_Project_Context_Filesystem_File extends Zend_Tool_Project_Context_Filesystem_Abstract
+ {
++    public function getName()
++    {
++        return "File";
++    }
+ 
++
+     /**
+      * init()
+      *
+@@ -106,7 +111,7 @@
+      */
+     public function getContents()
+     {
+-        return null;
++        return '';
+     }
+ 
+ }
+Index: library/Zend/Tool/Project/Context/Filesystem/Abstract.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Filesystem/Abstract.php	(revision 18924)
++++ library/Zend/Tool/Project/Context/Filesystem/Abstract.php	(working copy)
+@@ -55,12 +55,22 @@
+     protected $_filesystemName = null;
+ 
+     /**
++     * @var string
++     */
++    protected $_filesystemNameDefault = null;
++
++    /**
+      * init()
+      *
+      * @return Zend_Tool_Project_Context_Filesystem_Abstract
+      */
+     public function init()
+     {
++        $this->_filesystemNameDefault = $this->_filesystemName;
++        if($filesystemName = $this->_resource->getAttribute('filesystemName')) {
++            $this->_filesystemName = $filesystemName;
++        }
++        
+         $parentBaseDirectory = $this->_resource->getParentResource()->getContext()->getPath();
+         $this->_baseDirectory = $parentBaseDirectory;
+         return $this;
+@@ -123,6 +133,20 @@
+     }
+ 
+     /**
++     * @return array
++     */
++    public function getPersistentAttributes()
++    {
++        if($this->_filesystemName != $this->_filesystemNameDefault) {
++            return array(
++                'filesystemName' => $this->_filesystemName,
++            );
++        } else {
++            return array();
++        }
++    }
++
++    /**
+      * getPath()
+      *
+      * @return string
+Index: library/Zend/Tool/Project/Context/Filesystem/Directory.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Filesystem/Directory.php	(revision 18924)
++++ library/Zend/Tool/Project/Context/Filesystem/Directory.php	(working copy)
+@@ -36,8 +36,12 @@
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+-abstract class Zend_Tool_Project_Context_Filesystem_Directory extends Zend_Tool_Project_Context_Filesystem_Abstract
++class Zend_Tool_Project_Context_Filesystem_Directory extends Zend_Tool_Project_Context_Filesystem_Abstract
+ {
++    public function getName()
++    {
++        return "Directory";
++    }
+ 
+     /**
+      * create()
+Index: library/Zend/Tool/Project/Context/Repository.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Repository.php	(revision 18924)
++++ library/Zend/Tool/Project/Context/Repository.php	(working copy)
+@@ -87,6 +87,12 @@
+             require_once 'Zend/Loader.php';
+             Zend_Loader::loadClass($contextClass);
+         }
++        
++        $reflClass = new ReflectionClass($contextClass);
++        if($reflClass->isAbstract() || $reflClass->isInterface()) {
++            return false;
++        }
++
+         $context = new $contextClass();
+         return $this->addContext($context);
+     }
+Index: library/Zend/Tool/Project/Provider/Abstract.php
+===================================================================
+--- library/Zend/Tool/Project/Provider/Abstract.php	(revision 18924)
++++ library/Zend/Tool/Project/Provider/Abstract.php	(working copy)
+@@ -83,6 +83,9 @@
+             $contextRegistry->addContextsFromDirectory(
+                 dirname(dirname(__FILE__)) . '/Context/Zf/', 'Zend_Tool_Project_Context_Zf_'
+             );
++            $contextRegistry->addContextsFromDirectory(
++                dirname(dirname(__FILE__)) . '/Context/Filesystem/', 'Zend_Tool_Project_Context_Filesystem_'
++            );
+             self::$_isInitialized = true;
+         }
+ 

@@ -1,0 +1,168 @@
+<h2>ZF-4490: Zend_Date::getDate() returns non-zero time part for dates not in UTC</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-05T02:40:02.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-09-07T16:01:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.0 (17/Nov/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>For Zend_Dates in a timezone other than UTC, getDate() doesn't return a date with 0 time part, as described in docu, but instead 0 + time zone base offset (without DST).</p>
+
+<p>I don't know if this is intended or not. If it is, it should be documented in the documentation.</p>
+
+<p>Example of when this is a problem:
+You have a set of objects and want to select only those whose time property is today. So you filter using {{(time &gt;= Zend_Date::now()- &gt;getDate()-&gt;getTimestamp() &amp;&amp; time &lt; ...)}}. But this will not display what the user considers "today" (what is today in the current timezone).</p>
+
+<p>Example:</p>
+
+<pre class="highlight"><code>
+$ php
+&lt;?php
+require_once 'Zend/Date.php';
+
+date_default_timezone_set('Europe/Ljubljana');
+$date = Zend_Date::now();
+
+echo $date.PHP_EOL;
+echo $date-&gt;getDate().PHP_EOL;
+Oct 5, 2008 11:29:00 AM
+Oct 5, 2008 1:00:00 AM
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-10-05T02:51:25.000+0000</p> 
+        <div class="body">
+            <p>Given the docu (??Returns a clone of $this, with the time part set to 00:00:00.??), I would expect it to work the same as this:</p>
+
+<pre class="highlight"><code>
+$ php
+&lt;?php
+require_once 'Zend/Date.php';
+
+date_default_timezone_set('Europe/Ljubljana');
+$date = Zend_Date::now();
+
+echo $date.PHP_EOL;
+
+$date-&gt;set(0, 'HOUR');
+$date-&gt;set(0, 'MINUTE');
+$date-&gt;set(0, 'SECOND');
+$date-&gt;set(0, 'MILLISECOND');
+
+echo $date.PHP_EOL;
+Oct 5, 2008 11:48:53 AM
+Oct 5, 2008 12:00:00 AM
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-11-10T12:16:05.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r12524 in trunk</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:10:23.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lauri Kotilainen (rytmis) on 2009-08-09T06:38:46.000+0000</p> 
+        <div class="body">
+            <p>Repro in Zend 1.8.1:</p>
+
+<pre class="literal">
+&lt;?php
+    require_once('Zend/Date.php');
+    date_default_timezone_set('Europe/Helsinki');
+    $date = Zend_Date::now()-&gt;getDate();
+    echo $date-&gt;toString() . PHP_EOL;
+</pre>
+
+<p>result:
+````</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Holger Schletz (hschletz) on 2011-09-07T16:01:28.000+0000</p> 
+        <div class="body">
+            <p>The bug still persists as of 1.11.10. Precisely, the result of getDate() is 1 hour off when DST is in effect for the given date. For dates without DST or when the timezone is set to UTC/GMT, the result is correct. Example:</p>
+
+<pre class="literal">date_default_timezone_set('Europe/Berlin');
+
+// DST in effect: result incorrect
+$date = new Zend_Date('2010-06-20 14:56:33');
+$date = $date-&gt;getDate();
+echo $date-&gt;toString() . PHP_EOL;
+
+// no DST in effect: result correct
+$date = new Zend_Date('2010-12-20 14:56:33');
+$date = $date-&gt;getDate();
+echo $date-&gt;toString() . PHP_EOL;
+</pre>
+
+<p>Result:</p>
+
+<pre class="literal">19.06.2010 23:00:00
+20.12.2010 00:00:00
+</pre>
+
+<p>The substitute solution with setting the time to midnight works either way. getDate() itself is currently unusable for DST-aware timezones.</p>
+
+<p>The unit test only checks for 2002-01-04 (no DST) and therefore succeeds. A second check with a DST date is required for a full test. Additionally, the checks should be performed with timezone set to both UTC and a DST-aware timezone. The current test appears to use Indian/Maldives, which did NOT show the erratic behavior with my own test script. No DST on the maldives, I suppose. I'd recommend a timezone that is more than 1 hour away from UTC, so that it's clear whether the offset comes from the timezone or from DST.</p>
+
+<p>The inconsistency of this bug's history may result from the use of Zend_Date::now() for testing. The reports come from mid-October and August (DST in effect), while the fix was made in November (no DST, no erratic behavior).</p>
+
+        </div>
+    </div>
+    </div>
+

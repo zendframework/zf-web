@@ -1,0 +1,186 @@
+Index: tests/Zend/Db/Select/StaticTest.php
+===================================================================
+--- tests/Zend/Db/Select/StaticTest.php	(revision 14523)
++++ tests/Zend/Db/Select/StaticTest.php	(working copy)
+@@ -68,6 +68,22 @@
+     }
+ 
+     /**
++     * ZF-2017: Test bind use of the Zend_Db_Select class.
++     */
++    public function testSelectQueryWithBinds()
++    {
++        $select = $this->_select()->where('product_id = :product_id')
++                                  ->bind(array(':product_id' => 1));
++
++        $sql = preg_replace('/\\s+/', ' ', $select->__toString());
++        $this->assertEquals('SELECT "zfproducts".* FROM "zfproducts" WHERE (product_id = :product_id)', $sql);
++
++        $stmt = $select->query();
++        Zend_Loader::loadClass('Zend_Db_Statement_Static');
++        $this->assertType('Zend_Db_Statement_Static', $stmt);
++    }
++
++    /**
+      * Test Zend_Db_Select specifying columns
+      *
+      * @return void
+Index: tests/Zend/Db/Select/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Select/TestCommon.php	(revision 14523)
++++ tests/Zend/Db/Select/TestCommon.php	(working copy)
+@@ -42,6 +42,8 @@
+ {
+     /**
+      * Test basic use of the Zend_Db_Select class.
++     *
++     * @return Zend_Db_Select
+      */
+     protected function _select()
+     {
+@@ -84,6 +86,23 @@
+     }
+ 
+     /**
++     * ZF-2017: Test bind use of the Zend_Db_Select class.
++     */
++    public function testSelectQueryWithBinds()
++    {
++        $select = $this->_select()->where('product_id = :product_id')
++                                  ->bind(array(':product_id' => 1));
++
++        $this->assertType('Zend_Db_Select', $select,
++            'Expecting object of type Zend_Db_Select, got '.get_class($select));
++        $stmt = $select->query();
++        $row = $stmt->fetch();
++        $stmt->closeCursor();
++        $this->assertEquals(2, count($row)); // correct number of fields
++        $this->assertEquals(1, $row['product_id']); // correct data
++    }
++
++    /**
+      * Test Zend_Db_Select specifying columns
+      */
+     protected function _selectColumnsScalar()
+Index: tests/Zend/Db/Table/Select/StaticTest.php
+===================================================================
+--- tests/Zend/Db/Table/Select/StaticTest.php	(revision 14523)
++++ tests/Zend/Db/Table/Select/StaticTest.php	(working copy)
+@@ -68,6 +68,22 @@
+     }
+ 
+     /**
++     * ZF-2017: Test bind use of the Zend_Db_Select class.
++     */
++    public function testSelectQueryWithBinds()
++    {
++        $select = $this->_select()->where('product_id = :product_id')
++                                  ->bind(array(':product_id' => 1));
++
++        $sql = preg_replace('/\\s+/', ' ', $select->__toString());
++        $this->assertEquals('SELECT "zfproducts".* FROM "zfproducts" WHERE (product_id = :product_id)', $sql);
++
++        $stmt = $select->query();
++        Zend_Loader::loadClass('Zend_Db_Statement_Static');
++        $this->assertType('Zend_Db_Statement_Static', $stmt);
++    }
++
++    /**
+      * Test Zend_Db_Select specifying columns
+      *
+      * @return void
+Index: library/Zend/Db/Adapter/Pdo/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Pdo/Abstract.php	(revision 14523)
++++ library/Zend/Db/Adapter/Pdo/Abstract.php	(working copy)
+@@ -216,6 +216,10 @@
+      */
+     public function query($sql, $bind = array())
+     {
++        if (empty($bind) && $sql instanceof Zend_Db_Select) {
++            $bind = $sql->getBind();
++        }
++
+         if (is_array($bind)) {
+             foreach ($bind as $name => $value) {
+                 if (!is_int($name) && !preg_match('/^:/', $name)) {
+Index: library/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Abstract.php	(revision 14523)
++++ library/Zend/Db/Adapter/Abstract.php	(working copy)
+@@ -442,6 +442,10 @@
+ 
+         // is the $sql a Zend_Db_Select object?
+         if ($sql instanceof Zend_Db_Select) {
++            if (empty($bind)) {
++                $bind = $sql->getBind();
++            }
++
+             $sql = $sql->assemble();
+         }
+ 
+Index: library/Zend/Db/Select.php
+===================================================================
+--- library/Zend/Db/Select.php	(revision 14523)
++++ library/Zend/Db/Select.php	(working copy)
+@@ -82,6 +82,13 @@
+     const SQL_DESC       = 'DESC';
+ 
+     /**
++     * Bind variables for query
++     *
++     * @var array
++     */
++    protected $_bind = array();
++
++    /**
+      * Zend_Db_Adapter_Abstract object.
+      *
+      * @var Zend_Db_Adapter_Abstract
+@@ -160,6 +167,29 @@
+     }
+ 
+     /**
++     * Get bind variables
++     *
++     * @return array
++     */
++    public function getBind()
++    {
++    	return $this->_bind;
++    }
++
++    /**
++     * Set bind variables
++     *
++     * @param mixed $bind
++     * @return Zend_Db_Select
++     */
++    public function bind($bind)
++    {
++    	$this->_bind = $bind;
++
++    	return $this;
++    }
++
++    /**
+      * Makes the query SELECT DISTINCT.
+      *
+      * @param bool $flag Whether or not the SELECT is DISTINCT (default true).
+@@ -632,10 +662,15 @@
+      * Executes the current select object and returns the result
+      *
+      * @param integer $fetchMode OPTIONAL
++     * @param  mixed  $bind An array of data to bind to the placeholders.
+      * @return PDO_Statement|Zend_Db_Statement
+      */
+-    public function query($fetchMode = null)
++    public function query($fetchMode = null, $bind = array())
+     {
++        if (!empty($bind)) {
++            $this->bind($bind);
++        }
++
+         $stmt = $this->_adapter->query($this);
+         if ($fetchMode == null) {
+             $fetchMode = $this->_adapter->getFetchMode();

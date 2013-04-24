@@ -1,0 +1,290 @@
+Index: tests/Zend/View/Helper/Navigation/_files/expected/menu/onlyactivebranch_siblings.html
+===================================================================
+--- tests/Zend/View/Helper/Navigation/_files/expected/menu/onlyactivebranch_siblings.html	(revision 0)
++++ tests/Zend/View/Helper/Navigation/_files/expected/menu/onlyactivebranch_siblings.html	(revision 0)
+@@ -0,0 +1,37 @@
++<ul class="navigation">
++    <li class="active">
++        <a href="page2">Page 2</a>
++        <ul>
++            <li>
++                <a href="page2/page2_1">Page 2.1</a>
++            </li>
++            <li class="active">
++                <a href="page2/page2_2">Page 2.2</a>
++                <ul>
++                    <li class="active">
++                        <a href="page2/page2_2/page2_2_2">Page 2.2.2</a>
++                    </li>
++                </ul>
++            </li>
++            <li class="active">
++                <a href="page2/page2_3">Page 2.3</a>
++                <ul>
++                    <li>
++                        <a href="page2/page2_3/page2_3_1">Page 2.3.1</a>
++                    </li>
++                    <li class="active">
++                        <a href="page2/page2_3/page2_3_3">Page 2.3.3</a>
++                        <ul>
++                            <li class="active">
++                                <a href="page2/page2_3/page2_3_3/1">Page 2.3.3.1</a>
++                            </li>
++                            <li class="active">
++                                <a href="page2/page2_3/page2_3_3/2">Page 2.3.3.2</a>
++                            </li>
++                        </ul>
++                    </li>
++                </ul>
++            </li>
++        </ul>
++    </li>
++</ul>
+Index: tests/Zend/View/Helper/Navigation/MenuTest.php
+===================================================================
+--- tests/Zend/View/Helper/Navigation/MenuTest.php	(revision 18876)
++++ tests/Zend/View/Helper/Navigation/MenuTest.php	(working copy)
+@@ -316,6 +316,16 @@
+         $this->assertEquals($expected, $actual);
+     }
+ 
++    public function testSetRenderSiblings()
++    {
++        $this->_helper->setOnlyActiveBranch(true)->setRenderSiblings(true);
++
++        $expected = $this->_getExpected('menu/onlyactivebranch_siblings.html');
++        $actual = $this->_helper->renderMenu();
++
++        $this->assertEquals($expected, $actual);
++    }
++
+     public function testSetRenderParents()
+     {
+         $this->_helper->setOnlyActiveBranch(true)->setRenderParents(false);
+Index: library/Zend/View/Helper/Navigation/Menu.php
+===================================================================
+--- library/Zend/View/Helper/Navigation/Menu.php	(revision 18876)
++++ library/Zend/View/Helper/Navigation/Menu.php	(working copy)
+@@ -59,6 +59,13 @@
+     protected $_renderParents = true;
+ 
+     /**
++     * Whether active branch siblings should be rendered when only rendering active branch
++     *
++     * @var bool
++     */
++    protected $_renderSiblings = false;
++
++    /**
+      * Partial view script to use for rendering menu
+      *
+      * @var string|array
+@@ -135,7 +142,7 @@
+     {
+         return $this->_onlyActiveBranch;
+     }
+-
++    
+     /**
+      * Enables/disables rendering of parents when only rendering active branch
+      *
+@@ -164,8 +171,36 @@
+     {
+         return $this->_renderParents;
+     }
++    
++    /**
++     * Sets a flag indicating whether only active branch siblings should be rendered
++     *
++     * See {@link setOnlyActiveBranch()} for more information.
++     *
++     * @param  bool $flag                        [optional] render only active
++     *                                           branch. Default is true.
++     * @return Zend_View_Helper_Navigation_Menu  fluent interface, returns self
++     */
++    public function setRenderSiblings($flag = true)
++    {
++        $this->_renderSiblings = (bool) $flag;
++        return $this;
++    }
+ 
+     /**
++     * Returns a flag indicating whether active branch siblings should be rendered
++     *
++     * By default, this value is false, meaning only active branch itself will
++     * be rendered.
++     *
++     * @return bool  whether only active branch should be rendered
++     */
++    public function getRenderSiblings()
++    {
++        return $this->_renderSiblings;
++    }
++
++    /**
+      * Sets which partial view script to use for rendering menu
+      *
+      * @param  string|array $partial             partial view script or null. If
+@@ -286,10 +321,14 @@
+         if (!isset($options['onlyActiveBranch'])) {
+             $options['onlyActiveBranch'] = $this->getOnlyActiveBranch();
+         }
+-
++        
+         if (!isset($options['renderParents'])) {
+             $options['renderParents'] = $this->getRenderParents();
+         }
++        
++        if (!isset($options['renderSiblings'])) {
++            $options['renderSiblings'] = $this->getRenderSiblings();
++        }
+ 
+         return $options;
+     }
+@@ -352,12 +391,13 @@
+     /**
+      * Renders a normal menu (called from {@link renderMenu()})
+      *
+-     * @param  Zend_Navigation_Container $container   container to render
+-     * @param  string                    $ulClass     CSS class for first UL
+-     * @param  string                    $indent      initial indentation
+-     * @param  int|null                  $minDepth    minimum depth
+-     * @param  int|null                  $maxDepth    maximum depth
+-     * @param  bool                      $onlyActive  render only active branch?
++     * @param  Zend_Navigation_Container $container      container to render
++     * @param  string                    $ulClass        CSS class for first UL
++     * @param  string                    $indent         initial indentation
++     * @param  int|null                  $minDepth       minimum depth
++     * @param  int|null                  $maxDepth       maximum depth
++     * @param  bool                      $onlyActive     render only active branch?
++     * @param  bool                      $renderParents  render active branch siblings?
+      * @return string
+      */
+     protected function _renderMenu(Zend_Navigation_Container $container,
+@@ -365,12 +405,13 @@
+                                    $indent,
+                                    $minDepth,
+                                    $maxDepth,
+-                                   $onlyActive)
++                                   $onlyActive,
++                                   $renderParents)
+     {
+         $html = '';
+ 
+         // find deepest active
+-        if ($found = $this->findActive($container, $minDepth, $maxDepth)) {
++        if ($found = $this->findActive($container, $minDepth - 1, $maxDepth)) {
+             $foundPage = $found['page'];
+             $foundDepth = $found['depth'];
+         } else {
+@@ -399,12 +440,24 @@
+                     if ($foundPage->hasPage($page)) {
+                         // accept if page is a direct child of the active page
+                         $accept = true;
++                    } else if ($renderParents) {
++                        // if page is not direct sibling of found page
++                        $parent = $foundPage->getParent();
++                        while ($parent instanceof Zend_Navigation_Page) {
++                            // iterate through all parents
++                            if ($parent->hasPage($page)) {
++                                // accept if one of the parents has the page
++                                $accept = true;
++                                break;
++                            }
++                            $parent = $parent->getParent();
++                        }
+                     } else if ($foundPage->getParent()->hasPage($page)) {
+                         // page is a sibling of the active page...
+                         if (!$foundPage->hasPages() ||
+                             is_int($maxDepth) && $foundDepth + 1 > $maxDepth) {
+                             // accept if active page has no children, or the
+-                            // children are too deep to be rendered
++                            // children are too deep to be rendered, or the
+                             $accept = true;
+                         }
+                     }
+@@ -490,7 +543,10 @@
+ 
+         $options = $this->_normalizeOptions($options);
+ 
+-        if ($options['onlyActiveBranch'] && !$options['renderParents']) {
++        if ($options['onlyActiveBranch'] &&
++            !$options['renderParents'] &&
++            !$options['renderSiblings']) {
++            // only render deepest menu
+             $html = $this->_renderDeepestMenu($container,
+                                               $options['ulClass'],
+                                               $options['indent'],
+@@ -502,7 +558,8 @@
+                                        $options['indent'],
+                                        $options['minDepth'],
+                                        $options['maxDepth'],
+-                                       $options['onlyActiveBranch']);
++                                       $options['onlyActiveBranch'],
++                                       $options['renderSiblings']);
+         }
+ 
+         return $html;
+@@ -519,6 +576,7 @@
+      *     'minDepth'         => null,
+      *     'maxDepth'         => null,
+      *     'onlyActiveBranch' => true,
++     *     'renderSiblings'   => false,
+      *     'renderParents'    => false
+      * ));
+      * </code>
+@@ -548,7 +606,8 @@
+             'minDepth'         => null,
+             'maxDepth'         => null,
+             'onlyActiveBranch' => true,
+-            'renderParents'    => false
++            'renderParents'    => false,
++            'renderSiblings'   => false
+         ));
+     }
+ 
+Index: documentation/manual/en/module_specs/Zend_View-Helpers-Navigation.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_View-Helpers-Navigation.xml	(revision 18876)
++++ documentation/manual/en/module_specs/Zend_View-Helpers-Navigation.xml	(working copy)
+@@ -1206,6 +1206,15 @@
+             </listitem>
+             <listitem>
+                 <para>
++                    <code>{get|set}RenderSiblings()</code> gets/sets a flag
++                    specifying whether siblings of an active branch should
++                    be rendered when only rendering active branch of a container.
++                    If set to <constant>FALSE</constant>, only the deepest active
++                    menu will be rendered.
++                </para>
++            </listitem>
++            <listitem>
++                <para>
+                     <code>{get|set}Partial()</code> gets/sets a partial view
+                     script that should be used for rendering menu.
+                     If a partial view script is set, the helper's
+@@ -1291,6 +1300,14 @@
+                             branch. Expects a <type>Boolean</type> value.
+                         </para>
+                     </listitem>
++                    <listitem>
++                        <para>
++                            <code>renderSiblings</code>; whether siblings
++                            of an active branch should be rendered if only
++                            rendering active branch. Expects a
++                            <type>Boolean</type> value.
++                        </para>
++                    </listitem>
+                 </itemizedlist>
+ 
+                 <para>
+@@ -1452,7 +1469,8 @@
+     'minDepth'         => null,
+     'maxDepth'         => null,
+     'onlyActiveBranch' => true,
+-    'renderParents'    => false
++    'renderParents'    => false,
++    'renderSiblings'   => false
+ );
+ ]]></programlisting>
+ 

@@ -1,0 +1,137 @@
+<h2>ZF-930: Zend_Http_Client::request mishandles relative paths on Windows</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-02-16T20:31:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.0 (17/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10271/Client.php.patch">Client.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When calling Zend_Http_Client::request, some valid URLs end up causing a Zend_Uri_Exception when they result in redirects in which relative paths are used in the HTTP response headers. A code example that exposes this is shown below.</p>
+
+<pre class="highlight"><code>
+require 'Zend/Http/Client.php';
+
+$http = new Zend_Http_Client(null, array('timeout' =&gt; 10));
+$http-&gt;setUri('<a href="http://portasoft.org">http://portasoft.org</a>');
+
+$response = $http-&gt;request('HEAD');
+
+/*
+Output:
+Fatal error: Uncaught exception 'Zend_Uri_Exception' with message 'Path "\/news.
+php" is not a valid HTTP path' in Zend\Uri\Http.php:457
+Stack trace:
+#0 Zend\Http\Client.php(775): Zend_Uri_Http-&gt;setPath('\/news.php')
+#1 test.php(7): Zend_Http_Client-&gt;request('HEAD')
+#2 {main} thrown in Zend\Uri\Http.php on line 457
+*/
+</code></pre>
+
+<p>Firefox 2 and curl 7.15.4 process this URL as expected. Below is the result of manually accessing each URL in the redirection from <a href="http://portasoft.org">http://portasoft.org</a> to the end of the redirection at <a href="http://www.portasoft.org/e107/news.php">http://www.portasoft.org/e107/news.php</a>.</p>
+
+<pre class="highlight"><code>
+Matthew@turland ~
+$ curl -I <a href="http://portasoft.org">http://portasoft.org</a>
+HTTP/1.1 302 Found
+Date: Sat, 17 Feb 2007 00:58:14 GMT
+Server: Apache/2.0.59 (Unix) mod_perl/1.99_17-dev Perl/v5.8.4 mod_ssl/2.0.59 Ope
+nSSL/0.9.7e FrontPage/5.0.2.2634 PHP/5.2.0
+X-Powered-By: PHP/5.2.0
+Location: <a href="http://www.portasoft.org/e107/">http://www.portasoft.org/e107/</a>
+Content-Type: text/html
+
+
+Matthew@turland ~
+$ curl -I <a href="http://www.portasoft.org/e107/">http://www.portasoft.org/e107/</a>
+HTTP/1.1 302 Found
+Date: Sat, 17 Feb 2007 00:58:26 GMT
+Server: Apache/2.0.59 (Unix) mod_perl/1.99_17-dev Perl/v5.8.4 mod_ssl/2.0.59 Ope
+nSSL/0.9.7e FrontPage/5.0.2.2634 PHP/5.2.0
+X-Powered-By: PHP/5.2.0
+Location: news.php
+Content-Type: text/html
+
+
+Matthew@turland ~
+$ curl -I <a href="http://www.portasoft.org/e107/news.php">http://www.portasoft.org/e107/news.php</a>
+HTTP/1.1 200 OK
+Date: Sat, 17 Feb 2007 00:58:32 GMT
+Server: Apache/2.0.59 (Unix) mod_perl/1.99_17-dev Perl/v5.8.4 mod_ssl/2.0.59 Ope
+nSSL/0.9.7e FrontPage/5.0.2.2634 PHP/5.2.0
+X-Powered-By: PHP/5.2.0
+Cache-Control: must-revalidate
+ETag: 33da36178024e4e022803f5669cf5566
+Content-Length: 32557
+Content-Type: text/html; charset=utf-8
+</code></pre>
+
+<p>The issue is in Zend_Http_Client's handling of relative paths. Around line 774 in the class file for Zend_Http_Client is a line that looks like the one shown below. On Windows under PHP 5.2.0, dirname('/e107/') results in '\' on Windows under PHP 5.2.0, which is of course not the expected response with respect to this application of the function. (In Linux, the same call results in '/' which IS the expected response.) Removing the call to dirname() appears to fix this problem. If complete removal of this call is undesirable, perhaps realpath() might work better.</p>
+
+<pre class="highlight"><code>
+$path = rtrim(dirname($this-&gt;uri-&gt;getPath()), "/");
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Inash Zubair (inash) on 2007-02-18T10:28:30.000+0000</p> 
+        <div class="body">
+            <p>Attached is a patch for current Http_Client which is currently at revision 3039.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-02-25T09:42:30.000+0000</p> 
+        <div class="body">
+            <p>I think I fixed the issue in revision 3618 - please update and test again.
+It's hard for me to make sure because I have limited access to a Windows machine now.</p>
+
+<p>Update this bug if the issue is not resolved.</p>
+
+        </div>
+    </div>
+    </div>
+

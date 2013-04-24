@@ -1,0 +1,184 @@
+<h2>ZF-9982: fetchAll infinite loop</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-12T04:00:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-18T12:20:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I am using pdo_mysql on an x86 Linux machine. Most of my queries work, however there is a select that should return 5 records, but it returns all my 5 records more than once (probably some sort of infinite loop, since the execution of the PHP script is stopped by the 30s execution limit in PHP).</p>
+
+<p>PHP snippet:</p>
+
+<pre class="highlight"><code>
+foreach ($this-&gt;db-&gt;query('SELECT `name`, `level`, `parent` FROM `allresources_view` ORDER BY `level` ASC')-&gt;fetchAll() as $r) {
+                var_dump($r);
+                echo '<br /><br />';
+            }
+</code></pre>
+
+<p>When running the above query from the mysql console, the output is:</p>
+
+<pre class="highlight"><code>
+mysql&gt; SELECT `name`, `level`, `parent` FROM `allresources_view` ORDER BY `level` ASC;
++--------------+-------+--------+
+| name         | level | parent |
++--------------+-------+--------+
+| root         |     0 | NULL   |
+| index_index  |     1 | root   |
+| error        |     1 | root   |
+| error_denied |     2 | error  |
+| error_error  |     2 | error  |
++--------------+-------+--------+
+5 rows in set (0.00 sec)
+</code></pre>
+
+<p>But the above PHP snippet produces:</p>
+
+<pre class="highlight"><code>
+array(3) { ["name"]=&gt; string(4) "root" ["level"]=&gt; string(1) "0" ["parent"]=&gt; NULL } 
+
+array(3) { ["name"]=&gt; string(11) "index_index" ["level"]=&gt; string(1) "1" ["parent"]=&gt; string(4) "root" } 
+
+array(3) { ["name"]=&gt; string(5) "error" ["level"]=&gt; string(1) "1" ["parent"]=&gt; string(4) "root" } 
+
+array(3) { ["name"]=&gt; string(12) "error_denied" ["level"]=&gt; string(1) "2" ["parent"]=&gt; string(5) "error" } 
+
+array(3) { ["name"]=&gt; string(11) "error_error" ["level"]=&gt; string(1) "2" ["parent"]=&gt; string(5) "error" } 
+
+array(3) { ["name"]=&gt; string(4) "root" ["level"]=&gt; string(1) "0" ["parent"]=&gt; NULL } 
+
+array(3) { ["name"]=&gt; string(11) "index_index" ["level"]=&gt; string(1) "1" ["parent"]=&gt; string(4) "root" } 
+
+array(3) { ["name"]=&gt; string(5) "error" ["level"]=&gt; string(1) "1" ["parent"]=&gt; string(4) "root" } 
+
+array(3) { ["name"]=&gt; string(12) "error_denied" ["level"]=&gt; string(1) "2" ["parent"]=&gt; string(5) "error" } 
+
+array(3) { ["name"]=&gt; string(11) "error_error" ["level"]=&gt; string(1) "2" ["parent"]=&gt; string(5) "error" } 
+
+
+
+array(3) { ["name"]=&gt; string(4) "root" ["level"]=&gt; string(1) "0" ["parent"]=&gt; NULL } 
+
+array(3) { ["name"]=&gt; string(11) "index_index" ["level"]=&gt; string(1) "1" ["parent"]=&gt; string(4) "root" } 
+
+array(3) { ["name"]=&gt; string(5) "error" ["level"]=&gt; string(1) "1" ["parent"]=&gt; string(4) "root" } 
+
+array(3) { ["name"]=&gt; string(12) "error_denied" ["level"]=&gt; string(1) "2" ["parent"]=&gt; string(5) "error" } 
+
+array(3) { ["name"]=&gt; string(11) "error_error" ["level"]=&gt; string(1) "2" ["parent"]=&gt; string(5) "error" } 
+
+Fatal error: Maximum execution time of 30 seconds exceeded in /path/to/my/zend/framework/library/Zend/Controller/Dispatcher/Abstract.php on line 240
+
+</code></pre>
+
+<p>NOTE: The file and line given in the error are not constant. They change by every reload.</p>
+
+<p>Steps to reproduce:
+ * Software versions:
+ ** PHP 5.3.2-1ubuntu4.2 with Suhosin-Patch (cli) (from Ubuntu repositories)
+ ** mysqld  Ver 5.1.41-3ubuntu12.3 for debian-linux-gnu on i486 ((Ubuntu)) (also Ubuntu repositories)
+ ** php5-mysql 5.3.2-1ubuntu4.2 (also Ubuntu repositories)
+ ** Zend Framework 1.10.5 Release (r22306)
+ * Set up mysql:
+ ** Execute query:</p>
+
+<pre class="highlight"><code>
+
+CREATE DATABASE `gal`;
+USE `gal`;
+
+CREATE TABLE `resources` (
+  `name` varchar(30) NOT NULL,
+  `parent` int(10) unsigned NOT NULL,
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `level` int(10) unsigned NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM
+
+INSERT INTO `resources` VALUES ('root',0,1,0),('index_index',1,2,1),('error_error',10,3,2),('error',1,10,1),('error_denied',10,9,2);
+
+CREATE VIEW `allresources_view` AS select `resources`.`name` AS `name`,`resources`.`level` AS `level`,(select `in`.`name` AS `pname` from `resources` `in` where (`in`.`id` = `resources`.`parent`)) AS `parent` from `resources`;
+
+</code></pre>
+
+<ul><li>Set up PHP
+** Include the above snippet in a new PHP file, where $this-&gt;db is an instance of Zend_Db, set up with the database</li>
+</ul>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gábor Szarka (gsx1022) on 2010-06-15T12:19:28.000+0000</p> 
+        <div class="body">
+            <p>Okay, I'm starting to think this issue is beyond ZF. The code below also fails with the same symptoms.</p>
+
+<pre class="highlight"><code>
+...
+            $raw = mysql_query('SELECT `name`, `level`, `parent` FROM `allresources_view` ORDER BY `level` ASC');
+            
+            while ($r = mysql_fetch_assoc($raw)) {
+                var_dump($r);
+                echo '<br /><br />';
+            }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-06-18T12:00:48.000+0000</p> 
+        <div class="body">
+            <p>I've tried your setup with ZF Standard Trunk, and all appears to work well on my end.
+Tried with PHP 5.3.1 and PHP 5.2.13, with both I get a perfectly working query.  If you have any more information or know why this is happeneing, please reopen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gábor Szarka (gsx1022) on 2010-06-18T12:20:22.000+0000</p> 
+        <div class="body">
+            <p>I am using PHP 5.3.2. Also, you shouldn't waste your time on it. Seems to be a bug in PHP. I've reported it at the php site. See: <a href="http://bugs.php.net/bug.php?id=52090">http://bugs.php.net/bug.php?id=52090</a></p>
+
+        </div>
+    </div>
+    </div>
+

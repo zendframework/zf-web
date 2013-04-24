@@ -1,0 +1,113 @@
+<h2>ZF-9486: zend_mail_transport_sendmail::_sendMail() missing restore_error_handler() on exit path</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-19T23:50:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-03-22T05:53:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.3 (01/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In Zend_Mail_Transport_Sendmail::_sendMail() there is a minor bug. If the first error is thrown, restore_error_handler() is never called, therefore 'leaking' the previously set '_handleMailErrors' handler, and corrupting the handler stack. Solution is to add a call to restore_error_handler() before throwing, or else refactor the code to prevent the unexpected exit path.</p>
+
+<p>See code below for a sample fix:</p>
+
+<pre class="highlight"><code>
+    public function _sendMail()
+    {
+        set_error_handler(array($this, '_handleMailErrors'));
+        if ($this-&gt;parameters === null) {
+            $result = mail(
+                $this-&gt;recipients,
+                $this-&gt;_mail-&gt;getSubject(),
+                $this-&gt;body,
+                $this-&gt;header);
+        } else {
+            if(!is_string($this-&gt;parameters)) {
+                /**
+                 * @see Zend_Mail_Transport_Exception
+                 * 
+                 * Exception is thrown here because
+                 * $parameters is a public property
+                 */
+
+                // FIX: set_error_handler was called earlier, we need to
+                // reverse that before returning.
+                restore_error_handler();
+
+                require_once 'Zend/Mail/Transport/Exception.php';
+                throw new Zend_Mail_Transport_Exception(
+                    'Parameters were set but are not a string'
+                );
+            }
+
+            $result = mail(
+                $this-&gt;recipients,
+                $this-&gt;_mail-&gt;getSubject(),
+                $this-&gt;body,
+                $this-&gt;header,
+                $this-&gt;parameters);
+        }
+        restore_error_handler();
+
+        if ($this-&gt;_errstr !== null || !$result) {
+            /**
+             * @see Zend_Mail_Transport_Exception
+             */
+            require_once 'Zend/Mail/Transport/Exception.php';
+            throw new Zend_Mail_Transport_Exception('Unable to send mail. ' . $this-&gt;_errstr);
+        }
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2010-03-22T05:53:31.000+0000</p> 
+        <div class="body">
+            <p>Thank You for report, John. Solved at SVN r21603</p>
+
+        </div>
+    </div>
+    </div>
+

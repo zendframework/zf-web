@@ -1,0 +1,141 @@
+<h2>ZF-6265: Zend Rest Result.php does not handle invalid XML properly - error handlers are ignored</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-10T13:41:12.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-14T04:24:25.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Rest_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you take a look at file Zend/Rest/Result.php you'll see in the __construct method the following code:</p>
+
+<pre class="highlight"><code>
+ public function __construct($data)
+    {
+        set_error_handler(array($this, 'handleXmlErrors'));
+        $this-&gt;_sxml = simplexml_load_string($data);
+        if($this-&gt;_sxml === false) {
+            $this-&gt;handleXmlErrors(0, "An error occured while parsing the REST response with simplexml.");
+        } else {
+            restore_error_handler();
+        }
+    }
+</code></pre>
+
+<p>you're setting the error handler to use "handleXmlErrors" which in that method it attempts to restore the error handler and throw an exception. If you take a look at the php docs <a href="http://us.php.net/restore_error_handler">http://us.php.net/restore_error_handler</a> 
+you'll see the NOTE: Note: Calling restore_error_handler() from the error_handler function is ignored.</p>
+
+<p>Which means once the error occurs it jumps into handleXmlErrors and the restore called is ignored and when the exception is thrown execution stops at the simplexml_load_string line and is passed backed to the caller. The restoration of the error handler never occurs. To work around I had to restore the error handler in my controller in the "catch" section of my try catch .</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alejandro Pedraza (alpeb) on 2009-07-14T06:12:37.000+0000</p> 
+        <div class="body">
+            <p>I've stumbled across this one as well. Something like the following patch could fix it, but for some reason the error string that I store in $this-&gt;_errstr gets chopped after leaving the error handler function:</p>
+
+<pre class="literal">
+Index: Result.php
+===================================================================
+--- Result.php  (revision 16697)
++++ Result.php  (working copy)
+@@ -32,6 +32,8 @@
+      */
+     protected $_sxml;
+ 
++    private $_errstr = false;
++
+     /**
+      * Constructor
+      *
+@@ -42,10 +44,14 @@
+     {
+         set_error_handler(array($this, 'handleXmlErrors'));
+         $this-&gt;_sxml = simplexml_load_string($data);
++        restore_error_handler();
+         if($this-&gt;_sxml === false) {
+-            $this-&gt;handleXmlErrors(0, "An error occured while parsing the REST response with simplexml.");
+-        } else {
+-            restore_error_handler();
++            require_once "Zend/Rest/Client/Result/Exception.php";
++            if (isset($this-&gt;_errstr)) {
++                throw new Zend_Rest_Client_Result_Exception("REST Response Error: ".$this-&gt;_errstr);
++            } else {
++                throw new Zend_Rest_Client_Result_Exception("An error occured while parsing the REST response with simplexml.");
++            }
+         }
+     }
+ 
+@@ -57,13 +63,10 @@
+      * @param string $errfile
+      * @param string $errline
+      * @param array  $errcontext
+-     * @throws Zend_Result_Client_Result_Exception
+      */
+     public function handleXmlErrors($errno, $errstr, $errfile = null, $errline = null, array $errcontext = null)
+     {
+-        restore_error_handler();
+-        require_once "Zend/Rest/Client/Result/Exception.php";
+-        throw new Zend_Rest_Client_Result_Exception("REST Response Error: ".$errstr);
++        $this-&gt;_errstr = $errstr;
+     }
+ 
+     /**
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-11-14T04:24:25.000+0000</p> 
+        <div class="body">
+            <p>Solved in SVN r18973.</p>
+
+<p>I think it could be next mini release if the handleXmlErrors() would be private.</p>
+
+<p>But now it should be next minor to avoid BC problem, I think.</p>
+
+        </div>
+    </div>
+    </div>
+

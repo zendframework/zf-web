@@ -1,0 +1,163 @@
+<h2>ZF-11420: Zend_Session doesn't allow you to destory and recreate a session</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-05-31T12:09:47.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-26T10:59:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Artur Bodera (joust)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+            <li>zendsession</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3378">ZF-3378</a></li>
+            <li><a href="/issues/browse/ZF-1497">ZF-1497</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>My requirement is, When user agent change session should destroy, and it should start new session. But Zend_Session::start() is throwing an exception if destroy was called before start().</p>
+
+<pre class="highlight"><code> 
+try {
+  Zend_Session::start();
+} catch (Zend_Session_Exception $e) {
+  Zend_Session::destroy(true);
+  Zend_Session::start(); // breaking here
+  Zend_Session::regenerateId();
+}
+Zend_Session::registerValidator(new Zend_Session_Validator_HttpUserAgent());
+</code></pre>
+
+<h2>Exception:</h2>
+
+<p>Uncaught exception 'Zend_Session_Exception' with message 'The session was explicitly destroyed during this request, attempting to re-start is not allowed.' in library\Zend\Session.php:431</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by venu (tvgece) on 2011-05-31T13:28:02.000+0000</p> 
+        <div class="body">
+            <p>I have a global session management in bootstrap, which validates the request and starts session. By that time, request won't be dispatched. Then why to make another request to redirect to another page? As we already knew that session is wrong one? we could easily start new one right?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by venu (tvgece) on 2011-05-31T13:34:02.000+0000</p> 
+        <div class="body">
+            <p>As I understood, The reason is the second start() command is silently ignored if it was already called in that request.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2011-08-26T10:39:03.000+0000</p> 
+        <div class="body">
+            <p><em>IMPORTANT!</em></p>
+
+<p>{{session_destroy()}} will (by design) prevent any further session cookies to be sent.
+This means your use case <em>must be avoided</em> if you are using cookies.</p>
+
+<p>Here is more info in php manual comments:
+<a href="http://www.php.net/manual/en/function.session-destroy.php#85379">http://php.net/manual/en/…</a></p>
+
+<p>Here are my analysis on the issue:
+<a href="http://framework.zend.com/issues/browse/ZF2-52?focusedCommentId=48042&amp;page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-48042">http://framework.zend.com/issues/browse/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2011-08-26T10:53:34.000+0000</p> 
+        <div class="body">
+            <p>You don't need to destroy session in order to regenerate id.
+That is a wrong understanding of how sessions work.</p>
+
+<p>Here is how you <em>clear</em> a session with ZF:</p>
+
+<pre class="highlight"><code>
+// assuming sessionData is the namespace you're using
+$sessionData-&gt;unsetAll();
+</code></pre>
+
+<p>The above will result in all data in the namespace to be unset and this
+change will be saved in your session storage.</p>
+
+<p>This is how you change session ID by sending a different cookie to browser:</p>
+
+<pre class="highlight"><code>
+Zend_Session::regenerateId();
+</code></pre>
+
+<p>This will result in generating a new session id and sending a new session
+cookie to the browser. The old session id (old cookie) becomes invalid after
+this function call.</p>
+
+<p>Here is a fixed version of your source code:</p>
+
+<pre class="highlight"><code>
+Zend_Session::registerValidator(new Zend_Session_Validator_HttpUserAgent());
+
+try {
+  Zend_Session::start();
+} catch (Zend_Session_Exception $e) {
+
+  // clear all data in all namespaces
+  foreach(Zend_Session::getIterator() as $name=&gt;$ns){
+    Zend_Session::namespaceUnset($name); 
+  }
+
+  // alternatively   $_SESSION = array()
+  
+  // generate new session id and send new cookie to browser
+  Zend_Session::regenerateId();
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2011-08-26T10:59:03.000+0000</p> 
+        <div class="body">
+            <p>It is an expected behavior as Zend_Session wraps around php built-in session support. By PHP's design, after destroying a session it must not be started again.</p>
+
+<p><a href="http://www.php.net/manual/en/function.session-destroy.php">http://php.net/manual/en/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,200 @@
+<h2>ZF-588: Can't draw special characters (ie. euro symbol) on linux</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-11-22T16:20:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-03T06:14:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.3 (19/Jan/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Pdf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3650">ZF-3650</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10211/test_encodeString.pdf">test_encodeString.pdf</a></li>
+            <li><a href="/issues/secure/attachment/10212/test_no_encodeString.pdf">test_no_encodeString.pdf</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Trying to draw the euro symbol with a line like this:</p>
+
+<p>$page-&gt;drawText(chr(128), 100, 100);</p>
+
+<p>I get a correctly printed euro symbol using apache 2.0.54, php 5.1.2 on windows, but only a set of white spaces if using apache and php (same versions) on linux (tried ubuntu 6 and fedora 5).
+I also tried different combinations of encodings with no success.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-28T17:50:05.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Alexander.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Franco A. (strfrank) on 2007-01-16T10:13:00.000+0000</p> 
+        <div class="body">
+            <p>Looks like at least on my linux systems (ubuntu and fedora core 5), there's a problem in Zend_Pdf_Page-&gt;drawText().
+This row:
+$textObj = new Zend_Pdf_Element_String($this-&gt;_font-&gt;encodeString($text, $charEncoding));
+calls encodeString() which tries to encode the text to CP1252 charset with no success. I tried a text with characters like 'à' or 'ì' (which are common in my language) and they don't get encoded.
+If I change the line above to
+$textObj = new Zend_Pdf_Element_String($text);</p>
+
+<p>In my ubuntu system the output of iconv_get_encoding() says ISO-8859-1 for all three kinds.
+Hope this helps</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Franco A. (strfrank) on 2007-01-16T10:22:34.000+0000</p> 
+        <div class="body">
+            <p>Sorry, there's a missing part in my last message:</p>
+
+<p>If I change the line above to:
+$textObj = new Zend_Pdf_Element_String($text);
+I get correct accented characters</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2007-01-16T11:16:54.000+0000</p> 
+        <div class="body">
+            <p>{{Zend_Pdf_Resource_Font::encodeString()}} is necessary because the actual character encoding method used in the binary stream of the PDF file is WinAnsiEncoding, which is CP-1252.</p>
+
+<p>CP-1252 is over a dozen years old and so predates the Euro; there is no Euro symbol character in the CP-1252 character map. This is why, in the current code base, you were unable to draw that character. There is an effort underway to replace the dated WinAnsiEncoding method with a Unicode-based system which will completely eliminate these kinds of problems.</p>
+
+<p>Your results from bypassing {{encodeString()}} are interesting though... it should not have worked. Or, at least, if it did, there should be problems when viewing the PDF on other, non-Microsoft platforms. I'll take a closer look at what's happening here and try to come up with a reasonable explanation and/or fix.</p>
+
+<p>In the interim, can you attach your sample PDF file (the one that works) to this issue? I'm curious to see if the PDF works properly on my Mac.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Franco A. (strfrank) on 2007-01-16T16:25:47.000+0000</p> 
+        <div class="body">
+            <p>I attached two files:
+- test_encodeString.pdf: generated with original Zend Framework
+- test_no_encodeString.pdf: generated after having modified Zend_Pdf_Resource_Font::encodeString() this way:
+public function encodeString($string, $charEncoding)
+{
+  return $string;
+}</p>
+
+<p>Text is generated calling drawText this way:
+$pg-&gt;drawText("a -&gt; à", $x, $y);
+$pg-&gt;drawText("e -&gt; è", $x, $y);
+$pg-&gt;drawText("i -&gt; ì", $x, $y);
+$pg-&gt;drawText("euro -&gt; ".chr(128), $x, $y);</p>
+
+<p>I can see the symbols in the second file and not in the first (I open the files both on linux and windows, they look the same).
+I noticed that the characters 'à', etc. are recognized as invalid by the iconv function in encodeString.
+For example, if I remove the //IGNORE statement for the output encoding, trying to render the text:</p>
+
+<p>Test àà write</p>
+
+<p>The result is:</p>
+
+<p>Test</p>
+
+<p>While leaving the //IGNORE statement the result is</p>
+
+<p>Test    write</p>
+
+<p>Thanks for your help,
+Frank</p>
+
+<p>P.S.
+According to this:
+<a href="http://en.wikipedia.org/wiki/Windows-1252">http://en.wikipedia.org/wiki/Windows-1252</a>
+It looks that the euro symbol is included in this encoding, along with accented letters like 'à' and 'ì'.  In fact I produced pdf documents with the euro symbol with tools like gs.</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:50.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Franco A. (strfrank) on 2008-04-19T06:49:24.000+0000</p> 
+        <div class="body">
+            <p>Actually I solved the euro symbol problem like this in 1.5:</p>
+
+<p>$page-&gt;drawText(html_entity_decode("€", ENT_COMPAT, "UTF-8"), $x, $y, "UTF-8");</p>
+
+<p>Not perfect but it works, I think there's also a problem with source code file encoding while specifying non standard characters.
+Thanks,
+Frank</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Franco A. (strfrank) on 2008-04-19T06:51:23.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I noticed that the editor converted my code, the first argument of html_entity_decode must be the entity for the euro symbol $ e u r o ;</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-12-03T06:13:54.000+0000</p> 
+        <div class="body">
+            <p>PDF standard fonts support smal set of single byte encodings (See <a href="http://www.adobe.com/devnet/acrobat/pdfs/pdf_reference_1-7.pdf">PDF Reference, Appendix D</a>). They are generally equal to Latin1 (CP1252).</p>
+
+<p>BUT! You have to specify character encoding for the string provided to drawText() method:</p>
+
+<pre class="highlight"><code>
+$font = Zend_Pdf_Font::fontWithName(Zend_Pdf_Font::FONT_COURIER);
+$pdfPage-&gt;setFont($font, 36)
+        -&gt;drawText('Euro sign - €', 72, 720, 'UTF-8')
+        -&gt;drawText('Text with umlauts - à è ì', 72, 650, 'UTF-8');
+</code></pre>
+
+<p>You also must be sure, that string is actualy uses specified encoding.</p>
+
+<p>[ZF-3650] documentation task should describe this more clear.</p>
+
+        </div>
+    </div>
+    </div>
+

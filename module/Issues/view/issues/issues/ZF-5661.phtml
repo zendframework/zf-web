@@ -1,0 +1,296 @@
+<h2>ZF-5661: Get comments in meta data</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-30T06:12:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Mysqli</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In Zend_Db_Adapter_Mysqli and Zend_Db_Adapter_Pdo_Mysql, the meta data brought back with 'DESCRIBE tablename' doesn't include any comments applied to the fields.  If this were changed to ' SHOW FULL COLUMNS FROM tablename', then it would bring back all the columns expected with describe as well as the comment data, collation and privileges.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Romeo Adrian Cioaba (mimir) on 2009-02-17T15:02:33.000+0000</p> 
+        <div class="body">
+            <p>In case someone needs to read the comments from columns, here is a modified describeTable() from Zend_Db_Adapter_Pdo_Mysql</p>
+
+<p><code>
+    public function describeTable($tableName, $schemaName = null)
+    {
+        // @todo  use INFORMATION_SCHEMA someday when MySQL's
+        // implementation has reasonably good performance and
+        // the version with this improvement is in wide use.</code></p>
+
+<pre><code>    if ($schemaName) {
+        $sql = 'SHOW FULL COLUMNS FROM ' . $this-&gt;quoteIdentifier("$schemaName.$tableName", true);
+    } else {
+        $sql = 'SHOW FULL COLUMNS FROM ' . $this-&gt;quoteIdentifier($tableName, true);
+    }
+    $stmt = $this-&gt;query($sql);
+
+    // Use FETCH_NUM so we are not dependent on the CASE attribute of the PDO connection
+    $result = $stmt-&gt;fetchAll(Zend_Db::FETCH_NUM);
+
+    $field          = 0;
+    $type           = 1;
+    $collation      = 2;
+    $null           = 3;
+    $key            = 4;
+    $default        = 5;
+    $extra          = 6;
+    $privileges     = 7;
+    $comments       = 8;
+
+    $desc = array();
+    $i = 1;
+    $p = 1;
+
+
+    foreach ($result as $row) {
+        list($length, $scale, $precision, $unsigned, $primary, $primaryPosition, $identity)
+        = array(null, null, null, null, false, null, false);
+        if (preg_match('/unsigned/', $row[$type])) {
+            $unsigned = true;
+        }
+        if (preg_match('/^((?:var)?char)\((\d+)\)/', $row[$type], $matches)) {
+            $row[$type] = $matches[1];
+            $length = $matches[2];
+        } else if (preg_match('/^decimal\((\d+),(\d+)\)/', $row[$type], $matches)) {
+            $row[$type] = 'decimal';
+            $precision = $matches[1];
+            $scale = $matches[2];
+        } else if (preg_match('/^float\((\d+),(\d+)\)/', $row[$type], $matches)) {
+            $row[$type] = 'float';
+            $precision = $matches[1];
+            $scale = $matches[2];
+        } else if (preg_match('/^((?:big|medium|small|tiny)?int)\((\d+)\)/', $row[$type], $matches)) {
+            $row[$type] = $matches[1];
+            // The optional argument of a MySQL int type is not precision
+            // or length; it is only a hint for display width.
+        }
+        if (strtoupper($row[$key]) == 'PRI') {
+            $primary = true;
+            $primaryPosition = $p;
+            if ($row[$extra] == 'auto_increment') {
+                $identity = true;
+            } else {
+                $identity = false;
+            }
+            ++$p;
+        }
+        $collation = $row[2];
+        $privileges = $row[7];
+        $comments = $row[8];
+        $desc[$this-&gt;foldCase($row[$field])] = array(
+            'SCHEMA_NAME'      =&gt; null, // @todo
+            'TABLE_NAME'       =&gt; $this-&gt;foldCase($tableName),
+            'COLUMN_NAME'      =&gt; $this-&gt;foldCase($row[$field]),
+            'COLUMN_POSITION'  =&gt; $i,
+            'DATA_TYPE'        =&gt; $row[$type],
+            'DEFAULT'          =&gt; $row[$default],
+            'NULLABLE'         =&gt; (bool) ($row[$null] == 'YES'),
+            'LENGTH'           =&gt; $length,
+            'SCALE'            =&gt; $scale,
+            'PRECISION'        =&gt; $precision,
+            'UNSIGNED'         =&gt; $unsigned,
+            'PRIMARY'          =&gt; $primary,
+            'PRIMARY_POSITION' =&gt; $primaryPosition,
+            'IDENTITY'         =&gt; $identity,
+            'COLLATION'        =&gt; $collation,
+            'COMMENTS'         =&gt; $comments
+        );
+        ++$i;
+    }
+    return $desc;
+}
+</code></pre>
+
+<p></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sam Wilson (samwilson) on 2009-07-16T17:43:32.000+0000</p> 
+        <div class="body">
+            <p>I have also had occasion to find Zend_Db_Adapter_Pdo_Mysql::describeTable lacking, and extend it with the addition of comments, and lengths for numeric types.</p>
+
+<p>Here's my version (in case it's any use):</p>
+
+<pre class="highlight"><code>
+
+    /**
+     * Returns the column descriptions for a table.
+     *
+     * </code></pre><p><code>The return value is an associative array keyed by the column name,
+     * as returned by the RDBMS.</code></p><code>
+     *
+     * </code><p><code>The value of each array element is an associative array
+     * with the following keys:</code></p><code>
+     *
+     * </code><pre><code>
+     * SCHEMA_NAME      =&gt; string;  name of database or schema
+     * TABLE_NAME       =&gt; string;  table name
+     * COLUMN_NAME      =&gt; string;  column name
+     * COLUMN_POSITION  =&gt; number;  ordinal position of column in table
+     * DATA_TYPE        =&gt; string;  SQL datatype name of column
+     * DEFAULT          =&gt; string;  default expression of column, null if none
+     * NULLABLE         =&gt; boolean; true if column can have nulls
+     * LENGTH           =&gt; number;  length of CHAR/VARCHAR
+     * SCALE            =&gt; number;  scale of NUMERIC/DECIMAL
+     * PRECISION        =&gt; number;  precision of NUMERIC/DECIMAL
+     * UNSIGNED         =&gt; boolean; unsigned property of an integer type
+     * PRIMARY          =&gt; boolean; true if column is part of the primary key
+     * PRIMARY_POSITION =&gt; integer; position of column in primary key
+     * IDENTITY         =&gt; integer; true if column is auto-generated with unique values
+     * COMMENT          =&gt; string;  column comment
+     * </code></pre><code>
+     *
+     * </code><p><code><em>This is mostly a verbatim copy of
+     * <code>Zend_Db_Adapter_Pdo_Mysql::describeTable</code>, with the addition
+     * of lengths for numeric types and comments.</em></code></p><code>
+     *
+     * @see Zend_Db_Adapter_Pdo_Mysql::describeTable()
+     * @param string $tableName
+     * @param string $schemaName OPTIONAL
+     * @return array
+     */
+    public function describeTable($tableName, $schemaName = null)
+    {
+        // @todo  use INFORMATION_SCHEMA someday when MySQL's
+        // implementation has reasonably good performance and
+        // the version with this improvement is in wide use.
+
+        if ($schemaName) {
+            $sql = 'SHOW FULL COLUMNS FROM ' . $this-&gt;quoteIdentifier("$schemaName.$tableName", true);
+        } else {
+            $sql = 'SHOW FULL COLUMNS FROM ' . $this-&gt;quoteIdentifier($tableName, true);
+        }
+        $stmt = $this-&gt;query($sql);
+
+        // Use FETCH_NUM so we are not dependent on the CASE attribute of the PDO connection
+        $result = $stmt-&gt;fetchAll(Zend_Db::FETCH_NUM);
+
+        $field       = 0;
+        $type        = 1;
+        $collation   = 2;
+        $null        = 3;
+        $key         = 4;
+        $default     = 5;
+        $extra       = 6;
+        $permissions = 7;
+        $comment     = 8;
+
+        $desc = array();
+        $i = 1;
+        $p = 1;
+        foreach ($result as $row) {
+            list($length, $scale, $precision, $unsigned, $primary, $primaryPosition, $identity)
+                = array(null, null, null, null, false, null, false);
+            if (preg_match('/unsigned/', $row[$type])) {
+                $unsigned = true;
+            }
+            if (preg_match('/^((?:var)?char)\((\d+)\)/', $row[$type], $matches)) {
+                $row[$type] = $matches[1];
+                $length = $matches[2];
+            } else if (preg_match('/^decimal\((\d+),(\d+)\)/', $row[$type], $matches)) {
+                $row[$type] = 'decimal';
+                $precision = $matches[1];
+                $scale = $matches[2];
+            } else if (preg_match('/^float\((\d+),(\d+)\)/', $row[$type], $matches)) {
+                $row[$type] = 'float';
+                $precision = $matches[1];
+                $scale = $matches[2];
+            } else if (preg_match('/^((?:big|medium|small|tiny)?int)\((\d+)\)/', $row[$type], $matches)) {
+                $row[$type] = $matches[1];
+                $length = $matches[2];
+                // The optional size argument of a MySQL int type is not
+                // precision or length; it is only a hint for display width.
+            }
+            if (strtoupper($row[$key]) == 'PRI') {
+                $primary = true;
+                $primaryPosition = $p;
+                if ($row[$extra] == 'auto_increment') {
+                    $identity = true;
+                } else {
+                    $identity = false;
+                }
+                ++$p;
+            }
+            $desc[$this-&gt;foldCase($row[$field])] = array(
+                'SCHEMA_NAME'      =&gt; null, // @todo
+                'TABLE_NAME'       =&gt; $this-&gt;foldCase($tableName),
+                'COLUMN_NAME'      =&gt; $this-&gt;foldCase($row[$field]),
+                'COLUMN_POSITION'  =&gt; $i,
+                'DATA_TYPE'        =&gt; $row[$type],
+                'DEFAULT'          =&gt; $row[$default],
+                'NULLABLE'         =&gt; (bool) ($row[$null] == 'YES'),
+                'LENGTH'           =&gt; $length,
+                'SCALE'            =&gt; $scale,
+                'PRECISION'        =&gt; $precision,
+                'UNSIGNED'         =&gt; $unsigned,
+                'PRIMARY'          =&gt; $primary,
+                'PRIMARY_POSITION' =&gt; $primaryPosition,
+                'IDENTITY'         =&gt; $identity,
+                'COMMENT'          =&gt; $row[$comment]
+            );
+            ++$i;
+        }
+        return $desc;
+    }
+</code>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:31.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

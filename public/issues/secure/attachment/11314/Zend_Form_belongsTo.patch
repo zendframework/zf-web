@@ -1,0 +1,142 @@
+Index: Form.php
+===================================================================
+--- Form.php	(revision 9574)
++++ Form.php	(working copy)
+@@ -1706,8 +1706,70 @@
+         $name = substr($value, $start, $endPos - $start);
+         return $name;
+     }
++    
++    /**
++     * Removes array name from given array path
++     *
++     * Given a value such as foo[bar][baz], returns bar[baz].
++     * 
++     * @param  string $value 
++     * @param  string $name 
++     * @return string
++     */
++    protected function _removeArrayName($value, $name)
++    {
++        if (empty($value) || !is_string($value)) {
++            return $value;
++        }
+ 
++        if (strpos($value, $name) === 0) {
++            if (!strstr($value, '[')) {
++                return $value;
++            }
++
++            $endPos = strlen($value) - 1;
++            if (']' != $value[$endPos]) {
++                return $value;
++            }
++
++            $value = substr($value, strlen($name) + 1);
++        }
++
++        return $value;
++    }
++    
+     /**
++     * Determine the value by walking the array using given array path.
++     *
++     * Given an array path such as foo[bar][baz], returns the value of the last
++     * element (in this case, 'baz').
++     * 
++     * @param  array $value 
++     * @param  string $arrayPath 
++     * @return string
++     */
++    protected function _dissolveArrayValue($value, $arrayPath)
++    {
++        // As long as we have more levels
++        while ($arrayPos = strpos($arrayPath, '[')) {
++            // Determine the next key in the path
++            $arrayKey = trim(substr($arrayPath, 0, $arrayPos), ']');
++
++            // Set the potentially final value or the next search point in the array
++            $value = $value[$arrayKey];
++            
++            // Set the next search point in the path
++            $arrayPath = trim(substr($arrayPath, $arrayPos + 1), ']');
++        }
++
++        if (isset($value[$arrayPath])) {
++            $value = $value[$arrayPath];
++        }
++
++        return $value;
++    }
++
++    /**
+      * Validate the form
+      * 
+      * @param  array $data 
+@@ -1723,6 +1785,9 @@
+         $valid      = true;
+ 
+         if ($this->isArray()) {
++            $key = $this->getElementsBelongTo();
++            $data = $this->_dissolveArrayValue($data, $this->_removeArrayName($key, $this->getName()));
++
+             $key = $this->_getArrayName($this->getElementsBelongTo());
+             if (isset($data[$key])) {
+                 $data = $data[$key];
+Index: Form/Element.php
+===================================================================
+--- Form/Element.php	(revision 9574)
++++ Form/Element.php	(working copy)
+@@ -1142,7 +1142,38 @@
+         $this->_validators = array();
+         return $this;
+     }
++    
++    /**
++     * Determine the value by walking the array using given array path.
++     *
++     * Given an array path such as foo[bar][baz], returns the value of the last
++     * element (in this case, 'baz').
++     * 
++     * @param  array $value 
++     * @param  string $arrayPath 
++     * @return string
++     */
++    protected function _dissolveArrayValue($value, $arrayPath)
++    {
++        // As long as we have more levels
++        while ($arrayPos = strpos($arrayPath, '[')) {
++            // Determine the next key in the path
++            $arrayKey = trim(substr($arrayPath, 0, $arrayPos), ']');
+ 
++            // Set the potentially final value or the next search point in the array
++            $value = $value[$arrayKey];
++            
++            // Set the next search point in the path
++            $arrayPath = trim(substr($arrayPath, $arrayPos + 1), ']');
++        }
++
++        if (isset($value[$arrayPath])) {
++            $value = $value[$arrayPath];
++        }
++
++        return $value;
++    }
++
+     /**
+      * Validate element value
+      *
+@@ -1159,6 +1190,13 @@
+      */
+     public function isValid($value, $context = null)
+     {
++        if (null === $value && (null !== ($belongsTo = $this->getBelongsTo()))) {
++            $data = $this->_dissolveArrayValue($context, $belongsTo);
++            if (isset($data[$this->getName()])) {
++                $value = $data[$this->getName()];
++            }
++        }
++
+         $this->setValue($value);
+         $value = $this->getValue();
+ 

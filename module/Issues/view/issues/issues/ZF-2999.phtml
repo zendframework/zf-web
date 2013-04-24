@@ -1,0 +1,203 @@
+<h2>ZF-2999: performance optimization</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-31T14:10:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:00.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>1.</p>
+
+<pre class="highlight"><code>
+isset(self::$_localeData[$locale])
+// instead of
+array_key_exists($locale, self::$_localeData)
+</code></pre>
+
+<p>2.</p>
+
+<pre class="highlight"><code>
+if ( isset(self::$_localeData[$locale])  &amp;&amp; ($locale == 'root' || self::$_localeData[$locale] === false) ) {
+    // ....
+}
+// instead of
+if (($locale == "auto") or ($locale == "root") or 
+    ($locale == "environment") or ($locale == "browser")) {
+    // ...
+}
+
+// -&gt; OK this isn't for performance but for flexibly
+</code></pre>
+
+<ol><li>cache return value of getBrowser and if the environment variable must changable add an argument e.g. $reparse=false</li>
+</ol>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-31T14:55:04.000+0000</p> 
+        <div class="body">
+            <p>Could you please evaluate and categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-05-26T13:04:51.000+0000</p> 
+        <div class="body">
+            <ol><li><p>has been integrated with r9534 within the I18N core, not only Zend_Locale.</p></li>
+<li><p>brakes existing functionality as it disallows locales like "en_DE" and therefor brakes the downgrading</p></li>
+<li><p>is not necessary as the locale itself is cached, so the browser response has not to be cached alone.</p></li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-05-27T04:13:20.000+0000</p> 
+        <div class="body">
+            <p>Hi Thomas</p>
+
+<p>Regarding my last statement: it is very slow to parse the result of  "$locale-&gt;getBrowser()" on every method call, because the clients browser will not change in one connection, but the environment value of "HTTP_ACCEPT_LANGUAGE" can change in one connection during script execution.
+To get the array of user accepted locales is not the same as to create a browser locale "new Zend_Locale('browser')".
+Furthermore the method getBrowser will be called by getDefault() and the method getDefault() will be called by setLocale()</p>
+
+<pre class="highlight"><code>
+public function getBrowser($reparse=false)
+{
+    if ($reparse === false &amp;&amp; $this-&gt;_getBrowserCache !== null) {
+        return $this-&gt;_getBrowserCache;
+    }
+    
+    // ... parse
+    
+    return $this-&gt;_getBrowserCache;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-05-27T10:19:54.000+0000</p> 
+        <div class="body">
+            <p>Locale is locale, independently from the creation.
+The locale can change within the same session.</p>
+
+<p>Also if you need the browsers locale you would not parse it again and again.
+You would normally store it within your session to reuse it.</p>
+
+<p>Only if you accept that the locale can change within the same session you would parse the locale once more.
+And when you use setLocale the browser will only then be parsed when you give one of the autolocales or define that you want to retrieve the autolocale.</p>
+
+<p>In my opinion there is still no benefit of having another option added.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-05-28T01:03:58.000+0000</p> 
+        <div class="body">
+            <p>Hi Thomas</p>
+
+<p>this is a little test script which displays all calls of the getBrowser-method and its output:</p>
+
+<p>Zend_Locale:</p>
+
+<pre class="highlight"><code>
+public function getBrowser()
+{
+    echo " - getBrowser called\n";
+    // ...
+}
+</code></pre>
+
+<p>testscript:</p>
+
+<pre class="highlight"><code>
+echo "new Zend_Locale():\n";
+$locale = new Zend_Locale();
+
+echo "new Zend_Locale():\n";
+$locale = new Zend_Locale();
+
+echo "new Zend_Locale(Zend_Locale::BROWSER);\n";
+$locale = new Zend_Locale(Zend_Locale::BROWSER);
+
+echo "\$locale-&gt;getDefault();\n";
+$locale-&gt;getDefault();
+
+echo "\$locale-&gt;getDefault(Zend_Locale::BROWSER);\n";
+$locale-&gt;getDefault(Zend_Locale::BROWSER);
+
+echo "\$locale-&gt;setLocale(Zend_Locale::BROWSER);\n";
+$locale-&gt;setLocale(Zend_Locale::BROWSER);
+</code></pre>
+
+<p>output:</p>
+
+<pre class="highlight"><code>
+new Zend_Locale():
+ - getBrowser called
+ - getBrowser called
+ - getBrowser called
+ - getBrowser called
+new Zend_Locale():
+ - getBrowser called
+new Zend_Locale(Zend_Locale::BROWSER);
+ - getBrowser called
+$locale-&gt;getDefault();
+ - getBrowser called
+$locale-&gt;getDefault(Zend_Locale::BROWSER);
+ - getBrowser called
+$locale-&gt;setLocale(Zend_Locale::BROWSER);
+ - getBrowser called
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:00.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

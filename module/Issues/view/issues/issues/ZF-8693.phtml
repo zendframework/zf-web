@@ -1,0 +1,428 @@
+<h2>ZF-8693: BUG! Incorrect use switch(true)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-03T03:12:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-13T13:44:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Bug in Zend/File/Transfer/Adapter/Abstract.php</p>
+
+<p>method addValidators;</p>
+
+<pre><code>    $validators = array(
+        array('MimeType',  true, array('image/jpeg', 'image/gif', 'image/png')),
+        array('FilesSize', true, array('max' =&gt; '1MB', 'messages' =&gt; 'файл больше 1MБ')),
+    );
+
+    $this-&gt;_upload-&gt;addValidators($validators, 'img');
+</code></pre>
+
+<p>set validators for all files, because error in block</p>
+
+<pre><code>                    switch (true) {
+                        case (0 == $argc):
+                            break;
+                        case (1 &lt;= $argc):
+                            $validator  = array_shift($validatorInfo);
+                        case (2 &lt;= $argc):
+                            $breakChainOnFailure = array_shift($validatorInfo);
+                        case (3 &lt;= $argc):
+                            $options = array_shift($validatorInfo);
+                        case (4 &lt;= $argc):
+                            $files = array_shift($validatorInfo);
+                        default:
+                            $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+                            break;
+</code></pre>
+
+<p>Must be changed to:</p>
+
+<pre><code>                    if ($argc &gt; 0) {
+                        $validator  = array_shift($validatorInfo);
+
+                        if (2 &lt;= $argc)
+                            $breakChainOnFailure = array_shift($validatorInfo);
+                        if (3 &lt;= $argc)
+                            $options = array_shift($validatorInfo);
+                        if (4 &lt;= $argc)
+                            $files = array_shift($validatorInfo);
+
+                        $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+                    }
+</code></pre>
+
+<p>Invalid use switch
+See on oficial site php.net</p>
+
+&lt;?php
+switch ($i) {
+    case 0:
+        echo "i equals 0";
+    case 1:
+        echo "i equals 1";
+    case 2:
+        echo "i equals 2";
+}
+?&gt;
+
+<p>Here, if $i is equal to 0, PHP would execute all of the echo statements! If $i is equal to 1, PHP would execute the last two echo statements. You would get the expected behavior ('i equals 2' would be displayed) only if $i is equal to 2. Thus, it is important not to forget break statements (even though you may want to avoid supplying them on purpose under certain circumstances).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sergey (lifinsky) on 2010-01-03T03:14:25.000+0000</p> 
+        <div class="body">
+            <p>Code is not correct. Test again, because this code always run case 3 and 4 - set files to null always.</p>
+
+<p>$validators = array(
+array('MimeType', true, array('image/jpeg', 'image/gif', 'image/png')),
+array('FilesSize', true, array('max' =&gt; '1MB', 'messages' =&gt; 'файл больше 1MБ')),
+);</p>
+
+<p>$this-&gt;_upload-&gt;addValidators($validators, 'img');</p>
+
+<p>Test this!!! Case 1 - true always, and not has break - run cases 2-4. This is error!!!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-01-03T12:20:25.000+0000</p> 
+        <div class="body">
+            <p>We don't need to remove the switch statement; we need to merely change the conditions. switch(true) is a perfectly valid use case.</p>
+
+<p>Please provide a reproduce case and expected and actual results, please.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Boroday (simpliest) on 2010-01-03T23:41:05.000+0000</p> 
+        <div class="body">
+            <p>I think code below should work correctly</p>
+
+<pre class="highlight"><code>
+switch ($argc) {
+    default:
+        $extraParams = array_slice($validatorInfo, 4, $argc - 4); // It's not clear for me what to do with extra parameters. But we have kept them just in case
+        $validatorInfo = array_slice($validatorInfo, 0, 4);
+    case 4:
+        $files = array_pop($validatorInfo);
+    case 3:
+        $options = array_pop($validatorInfo);
+    case 2:
+        $breakChainOnFailure = array_pop($validatorInfo);
+    case 1:
+        $validator = array_pop($validatorInfo);
+        $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+    case 0:
+    break;
+}
+</code></pre>
+
+<p>same code as diff</p>
+
+<pre class="highlight"><code>
+@@ -400,19 +400,20 @@
+                         $options   = $validatorInfo;
+                         $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+                     } else {
+-                        switch (true) {
+-                            case (0 == $argc):
+-                                break;
+-                            case (1 &lt;= $argc):
+-                                $validator  = array_shift($validatorInfo);
+-                            case (2 &lt;= $argc):
+-                                $breakChainOnFailure = array_shift($validatorInfo);
+-                            case (3 &lt;= $argc):
+-                                $options = array_shift($validatorInfo);
+-                            case (4 &lt;= $argc):
+-                                $files = array_shift($validatorInfo);
++                        switch ($argc) {
+                             default:
++                                $extraParams = array_slice($validatorInfo, 4, $argc - 4); // It's not clear for me what to do with extra parameters. But we have kept them just in case
++                                $validatorInfo = array_slice($validatorInfo, 0, 4);
++                            case 4:
++                                $files = array_pop($validatorInfo);
++                            case 3:
++                                $options = array_pop($validatorInfo);
++                            case 2:
++                                $breakChainOnFailure = array_pop($validatorInfo);
++                            case 1:
++                                $validator = array_pop($validatorInfo);
+                                 $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
++                            case 0:
+                                 break;
+                         }
+                    }
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-04T01:47:44.000+0000</p> 
+        <div class="body">
+            <p>Sergey:
+Again... please provide a reproducable use.</p>
+
+<p>The above code works in about 5 components. When it has to be changed it would mean that 5 components do not work properly.
+Therefor please add a usecase which shows where you have problems in your application.</p>
+
+<p>Just changing the core without knowing why is not a good practice.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Boroday (simpliest) on 2010-01-04T02:31:59.000+0000</p> 
+        <div class="body">
+            <p>Thomas Weidner:
+Sorry, but reporter of issue Sergey and I am (Sergey Boroday) are two different "Sergey". :)</p>
+
+<p>Author of issue <a href="http://framework.zend.com/issues/secure/ViewProfile.jspa?name=lifinsky">http://framework.zend.com/issues/secure/…</a></p>
+
+<p>But you right. Shame me.
+Proposed code didn't fix anything and will not work correctly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey (lifinsky) on 2010-01-04T04:47:07.000+0000</p> 
+        <div class="body">
+            <p>If I use validators in this format</p>
+
+<p>$validators = array(
+array('MimeType', true, array('image/jpeg', 'image/gif', 'image/png')),
+array('FilesSize', true, array('max' =&gt; '1MB', 'messages' =&gt; 'файл больше 1MБ')),
+);</p>
+
+<p>I set 3 parameters ($argc)</p>
+
+<p>4 parameter - null, I add validator to file key, for example 'img'</p>
+
+<p>$upload-&gt;addValidators($validators, 'img');</p>
+
+<p>But bug in case set validators to all files!!!! What do you do not understand????</p>
+
+<p>case (4 &lt;= $argc):
+$files = array_shift($validatorInfo); ------ null!!!</p>
+
+<p>Case must be changed to if, or inverse case order from max $argc = 4 to 1</p>
+
+<p>I change code to</p>
+
+<pre><code>                    if ($argc &gt; 0) {
+                        $validator = array_shift($validatorInfo);
+
+                        if (2 &lt;= $argc)
+                            $breakChainOnFailure = array_shift($validatorInfo);
+
+                        if (3 &lt;= $argc)
+                            $options = array_shift($validatorInfo);
+
+                        if (4 &lt;= $argc)
+                            $files = array_shift($validatorInfo);
+
+                        $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+                    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Boroday (simpliest) on 2010-01-04T06:57:43.000+0000</p> 
+        <div class="body">
+            <p>успокойся. Им нужен детальный кейс для воспроизведения ситуации. А еще лучше тест.</p>
+
+<p>I tried to write test but here some questions</p>
+
+<pre class="highlight"><code>
+    public function testAdapterShouldAllowAddingMultipleValidatorsAtOnceUsingBothInstancesAndPluginLoaderForDifferentFiles()
+    {
+        $validators = array(
+            array('MimeType', true, array('image/jpeg')), // no files
+            array('FilesSize', true, array('max' =&gt; '1MB', 'messages' =&gt; 'файл больше 1MБ')), // no files
+            array('Count', true, array('min' =&gt; 1, 'max' =&gt; '1', 'messages' =&gt; 'файл не 1'), 'bar'), // 'bar' from config
+            array('MimeType', true, array('image/jpeg'), 'bar'), // 'bar' from config
+        );
+
+        $this-&gt;adapter-&gt;addValidators($validators, 'foo'); // set validators to 'foo'
+
+        $test = $this-&gt;adapter-&gt;getValidators();
+        $this-&gt;assertEquals(4, count($test)); 
+
+        //test files specific validators
+        $test = $this-&gt;adapter-&gt;getValidators('foo');
+        $this-&gt;assertEquals(4, count($test)); // how many validators expect? 2 from 'no files' or 4 'no files' and overwrited 'bar'?
+        $mimeType = array_shift($test);
+        $this-&gt;assertTrue($mimeType instanceof Zend_Validate_File_MimeType);
+        $filesSize = array_shift($test);
+        $this-&gt;assertTrue($filesSize instanceof Zend_Validate_File_FilesSize);
+
+        $test = $this-&gt;adapter-&gt;getValidators('bar');
+        $this-&gt;assertEquals(0, count($test)); // how many validators expect? 2 from 'bar' or 0 because we overwrite 'bar' with 'foo'
+        $filesSize = array_shift($test);
+        $this-&gt;assertTrue($filesSize instanceof Zend_Validate_File_FilesSize);
+        $mimeType = array_shift($test);
+        $this-&gt;assertTrue($mimeType instanceof Zend_Validate_File_MimeType);
+
+        $test = $this-&gt;adapter-&gt;getValidators('baz');
+        $this-&gt;assertEquals(0, count($test)); 
+
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-11T13:18:44.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r20206.</p>
+
+<p>Some notes:
+* The provided code snippets where not used (they added other problems)
+* The provided unittests are partitially wrong
+* Actually it is not possible to set multiple instances of the same class... one MimeType instance overwrites the other... this is also mentioned within the manual (will be fixed by another issue)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey (lifinsky) on 2010-01-13T06:06:01.000+0000</p> 
+        <div class="body">
+            <pre><code>                if (is_string($name)) {
+                    $validator = $name;
+                    $options   = $validatorInfo;
+                    $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+                } else {
+                    if ($argc &gt; 0) {
+                        $validator = array_shift($validatorInfo);
+
+                        if (2 &lt;= $argc)
+                            $breakChainOnFailure = array_shift($validatorInfo);
+                        if (3 &lt;= $argc)
+                            $options = array_shift($validatorInfo);
+                        if (4 &lt;= $argc)
+                            $files = array_shift($validatorInfo);
+
+                        $this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+                    }
+                }
+</code></pre>
+
+<p>I want use format 2</p>
+
+<pre><code>    $validators = array(
+        array('MimeType',  true, array('image/jpeg', 'image/gif', 'image/png')),
+        array('FilesSize', true, array('max' =&gt; '1MB', 'messages' =&gt; 'файл больше 1 MБ')),
+    );
+</code></pre>
+
+<p>equivalent to format 1</p>
+
+<pre><code>    $validators = array(
+        'MimeType'  =&gt; array('image/jpeg', 'image/gif', 'image/png'),
+        'FilesSize' =&gt; array('max' =&gt; '1MB', 'messages' =&gt; 'файл больше 1 MБ'),
+    );
+</code></pre>
+
+<p>Because format 1 has always $breakChainOnFailure = false!!!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-13T06:53:54.000+0000</p> 
+        <div class="body">
+            <p>It would be a pleasure if you also read what you get responded by people:</p>
+
+<p>{quote}
+•Actually it is not possible to set multiple instances of the same class... one MimeType instance overwrites the other... this is also mentioned within the manual (will be fixed by another issue)
+{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-13T07:20:55.000+0000</p> 
+        <div class="body">
+            <p>Additionally the syntax of your format2 works and is tested within our unittests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey (lifinsky) on 2010-01-13T12:25:32.000+0000</p> 
+        <div class="body">
+            <p>HOW IT WORK?????</p>
+
+<p>Your code always set $files to null!!!!</p>
+
+<p>switch (true) {
+case (0 == $argc):
+break;
+case (1 &lt;= $argc):
+$validator = array_shift($validatorInfo);
+case (2 &lt;= $argc):
+$breakChainOnFailure = array_shift($validatorInfo);
+case (3 &lt;= $argc):
+$options = array_shift($validatorInfo);
+case (4 &lt;= $argc):
+$files = array_shift($validatorInfo);
+default:
+$this-&gt;addValidator($validator, $breakChainOnFailure, $options, $files);
+break;</p>
+
+<p>ALWAYS case 4!
+always $files = null in my example</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sergey Boroday (simpliest) on 2010-01-13T13:44:33.000+0000</p> 
+        <div class="body">
+            <p>Sergey.
+Please read comments carefully. Issue fixed.
+Get the new version from trunk.</p>
+
+        </div>
+    </div>
+    </div>
+
