@@ -1,0 +1,386 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6477",
+    "key": "ZF-6477",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_Service_Amazon_S3 : Does not work for buckets located in EU"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6477\/votes",
+                "votes": 1,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/1",
+                "name": "Fixed"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10330",
+                    "id": 10330,
+                    "description": "Mini Release",
+                    "name": "1.8.2",
+                    "userReleaseDate": "27\/May\/09",
+                    "archived": false,
+                    "releaseDate": "2009-05-27",
+                    "released": true
+                }
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2009-05-20T08:43:42.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zendjunky",
+                "name": "zendjunky",
+                "displayName": "Ivo Mei\u00dfner",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2009-04-30T00:47:42.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2009-06-29T06:10:31.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "When you try to put an object into a bucket located in EU, you get an error from amazon, that this bucket must be accessed using the specific endpoint (bucketname.s3.amazonaws.com). \nI have changed the function _makeRequest as follows. It seems to work so far with these changes. Haven't tested intensively.\n\n{code}\n    \/**\n     * Make a request to Amazon S3\n     *\n     * TODO: support bucket.s3.amazon.com style\n     *\n     * @param  string $method\n     * @param  string $path\n     * @param  array  $params\n     * @param  array  $headers\n     * @param  string $data\n     * @return Zend_Http_Response\n     *\/\n    public function _makeRequest($method, $path='', $params=null, $headers=array(), $data=null)\n    {\n        $retry_count = 0;\n\n        if (!is_array($headers)) {\n            $headers = array($headers);\n        }\n\n        $headers['Date'] = gmdate(DATE_RFC1123, time());\n\n        $parts = explode('\/', $path);\n        self::addSignature($method, $path, $headers);\n\n        $client = self::getHttpClient();\n\n        $client->resetParameters();\n        \/\/ Work around buglet in HTTP client - it doesn't clean headers\n        \/\/ Remove when ZHC is fixed\n        $client->setHeaders(array('Content-MD5' => null, 'Expect' => null, 'Range' => null));\n        \n        $endpoint = self::S3_ENDPOINT;\n        if (count($parts) > 1){\n        \t$endpoint = str_replace('http:\/\/', 'http:\/\/' . $parts[0] . '.', $endpoint);\n       \t\tarray_shift($parts);\n        \t$client->setUri($endpoint.'\/'.implode('\/', $parts));\n        } else {\n        \t$client->setUri(self::S3_ENDPOINT.'\/'.$path);\n        }\n        $client->setHeaders($headers);\n\n        if (is_array($params)) {\n            foreach ($params as $name=>$value) {\n                $client->setParameterGet($name, $value);\n            }\n         }\n\n         if (($method == 'PUT') && ($data !== null)) {\n             if (!isset($headers['Content-type'])) {\n                 $headers['Content-type'] = self::getMimeType($path);\n             }\n             $client->setRawData($data, $headers['Content-type']);\n         }\n\n         do {\n            $retry = false;\n\n            $response = $client->request($method);\n            $response_code = $response->getStatus();\n\n            \/\/ Some 5xx errors are expected, so retry automatically\n            if ($response_code >= 500 && $response_code < 600 && $retry_count <= 5) {\n                $retry = true;\n                $retry_count++;\n                sleep($retry_count \/ 4 * $retry_count);\n            }\n            else if ($response_code == 307) {\n                \/\/ Need to redirect, new S3 endpoint given\n                \/\/ This should never happen as Zend_Http_Client will redirect automatically\n            }\n            else if ($response_code == 100) {\n                \/\/echo 'OK to Continue';\n            }\n        } while ($retry);\n        return $response;\n    }\n\n\n{code}"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/3",
+                "name": "Major"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6477\/watchers",
+                "isWatching": false,
+                "watchCount": 3
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                "name": "sidhighwind",
+                "displayName": "Jon Whitcraft",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/attachment\/11914",
+                    "filename": "S3.php",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zendjunky",
+                        "name": "zendjunky",
+                        "displayName": "Ivo Mei\u00dfner",
+                        "active": true
+                    },
+                    "created": "2009-05-04T02:26:57.000+0000",
+                    "size": 20959,
+                    "mimeType": "application\/octet-stream",
+                    "content": "http:\/\/fw02.zend.com\/issues\/secure\/attachment\/11914\/S3.php"
+                }
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+                {
+                    "issueKey": "ZF-7199",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-7199",
+                    "type": {
+                        "name": "Sub-Task",
+                        "direction": "OUTBOUND"
+                    }
+                }
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10241",
+                    "id": 10241,
+                    "description": "Minor Release",
+                    "name": "1.8.0",
+                    "userReleaseDate": "30\/Apr\/09",
+                    "archived": false,
+                    "releaseDate": "2009-04-30",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10022",
+                    "id": 10022,
+                    "name": "Zend_Service_Amazon",
+                    "description": "utility functions for using Amazon web services",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/30545",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "body": "Assigning to Jon",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "created": "2009-04-30T05:09:53.000+0000",
+                    "updated": "2009-04-30T05:09:53.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/30552",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "body": "Could your attach a patch file so i apply this and test it?\n\nThanks,",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "created": "2009-04-30T06:51:20.000+0000",
+                    "updated": "2009-04-30T06:51:20.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/30626",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zendjunky",
+                        "name": "zendjunky",
+                        "displayName": "Ivo Mei\u00dfner",
+                        "active": true
+                    },
+                    "body": "Here is a patchfile with the changes.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zendjunky",
+                        "name": "zendjunky",
+                        "displayName": "Ivo Mei\u00dfner",
+                        "active": true
+                    },
+                    "created": "2009-05-04T02:27:01.000+0000",
+                    "updated": "2009-05-04T02:27:01.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/31107",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=cyberwolf",
+                        "name": "cyberwolf",
+                        "displayName": "Kristof Coomans",
+                        "active": true
+                    },
+                    "body": "IMHO it would be a good idea to handle Amazon S3 API permanent redirects, which seem to use the HTTP status 301 and do not set a location header (and are therefore not handled by Zend_HTTP_Client).",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=cyberwolf",
+                        "name": "cyberwolf",
+                        "displayName": "Kristof Coomans",
+                        "active": true
+                    },
+                    "created": "2009-05-18T07:51:55.000+0000",
+                    "updated": "2009-05-18T07:51:55.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/31150",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "body": "Kristof,\n\nI didn't write this component to i'm not too entierly sure what you are talking about.  Can you please provide the docs page that explains that or submit a patch?",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "created": "2009-05-19T12:35:15.000+0000",
+                    "updated": "2009-05-19T12:35:15.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/31152",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=cyberwolf",
+                        "name": "cyberwolf",
+                        "displayName": "Kristof Coomans",
+                        "active": true
+                    },
+                    "body": "Hi Jon\n\nYou can find more information about it at http:\/\/docs.amazonwebservices.com\/AmazonS3\/latest\/index.html?Redirects.html, under \"Permanent Request Redirection\". After thinking a bit more about this, it might be better to use domain-style requests after all, as Ivo suggests. That works in all cases (EU and US-located buckets).",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=cyberwolf",
+                        "name": "cyberwolf",
+                        "displayName": "Kristof Coomans",
+                        "active": true
+                    },
+                    "created": "2009-05-19T12:45:26.000+0000",
+                    "updated": "2009-05-19T12:45:26.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/31184",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "body": "This has been resolved and checked-in to svn.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "created": "2009-05-20T08:43:42.000+0000",
+                    "updated": "2009-05-20T08:43:42.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/32269",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=pinopinelli",
+                        "name": "pinopinelli",
+                        "displayName": "Peter Ritter",
+                        "active": true
+                    },
+                    "body": "Hello,\n\nare you shure that is suitable for all operations that can be done?\nWhen I try to DELETE an object from a bucket (in the EU) then I get an positive response from S3. But my object is still there.\nI guess the problem is, that Amazon's API also returns this positive response when you try to delete an object that does not even exist.\nI did not test for other operations yet.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=pinopinelli",
+                        "name": "pinopinelli",
+                        "displayName": "Peter Ritter",
+                        "active": true
+                    },
+                    "created": "2009-06-29T06:10:29.000+0000",
+                    "updated": "2009-06-29T06:10:29.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6477\/transitions"
+}

@@ -1,0 +1,334 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6351",
+    "key": "ZF-6351",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_Soap_Server should facilitate the use of document-literal-wrapped WSDL"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/4",
+                "name": "Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6351\/votes",
+                "votes": 11,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=fcrespel",
+                "name": "fcrespel",
+                "displayName": "Fabien Crespel",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2009-04-19T18:05:03.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2012-08-01T21:16:35.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "_For more information about \"document-literal-wrapped WSDL\" please see ZF-6349_\n\nAs it is, PHP's SOAP extension can be used with a WSDL document making use of the \"wrapped parameters\" style (used by .NET and others). However, unwrapping is not done automatically. Consider the following method:\n{code}\n\/**\n * This methods returns Hello $firstname $lastname.\n * @param string $firstname First name\n * @param string $lastname Last name\n * @return string\n *\/\npublic function helloYou($firstname, $lastname) {\n    return \"Hello {$firstname} {$lastname}\";\n}\n{code}\n\nA typical document-literal-wrapped WSDL document would wrap the two arguments into a \"parameters\" object declared by the message {{part}}, and whose complexType is defined in the {{types}} schema as a sequence of these parameters. Basically, after going through SoapServer, the {{helloYou()}} method would actually be called with *only 1 argument*: a *stdClass* object whose properties are {{firstname}} and {{lastname}}. Additionally, wrapping the return value is not automatic either, and one would have to return an array with $methodname.'Result' as the key and the actual return value as its value.\n\nThat is to say, the function above would have to be rewritten like this:\n{code}\n\/**\n * This methods returns Hello $firstname $lastname.\n * @param string $firstname First name\n * @param string $lastname Last name\n * @return string\n *\/\npublic function helloYou($parameters) {\n    return array('helloYouResult' => \"Hello {$parameters->firstname} {$parameters->lastname}\");\n}\n{code}\n\nBeyond the fact this hack becomes quickly unreadable and completely depends on how the WSDL is made (whereas it should be transparent), it also poses a major problem when the WSDL is auto-generated from the same class by Zend_Soap_AutoDiscover (provided the ZF-6349 are applied as well as its dependencies). The *function parameters* and their *description* in the docblock are *inconsistent*. And this would throw an exception when doing reflection in Zend_Soap_AutoDiscover. BAD!\n\n\nSo, after this long explanation, I have the *beginning of a solution* but it's not integrated at all with Zend.. that is to say, the Zend_Soap_Server user must know he\/she needs it and have the appropriate class, while ideally this should all be transparent.\n\nThe idea is to have a *proxy* class between SoapServer and the actual service class. This proxy is be able to intercept calls via the {{__call()}} magic method, to pre-process arguments and the return value appropriately (wrap\/unwrap). Instead of using {{setClass()}} on Zend_Soap_Server, the user would have to do the following:\n{code}\n$proxy = new TestService_Proxy('TestService', array(), array('wrappedParts' => true));\n$server->setObject($proxy);\n{code}\n\nThe {{TestService_Proxy}} class (well, yes, it was for a test service.. don't mind the name ;)) is the following (inspired by Zend_Soap_Client):\n{code}\n<?php\nclass TestService_Proxy\n{\n\tprotected $_className;\n\tprotected $_classInstance = null;\n\tprotected $_wrappedParts = false;\n\t\n\t\/**\n\t * TestService_Proxy creates an intermediate (proxy) class between the SOAP server\n\t * and the actual handling class, allowing pre-processing of function arguments and return values.\n\t * \n\t * @param string $className name of the handling class to proxy.\n\t * @param array $classArgs arguments used to instantiate the handling class.\n\t * @param array $options proxy options.\n\t *\/\n\tpublic function __construct($className, $classArgs = array(), $options = array())\n\t{\n\t\t$class = new ReflectionClass($className);\n\t\t$constructor = $class->getConstructor();\n\t\tif ($constructor === null) {\n\t\t\t$this->_classInstance = $class->newInstance();\n\t\t} else {\n\t\t\t$this->_classInstance = $class->newInstanceArgs($classArgs);\n\t\t}\n\t\t$this->_className = $className;\n\t\t$this->_setOptions($options);\n\t}\n\t\n\tprotected function _setOptions($options)\n\t{\n\t\tforeach ($options as $key => $value) {\n\t\t\tswitch ($key) {\n\t\t\t\tcase 'wrappedParts':\n\t\t\t\t\t$this->_wrappedParts = $value;\n\t\t\t\t\tbreak;\n\t\t\t\tdefault:\n\t\t\t\t\tbreak;\n\t\t\t}\n\t\t}\n\t}\n\t\n\tprotected function _getOptions()\n\t{\n\t\t$options = array();\n\t\t$options['wrappedParts'] = $this->_wrappedParts;\n\t\treturn $options;\n\t}\n\t\n\tprotected function _preProcessArguments($name, $arguments)\n\t{\n\t\tif ($this->_wrappedParts && count($arguments) == 1 && is_object($arguments[0])) {\n\t\t\treturn get_object_vars($arguments[0]);\n\t\t} else {\n\t\t\treturn $arguments;\n\t\t}\n\t}\n\t\n\tprotected function _preProcessResult($name, $result)\n\t{\n\t\tif ($this->_wrappedParts) {\n\t\t\treturn array($name.'Result' => $result);\n\t\t} else {\n\t\t\treturn $result;\n\t\t}\n\t}\n\t\n\tpublic function __call($name, $arguments)\n\t{\n\t\t$result = call_user_func_array(array($this->_classInstance, $name), $this->_preProcessArguments($name, $arguments));\n\t\treturn $this->_preProcessResult($name, $result);\n\t}\n}\n{code}\n\nNow, this works pretty well and lets you write your service class without having to take the WSDL style into account.\nThe problem, as I said, is it's completely NOT integrated with the rest of Zend. I would appreciate *feedback and help* on this, as I don't really know what approach to take to make use of it transparently in Zend_Soap_Server..."
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/4",
+                "name": "Minor"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6351\/watchers",
+                "isWatching": false,
+                "watchCount": 11
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/1",
+                "name": "Open"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zimuel",
+                "name": "zimuel",
+                "displayName": "Enrico Zimuel",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+                {
+                    "issueKey": "ZF-6349",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6349",
+                    "type": {
+                        "name": "Related",
+                        "direction": "OUTBOUND",
+                        "description": "is related to"
+                    }
+                }
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10241",
+                    "id": 10241,
+                    "description": "Minor Release",
+                    "name": "1.8.0",
+                    "userReleaseDate": "30\/Apr\/09",
+                    "archived": false,
+                    "releaseDate": "2009-04-30",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10097",
+                    "id": 10097,
+                    "name": "Zend_Soap_Server",
+                    "description": "A server to respond to SOAP requests.",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/47236",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=walter.tamboer",
+                        "name": "walter.tamboer",
+                        "displayName": "Walter Tamboer",
+                        "active": true
+                    },
+                    "body": "As far as I can see it is currently impossible to let .NET clients interact with a SOAP service without applying the above solution. Therefor I do not understand why this issue has a minor priority.\r\nAlthough the given solution works, I would make more sense to create a Zend_Soap_Server_DotNet class instead of creating a proxy class for a service. This would also be in line with the Zend_Soap_Client_DotNet class. Of course this Zend_Soap_Server_DotNet could create an internal wrapper around the service. One would have to overload the setClass and setObject of PHP's SoapServer class in order to make it work I think.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=walter.tamboer",
+                        "name": "walter.tamboer",
+                        "displayName": "Walter Tamboer",
+                        "active": true
+                    },
+                    "created": "2011-06-23T11:27:45.000+0000",
+                    "updated": "2011-06-23T11:27:45.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/49416",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "body": "While the solution to the problem is well-documented, we really, really need to have a sample SOAP payload from a .NET client in order to create reasonable test cases here. Without this information, we can't judge for certain if the solution adequately addresses the issue, nor support the solution long-term.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "created": "2012-01-04T19:32:13.000+0000",
+                    "updated": "2012-01-04T19:32:13.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/49989",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=shadowcaster",
+                        "name": "shadowcaster",
+                        "displayName": "Shadow Caster",
+                        "active": true
+                    },
+                    "body": "Forget .NET, Matthew, have you tested it with a Zend_Soap_Client? Because it doesn't work. The Zend_Soap_client class is unable to correctly interact with a Zend_Soap_Server if the WSDL is auto-generated with Zend_Soap_AutoDiscover under a document\/literal binding. Try it and you'll see. I spent two days trying to figure this out until I got to this page.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=shadowcaster",
+                        "name": "shadowcaster",
+                        "displayName": "Shadow Caster",
+                        "active": true
+                    },
+                    "created": "2012-03-10T20:40:35.000+0000",
+                    "updated": "2012-03-10T20:40:35.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/50182",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=hagerd",
+                        "name": "hagerd",
+                        "displayName": "Darien Hager",
+                        "active": true
+                    },
+                    "body": "I'm encountering this exact problem with 1.10.8. RPC-literal makes it hard to do schema-validation, while Document-literal forces all the function signatures and docblocks to be inconsistent and flawed. As Shadow Caster mentions, the behavior isn't even consistent inside the Zend Framework ecosystem.\r\n\r\nThankfully, Fabien's proxy class solutions seems to work quite well, for now.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=hagerd",
+                        "name": "hagerd",
+                        "displayName": "Darien Hager",
+                        "active": true
+                    },
+                    "created": "2012-03-29T19:33:33.000+0000",
+                    "updated": "2012-03-29T19:33:33.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/50383",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zimuel",
+                        "name": "zimuel",
+                        "displayName": "Enrico Zimuel",
+                        "active": true
+                    },
+                    "body": "I implemented the proxy solution in Zend_Soap_Server_Proxy class and I changed the Zend_Soap_Server to manage the document-literal SOAP using an option parameter 'wsi_compliant' (WS-I standard used by .NET and Java\/Axis).. If this option is set to true Zend_Soap_Server will use the proxy class to manage the service.\r\nYou can set the wsi_compliant option passing by construct or using the setWsiCompliant($value) method.\r\n\r\n$soap = new Zend_Soap_Server(\"http:\/\/url?wsdl\", array('wsi_compliant'=>true));\r\nor\r\n$soap->setWsiCompliant(true);\r\n\r\nIn order to produce a document-literal WSDL using the AutoDiscover component you have to use the following settings:\r\n$autodiscover = new Zend_Soap_AutoDiscover();\r\n$autodiscover->setBindingStyle(array('style' => 'document'));\r\n$autodiscover->setOperationBodyStyle(array('use' => 'literal'));\r\n$autodiscover->setComplexTypeStrategy('Zend_Soap_Wsdl_Strategy_ArrayOfTypeSequence');\r\n\r\nI committed these changes in trunk (commit #24718).\r\nTry it and let me know, thanks.\r\n",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zimuel",
+                        "name": "zimuel",
+                        "displayName": "Enrico Zimuel",
+                        "active": true
+                    },
+                    "created": "2012-04-26T17:13:34.000+0000",
+                    "updated": "2012-04-26T17:13:34.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/50421",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zimuel",
+                        "name": "zimuel",
+                        "displayName": "Enrico Zimuel",
+                        "active": true
+                    },
+                    "body": "Fixed the Zend_Soap_Server_Proxy class with unit test (commit #24744).",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=zimuel",
+                        "name": "zimuel",
+                        "displayName": "Enrico Zimuel",
+                        "active": true
+                    },
+                    "created": "2012-05-02T11:38:43.000+0000",
+                    "updated": "2012-05-02T11:38:43.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/51509",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=fcrespel",
+                        "name": "fcrespel",
+                        "displayName": "Fabien Crespel",
+                        "active": true
+                    },
+                    "body": "With some delay (3 months...) I finally tested the proxy solution you committed, Enrico. As far as I can see, it works fine when using {{setClass()}} on {{Zend_Soap_Server}}, but when using {{setObject()}} it instantiates a new, fresh object instead of using the existing one. IMO this defeats the purpose of the {{setObject()}} method, which is to be able to pass an already instantiated and configured object.\r\n\r\nI've prepared a patch against r25030 to address this, and to improve extensibility of the Proxy class (additional parameter to {{_preProcessArguments()}} and new {{_preProcessResult()}} method)).\r\n\r\nSince I don't seem to have an \"Add attachment\" button in JIRA (permissions issue?), I'll just post it below. Could you please review it and apply it quickly, hopefully before ZF 1.12.0 gets released? :)\r\n\r\n{code}\r\n--- library\/Zend\/Soap\/Server\/Proxy.php\t(revision 25030)\r\n+++ library\/Zend\/Soap\/Server\/Proxy.php\t(working copy)\r\n@@ -26,27 +26,68 @@\r\n      * @var object\r\n      *\/\r\n     protected $_classInstance;\r\n+\r\n     \/**\r\n-     * @var string\r\n-     *\/\r\n-    protected $_className;\r\n-    \/**\r\n      * Constructor\r\n      * \r\n-     * @param object $service \r\n+     * @param string|object $className name or instance of the service class to proxy\r\n+     * @param array $classArgs arguments used to instantiate the handling class\r\n      *\/\r\n     public function  __construct($className, $classArgs = array())\r\n     {\r\n+        if (is_object($className)) {\r\n+            $this->setObject($className);\r\n+        } else if (is_string($className)) {\r\n+            $this->setClass($className, $classArgs);\r\n+        } else {\r\n+            require_once 'Zend\/Soap\/Server\/Exception.php';\r\n+            throw new Zend_Soap_Server_Exception('Invalid className argument (' . gettype($className) . ')');\r\n+        }\r\n+    }\r\n+\r\n+    \/**\r\n+     * Set the service class to proxy.\r\n+     * \r\n+     * @param string $className name of the handling class to proxy.\r\n+     * @param array $classArgs arguments used to instantiate the handling class.\r\n+     *\/\r\n+    public function setClass($className, $classArgs = array())\r\n+    {\r\n+        if (!is_string($className)) {\r\n+            require_once 'Zend\/Soap\/Server\/Exception.php';\r\n+            throw new Zend_Soap_Server_Exception('Invalid class argument (' . gettype($className) . ')');\r\n+        }\r\n+\r\n+        if (!class_exists($className)) {\r\n+            require_once 'Zend\/Soap\/Server\/Exception.php';\r\n+            throw new Zend_Soap_Server_Exception('Class \"' . $className . '\" does not exist');\r\n+        }\r\n+\r\n         $class = new ReflectionClass($className);\r\n         $constructor = $class->getConstructor();\r\n-\tif ($constructor === null) {\r\n+        if ($constructor === null) {\r\n             $this->_classInstance = $class->newInstance();\r\n-\t} else {\r\n+        } else {\r\n             $this->_classInstance = $class->newInstanceArgs($classArgs);\r\n-\t}\r\n-\t$this->_className = $className;\r\n+        }\r\n     }\r\n+\r\n     \/**\r\n+     * Set the service object to proxy.\r\n+     * \r\n+     * @param object $object\r\n+     *\/\r\n+    public function setObject($object)\r\n+    {\r\n+        if (!is_object($object)) {\r\n+            require_once 'Zend\/Soap\/Server\/Exception.php';\r\n+            throw new Zend_Soap_Server_Exception('Invalid object argument (' . gettype($object) . ')');\r\n+        }\r\n+\r\n+        $this->_classInstance = $object;\r\n+    }\r\n+\r\n+    \/**\r\n      * Proxy for the WS-I compliant call\r\n      * \r\n      * @param  string $name\r\n@@ -55,21 +96,35 @@\r\n      *\/\r\n     public function __call($name, $arguments)\r\n     {\r\n-        $result = call_user_func_array(array($this->_classInstance, $name), $this->_preProcessArguments($arguments));\r\n-        return array(\"{$name}Result\"=>$result);\r\n+        $result = call_user_func_array(array($this->_classInstance, $name), $this->_preProcessArguments($name, $arguments));\r\n+        return $this->_preProcessResult($name, $result);\r\n     }\r\n+\r\n     \/**\r\n-     *  Pre process arguments\r\n+     * Pre process arguments\r\n      * \r\n+     * @param  string $name\r\n      * @param  mixed $arguments\r\n-     * @return array \r\n+     * @return array\r\n      *\/\r\n-    protected function _preProcessArguments($arguments)\r\n+    protected function _preProcessArguments($name, $arguments)\r\n     {\r\n         if (count($arguments) == 1 && is_object($arguments[0])) {\r\n             return get_object_vars($arguments[0]);\r\n-\t} else {\r\n+        } else {\r\n             return $arguments;\r\n-\t}\r\n+        }\r\n     }\r\n+\r\n+    \/**\r\n+     * Pre process result\r\n+     * \r\n+     * @param  string $name\r\n+     * @param  mixed $result\r\n+     * @return array\r\n+     *\/\r\n+    protected function _preProcessResult($name, $result)\r\n+    {\r\n+        return array(\"{$name}Result\" => $result);\r\n+    }\r\n }\r\n\\ No newline at end of file\r\n\r\n{code}",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=fcrespel",
+                        "name": "fcrespel",
+                        "displayName": "Fabien Crespel",
+                        "active": true
+                    },
+                    "created": "2012-08-01T21:16:35.000+0000",
+                    "updated": "2012-08-01T21:16:35.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6351\/transitions"
+}

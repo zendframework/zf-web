@@ -1,0 +1,333 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-5012",
+    "key": "ZF-5012",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Checks for SSL should include HTTP_X_FORWARDED_PROTO as well as HTTPS"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/4",
+                "name": "Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-5012\/votes",
+                "votes": 0,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/1",
+                "name": "Fixed"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2009-12-26T15:03:58.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ksid",
+                "name": "ksid",
+                "displayName": "Kawsar Saiyeed",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2008-11-20T16:16:44.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2012-11-13T15:41:49.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "EDIT: An update is at the bottom of this post following the comments by Benjamin and Kevin\nEDIT: Yet another update, it's a pain not being able to comment!\n\nHi Guys,\n\nCurrently ZF only checks for the 'HTTPS' server variable when attempting to detect SSL usage but on some setups that variable is not available while 'HTTP_X_FORWARDED_PROTO' is. In my case it happens to be because of Lighttpd proxying requests to Apache which deals with the ZF site.\n\nThis results in situations where users are redirected to the http version of a site when using things like the redirector helper with a route.\n\nThis occurs in the following locations:\n{quote}\n*{{Zend_Controller_Action_Helper_Redirector->_redirect()}}* [Line 192]\n{{$proto = (isset($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!==\"off\") ? 'https' : 'http';}}\n\n*{{Suggestion:}}*\n{{$proto = ((isset($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!==\"off\") || (isset($_SERVER['HTTP_X_FORWARDED_PROTO'])&&$_SERVER['HTTP_X_FORWARDED_PROTO']==\"https\")) ? 'https' : 'http';}}\n{quote}\n\n{quote}\n*{{Zend_Controller_Request_Http->getScheme()}}* [Line 966]\n{{return ($this->getServer('HTTPS') == 'on') ? self::SCHEME_HTTPS : self::SCHEME_HTTP;}}\n\n*{{Suggestion:}}*\n{{return ($this->getServer('HTTPS') == 'on' || $this->getServer('HTTP_X_FORWARDED_PROTO') == 'https') ? self::SCHEME_HTTPS : self::SCHEME_HTTP;}}\n{quote}\n\n{quote}\n*{{Zend_Soap_AutoDiscover->getSchema()}}* [Line 132]\n{{if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') {}}\n\n*{{Suggestion:}}*\n{{if ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https')) {}}\n{quote}\n\n{quote}\n*{{Zend_OpenId->selfUrl()}}* [Line 97]\n{{if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') {}}\n\n*{{Suggestion:}}*\n{{if ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] == 'on') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https')) {}}\n{quote}\n\nThis may also affect versions earlier than 1.7.0 and other files but these are the few I've found and the 2 in Zend_Controller affect me directly. A few other things that I noticed is the difference in function names for the same purpose ({{Zend_Soap_AutoDiscover->getSchem*a*()}} and {{Zend_Controller_Request_Http->getSchem*e*()}}) and the difference in how the check is carried out for HTTPS ({{Zend_Controller_Action_Helper_Redirector}} checks against '{{!==\"off\"}}' while {{Zend_OpenId}} checks against '{{== 'on'}}'.\n\nThanks\n\nEDIT #1 (2008-12-11)\n==============================\nKevin is correct, the HTTP_X_FORWARDED_PROTO can be set clientside (after a little reading I believe all HTTP_X headers can be set clientside). Unfortunately, this means there may be no easy way to identify whether or not a secure connection is being used by the client when a reverse proxy is in place. I think Benjamin's suggestion of having one central function (he suggests ::isHttpsRequest()) is nice because you won't have different components checking for it in different ways.\n\nMaybe the function could take a boolean that defaults to false on whether the user would like it to check the HTTP_X_FORWARDED_PROTO header. During my searching on the topic I came across this file:\nhttp:\/\/drupal.org\/files\/issues\/bootstrap.inc_proxy_3.patch\nI'm not too sure which ticket\/issue it relates to within drupal as I am not familiar with it but it touches on the concerns Kevin raised as well as make use of another Microsoft specific header when using their tech for reverse proxying. I have seen the HTTP_X_FORWARDED_SSL header used in some places too (the value is set to 'on' if SSL is used) but I'm pretty sure it can be set client side too.\n\nThis is out of the scope of ZF but if using Apache (as I am) behind a reverse proxy, the only way around this may be to set up two vhosts operating on two different ports with Apache and two different document roots. In the secure document root place a file called 'secure' which the app can then check for. If it finds it then it is being accessed by SSL but if it doesn't (as only one document root has that file) it is not. Your reverse proxy can then proxy SSL queries to the secure port and standard queries to the other port. This means that you will need two copies of your files though so it is far less than ideal and it may not even work as this is just a guess at a possibility.\n\nEDIT #2 (2008-12-11)\n==============================\nBenjamin, I didn't think about manually setting the HTTPS value so that may be something that we can do provided (as you mentioned) it is done right. To do it right might still mean configuring 2 document roots with the same files because the HTTP_X headers can be set clientside so shouldn't really be trusted unless your front server scrubs them out before setting them itself.\n\nI still think it would be nice to have one function that does the SSL checking so even if it doesn't check for the HTTP_X headers (which I now agree it shouldn't) it will mean you have one location where that logic is stored rather than the 4 at the moment."
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/5",
+                "name": "Trivial"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-5012\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=padraic",
+                "name": "padraic",
+                "displayName": "P\u00e1draic Brady",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+                {
+                    "issueKey": "ZF-11783",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11783",
+                    "type": {
+                        "name": "Related",
+                        "direction": "INBOUND",
+                        "description": "is related to"
+                    }
+                },
+                {
+                    "issueKey": "ZF-11498",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11498",
+                    "type": {
+                        "name": "Duplicate",
+                        "direction": "INBOUND",
+                        "description": "is duplicated by"
+                    }
+                }
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10260",
+                    "id": 10260,
+                    "description": "Minor Release",
+                    "name": "1.7.0",
+                    "userReleaseDate": "17\/Nov\/08",
+                    "archived": false,
+                    "releaseDate": "2008-11-17",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10011",
+                    "id": 10011,
+                    "name": "Zend_Controller",
+                    "description": "front controller, including router and dispatcher",
+                    "isAssigneeTypeValid": false
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10210",
+                    "id": 10210,
+                    "name": "Zend_OpenId",
+                    "isAssigneeTypeValid": false
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10098",
+                    "id": 10098,
+                    "name": "Zend_Soap_Wsdl",
+                    "description": "Class for accessing SOAP WSDL documents.",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27204",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beberlei",
+                        "name": "beberlei",
+                        "displayName": "Benjamin Eberlei",
+                        "active": true
+                    },
+                    "body": "Matthew,\n\nwhat do you think? Maybe we should implement a general purpose static function ::isHttpsRequest() somewhere for everyone to use since this problem (aswell as checking many other $_SERVER variables) occours frequently in many components.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beberlei",
+                        "name": "beberlei",
+                        "displayName": "Benjamin Eberlei",
+                        "active": true
+                    },
+                    "created": "2008-12-10T14:39:54.000+0000",
+                    "updated": "2008-12-10T14:39:54.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27205",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=kevin",
+                        "name": "kevin",
+                        "displayName": "Kevin McArthur",
+                        "active": true
+                    },
+                    "body": "This is likely a bad idea -- the HTTP_X_FORWARDED_PROTO header can be set by the end user as well as a forwarding webserver and could enable MITM and crypto-decrease attacks in some scenarios.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=kevin",
+                        "name": "kevin",
+                        "displayName": "Kevin McArthur",
+                        "active": true
+                    },
+                    "created": "2008-12-10T14:52:01.000+0000",
+                    "updated": "2008-12-10T14:52:01.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27226",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beberlei",
+                        "name": "beberlei",
+                        "displayName": "Benjamin Eberlei",
+                        "active": true
+                    },
+                    "body": "hm then this issue is a \"won't fix\" in my point of view.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beberlei",
+                        "name": "beberlei",
+                        "displayName": "Benjamin Eberlei",
+                        "active": true
+                    },
+                    "created": "2008-12-11T08:40:26.000+0000",
+                    "updated": "2008-12-11T08:40:26.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27227",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beberlei",
+                        "name": "beberlei",
+                        "displayName": "Benjamin Eberlei",
+                        "active": true
+                    },
+                    "body": "Well you can still set $_SERVER['HTTPS'] in your bootstrap, if you are absolutly sure that you are doing it the right way. I suggest this, and leaving the core of the ZF unchanged.\n\nAdditionally a function that has a boolean value true false for checking the protocol header would create additional non-needed overhead on all the apis for setter\/getter methods.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beberlei",
+                        "name": "beberlei",
+                        "displayName": "Benjamin Eberlei",
+                        "active": true
+                    },
+                    "created": "2008-12-11T08:42:47.000+0000",
+                    "updated": "2008-12-11T08:42:47.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/37182",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=padraic",
+                        "name": "padraic",
+                        "displayName": "P\u00e1draic Brady",
+                        "active": true
+                    },
+                    "body": "Trivially fixed by end user - the suggested fix (presumably why this is still open) is insecure and will not be implemented.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=padraic",
+                        "name": "padraic",
+                        "displayName": "P\u00e1draic Brady",
+                        "active": true
+                    },
+                    "created": "2009-12-26T15:03:58.000+0000",
+                    "updated": "2009-12-26T15:03:58.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-5012\/transitions"
+}

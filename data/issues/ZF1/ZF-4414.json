@@ -1,0 +1,201 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4414",
+    "key": "ZF-4414",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "if there are more than one foreign keys corresponding to the same parent table in dependent table class, cascade delete doesn't work properly"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4414\/votes",
+                "votes": 1,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=luciarux",
+                "name": "luciarux",
+                "displayName": "Ruxandra Taleanu",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2008-09-29T06:35:51.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2011-02-18T14:58:34.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "I happend to have a child table with 2 foreign keys corresponding to the same primary field in parent table.\r\n\r\ntable recipes -> primary key: r_id\r\ntable recipe_relevance > fields : rr_r_id (FK coresponding to recipes.r_id) and rr_relevant_recipe_id (FK corresponding to recipes.r_id) and other fields\r\n\r\nwhen I delete a row from recipes it only deletes from recipe_relevance where rr_r_id = r_id and NOT where rr_relevant_recipe_id, ALSO.\r\n\r\n{code}\r\nclass Table_Recipes extends Zend_Db_Table {\r\n...\r\n$this->_dependentTables = array(..., 'Table_RecipeRelevance',...)\r\n}\r\n{code}\r\n\r\nneither of this implementations works:\r\n1.\r\n\r\n{code}\r\nclass Table_RecipeRelevance extends Zend_Db_Table {\r\n\t\r\n\tprotected $_primary;\r\n\tprivate $_adapter;\r\n\tprivate $_nameColumn;\r\n\t\r\n\tprotected function _setupTableName() {\r\n\t\t$this->_primary = 'rr_id';\r\n\t\t$this->_name = 'recipe_relevance';\r\n\t\t$this->_referenceMap = array ('Recipe' => \r\n\t\tarray ('columns' => array ('rr_r_id', 'rr_relevant_recipe_id'),\r\n\t\t 'refTableClass' => 'Table_Recipes',\r\n\t\t 'refColumns' => array ('r_id', 'r_id'),\r\n\t\t 'onDelete' => self::CASCADE,\r\n\t\t 'onUpdate' => self::CASCADE ),\r\n\t\t);\r\n\t\tparent::_setupTableName ();\r\n\t}\r\n\/\/DOESN'T WORK BECAUSE IT BUILDS A WHERE ARRAY WHICH IS CONVERTED INTO SQL EXPR WITH \"AND\" BETWEEN CONDITIONS << AND THIS IS NOT WHAT I WANT\r\n.....\r\n}\r\n{code}\r\n\r\n2.1.\r\n{code}\r\nclass Table_RecipeRelevance extends Zend_Db_Table {\r\n\t\r\n\tprotected $_primary;\r\n\tprivate $_adapter;\r\n\tprivate $_nameColumn;\r\n\t\r\n\t\r\n\t\r\n\tprotected function _setupTableName() {\r\n\t\t$this->_primary = 'rr_id';\r\n\t\t$this->_name = 'recipe_relevance';\r\n\t\t$this->_referenceMap = array ('Recipe' => \r\n\t\tarray ('columns' => array ('rr_r_id'),\r\n\t\t 'refTableClass' => 'Table_Recipes',\r\n\t\t 'refColumns' => array ('r_id'),\r\n\t\t 'onDelete' => self::CASCADE,\r\n\t\t 'onUpdate' => self::CASCADE ),\r\n'RelevantRecipe' => \r\n\t\tarray ('columns' => array ('rr_relevant_recipe_id'),\r\n\t\t 'refTableClass' => 'Table_Recipes',\r\n\t\t 'refColumns' => array ( 'r_id'),\r\n\t\t 'onDelete' => self::CASCADE,\r\n\t\t 'onUpdate' => self::CASCADE ),\r\n\t\t);\r\n\t\tparent::_setupTableName ();\r\n\t}\r\n.....\r\n} \/\/ DOESN'T WORK BECAUSE OF REFERENCE MAP NORMALIZATION\r\n\r\n}\r\n{code}\r\nFor the first implementation I found a solution by rewriting the zend_db_table_abstract class function _cascadeDelete()\r\nas follows:\r\n{code}\r\npublic function _cascadeDelete($parentTableClassname, array $primaryKey)\r\n    {\r\n        $rowsAffected = 0;\r\n        foreach ($this->_getReferenceMapNormalized() as $map) {\r\n            if ($map[self::REF_TABLE_CLASS] == $parentTableClassname && isset($map[self::ON_DELETE])) {\r\n                switch ($map[self::ON_DELETE]) {\r\n                    case self::CASCADE:\r\n                        for ($i = 0; $i < count($map[self::COLUMNS]); ++$i) {\r\n                            $col = $this->_db->foldCase($map[self::COLUMNS][$i]);\r\n                            $refCol = $this->_db->foldCase($map[self::REF_COLUMNS][$i]);\r\n                            $type = $this->_metadata[$col]['DATA_TYPE'];\r\n                            $where[] = $this->_db->quoteInto(\r\n                                $this->_db->quoteIdentifier($col, true) . ' = ?',\r\n                                $primaryKey[$refCol], $type);\r\n                            $rowsAffected += $this->delete($where); \/\/<<<<<<<MOVED FROM OUTSIDE LOOP\r\n                            $where = array(); \/\/<<<<<RESET\r\n                        }\r\n\/\/                        print_r($where);\r\n                        \r\n                        break;\r\n                    default:\r\n                        \/\/ no action\r\n                        break;\r\n                }\r\n            }\r\n        }\r\n        return $rowsAffected;\r\n    }\r\n}\r\n{code}\r\n"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/6",
+                "name": "N\/A"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4414\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/1",
+                "name": "Open"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                "name": "ralph",
+                "displayName": "Ralph Schindler",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10240",
+                    "id": 10240,
+                    "description": "Minor Release",
+                    "name": "1.6.0",
+                    "userReleaseDate": "02\/Sep\/08",
+                    "archived": false,
+                    "releaseDate": "2008-09-02",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10133",
+                    "id": 10133,
+                    "name": "Zend_Db_Table",
+                    "description": "Lightweight OO interface to database tables and rowsets.",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4414\/transitions"
+}

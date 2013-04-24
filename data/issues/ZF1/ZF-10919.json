@@ -1,0 +1,253 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10919",
+    "key": "ZF-10919",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_Form_Element - BreakChainOnFailure"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10919\/votes",
+                "votes": 1,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=jmbertucci",
+                "name": "jmbertucci",
+                "displayName": "John Bertucci",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2011-01-05T15:23:42.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2012-03-06T18:44:48.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "I think this is a bug, but perhaps it's by design.  It certainly did not work as I expected.\r\n\r\n1. I have to change the error message of \"NotEmpty\" validator for a Zend_Form_Element.\r\n2. There are multiple elements that need the same message change.\r\n3. I create a custom Zend_Form class.\r\n4. I create $notEmpty = new Zend_Validate_NotEmpty() instance.\r\n5. I set the custom message with $notEmpty->setMessage($message, $code);\r\n6. I add that validator to every element that needs is with \"$element->addValidator($notEmpty);\"\r\n7. On the second or later element, I change the \"breakChainOnFailure\" parameter to true.\r\n8. The \"breakChainOnFailure\" value is not not updated.\r\n\r\nHere's some sample code:\r\n(inside a Zend_Form class constructor)\r\n{quote}\r\n 1 : $notEmpty = new Zend_Validate_NotEmpty();\r\n 2 : $notEmpty->setMessage('Sorry, that this value is empty.',Zend_Validate_NotEmpty::IS_EMPTY);\r\n 3 : \r\n 4 : $element_name = new Zend_Form_Element_Text('name');\r\n 5 : $element_name->setRequired(true);\r\n 6 : $element_name->addValidator($notEmpty);\r\n 7 : \r\n 8 : $element_email = new Zend_Form_Element_Text('email');\r\n 9 : $element_email->setRequired(true);\r\n10 : $element_email->addValidator($notEmpty, true);\r\n11 : $element_email->addValidator('EmailAddress');\r\n{quote}\r\n\r\n*Issue*\r\n$element_email will not break chain on failure.  The \"true\" parameter gets ignored and I believe this is why:\r\n\r\n\/Zend\/Form\/Element.php line 1134\r\n\r\n{quote}\r\n1134 : if ($validator instanceof Zend_Validate_Interface) \\{\r\n1135 :     $name = get_class($validator);\r\n1136 : \r\n1137 :     if ( !isset( $validator->zfBreakChainOnFailure ) ) \\{ \r\n1138 :         $validator->zfBreakChainOnFailure = $breakChainOnFailure;\r\n1139 :     \\}\r\n1140 :\\}\r\n{quote}\r\n\r\nPassing $notEmpty validator object into the first Zend_Form_Element will hit the code above.  Once the object hits line #1137, it evaluates to true(not set) because there is no \"zfBreakChainOnFailure\" in Zend_Form_Element or Zend_Form_Element_Abstract and goes into line #1138 where it sets this value to false because that was the original (default) value of \"$element_name\" at line #6 above.\r\n\r\nWhen \"$element_email\" tries to set this validator, it goes to the line # 1137 but this time it evaluates to false(set) because this object was set by the previous element.\r\n\r\nBecause of this, it ignores the passed in parameter.\r\n\r\nI marked this as minor because I didn't think it was \"major\" and you can:\r\nA) Create a new Validation object for each element, even using the \"string name\" method and passing in the new error messages each time.  But this replicated a lot of code.\r\nB) Create a $notEmpty2 object for the \"breakChainOnFailure\" elements that are set to true and use the appropriate object on the appropriate element.  This, again, replicates code but a lot less than before.\r\n\r\nMaybe this is how it's suppose to work, but it doesn't seem like this is how it should work.\r\n\r\nI would think that I should be able to create a single validation object with custom error messages and selectively tell what elements to break the chain and which not to, but not have to create a new Validation object for every case, repeating code.\r\n\r\nIt appears that since the \"break chain\" attribute is associate with the Validation object via \"zfBreakChainOnFailture\" that removing the \"isset()\" conditional would not work because the object would, instead, be set to whatever was the last element to set it, instead of whatever was the first.\r\n\r\nInstead, perhaps the \"break chain\" attribute should be an element level data point, not a validator level data point.  Meaning, the element could remember if it should break chain on a given validator, not the validator itself.\r\n\r\nBut I have not though that through thoroughly, so there might be better reasons why it is the way it is.\r\n\r\nCheers!"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/4",
+                "name": "Minor"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10919\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/1",
+                "name": "Open"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=alab",
+                "name": "alab",
+                "displayName": "Christian Albrecht",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10490",
+                    "id": 10490,
+                    "description": "Mini Release",
+                    "name": "1.10.8",
+                    "userReleaseDate": "25\/Aug\/10",
+                    "archived": false,
+                    "releaseDate": "2010-08-25",
+                    "released": true
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10420",
+                    "id": 10420,
+                    "description": "Minor Release",
+                    "name": "1.11.0",
+                    "userReleaseDate": "02\/Nov\/10",
+                    "archived": false,
+                    "releaseDate": "2010-11-02",
+                    "released": true
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10501",
+                    "id": 10501,
+                    "description": "Mini Release",
+                    "name": "1.11.1",
+                    "userReleaseDate": "30\/Nov\/10",
+                    "archived": false,
+                    "releaseDate": "2010-11-30",
+                    "released": true
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10520",
+                    "id": 10520,
+                    "description": "Mini Release",
+                    "name": "1.11.2",
+                    "userReleaseDate": "30\/Dec\/10",
+                    "archived": false,
+                    "releaseDate": "2010-12-30",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10029",
+                    "id": 10029,
+                    "name": "Zend_Form",
+                    "isAssigneeTypeValid": false
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10140",
+                    "id": 10140,
+                    "name": "Zend_Validate",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/49945",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=fodi69",
+                        "name": "fodi69",
+                        "displayName": "fodi69",
+                        "active": true
+                    },
+                    "body": "+1",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=fodi69",
+                        "name": "fodi69",
+                        "displayName": "fodi69",
+                        "active": true
+                    },
+                    "created": "2012-03-06T18:44:48.000+0000",
+                    "updated": "2012-03-06T18:44:48.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10919\/transitions"
+}

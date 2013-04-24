@@ -1,0 +1,398 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3698",
+    "key": "ZF-3698",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Error adding rows when overriding insert() method of extended Table Abstract class"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3698\/votes",
+                "votes": 1,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/6",
+                "name": "Not an Issue"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10260",
+                    "id": 10260,
+                    "description": "Minor Release",
+                    "name": "1.7.0",
+                    "userReleaseDate": "17\/Nov\/08",
+                    "archived": false,
+                    "releaseDate": "2008-11-17",
+                    "released": true
+                }
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2008-10-16T08:12:57.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                "name": "emanaton",
+                "displayName": "Sean P. O. MacCath-Moran",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2008-07-20T08:00:20.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2010-06-10T07:33:47.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "Greetings to the Hard Working Team!\n\nI've unearthed a vexing bug in 1.5.2 that occurs when one extends Zend\/Db\/Table\/Abstract and overrides the insert() function. Upon save, the following error is provided (note that this line number is *slightly off* due to my having inserted various debugging prints tracking this one down):\n{{Zend_Db_Table_Row_Exception: Cannot refresh row as parent is missing in . . . \/library\/Zend\/Db\/Table\/Row\/Abstract.php on line 725}}\n\nI've marked this as \"Major\" because all forward processing is halted by the error, because clicking refresh offers to resubmit the form (and doing so causes a key collision), and in order to \"get around it\" one must either go back a few pages on the browser or reload the URL from scratch. OH - or one could simply not extend the Table Abstract class... but that's just silly talk.\n\nNOTE: This bug ONLY happens when the insert() function is implemented in the extended abstract class; If the function is NOT implemented but the class is extended, no problems occur.\n\nIt turns out the the insert actually does succeed, but the row refresh fails due to the Zend\/Db\/Table\/Row\/Abstract.php::_doInsert() function being unable to detect the newly entered primary key value. Unfortunately, I'm pressed for time at the moment and did not track down the actual cause of this bug, but I did implement the following fix which seems to fix the problem:\n\n{code:title=Zend\/Db\/Table\/Row\/Abstract.php|borderStyle=solid}\n. . .\n\/**\n * @category   Zend\n * @package    Zend_Db\n * @subpackage Table\n * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http:\/\/www.zend.com)\n * @license    http:\/\/framework.zend.com\/license\/new-bsd     New BSD License\n *\/\nabstract class Zend_Db_Table_Row_Abstract\n{\n. . .\n    \/**\n     * @return mixed The primary key value(s), as an associative array if the\n     *     key is compound, or a scalar if the key is single-column.\n     *\/\n    protected function _doInsert()\n    {\n        \/**\n         * A read-only row cannot be saved.\n         *\/\n        if ($this->_readOnly === true) {\n            require_once 'Zend\/Db\/Table\/Row\/Exception.php';\n            throw new Zend_Db_Table_Row_Exception('This row has been marked read-only');\n        }\n\n. . .\n\n        \/**\n         * Normalize the result to an array indexed by primary key column(s).\n         * The table insert() method may return a scalar.\n         *\/\n        if (is_array($primaryKey)) {\n            $newPrimaryKey = $primaryKey;\n        } else {\n            \/* ORIGINAL CODE: \n             * $newPrimaryKey = array(current((array) $this->_primary) => $primaryKey);\n            *\/\n\n            \/* NEW CODE: *\/\n            $primaryKeyFieldName = current((array) $this->_primary);\n            $primaryKey = $primaryKey ? $primaryKey : $data[$primaryKeyFieldName];\n            $newPrimaryKey = array($primaryKeyFieldName => $primaryKey);\n        }\n\n        \/**\n         * Save the new primary key value in _data.  The primary key may have\n         * been generated by a sequence or auto-increment mechanism, and this\n         * merge should be done before the _postInsert() method is run, so the\n         * new values are available for logging, etc.\n         *\/\n\n. . .\n\n        return $primaryKey;\n    }\n. . .\n}\n{code} \n\nFor reference, here is my extended table class:\n\n{code:title=Mns\/Db\/Table\/Abstract.php|borderStyle=solid}\n  <?php\n  require_once 'Zend\/Db\/Table\/Abstract.php';\n  \n  abstract class Mns_Db_Table_Abstract extends Zend_Db_Table_Abstract\n  {\n    protected function _setupTableName()\n    {\n      \/\/ if no name is provided then convert class name from camel case to underscore breaks. e.g. ThisClassName become this_class_name.\n      if (!$this->_name) {\n        $this->_name = trim(strtolower(preg_replace('\/([A-Z])\/', '_$1', get_class($this))), '_');\n      }\n      parent::_setupTableName();\n    }\n  \n  \n    public function insert(array $data)\n    {\n      if (empty($data['created_by'])) {$data['created_by'] = 'getcurrentuser';}\n      if (empty($data['created_on'])) {$data['created_on'] = new Zend_Db_Expr('NOW()');}\n      parent::insert($data);\n    }\n  \n    public function update(array $data, $where)\n    {\n      if (empty($data['altered_by'])) {$data['altered_by'] = 'getcurrentuser';}\n      if (empty($data['altered_on'])) {$data['altered_on'] = new Zend_Db_Expr('NOW()');}\n      parent::update($data, $where);\n    }\n  \n  }\n{code} \n\nAnd finally, my bootstrap - just in case it makes a difference in reproducing this error.\n\n{code:title=bootstrap.php|borderStyle=solid}\n<?php\n\n\/* Report all errors directly to the screen for simple diagnostics in the dev environment *\/\nerror_reporting(E_ALL | E_STRICT);\nini_set('display_startup_errors', 1);\nini_set('display_errors', 1);\ndate_default_timezone_set('America\/Detroit');\n\n\/* Add the Zend Framework library to the include path so that we can access the ZF classes *\/\nset_include_path(\n  '.'\n  . PATH_SEPARATOR . '\/usr\/share\/php\/libzend-framework-php\/'\n  . PATH_SEPARATOR . '..\/library'               \/\/ Zend Framework\n  \/\/. PATH_SEPARATOR . '\/usr\/share\/php\/PEAR'      \/\/included here for using Auth; todo: switch app to use Zend_Auth instead?\n  . PATH_SEPARATOR . '..\/application\/models\/db'\n  . PATH_SEPARATOR . '..\/application\/models\/form'\n  . PATH_SEPARATOR . get_include_path()\n);\n\n\/* Set up autoload so we don't have to explicitly require each Zend Framework class *\/\nrequire_once \"Zend\/Loader.php\";\nZend_Loader::registerAutoload();\n\n\/\/ load configuration\n$config = new Zend_Config_Ini('..\/application\/config.ini', 'general');\n$registry = Zend_Registry::getInstance();\n$registry->set('config', $config);\n\n\/\/ setup database\n$db = Zend_Db::factory($config->db);\nZend_Db_Table::setDefaultAdapter($db);\nZend_Registry::set('arrayKeyHashFormat', '%s__%s');\n\n\/* Set the singleton instance of the front controller *\/\n$frontController = Zend_Controller_Front::getInstance();\n\n$acl = new Zend_Acl();\n\n\/\/ todo: cache the result of getControllerDirs\n$frontController->setControllerDirectory(getControllerDirs('..\/application\/controllers'));\n\n\/* Disable error handler so it doesn't intercept all those errors we enabled above *\/\n$frontController->throwExceptions(true);\n\n\/\/ Initialize Zend_Layout's MVC helpers\nZend_Layout::startMvc(array('layoutPath'=>'..\/application\/layouts'));\n\n\/* OK, do your stuff, front controller *\/\n$frontController->dispatch();\n\n\n\n\/**\n * This next bit iterates through the controllers directory and adds each of\n * the \"modules\" into the Front Controller. Note that this depends on the the\n * \"default\" directory being named \"default\" since this is a special keyword\n * for the controller indicating the action to use when no module is specified.\n *\/\nfunction getControllerDirs($basedir, $_level = 0) {\n  $_level++;\n  $controllerDirs = array();\n  $dir = new DirectoryIterator($basedir);\n  foreach ($dir as $file) {\n    if ($file->isDot() || !$file->isDir()) {continue;}\n\n    $module = $file->getFilename();\n\n    \/\/ Don't use SCCS directories as modules\n    if (preg_match('\/^[^a-z]\/i', $module) || ('CVS' == $module)) {continue;}\n\n    $moduleDir = $basedir.'\/'.$module;\n\n    $controllerDirs[$module] = $moduleDir;\n\n    if ($_level == 1) {$controllerDirs = array_merge($controllerDirs, getControllerDirs($moduleDir, $_level));}\n  }\n  return $controllerDirs;\n}\n{code} "
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/6",
+                "name": "N\/A"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/customFieldOption\/10039",
+                "value": "  Should Have"
+            }
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3698\/watchers",
+                "isWatching": false,
+                "watchCount": 2
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                "name": "ralph",
+                "displayName": "Ralph Schindler",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10181",
+                    "id": 10181,
+                    "description": "Mini Release",
+                    "name": " 1.5.2",
+                    "userReleaseDate": "15\/May\/08",
+                    "archived": true,
+                    "releaseDate": "2008-05-15",
+                    "released": true
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10201",
+                    "id": 10201,
+                    "description": "Mini Release",
+                    "name": "1.6.1",
+                    "userReleaseDate": "15\/Sep\/08",
+                    "archived": false,
+                    "releaseDate": "2008-09-15",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10133",
+                    "id": 10133,
+                    "name": "Zend_Db_Table",
+                    "description": "Lightweight OO interface to database tables and rowsets.",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/23231",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "body": "Greetings,\n\nJust to keep everyone in the loop: I'm now used 1.5.3 and the problem still exists. I do see that the projection is for this to be completed in the NEXT release, but I figured this information might help. I realized I was SHOULD have been extending Zend_Db_Table rather than Zend_Db_Table_Abstract, but there is nothing significant going on in Zend_Db_Table so my code was unaffected by this error on my part, though I have corrected this oversight in my code. As you might expect, this has no effect on the relieving the error.\n\nSean P. O. MacCath-Moran\nwww.emanaton.com",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "created": "2008-08-03T09:32:51.000+0000",
+                    "updated": "2008-08-03T09:32:51.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/24397",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "body": "Greetings,\n\nI've upgraded to version 1.6 and continue to see this problem. Are there any plans to troubleshoot this?\n\nSean P. O. MacCath-Moran\nwww.emanaton.com",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "created": "2008-09-09T19:17:09.000+0000",
+                    "updated": "2008-09-09T19:17:09.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/24810",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "body": "Greetings,\n\nI've just tested this in 1.6.1, and it appears to have been fixed!  Woot! Thanks!\n\nSean P. O. MacCath-Moran\nwww.emanaton.com",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "created": "2008-10-05T09:33:15.000+0000",
+                    "updated": "2008-10-05T09:33:15.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/24811",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "body": "Greetings,\n\nACK!  Belay my last; I had forgotten that I'd overwritten the method in an extended Row class. This problem IS NOT FIXED yet.\n\nI keep seeing \"Next Mini Release\" being listed as the anticipated fix, but then am not seeing the fix on that release. Am I misunderstanding something on this?\n\nSean P. O. MacCath-Moran\nwww.emanaton.com",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "created": "2008-10-05T09:41:27.000+0000",
+                    "updated": "2008-10-05T09:41:27.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/25170",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "body": "I received the following email and upon testing discovered Tim to be quite correct; I was neglecting to RETURN the call to parent while over-writing the insert and update functions. THANK YOU TIM!!!\n\nNeedless to say, this issue is now defunct as the error was mine, not ZF.  =o\/\n\nSean P. O. MacCath-Moran\nwww.emanaton.com\n\n=======================================================================================================================\n\nSean,\n\n       Saw your bug report when I had the same issue extending Zend_Db_Table_Abstract.\n\n       I ran into the same issue, then realized I was boneheaded.\n\n       instead of:\n\n       parent::insert($data);\n\n       try:\n       \n       return parent::insert($data);\n\n       Works for me with 1.6, anyway.\n\n       I'd have added this to the bug report, but I can't figure out how to create a comment.\n\nRegards,\n\n-Tim\n\nTim Lieberman\nElectric Mind Control Industries\n",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "created": "2008-10-15T16:12:26.000+0000",
+                    "updated": "2008-10-15T16:12:26.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/25171",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "body": "This \"bug\" turned out to be one in my own code, NOT one with ZF.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=emanaton",
+                        "name": "emanaton",
+                        "displayName": "Sean P. O. MacCath-Moran",
+                        "active": true
+                    },
+                    "created": "2008-10-15T16:14:35.000+0000",
+                    "updated": "2008-10-15T16:14:35.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/25177",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "body": "Was notifed by Sean off-list that this was not an issue in ZF, but a local issue in his project (use-case).\n\n-Ralph",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "created": "2008-10-16T08:12:57.000+0000",
+                    "updated": "2008-10-16T08:12:57.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/26301",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=wil",
+                        "name": "wil",
+                        "displayName": "Wil Sinclair",
+                        "active": true
+                    },
+                    "body": "Changing issues in preparation for the 1.7.0 release.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=wil",
+                        "name": "wil",
+                        "displayName": "Wil Sinclair",
+                        "active": true
+                    },
+                    "created": "2008-11-13T14:10:20.000+0000",
+                    "updated": "2008-11-13T14:10:20.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/40935",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=coviex",
+                        "name": "coviex",
+                        "displayName": "Kostya L.",
+                        "active": true
+                    },
+                    "body": "Sorry, if this ticket is not exactly where it should be posted, but the error message I got is the same so maybe it will help someone.\r\n\r\nZF 1.10\r\nZend\/Db\/Table\/Row\/Abstract.php:752\r\n_refresh() throws exception in question if the length of the data you are trying to save is more then DB table field can have.\r\nSo when _refresh() search this data back it cannot find it because DB silently truncated it.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=coviex",
+                        "name": "coviex",
+                        "displayName": "Kostya L.",
+                        "active": true
+                    },
+                    "created": "2010-06-10T07:33:46.000+0000",
+                    "updated": "2010-06-10T07:33:46.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3698\/transitions"
+}

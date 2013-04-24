@@ -1,0 +1,228 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4380",
+    "key": "ZF-4380",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_Db_Table upon view with insert rule (PostgreSQL) fails to obtain sequence id after the insert"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/4",
+                "name": "Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4380\/votes",
+                "votes": 4,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/2",
+                "name": "Won't Fix"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2012-11-20T20:53:15.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=lordhp",
+                "name": "lordhp",
+                "displayName": "Pavel Ptacek",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2008-09-25T11:03:15.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2012-11-20T20:53:15.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels",
+            "value": [
+                "pgsql"
+            ]
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "This is a bit specific issue.\n\nWe build CMS over the views in PostgreSQL, where the views are only tables used  from the CMS PHP code (for many reasons.)\n\nWe have this view:\n{code:title=SQL|borderStyle=solid}\nCREATE OR REPLACE VIEW test_view AS \n SELECT .....\n\nCREATE OR REPLACE RULE \"_INSERT\" AS\nON INSERT TO test_view DO INSTEAD (\n    SELECT store_item(...) AS null_variable;\n    SELECT store_item_version(....) AS null_variable; \/* advances sequence_version *\/\n    INSERT INTO moduletable_test (version_id, ...) VALUES (currval('sequence_version'::regclass)::integer, ...);\n);\n{code} \n(note that PERFORM stmt does not work when used in rules)\n\nWith that, we have this class:\n{code}\nclass CMS_Module_Test extends Zend_Db_Table_Abstract {\n    protected $_name = 'test_view';\n    protected $_primary = 'version_id';\n    protected $_rowClass = 'CMS_Item';\n    protected $_sequence = 'sequence_version';\n\n    (...)\n}\n{code}\n(note that I have simplified the current abstraction into one class)\n\nWhen we try to execute createRow and save() methods, the save fails on refreshing the row from database with this exception:\nbq. Cannot refresh row as parent is missing\n\nThis is because of the order how the ZF saves new item:\n* Create empty row instance\n* fill-up and call save()\n* Obtain primary key value from sequence\n* Save the row with sending the sequence value\n* Refresh the row from database\n\nSince the database is designed to be a quite independent, we generate primary keys from sequences *in* database, not in the *php code* and therefore, it throws exception.\n\nh3. Workaround\n\nThere is simple workaround  present in current version of CMS:\n{code}\nclass CMS_Module_Test extends Zend_Db_Table_Abstract {\n    (...)\n    protected $_sequence = false; \/\/ manual override\n    (...)\n}\n\nclass CMS_Item extends Zend_Db_Table_Row_Abstract {\n    protected $_tableClass = 'CMS_Module';\n\n    protected function _postInsert() {\n        parent::_postInsert();\n\n        \/\/ We get from the database the version_id\n        $this->version_id = $this->getTable()\n                                 ->getAdapter()\n                                 ->fetchOne(\"SELECT CURRVAL('sequence_version')\");\n    }\n}\n{code}\n\nHowever, that *can* prevent the CMS_Item class being used for same purpose on *tables* (eg. project-specific ones), since it gets the version_id after the insert.\nIn case that there would be more system-like logic in the postInsert function, extending and overriding would not come to result, since the system-specific logic have to be rewritten and that destroys whole OOP concept. This could be fixed by adding one class in between (and you can imagine the results of this.)\n\nPlease note that when we use:\nbq. $_sequence = true;\nZF generates the sequence name from the table name. That is *wrong* since we use _one sequence_ for _many views_\n\nh3. Proposed solution:\n{code}\nclass CMS_Module extends Zend_Db_Table_Abstract {\n    protected $_sequence = 'sequence_version';\n    protected $_sequenceLoading = Zend_Db_Table_Abstract::SEQ_AFTER_INSERT; \/* _BEFORE_ present and default --> backward compatible *\/\n}\n{code}\n\nOr defaultly loading the sequence after the insert (which I believe was already discussed)\n\nh3.-Note that problem that cause this issue has already been reported in [ZF-3454|http:\/\/framework.zend.com\/issues\/browse\/ZF-3454]-\n(wrong, that task is similar, but none of proposed solutions would fix ZF-3454)\n"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/6",
+                "name": "N\/A"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4380\/watchers",
+                "isWatching": false,
+                "watchCount": 4
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/6",
+                "name": "Closed"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User"
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10201",
+                    "id": 10201,
+                    "description": "Mini Release",
+                    "name": "1.6.1",
+                    "userReleaseDate": "15\/Sep\/08",
+                    "archived": false,
+                    "releaseDate": "2008-09-15",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10133",
+                    "id": 10133,
+                    "name": "Zend_Db_Table",
+                    "description": "Lightweight OO interface to database tables and rowsets.",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/52676",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rob",
+                        "name": "rob",
+                        "displayName": "Rob Allen",
+                        "active": true
+                    },
+                    "body": "Bulk change of all issues last updated before 1st January 2010 as \"Won't Fix\".\r\n\r\nFeel free to re-open and provide a patch if you want to fix this issue.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rob",
+                        "name": "rob",
+                        "displayName": "Rob Allen",
+                        "active": true
+                    },
+                    "created": "2012-11-20T20:53:15.000+0000",
+                    "updated": "2012-11-20T20:53:15.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4380\/transitions"
+}

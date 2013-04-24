@@ -1,0 +1,311 @@
+{
+    "expand": "html",
+    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-421",
+    "key": "ZF-421",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Add in tag emulation to Zend_Cache_Backend_Memcached"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/issueType\/4",
+                "name": "Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-421\/votes",
+                "votes": 0,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/resolution\/2",
+                "name": "Won't Fix"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2006-10-23T17:02:53.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                "name": "lsaferite",
+                "displayName": "Lee Saferite",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2006-10-04T11:09:54.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2007-07-05T14:43:22.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "Since Zend_Cache has the concept of a reserved set of keys (internal_*) it should be trivial to add the possibility of tag emulation for memcached.\n\nForgive me if my code is not perfect. :)\n\n{code:title=Updated $_options}\n    private $_options = array(\n        'servers' => array(array(\n        \t'host' => 'localhost',\n            'port' => 11211,\n            'persistent' => true\n        )),\n        'compression' => false,\n        'emulateTags' => false\n    );\n{code}\n\n{code:title=New Constant}\n    const EMULATED_TAGS_KEY = 'internal_EmulatedTags';\n{code}\n\n{code:title=Updated save()}\n    public function save($data, $id, $tags = array())\n    {\n        if ($this->_options['compression']) {\n            $flag = MEMCACHE_COMPRESSED;\n        } else {\n            $flag = 0;\n        }\n        $result = $this->_memcache->set($id, $data, $flag, $this->_directives['lifeTime']);\n        if($result && count($tags) > 0)\n        {\n        \tif($this->_options['emulateTags'])\n        \t{\n\t\t\t\t$tag_list = $this->_memcache->get(self::EMULATED_TAGS_KEY);\n\t\t\t\t$tag_list = (is_array($tag_list) ? $tag_list : array());\n\n\t\t\t\t$tag_keys = explode(',', self::EMULATED_TAGS_KEY . '_' . implode(',' . self::EMULATED_TAGS_KEY . '_', $tags));\n\t\t\t\t$found_tags = $this->_memcache->get($tag_keys);\n\t\t\t\t$tag_keys = array_merge(array_flip($tag_keys), $found_tags);\n\t\t\t\tunset($found_tags);\n\n\t\t\t\tforeach($tag_keys as $tag=>$data)\n\t\t\t\t{\n\t\t\t\t\tif(!is_array($data))\n\t\t\t\t\t{\n\t\t\t\t\t\t$data = array();\n\t\t\t\t\t}\n\t\t\t\t\t$data[] = $id;\n\n\t\t\t\t\t$this->_memcache->set($tag, array_unique($data), $flag, 0);\n\t\t\t\t}\n\n\t\t\t\t$new_tags = array_diff($tags, $tag_list);\n\t\t\t\tif(count($new_tags) > 0)\n\t\t\t\t{\n\t\t\t\t\t$tag_list = array_merge($tag_list, array_keys($tags));\n\t\t\t\t\t$this->_memcache->set(self::EMULATED_TAGS_KEY, $tag_list, $flag, 0);\n\t\t\t\t}\n        \t}\n        \telse\n        \t{\n\t            if ($this->_directives['logging']) {\n\t                Zend_Log::log(\"Zend_Cache_Backend_Memcached::save() : tags are unsupported by the Memcached backend\", Zend_Log::LEVEL_WARNING);\n\t            }\n        \t}\n        }\n        return $result;\n    }\n{code}\n\n{code:title=Updated clean()}\n    public function clean($mode = 'all', $tags = array())\n    {\n        if ($this->_options['compression']) {\n            $flag = MEMCACHE_COMPRESSED;\n        } else {\n            $flag = 0;\n        }\n\n        if ($mode==Zend_Cache::CLEANING_MODE_ALL) {\n            return $this->_memcache->flush();\n        }\n        if ($mode==Zend_Cache::CLEANING_MODE_OLD) {\n            if ($this->_directives['logging']) {\n                Zend_Log::log(\"Zend_Cache_Backend_Memcached::clean() : CLEANING_MODE_OLD is unsupported by the Memcached backend\", Zend_Log::LEVEL_WARNING);\n            }\n        }\n        if ($mode==Zend_Cache::CLEANING_MODE_MATCHING_TAG) {\n        \tif(count($tags) > 0 && $this->_options['emulateTags'])\n        \t{\n\t\t\t\t$tag_list = $this->_memcache->get(self::EMULATED_TAGS_KEY);\n\t\t\t\t$tag_list = (is_array($tag_list) ? $tag_list : array());\n\t\t\t\t$tags = array_intersect($tag_list, $tags);\n\t\t\t\t$tag_keys = explode(',', self::EMULATED_TAGS_KEY . '_' . implode(',' . self::EMULATED_TAGS_KEY . '_', $tags));\n\t\t\t\t$tag_keys = $this->_memcache->get($tag_keys);\n\t\t\t\tforeach($tag_keys as $tag)\n\t\t\t\t{\n\t\t\t\t\tif(is_array($tag))\n\t\t\t\t\t{\n\t\t\t\t\t\tforeach($tag as $key)\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t$this->_memcache->delete($key);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\t$tag_list = array_diff($tag_list, $tags);\n\t\t\t\t$this->_memcache->set(self::EMULATED_TAGS_KEY, $tag_list, $flag, 0);\n        \t}\n        \telseif ($this->_directives['logging']) {\n                Zend_Log::log(\"Zend_Cache_Backend_Memcached::clean() : tags are unsupported by the Memcached backend\", Zend_Log::LEVEL_WARNING);\n            }\n        }\n        if ($mode==Zend_Cache::CLEANING_MODE_NOT_MATCHING_TAG) {\n        \tif($this->_options['emulateTags'])\n        \t{\n\t\t\t\t$tag_list = $this->_memcache->get(self::EMULATED_TAGS_KEY);\n\t\t\t\t$tag_list = (is_array($tag_list) ? $tag_list : array());\n\t\t\t\t$tags = array_diff($tag_list, $tags);\n\t\t\t\t$tag_keys = explode(',', self::EMULATED_TAGS_KEY . '_' . implode(',' . self::EMULATED_TAGS_KEY . '_', $tags));\n\t\t\t\t$tag_keys = $this->_memcache->get($tag_keys);\n\t\t\t\tforeach($tag_keys as $tag)\n\t\t\t\t{\n\t\t\t\t\tif(is_array($tag))\n\t\t\t\t\t{\n\t\t\t\t\t\tforeach($tag as $key)\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\t$this->_memcache->delete($key);\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\t$tag_list = array_diff($tag_list, $tags);\n\t\t\t\t$this->_memcache->set(self::EMULATED_TAGS_KEY, $tag_list, $flag, 0);\n        \t}\n            elseif ($this->_directives['logging']) {\n                Zend_Log::log(\"Zend_Cache_Backend_Memcached::clean() : tags are unsupported by the Memcached backend\", Zend_Log::LEVEL_WARNING);\n            }\n        }\n    }\n{code}\n"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/priority\/4",
+                "name": "Minor"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-421\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=fab",
+                "name": "fab",
+                "displayName": "Fabien MARTY",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/component\/10028",
+                    "id": 10028,
+                    "name": "Zend_Cache",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/comment\/10955",
+                    "author": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "body": "Looking at my code and reading the interface specification some more, i realize that the CLEANING_MODE_NOT_MATCHING_TAG section currently is incorrect.  The changes to fix it shouldn't be very difficult and I can provide them if needed.",
+                    "updateAuthor": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "created": "2006-10-04T12:27:59.000+0000",
+                    "updated": "2006-10-04T12:27:59.000+0000"
+                },
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/comment\/10960",
+                    "author": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "body": "Fixing typos",
+                    "updateAuthor": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "created": "2006-10-04T16:31:11.000+0000",
+                    "updated": "2006-10-04T16:31:11.000+0000"
+                },
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/comment\/11033",
+                    "author": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=fab",
+                        "name": "fab",
+                        "displayName": "Fabien MARTY",
+                        "active": true
+                    },
+                    "body": "sure but memcached can drop your \"internal\" records without any warning (to get space for newer cache records)...",
+                    "updateAuthor": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=fab",
+                        "name": "fab",
+                        "displayName": "Fabien MARTY",
+                        "active": true
+                    },
+                    "created": "2006-10-22T07:27:02.000+0000",
+                    "updated": "2006-10-22T07:27:02.000+0000"
+                },
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/comment\/11039",
+                    "author": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "body": "Good point.  I agree.  Emulating tags probably doesn't belong here.  \n\nSince I originally posted this, I have written a Backend wrapper that emulates tags for any other backend.  It implements the interface fully so it can just be used as a wrapper for the default backends.  \n\nThe only change I had to make to Zend_Cache_Backedn_Interface was to add in support for per-item lifetimes on calls to save().  I have created an issue with the patch containing this change to the interface.  I hope someone likes it and intergrates it. :)",
+                    "updateAuthor": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "created": "2006-10-22T19:18:33.000+0000",
+                    "updated": "2006-10-22T19:18:33.000+0000"
+                },
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/comment\/11040",
+                    "author": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=fab",
+                        "name": "fab",
+                        "displayName": "Fabien MARTY",
+                        "active": true
+                    },
+                    "body": "ok, I will see your patch in the corresponding task\n\nthanks",
+                    "updateAuthor": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=fab",
+                        "name": "fab",
+                        "displayName": "Fabien MARTY",
+                        "active": true
+                    },
+                    "created": "2006-10-23T17:02:53.000+0000",
+                    "updated": "2006-10-23T17:02:53.000+0000"
+                },
+                {
+                    "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/comment\/11041",
+                    "author": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "body": "The related issue is : ZF-457",
+                    "updateAuthor": {
+                        "self": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/user?username=lsaferite",
+                        "name": "lsaferite",
+                        "displayName": "Lee Saferite",
+                        "active": true
+                    },
+                    "created": "2006-10-23T17:11:05.000+0000",
+                    "updated": "2006-10-23T17:11:05.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/framework.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-421\/transitions"
+}

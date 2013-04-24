@@ -1,0 +1,267 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10893",
+    "key": "ZF-10893",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Unable to use personal key with Zend_Filter_Encrypt_Mcrypt filter (Algorithm Blowfish, mode CBC)"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10893\/votes",
+                "votes": 0,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/6",
+                "name": "Not an Issue"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2011-01-03T12:23:04.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=nuxwin",
+                "name": "nuxwin",
+                "displayName": "Laurent declercq",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2011-01-03T03:03:22.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2011-01-03T13:42:10.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "Hello ;\r\n\r\nIt's my first report here so on, please don't be annoyed if I'm wrong in the way to process...\r\n\r\nI was extended the *Zend_Filter_Encrypt_Mcrypt* filter to be able to define my own padding method (padding space method to be compatible with my perl script (Perl Crypt-CBC - Algorithm blowfish).\r\n\r\nI work with a fixed key that I set like this:\r\n\r\n{code:java}\r\n$config = Zend_Registry::get('config');\r\n$filter = new iMSCP_Filter_Encrypt_Mcrypt($config->imscp_key);\r\n...\r\n{code} \r\n\r\nThe problem is that I must also redefine the *Zend_Filter_Encrypt_Mcrypt::_initCipher()* method in my class since it's currently buggy. Indeed, when we sets our own key, the Zend_Filter_Encrypt_Mcrypt::_initCipher() bypass it with salt in some case.\r\n\r\nThe current code in the parent methods is like this:\r\n\r\n{code:java}\r\n    protected function _initCipher($cipher)\r\n    {\r\n        $key = $this->_encryption['key'];\r\n\r\n        $keysizes = mcrypt_enc_get_supported_key_sizes($cipher);\r\n\r\n        if (empty($keysizes) || ($this->_encryption['salt'] == true)) {\r\n            $this->_srand();\r\n            $keysize = mcrypt_enc_get_key_size($cipher);\r\n            $key     = substr(md5($key), 0, $keysize);\r\n        } else if (!in_array(strlen($key), $keysizes)) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n        }\r\n\r\n\t....\r\n}\r\n{code}\r\n\r\nLike you can see here, we get the supported key sizes of the opened algorithm. In my case, it's the *Blowfish* algorithm in *CBC* mode, and the value returned by the mcrypt_enc_get_supported_key_sizes() function is an empty array. According the  documentation related to this function, when an empty array is returned, all keysizes between 1 and the value returned by the *mcrypt_enc_get_key_size()* are supported by the algorithm. My own key size is 32. The problem is that currently, when we receive an empty array, the Zend_Filter_Encrypt_Mcrypt::_initCipher() method nypass the key with salt.\r\n\r\nFor now, I've resolved this issue by redefining this method in my subclass but I think that should be fixed in *Zend_Filter_Encrypt_Mcrypt::_initCipher()* directly.\r\n\r\nMy (ugly) modified version of this methods is like this:\r\n\r\n{code:java}\r\n    \/**\r\n     * Initialises the cipher with the set key\r\n     *\r\n     * @param  resource $cipher\r\n     * @throws\r\n     * @return resource\r\n     *\/\r\n    protected function _initCipher($cipher)\r\n    {\r\n        $key = $this->_encryption['key'];\r\n\r\n        $keysizes = mcrypt_enc_get_supported_key_sizes($cipher);\r\n\r\n\/* my replacement code  - start *\/\r\n        if(empty($keysizes)) { \/\/ All value between 1 and mcrypt_enc_get_key_size() are supported\r\n\t        $keysize = mcrypt_enc_get_key_size($cipher);\r\n\t\tif($this->_encryption['salt'] == true) {\r\n\t\t\t$this->_srand();\r\n\t\t\t$key = substr(md5($key), 0, $keysize);\r\n\t\t} elseif(strlen($key) > $keysize || strlen($key) < 1) {\r\n\t\t\trequire_once 'Zend\/Filter\/Exception.php';\r\n\t\t\tthrow new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n\t\t}\r\n        } else if (!in_array(strlen($key), $keysizes)) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n        }\r\n\/* my replacement code  - end *\/\r\n\r\n\/* old zend code  - start *\/\r\n\r\n        if (empty($keysizes) || ($this->_encryption['salt'] == true)) {\r\n            $this->_srand();\r\n            $keysize = mcrypt_enc_get_key_size($cipher);\r\n            $key     = substr(md5($key), 0, $keysize);\r\n        } else if (!in_array(strlen($key), $keysizes)) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n        }\r\n\/* old zend code  - end *\/\r\n\r\n        $result = mcrypt_generic_init($cipher, $key, $this->_encryption['vector']);\r\n        if ($result < 0) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('Mcrypt could not be initialize with the given setting');\r\n        }\r\n\r\n        return $this;\r\n    }\r\n{code}\r\n\r\nThanks for any feedback about this issue.\r\n\r\n*Note:* Sorry for my poor English, I'm french. \r\n\r\n"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/3",
+                "name": "Major"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10893\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                "name": "thomas",
+                "displayName": "Thomas Weidner",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10501",
+                    "id": 10501,
+                    "description": "Mini Release",
+                    "name": "1.11.1",
+                    "userReleaseDate": "30\/Nov\/10",
+                    "archived": false,
+                    "releaseDate": "2010-11-30",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10013",
+                    "id": 10013,
+                    "name": "Zend_Filter",
+                    "description": "methods for filtering data",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/43897",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                        "name": "thomas",
+                        "displayName": "Thomas Weidner",
+                        "active": true
+                    },
+                    "body": "The implementation from ZF will not be changed. The reason is that ZF's implementation is failure-save according to key sizes which extend the given maximum value.\r\n\r\nYour code throws an exception when the key extends the wished size which is not necessary as the key is stripped to the maximum value (as recommended).\r\n\r\nWhen you want to extend an existing class you should simply extend regarding to your needs and keep calling the rest when it fits. Your code can be reduced to 5 lines:\r\n\r\n{code}\r\nprotected function _initCipher($cipher)\r\n{\r\n    if(empty(mcrypt_enc_get_supported_key_sizes($cipher))) {\r\n        if(strlen($this->_encryption['key']) > mcrypt_enc_get_key_size($cipher) || strlen($this->_encryption['key']) < 1) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n        }\r\n    }\r\n\r\n    return parent::_initCipher($cipher);\r\n}\r\n{code}",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                        "name": "thomas",
+                        "displayName": "Thomas Weidner",
+                        "active": true
+                    },
+                    "created": "2011-01-03T11:54:51.000+0000",
+                    "updated": "2011-01-03T11:54:51.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/43898",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                        "name": "thomas",
+                        "displayName": "Thomas Weidner",
+                        "active": true
+                    },
+                    "body": "Closing as non-issue.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                        "name": "thomas",
+                        "displayName": "Thomas Weidner",
+                        "active": true
+                    },
+                    "created": "2011-01-03T12:23:05.000+0000",
+                    "updated": "2011-01-03T12:23:05.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/43900",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=nuxwin",
+                        "name": "nuxwin",
+                        "displayName": "Laurent declercq",
+                        "active": true
+                    },
+                    "body": "God... I've you tested before answer ? I'll try to explain better with code:\r\n\r\n1. from my perl script, I generate the key and initialization vector by calling the following script:\r\n\r\n{code:java}\r\n#!\/user\/bin\/perl\r\n\r\nuse strict;\r\nuse warnings;\r\nuse Crypt::CBC;\r\nuse Data::Dumper;\r\n\r\nopen(F, '>', 'imscp-keys') or die(\"Error: Can't open file 'imscp-keys' for writing: $!\");\r\n\r\nprint F Data::Dumper->Dump(\r\n    [Crypt::CBC->random_bytes(32), Crypt::CBC->random_bytes(8)], [qw(key iv)]\r\n);\r\n\r\nclose F;\r\n\r\n0;\r\n{code}\r\n\r\nAfter generation, the imscp-keys file contain the following content:\r\n\r\nexample:\r\n{code:java}\r\n$key = '\u009ar\u00aa\\\\|\u00f0z\u00b5\u00e2\u00fexR\u008c\u00ba\u00f6\u00caE\u0090\u00de\u00db\u00c9\u009a\u0092ig\u00e6';\r\n$iv = 'u\u00c6\u008f\u00e86\u00e7\u0092&';\r\n{code}\r\n\r\nAfter, that, I want use both key and initialization vector with Zend_Filter_Encrypt_Mcryp.\r\n\r\nTo resume, I want be able to do:\r\n\r\n{code:java}\r\n...\r\n\/\/ Load local configuration file\r\nrequire_once 'Zend\/Config\/Ini.php';\r\n$config = new Zend_Config_Ini(APPLICATION_PATH . DS . 'configs' . DS . 'imscp.ini', 'frontend', true);\r\n\r\n\/\/ Load system configuration file\r\nrequire_once 'Zend\/Config\/Xml.php';\r\n$sysCfg = new Zend_Config_Xml($sysCfgFile);\r\n\r\n\/\/ Load imscp key and initialization vector\r\nif(($keysFile = file_get_contents($configDir . DS . 'common' . DS . 'imscp-keys')) && eval($keysFile) !== false) {\r\n\t$config->key = $key;\r\n\t$config->iv = $iv;\r\n} else {\r\n\tthrow new Zend_Exception('Unable to reach or evaluate the imscp-keys file!');\r\n}\r\n\r\nZend_Registry::set('config', $config);\r\n\r\n\/\/ In another file\r\n$config = Zend_Registry::get('config');\r\n\r\n$filter = new iMSCP_Filter_Encrypt_Mcrypt($config);\r\n$password = $filter->decrypt($config->resources->db->params->password);\r\n{code}\r\n\r\nThe problem here is that my key is not used like I provide it since the following method in Zend_Filter_Encrypt_Mcrypt:\r\n{code:java}\r\n    \/**\r\n     * Initialises the cipher with the set key\r\n     *\r\n     * @param  resource $cipher\r\n     * @throws\r\n     * @return resource\r\n     *\/\r\n    protected function _initCipher($cipher)\r\n    {\r\n        $key = $this->_encryption['key'];\r\n\r\n        $keysizes = mcrypt_enc_get_supported_key_sizes($cipher);\r\n        if (empty($keysizes) || ($this->_encryption['salt'] == true)) {\r\n            $this->_srand();\r\n            $keysize = mcrypt_enc_get_key_size($cipher);\r\n            $key     = substr(md5($key), 0, $keysize);\r\n        } else if (!in_array(strlen($key), $keysizes)) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n        }\r\n\r\n        $result = mcrypt_generic_init($cipher, $key, $this->_encryption['vector']);\r\n        if ($result < 0) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('Mcrypt could not be initialize with the given setting');\r\n        }\r\n\r\n        return $this;\r\n    }\r\n{code}\r\n\r\nchange it. To resume, it's a bug since I cannot decrypt any password encrypted with my perl script and vice-versa (I cannot decrypt any password encrypted with my php script). It's simply due to the fact that Zend_Filter_Encrypt_Mcrypt don't use my key like provided. Why this limitation ? Why you change my key ?\r\n\r\nFor the record, my original key is:\r\n\r\n{code}\r\nstring(32) \"\ufffdr\ufffd\\|\ufffdz\ufffd\ufffd\ufffdxR\ufffd\ufffd\ufffd\ufffdE\ufffd\ufffd\ufffd\u025a\ufffdig\ufffd\"\r\n{code}\r\n\r\nbut the iMSCP_Filter_Encrypt_Mcrypt::_initCipher() method change it like:\r\n\r\n{code}\r\nstring(32) \"e8066f90e2a30c17d90510557da13c6c\"\r\n{code}\r\n\r\nOf course, like my passwords where not been encrypted with the \"e8066f90e2a30c17d90510557da13c6c\" key, that don't work...\r\n\r\nTo finish, some words about your last sentence:\r\n\r\n{quote}\r\n\r\nWhen you want to extend an existing class you should simply extend regarding to your needs and keep calling the rest when it fits. Your code can be reduced to 5 lines:\r\n\r\n{code:java}\r\nprotected function _initCipher($cipher)\r\n{\r\n    if(empty(mcrypt_enc_get_supported_key_sizes($cipher))) {\r\n        if(strlen($this->_encryption['key']) > mcrypt_enc_get_key_size($cipher) || strlen($this->_encryption['key']) < 1) {\r\n            require_once 'Zend\/Filter\/Exception.php';\r\n            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');\r\n        }\r\n    }\r\n\r\n    return parent::_initCipher($cipher);\r\n}\r\n{code}\r\n\r\n{quote}\r\n\r\nI want not redefine this method to check my key length. I redefine it to avoid the problem described above (key not used like provided due to the following line: $key = substr(md5($key), 0, $keysize);",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=nuxwin",
+                        "name": "nuxwin",
+                        "displayName": "Laurent declercq",
+                        "active": true
+                    },
+                    "created": "2011-01-03T13:42:09.000+0000",
+                    "updated": "2011-01-03T13:42:09.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-10893\/transitions"
+}

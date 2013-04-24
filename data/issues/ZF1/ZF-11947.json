@@ -1,0 +1,236 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11947",
+    "key": "ZF-11947",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_GData does not handle major protocol version 2 correctly when building dom tree"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11947\/votes",
+                "votes": 1,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=dolfs",
+                "name": "dolfs",
+                "displayName": "Dolf Starreveld",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2011-12-17T23:44:58.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2012-07-06T22:22:11.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "When processing a YouTube response requested with major version 2, some nodes that are clearly present in the XML stream, are not found. Example is entry->getControl() would return null, even though the <app:control> element is present.\r\nI traced this back to an oversight in the following code:\r\n{code:title=Zend_GData_App_Feed::takeChildFromDOM()}\r\n    protected function takeChildFromDOM($child)\r\n    {\r\n        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;\r\n        switch ($absoluteNodeName) {\r\n        case $this->lookupNamespace('atom') . ':' . 'entry':\r\n            $newEntry = new $this->_entryClassName($child);\r\n            $newEntry->setHttpClient($this->getHttpClient());\r\n            $newEntry->setMajorProtocolVersion($this->getMajorProtocolVersion());\r\n            $newEntry->setMinorProtocolVersion($this->getMinorProtocolVersion());\r\n            $this->_entry[] = $newEntry;\r\n            break;\r\n        default:\r\n            parent::takeChildFromDOM($child);\r\n            break;\r\n        }\r\n    }\r\n{code}\r\nYou will note that the protocol version for the new entry is set after it has been created. Its creation, however, recursively processes all the DOM elements under it. During this processing, the entry object believes its protocol version to be the default, which is 1. Consequently some other element lookups will go wrong due to an apparent namespace mismatch:\r\n{code:title=Inside: Zend_GData_App_Entry::takeChildFromDOM()}\r\n        case $this->lookupNamespace('app') . ':' . 'control':\r\n{code}\r\nThe namespace is looked up:\r\n{code:title=Inside: Zend_GData_App_FeedEntryParent::lookupNamespace()}\r\n    public function lookupNamespace($prefix,\r\n                                    $majorVersion = null,\r\n                                    $minorVersion = null)\r\n    {\r\n        \/\/ Auto-select current version\r\n        if ($majorVersion === null) {\r\n            $majorVersion = $this->getMajorProtocolVersion();\r\n        }\r\n        if ($minorVersion === null) {\r\n            $minorVersion = $this->getMinorProtocolVersion();\r\n        }\r\n\r\n        \/\/ Perform lookup\r\n        return parent::lookupNamespace($prefix, $majorVersion, $minorVersion);\r\n    }\r\n{code}\r\nAt the time of the lookup, the entry's protocol version has not yet been set correctly, yet its value affects the lookup of the namespace. In this particular example <app:control> is not being recognized as the default major protocol version is 1 and thus the namespace does not get recognized (only available in version 2) and the corresponding element is not treated correctly.\r\n\r\nMy fix has been to change the constructor of all \"entry\" elements to accept a major and minor version number and to pass them to the constructor of the element:\r\n{code:title=Zend_GData_App_Feed::takeChildFromDOM()}\r\n    protected function takeChildFromDOM($child)\r\n    {\r\n        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;\r\n        switch ($absoluteNodeName) {\r\n        case $this->lookupNamespace('atom') . ':' . 'entry':\r\n            $newEntry = new $this->_entryClassName($child, $this->getMajorProtocolVersion(), $this->getMinorProtocolVersion());\r\n            $newEntry->setHttpClient($this->getHttpClient());\r\n            $this->_entry[] = $newEntry;\r\n            break;\r\n        default:\r\n            parent::takeChildFromDOM($child);\r\n            break;\r\n        }\r\n    }\r\n{code}\r\nI will not repeat the 5 or 6 cases where the constructor needs to be changed, except at the root level, where the incoming values need to be set (unless null for backward compatability):\r\n{code:title=Zend_GData_App_FeedEntryParent::__construct()}\r\n    public function __construct($element = null, $major = null, $minor = null)\r\n    {\r\n        if (!is_null($major)) {\r\n            $this->setMajorProtocolVersion($major);\r\n        }\r\n        if (!is_null($minor)) {\r\n            $this->setMinorProtocolVersion($minor);\r\n        }\r\n        if (!($element instanceof DOMElement)) {\r\n            if ($element) {\r\n                $this->transferFromXML($element);\r\n            }\r\n        } else {\r\n            $this->transferFromDOM($element);\r\n        }\r\n    }\r\n{code}\r\n"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/2",
+                "name": "Critical"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11947\/watchers",
+                "isWatching": false,
+                "watchCount": 2
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/1",
+                "name": "Open"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=tjohns",
+                "name": "tjohns",
+                "displayName": "Trevor Johns",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10981",
+                    "id": 10981,
+                    "description": "Mini Release",
+                    "name": "1.11.11",
+                    "userReleaseDate": "29\/Sep\/11",
+                    "archived": false,
+                    "releaseDate": "2011-09-29",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10088",
+                    "id": 10088,
+                    "name": "Zend_Gdata",
+                    "description": "Class interface to Google Data API's.",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/51281",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rservus",
+                        "name": "rservus",
+                        "displayName": "R Servus",
+                        "active": true
+                    },
+                    "body": "Yet another place where protocol version is handled wrong \r\n\r\n{code:title=In Zend_Gdata_App_Extension_Control}\r\nprotected function takeChildFromDOM($child)\r\n    {\r\n        $absoluteNodeName = $child->namespaceURI . ':' . $child->localName;\r\n        switch ($absoluteNodeName) {\r\n        case $this->lookupNamespace('app') . ':' . 'draft':\r\n            $draft = new Zend_Gdata_App_Extension_Draft();\r\n            $draft->transferFromDOM($child);\r\n            $this->_draft = $draft;\r\n            break;\r\n        default:\r\n            parent::takeChildFromDOM($child);\r\n            break;\r\n        }\r\n    }\r\n{code}\r\n\r\nand now look at the lookupNamespace method, which always use version majorVersion = 1\r\n\r\n{code:title=In Zend_Gdata_App_Extension_Control}\r\npublic function lookupNamespace($prefix,\r\n                                    $majorVersion = 1,\r\n                                    $minorVersion = null)\r\n    {\r\n        \/\/ Check for a memoized result\r\n        $key = $prefix . ' ' .\r\n               ($majorVersion === null ? 'NULL' : $majorVersion) .\r\n               ' '. ($minorVersion === null ? 'NULL' : $minorVersion);\r\n{code}\r\n\r\nSimple search over library code for lookupNamespace and majorVersion gets a lot of possible issues with protocol 2 support. \r\nLooks like v2 support is completely broken in current version of library.\r\n\r\nGoogle should clearly state in their documentation that v2 is not only \"not enabled yet\" but is *unsupported*.\r\n\r\n{quote}\r\nAs of version 1.7.4 of the PHP Client Library, the version 2 specific functionality has not yet been enabled by default. You can use the setMajorProtocolVersion function to set a version for either a service class, a feed or an entry. A version 2 specific service class will always return v2 feeds and entries.\r\n{quote}",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rservus",
+                        "name": "rservus",
+                        "displayName": "R Servus",
+                        "active": true
+                    },
+                    "created": "2012-07-06T22:08:45.000+0000",
+                    "updated": "2012-07-06T22:08:45.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/51282",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rservus",
+                        "name": "rservus",
+                        "displayName": "R Servus",
+                        "active": true
+                    },
+                    "body": "oops, lookupNamespace method is in Zend_Gdata_App_Base",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rservus",
+                        "name": "rservus",
+                        "displayName": "R Servus",
+                        "active": true
+                    },
+                    "created": "2012-07-06T22:22:11.000+0000",
+                    "updated": "2012-07-06T22:22:11.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11947\/transitions"
+}

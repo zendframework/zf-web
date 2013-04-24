@@ -1,0 +1,340 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4099",
+    "key": "ZF-4099",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_Db_Adapter_Pdo_Mssql - Order By in Limit Function"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField",
+            "value": {
+                "timeoriginalestimate": 180,
+                "timeestimate": 180
+            }
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4099\/votes",
+                "votes": 1,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/1",
+                "name": "Fixed"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10361",
+                    "id": 10361,
+                    "description": "Mini Release",
+                    "name": "1.9.2",
+                    "userReleaseDate": "25\/Aug\/09",
+                    "archived": false,
+                    "releaseDate": "2009-08-25",
+                    "released": true
+                }
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2009-08-24T10:50:01.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=hashaam83",
+                "name": "hashaam83",
+                "displayName": "Hashaam Siddiq",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2008-08-28T00:57:58.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2009-08-24T10:50:01.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels",
+            "value": [
+                "mssql"
+            ]
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "In the Zend_Db_Adapter_Pdo_Mssql->limit() method there is a critical bug Order By Clause of the outer_tbl. Consider the following code:\n\n{code}\n$select = $db->select()\n    ->from( 'TBL', array( 'COL1', 'COL2' ) )\n    ->order( array( 'COL1 ASC', 'COL2 DESC' ) );\n{code}\n\nWill generate following query:\n\n{code}\nSELECT        \"TBL\".\"COL1\", \"TBL\".\"COL2\"\nFROM            \"TBL\"\nORDER BY   \"COL1\" ASC, \"COL2\" DESC\n{code}\n\nNow when limitPage is applied:\n\n{code}\n$select = $db->select()\n    ->from( 'TBL', array( 'COL1', 'COL2' ) )\n    ->order( array( 'COL1 ASC', 'COL2 DESC' ) )\n    ->limitPage( 2, 50 );\n{code}\n\nwill generate the following query:\n\n{code}\nSELECT         * \nFROM             (     \n                            SELECT         TOP 50 * \n                            FROM             (\n                                                           SELECT          TOP 100 \"TBL\".\"COL1\", \n                                                                                     \"TBL\".\"COL2\" \n                                                           FROM               \"TBL\" \n                                                           ORDER BY      \"COL1\" ASC, \n                                                                                     \"COL2\" DESC\n                                                      ) AS inner_tbl \n                            ORDER BY     \"COL1\" , \n                                                     \"COL2\" ASC\n                         ) AS outer_tbl \nORDER BY    \"COL1\" , \n                         \"COL2\" desc\n{code}\n\nNow here is the problem. As you can see in the innermost query the order by section is correct, ASC on COL1 and DESC on COL2 the same should be applied on all the outer tables but in reverse order. By doing this, then only we will get the correct result for the next page.\n\nSo, the correct query should be:\n\n{code}\nSELECT         * \nFROM             (     \n                            SELECT         TOP 50 * \n                            FROM             (\n                                                           SELECT          TOP 100 \"TBL\".\"COL1\", \n                                                                                     \"TBL\".\"COL2\" \n                                                           FROM               \"TBL\" \n                                                           ORDER BY      \"COL1\" ASC, \n                                                                                     \"COL2\" DESC\n                                                      ) AS inner_tbl \n                            ORDER BY     \"COL1\" DESC, \n                                                     \"COL2\" ASC\n                         ) AS outer_tbl \nORDER BY    \"COL1\"  asc, \n                         \"COL2\" desc\n{code}\n\nTo fix this issue, I have reviewed the limit function of the Zend_Db_Adapter_Pdo_Mssql class which is:\n\n{code}\n     \/**\n     * Adds an adapter-specific LIMIT clause to the SELECT statement.\n     *\n     * @link http:\/\/lists.bestpractical.com\/pipermail\/rt-devel\/2005-June\/007339.html\n     *\n     * @param string $sql\n     * @param integer $count\n     * @param integer $offset OPTIONAL\n     * @throws Zend_Db_Adapter_Exception\n     * @return string\n     *\/\n     public function limit($sql, $count, $offset = 0)\n     {\n        $count = intval($count);\n        if ($count <= 0) {\n            \/** @see Zend_Db_Adapter_Exception *\/\n            require_once 'Zend\/Db\/Adapter\/Exception.php';\n            throw new Zend_Db_Adapter_Exception(\"LIMIT argument count=$count is not valid\");\n        }\n\n        $offset = intval($offset);\n        if ($offset < 0) {\n            \/** @see Zend_Db_Adapter_Exception *\/\n            require_once 'Zend\/Db\/Adapter\/Exception.php';\n            throw new Zend_Db_Adapter_Exception(\"LIMIT argument offset=$offset is not valid\");\n        }\n\n        $orderby = stristr($sql, 'ORDER BY');\n        if ($orderby !== false) {\n            $sort = (stripos($orderby, ' desc') !== false) ? 'desc' : 'asc';\n            $order = str_ireplace('ORDER BY', '', $orderby);\n            $orderInv = str_ireplace( 'asc', 'desc', $orderOrig );\n            $order = trim(preg_replace('\/\\bASC\\b|\\bDESC\\b\/i', '', $order));\n        }\n\n        $sql = preg_replace('\/^SELECT\\s\/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);\n\n        $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';\n        if ($orderby !== false) {\n            $sql .= ' ORDER BY ' . $order . ' ';\n            $sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';\n        }\n        $sql .= ') AS outer_tbl';\n        if ($orderby !== false) {\n            $sql .= ' ORDER BY ' . $order . ' ' . $sort;\n        }\n        \n        return $sql;\n    }\n{code}\n\n\/\/ ------------------------------------------------------------------------------\n\nAnd a fixed version of this function from my side:\n\n{code}\n    \/**\n     * Adds an adapter-specific LIMIT clause to the SELECT statement.\n     *\n     * @link http:\/\/lists.bestpractical.com\/pipermail\/rt-devel\/2005-June\/007339.html\n     *\n     * @param string $sql\n     * @param integer $count\n     * @param integer $offset OPTIONAL\n     * @throws Zend_Db_Adapter_Exception\n     * @return string\n     *\/\n     public function limit($sql, $count, $offset = 0)\n     {\n        $count = intval($count);\n        if ($count <= 0) {\n            \/** @see Zend_Db_Adapter_Exception *\/\n            require_once 'Zend\/Db\/Adapter\/Exception.php';\n            throw new Zend_Db_Adapter_Exception(\"LIMIT argument count=$count is not valid\");\n        }\n\n        $offset = intval($offset);\n        if ($offset < 0) {\n            \/** @see Zend_Db_Adapter_Exception *\/\n            require_once 'Zend\/Db\/Adapter\/Exception.php';\n            throw new Zend_Db_Adapter_Exception(\"LIMIT argument offset=$offset is not valid\");\n        }\n\n        $orderOrig \t= '';\n        $orderInv \t= '';\n        \n        $orderby = stristr($sql, 'ORDER BY');\n        if ($orderby !== false) {\n            $sort = (stripos($orderby, ' desc') !== false) ? 'desc' : 'asc';\n            $order = str_ireplace('ORDER BY', '', $orderby);\n            \/\/$orderInv = str_ireplace( 'asc', 'desc', $orderOrig );\n            \/\/$order = trim(preg_replace('\/\\bASC\\b|\\bDESC\\b\/i', '', $order));\n            \n            $orderOrig \t= $order; \/\/ order by in original form\n            $orderInv \t= $orderOrig; \/\/ order by in inverse form (sort orders of each columns will be reversed)\n            \n            $orderInv = str_ireplace( 'DESC', \t'DESC1', \t$orderInv ); \/\/ change DESC to DESC1 so later we can change this to ASC\n            $orderInv = str_ireplace( 'ASC', \t'DESC', \t$orderInv ); \/\/ change ASC to DESC\n            $orderInv = str_ireplace( 'DESC1', \t'ASC', \t\t$orderInv ); \/\/ change DESC1 to ASC now\n        }\n\n        $sql = preg_replace('\/^SELECT\\s\/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);\n\n        $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';\n        if ($orderby !== false) {\n            \/\/$sql .= ' ORDER BY ' . $order . ' ';\n            \/\/$sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';\n            $sql .= ' ORDER BY ' . $orderInv . ' ';\n        }\n        $sql .= ') AS outer_tbl';\n        if ($orderby !== false) {\n            \/\/$sql .= ' ORDER BY ' . $order . ' ' . $sort;\n            $sql .= ' ORDER BY ' . $orderOrig;\n        }\n        \n        return $sql;\n    }\n{code}\n\nHope this is resolved in upcoming version of Zend Framework\n\nThanks,\n\nHashaam"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/3",
+                "name": "Major"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/customFieldOption\/10039",
+                "value": "  Should Have"
+            }
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4099\/watchers",
+                "isWatching": false,
+                "watchCount": 2
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                "name": "ralph",
+                "displayName": "Ralph Schindler",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+                {
+                    "issueKey": "ZF-853",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-853",
+                    "type": {
+                        "name": "Related",
+                        "direction": "INBOUND",
+                        "description": "is related to"
+                    }
+                },
+                {
+                    "issueKey": "ZF-5129",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-5129",
+                    "type": {
+                        "name": "Duplicate",
+                        "direction": "INBOUND",
+                        "description": "is duplicated by"
+                    }
+                },
+                {
+                    "issueKey": "ZF-4996",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4996",
+                    "type": {
+                        "name": "Duplicate",
+                        "direction": "INBOUND",
+                        "description": "is duplicated by"
+                    }
+                },
+                {
+                    "issueKey": "ZF-5680",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-5680",
+                    "type": {
+                        "name": "Duplicate",
+                        "direction": "INBOUND",
+                        "description": "is duplicated by"
+                    }
+                }
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10161",
+                    "id": 10161,
+                    "description": "Mini Release",
+                    "name": "1.5.3",
+                    "userReleaseDate": "28\/Jul\/08",
+                    "archived": true,
+                    "releaseDate": "2008-07-28",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10012",
+                    "id": 10012,
+                    "name": "Zend_Db",
+                    "description": "interfaces, APIs, and adapters for various third-party data stores",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/24812",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                        "name": "thomas",
+                        "displayName": "Thomas Weidner",
+                        "active": true
+                    },
+                    "body": "Fixed component assignment",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=thomas",
+                        "name": "thomas",
+                        "displayName": "Thomas Weidner",
+                        "active": true
+                    },
+                    "created": "2008-10-05T14:24:07.000+0000",
+                    "updated": "2008-10-05T14:24:07.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/31506",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=yoshida@zend.co.jp",
+                        "name": "yoshida@zend.co.jp",
+                        "displayName": "old of Satoru Yoshida",
+                        "active": true
+                    },
+                    "body": "I have one question.\n\nIf You would use 3 or more orders, your plan could runs good?",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=yoshida@zend.co.jp",
+                        "name": "yoshida@zend.co.jp",
+                        "displayName": "old of Satoru Yoshida",
+                        "active": true
+                    },
+                    "created": "2009-05-30T19:45:03.000+0000",
+                    "updated": "2009-05-30T19:45:03.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/33718",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "body": "A fix has been provided in r17706, please test.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "created": "2009-08-21T06:36:23.000+0000",
+                    "updated": "2009-08-21T06:36:23.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/33847",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "body": "Fixed in release branch 1.9",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "created": "2009-08-24T10:50:00.000+0000",
+                    "updated": "2009-08-24T10:50:00.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4099\/transitions"
+}

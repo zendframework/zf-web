@@ -1,0 +1,217 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-8405",
+    "key": "ZF-8405",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Zend_Form::_sort() depends on the __get magic method. But it should not."
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/4",
+                "name": "Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-8405\/votes",
+                "votes": 0,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=bbg",
+                "name": "bbg",
+                "displayName": "Vyacheslav Dobromyslov",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2009-11-27T00:34:08.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2009-11-27T08:48:19.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "Look at the *_sort()* method:\r\nIt uses *_ _ get()* magic method for access children. So it's not possible to override *_ _ get* method without overriding *_sort()*.\r\n\r\n(on) I propose to create another method *getChild* and use it in *__get* and *_sort* methods:\r\n{code:title=Zend\/Form.php|borderStyle=solid}\r\n    \/**\r\n     * \u0410ccess to elements, form groups, and display groups\r\n     * \r\n     * @param string $name\r\n     * @return Zend_Form_Element|Zend_Form|null\r\n     *\/\r\n    public function getChild($name)\r\n    {\r\n        if (isset($this->_elements[$name])) {\r\n            return $this->_elements[$name];\r\n        } elseif (isset($this->_subForms[$name])) {\r\n            return $this->_subForms[$name];\r\n        } elseif (isset($this->_displayGroups[$name])) {\r\n            return $this->_displayGroups[$name];\r\n        }\r\n\r\n        return null;\r\n    }\r\n\r\n    \/**\r\n     * Overloading: access to elements, form groups, and display groups\r\n     * \r\n     * @param  string $name \r\n     * @return Zend_Form_Element|Zend_Form|null\r\n     *\/\r\n    public function __get($name)\r\n    {\r\n        $child = $this->getChild($name);\r\n        if (!child) {\r\n            \/\/ Also it would be nice to notify developer if the requested item does not exist.\r\n            throw new Exception(__METHOD__ . \": Form child '$name' does not exist!\");\r\n        }\r\n\r\n        return $child;\r\n    }\r\n\r\n    \/**\r\n     * Sort items according to their order\r\n     * \r\n     * @return void\r\n     *\/\r\n    protected function _sort()\r\n    {\r\n        if ($this->_orderUpdated) {\r\n            $items = array();\r\n            $index = 0;\r\n            foreach ($this->_order as $key => $order) {\r\n                if (null === $order) {\r\n                    \/\/-------------------------------------\r\n                    \/\/ The bottleneck was the __get magic method\r\n                    \/\/-------------------------------------\r\n                    if (null === ($order = $this->getChild($key)->getOrder())) {\r\n                        while (array_search($index, $this->_order, true)) {\r\n                            ++$index;\r\n                        }\r\n                        $items[$index] = $key;\r\n                        ++$index;\r\n                    } else {\r\n                        $items[$order] = $key;\r\n                    }\r\n                } else {\r\n                    $items[$order] = $key;\r\n                }\r\n            }\r\n\r\n            $items = array_flip($items);\r\n            asort($items);\r\n            $this->_order = $items;\r\n            $this->_orderUpdated = false;\r\n        }\r\n    }\r\n{code}\r\n\r\nOriginal code is:\r\n{code:title=Zend\/Form.php|borderStyle=solid}\r\n    \/**\r\n     * Overloading: access to elements, form groups, and display groups\r\n     * \r\n     * @param  string $name \r\n     * @return Zend_Form_Element|Zend_Form|null\r\n     *\/\r\n    public function __get($name)\r\n    {\r\n        if (isset($this->_elements[$name])) {\r\n            return $this->_elements[$name];\r\n        } elseif (isset($this->_subForms[$name])) {\r\n            return $this->_subForms[$name];\r\n        } elseif (isset($this->_displayGroups[$name])) {\r\n            return $this->_displayGroups[$name];\r\n        }\r\n\r\n        return null;\r\n    }\r\n\r\n    \/**\r\n     * Sort items according to their order\r\n     * \r\n     * @return void\r\n     *\/\r\n    protected function _sort()\r\n    {\r\n        if ($this->_orderUpdated) {\r\n            $items = array();\r\n            $index = 0;\r\n            foreach ($this->_order as $key => $order) {\r\n                if (null === $order) {\r\n                    \/\/-------------------------------------\r\n                    \/\/ The bottleneck is __get magic method\r\n                    \/\/-------------------------------------\r\n                    if (null === ($order = $this->{$key}->getOrder())) {\r\n                        while (array_search($index, $this->_order, true)) {\r\n                            ++$index;\r\n                        }\r\n                        $items[$index] = $key;\r\n                        ++$index;\r\n                    } else {\r\n                        $items[$order] = $key;\r\n                    }\r\n                } else {\r\n                    $items[$order] = $key;\r\n                }\r\n            }\r\n\r\n            $items = array_flip($items);\r\n            asort($items);\r\n            $this->_order = $items;\r\n            $this->_orderUpdated = false;\r\n        }\r\n    }\r\n{code}"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/3",
+                "name": "Major"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-8405\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/10000",
+                "name": "Postponed"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                "name": "matthew",
+                "displayName": "Matthew Weier O'Phinney",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10390",
+                    "id": 10390,
+                    "description": "Mini Release",
+                    "name": "1.9.6",
+                    "userReleaseDate": "24\/Nov\/09",
+                    "archived": false,
+                    "releaseDate": "2009-11-24",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10029",
+                    "id": 10029,
+                    "name": "Zend_Form",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/36538",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "body": "Overloading as a method of access to the elements was a design decision for this iteration of Zend_Form. We plan to revisit and reverse that decision... but it cannot happen until we can introduce BC breaks -- which will occur with 2.0.\r\n\r\nIf you want to help with that effort, please visit the [Zend_Form 2.0 planning page|http:\/\/framework.zend.com\/wiki\/display\/ZFDEV2\/Zend_Form+2.0] and provide feedback.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "created": "2009-11-27T08:48:18.000+0000",
+                    "updated": "2009-11-27T08:48:18.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-8405\/transitions"
+}

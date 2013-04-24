@@ -1,0 +1,360 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3433",
+    "key": "ZF-3433",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Custom helpers which extend ZF helpers, initially instantiated in a partial aren't used post-partial"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/1",
+                "name": "Bug",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3433\/votes",
+                "votes": 4,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/6",
+                "name": "Not an Issue"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2011-02-17T15:30:48.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beeboo",
+                "name": "beeboo",
+                "displayName": "B. Charbonneau",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2008-06-10T09:40:51.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2011-02-17T15:31:00.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "The way Zend_View processes it's helper paths (when used with ViewRenderer) leads to a situation where the Zend_View_Helper_ class is instantiated instead of the custom helper.\n\nAs an example:\n\nWe have a helper which implements the lang-code insertion as described here:\nhttp:\/\/www.nabble.com\/Re%3A-Zend-Frmework-Language-ID-Prefixing-p13529838.html\n\n{code}\nclass My_Helper_Url extends Zend_View_Helper_Url\n{ ... }\n{code}\n\nAnd in our initialization:\n\n{code}\nZend_Layout::getMvcInstance()->getView->addHelperPath('My\/Helper', 'My_Helper');\n{code}\n\nIn our layout.phtml we have something along the lines of:\n{code}\n<html>\n<head>...<\/head>\n<body>\n    <div id=\"wrapper\">\n        <?= $this->partial('header.phtml'); ?>\n        <div id=\"content\">\n            <a href=\"<?= $this->url(array(...)); ?>\">Some Link<\/a>\n        <\/div>\n    <\/div>\n<\/body>\n<\/html>\n{code}\n\nPartial header.phtml contains something along the lines of:\n{code}\n<div id=\"header\">\n    <ul id=\"navigation\">\n        <li><a href=\"<?= $this->url(array(...)); ?>\">Products<\/a><\/li>\n    <\/ul>\n<\/div>\n{code}\n\nThe results we're seeing are:\n\nThe $this->url call in the header.phtml is properly instantiating and using My_Helper_Url.\nThe $this->url call AFTER the partial is instantiating and using Zend_View_Helper.\n\nI've done some digging and discovered the following, which is creating this issue.\n\nZend_View's helper paths are the following when rendering layout.phtml:\n{code}\nArray\n(\n    [0] => Array\n        (\n            [prefix] => Zend_View_Helper_\n            [dir] => application\/modules\/default\/views\/helpers\/\n        )\n\n    [1] => Array\n        (\n            [prefix] => My_Helper_\n            [dir] => My\/Helper\/\n        )\n\n    [2] => Array\n        (\n            [prefix] => Zend_View_Helper_\n            [dir] => .\/views\/helpers\/\n        )\n\n    [3] => Array\n        (\n            [prefix] => Zend_View_Helper_\n            [dir] => \/...snip...\/libraries\/Zend\/View\/Helper\/\n        )\n)\n{code}\n\nSo when the url helper is encountered in the partial, the clone view iterates through those paths:\n\n{noformat}\n0: Path: application\/modules\/default\/views\/helpers\/, Prefix: Zend_View_Helper_\n    class_exists('Zend_View_Helper_Url'): NO\n    Zend_Loader::isReadable('application\/modules\/default\/views\/helpers\/Url.php'): NO.\n\n1: Path: My\/Helper\/ Prefix: My_Helper_\n   class_exists('My_Helper_Url'): NO\n   Zend_Loader::isReadable('My\/Helper\/Url.php'): YES *BREAK*\n{noformat} \nThe proper class is loaded and instatiated. Important Note: My_Helper_Url EXTENDS Zend_Helper_Url.\n\nOnce the partial is finished rendering, we drop back to rendering layout.phtml and we get to the $this->url call.\nBecause the view in the partial was a clone, the My_Helper_Url object has not been added to the original view's helper array, so we reprocess the same paths as above. This time, however, the results are different:\n{noformat}\n0: Path: application\/modules\/default\/views\/helpers\/, Prefix: Zend_View_Helper_\n    class_exists('Zend_View_Helper_Url'): YES (it was loaded in order to EXTEND My_Helper_Url when that class was loaded in the partial) *BREAK*\n{noformat}\nThe _loadClass function instantiates an object of type Zend_View_Helper_Url (even though this class wasn't defined in the path _loadClass was examining) and registeres that helper.\n\nA (hopefully temporary) Workaround:\nCall the helper before rendering the partial:\n{code}\n<div id=\"wrapper\">\n        <? $this->url(); ?>\n        <?= $this->partial('header.phtml'); ?>\n        ....\n{code}\nThis causes the original View object to go through it's paths, like it used to do in the partial, but it properly registers the custom helper because class_exists('Zend_View_Helper_Url') for Path: application\/modules\/default\/view\/helpers & Prefix: Zend_View_Helper_ fails, because Zend_View_Helper_Url hasn't been loaded yet."
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/3",
+                "name": "Major"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3433\/watchers",
+                "isWatching": false,
+                "watchCount": 4
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/5",
+                "name": "Resolved"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                "name": "ralph",
+                "displayName": "Ralph Schindler",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+                {
+                    "issueKey": "ZF-3543",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3543",
+                    "type": {
+                        "name": "Duplicate",
+                        "direction": "INBOUND",
+                        "description": "is duplicated by"
+                    }
+                }
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/attachment\/12764",
+                    "filename": "zf3433.r21084.patch",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=tech13",
+                        "name": "tech13",
+                        "displayName": "Michael Rehbein",
+                        "active": false
+                    },
+                    "created": "2010-02-18T13:51:54.000+0000",
+                    "size": 3183,
+                    "mimeType": "text\/x-diff",
+                    "content": "http:\/\/fw02.zend.com\/issues\/secure\/attachment\/12764\/zf3433.r21084.patch"
+                }
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10181",
+                    "id": 10181,
+                    "description": "Mini Release",
+                    "name": " 1.5.2",
+                    "userReleaseDate": "15\/May\/08",
+                    "archived": true,
+                    "releaseDate": "2008-05-15",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10026",
+                    "id": 10026,
+                    "name": "Zend_View",
+                    "description": "View portion of the ZF MVC",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/25641",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=yoshida@zend.co.jp",
+                        "name": "yoshida@zend.co.jp",
+                        "displayName": "old of Satoru Yoshida",
+                        "active": true
+                    },
+                    "body": "You can take information at ZF-2900 about the BREAK of Zend_Loader::isReadable with custom error handler.\n",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=yoshida@zend.co.jp",
+                        "name": "yoshida@zend.co.jp",
+                        "displayName": "old of Satoru Yoshida",
+                        "active": true
+                    },
+                    "created": "2008-11-03T20:48:12.000+0000",
+                    "updated": "2008-11-03T20:48:12.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27271",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beeboo",
+                        "name": "beeboo",
+                        "displayName": "B. Charbonneau",
+                        "active": true
+                    },
+                    "body": "I don't follow how this issue \"depends on\" ZF-2900",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beeboo",
+                        "name": "beeboo",
+                        "displayName": "B. Charbonneau",
+                        "active": true
+                    },
+                    "created": "2008-12-12T20:43:28.000+0000",
+                    "updated": "2008-12-12T20:43:28.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27273",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "body": "It *doesn't* depend on ZF-2900, and was incorrectly linked, IMO. Satoru has a nice write-up on that issue about how custom error handlers can lead to issues with Zend_Loader::isReadable(), but that's clearly not the issue here.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                        "name": "matthew",
+                        "displayName": "Matthew Weier O'Phinney",
+                        "active": true
+                    },
+                    "created": "2008-12-13T05:24:12.000+0000",
+                    "updated": "2008-12-13T05:24:12.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27277",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beeboo",
+                        "name": "beeboo",
+                        "displayName": "B. Charbonneau",
+                        "active": true
+                    },
+                    "body": "Added some formatting to the description to make it more legible. I couldn't find the documentation for the 'code' and 'noformat' tags when I created the issue.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=beeboo",
+                        "name": "beeboo",
+                        "displayName": "B. Charbonneau",
+                        "active": true
+                    },
+                    "created": "2008-12-13T08:21:34.000+0000",
+                    "updated": "2008-12-13T08:21:34.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/27280",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "body": "Could ZF-3543 be related this this issue?",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=sidhighwind",
+                        "name": "sidhighwind",
+                        "displayName": "Jon Whitcraft",
+                        "active": true
+                    },
+                    "created": "2008-12-13T11:43:49.000+0000",
+                    "updated": "2008-12-13T11:43:49.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/38558",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=tech13",
+                        "name": "tech13",
+                        "displayName": "Michael Rehbein",
+                        "active": false
+                    },
+                    "body": "Does this issue still exist?\r\n\r\nAttempted to create a unit test for this issue, but wasn't able to match the described error from the comments.\r\n",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=tech13",
+                        "name": "tech13",
+                        "displayName": "Michael Rehbein",
+                        "active": false
+                    },
+                    "created": "2010-02-18T13:51:55.000+0000",
+                    "updated": "2010-02-18T13:51:55.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/44442",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "body": "It appears developers were looking for more information but have gone unanswered. This must not be an issue anymore. If it is, please reopen with further reproduction information",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=ralph",
+                        "name": "ralph",
+                        "displayName": "Ralph Schindler",
+                        "active": true
+                    },
+                    "created": "2011-02-17T15:30:48.000+0000",
+                    "updated": "2011-02-17T15:30:48.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-3433\/transitions"
+}

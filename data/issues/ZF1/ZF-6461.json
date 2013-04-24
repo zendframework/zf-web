@@ -1,0 +1,277 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6461",
+    "key": "ZF-6461",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Split Zend_Db_Table_Row_Abstract::findDependentRowset to allow direct access to the Zend_Db_Table_Select object"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField",
+            "value": {
+                "timeoriginalestimate": 0,
+                "timeestimate": 0
+            }
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/4",
+                "name": "Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6461\/votes",
+                "votes": 2,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "resolution": {
+            "name": "resolution",
+            "type": "com.atlassian.jira.issue.resolution.Resolution",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/resolution\/3",
+                "name": "Duplicate"
+            }
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "resolutiondate": {
+            "name": "resolutiondate",
+            "type": "java.util.Date",
+            "value": "2012-05-29T02:31:16.000+0000"
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=rhunwicks",
+                "name": "rhunwicks",
+                "displayName": "Roger Hunwicks",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2009-04-29T00:03:01.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2012-05-29T02:31:16.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels"
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "Zend_Db_Table_Row_Abstract::findDependentRowset  find the child rows for a particular table for a Zend_Db_Table_Row object.\n\nIt does this by building a Zend_Db_Table_Select object and then calling Zend_Db_Table_Abstract::fetchAll to return the rows:\n{noformat}\n    public function findDependentRowset($dependentTable, $ruleKey = null, Zend_Db_Table_Select $select = null)\n    {\n        $db = $this->_getTable()->getAdapter();\n\n        <snip> Build Zend_Db_Table_Select object $select <\/snip>\n\n        return $dependentTable->fetchAll($select);\n    }\n{noformat}\n\nSometimes it is more useful to have direct access to the $select object than it is to the rowset. My use case is using Zend_Paginator to display a paginated list of child rows in a master-detail screen. This works best (for us at least) if we have a Zend_Db_Table_Select representing the whole rowset, and we then allow Zend_Paginator to change the offset and limit clauses as required to bring back the required rows.\n\nThis is easily accomplished if we split the existing findDependentRowset into a method to build the $select and a separate method to return the rowset.\n\nThe new getDependentSelect is identical to the existing findDependentRowset except for the last line which returns the $select instead of a rowset:\n{noformat}\n    \/**\n     * Generate a select statement to query a dependent table to retrieve rows matching the current row.\n     *\n     * @param string|Zend_Db_Table_Abstract  $dependentTable\n     * @param string                         OPTIONAL $ruleKey\n     * @param Zend_Db_Table_Select           OPTIONAL $select\n     * @return Zend_Db_Table_Select          Query result from $dependentTable\n     * @throws Zend_Db_Table_Row_Exception   If $dependentTable is not a table or is not loadable.\n     *\/\n    public function getDependentSelect($dependentTable, $ruleKey = null, Zend_Db_Table_Select $select = null)\n    {\n        $db = $this->_getTable()->getAdapter();\n\n        if (is_string($dependentTable)) {\n            try {\n                @Zend_Loader::loadClass($dependentTable);\n            } catch (Zend_Exception $e) {\n                require_once 'Zend\/Db\/Table\/Row\/Exception.php';\n                throw new Zend_Db_Table_Row_Exception($e->getMessage());\n            }\n            $dependentTable = new $dependentTable(array('db' => $db));\n        }\n        if (! $dependentTable instanceof Zend_Db_Table_Abstract) {\n            $type = gettype($dependentTable);\n            if ($type == 'object') {\n                $type = get_class($dependentTable);\n            }\n            require_once 'Zend\/Db\/Table\/Row\/Exception.php';\n            throw new Zend_Db_Table_Row_Exception(\"Dependent table must be a Zend_Db_Table_Abstract, but it is $type\");\n        }\n\n        if ($select === null) {\n            $select = $dependentTable->select();\n        } else {\n            $select->setTable($dependentTable);\n        }\n\n        $map = $this->_prepareReference($dependentTable, $this->_getTable(), $ruleKey);\n\n        for ($i = 0; $i < count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {\n            $parentColumnName = $db->foldCase($map[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);\n            $value = $this->_data[$parentColumnName];\n            \/\/ Use adapter from dependent table to ensure correct query construction\n            $dependentDb = $dependentTable->getAdapter();\n            $dependentColumnName = $dependentDb->foldCase($map[Zend_Db_Table_Abstract::COLUMNS][$i]);\n            $dependentColumn = $dependentDb->quoteIdentifier($dependentColumnName, true);\n            $dependentInfo = $dependentTable->info();\n            $type = $dependentInfo[Zend_Db_Table_Abstract::METADATA][$dependentColumnName]['DATA_TYPE'];\n            $select->where(\"$dependentColumn = ?\", $value, $type);\n        }\n\n        return $select;\n    }\n{noformat}\n\nfindDependentRowset now becomes a call to getDependentSelect:\n{noformat}\n    \/**\n     * Query a dependent table to retrieve rows matching the current row.\n     *\n     * @param string|Zend_Db_Table_Abstract  $dependentTable\n     * @param string                         OPTIONAL $ruleKey\n     * @param Zend_Db_Table_Select           OPTIONAL $select\n     * @return Zend_Db_Table_Rowset_Abstract Query result from $dependentTable\n     * @throws Zend_Db_Table_Row_Exception If $dependentTable is not a table or is not loadable.\n     *\/\n    public function findDependentRowset($dependentTable, $ruleKey = null, Zend_Db_Table_Select $select = null)\n    {\n        $select = $this->getDependentSelect($dependentTable, $ruleKey, $select);\n        return $select->getTable()->fetchAll($select);\n    }\n{noformat}\n\nThis allows my use case to work easily:\n{noformat}\n            \/\/ Create the child paginator\n            $select = $row->getDependentSelect($child);\n            $page = $this->_request->getParam('page');\n            $paginator = Zend_Paginator::factory($select, 'DbTableSelect');\n            $paginator->setCurrentPageNumber($page);\n            $this->view->childPaginator = $paginator;\n{noformat}"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/6",
+                "name": "N\/A"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6461\/watchers",
+                "isWatching": false,
+                "watchCount": 3
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/6",
+                "name": "Closed"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=adamlundrigan",
+                "name": "adamlundrigan",
+                "displayName": "Adam Lundrigan",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+                {
+                    "issueKey": "ZF-4692",
+                    "issue": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-4692",
+                    "type": {
+                        "name": "Duplicate",
+                        "direction": "OUTBOUND",
+                        "description": "duplicates"
+                    }
+                }
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10300",
+                    "id": 10300,
+                    "description": "Mini Release",
+                    "name": "1.7.8",
+                    "userReleaseDate": "30\/Mar\/09",
+                    "archived": false,
+                    "releaseDate": "2009-03-30",
+                    "released": true
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10241",
+                    "id": 10241,
+                    "description": "Minor Release",
+                    "name": "1.8.0",
+                    "userReleaseDate": "30\/Apr\/09",
+                    "archived": false,
+                    "releaseDate": "2009-04-30",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10133",
+                    "id": 10133,
+                    "name": "Zend_Db_Table",
+                    "description": "Lightweight OO interface to database tables and rowsets.",
+                    "isAssigneeTypeValid": false
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10315",
+                    "id": 10315,
+                    "name": "Zend_Paginator",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/33023",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=norm2782",
+                        "name": "norm2782",
+                        "displayName": "Jurrien Stutterheim",
+                        "active": true
+                    },
+                    "body": "Might be useful to refactor the many-to-many and parent-row support as well.",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=norm2782",
+                        "name": "norm2782",
+                        "displayName": "Jurrien Stutterheim",
+                        "active": true
+                    },
+                    "created": "2009-07-29T08:27:04.000+0000",
+                    "updated": "2009-07-29T08:27:04.000+0000"
+                },
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/50796",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=adamlundrigan",
+                        "name": "adamlundrigan",
+                        "displayName": "Adam Lundrigan",
+                        "active": true
+                    },
+                    "body": "Duplicate of ZF-4692",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=adamlundrigan",
+                        "name": "adamlundrigan",
+                        "displayName": "Adam Lundrigan",
+                        "active": true
+                    },
+                    "created": "2012-05-29T02:31:16.000+0000",
+                    "updated": "2012-05-29T02:31:16.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-6461\/transitions"
+}

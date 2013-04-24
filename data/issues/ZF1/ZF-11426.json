@@ -1,0 +1,221 @@
+{
+    "expand": "html",
+    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11426",
+    "key": "ZF-11426",
+    "fields": {
+        "summary": {
+            "name": "summary",
+            "type": "java.lang.String",
+            "value": "Improve PluginLoader performance when using FileCache"
+        },
+        "timetracking": {
+            "name": "timetracking",
+            "type": "com.atlassian.jira.issue.fields.TimeTrackingSystemField"
+        },
+        "issuetype": {
+            "name": "issuetype",
+            "type": "com.atlassian.jira.issue.issuetype.IssueType",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issueType\/21",
+                "name": "Performance Improvement",
+                "subtask": false
+            }
+        },
+        "votes": {
+            "name": "votes",
+            "type": "com.atlassian.jira.issue.fields.VotesSystemField",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11426\/votes",
+                "votes": 0,
+                "hasVoted": false
+            }
+        },
+        "security": {
+            "name": "security",
+            "type": "com.atlassian.jira.issue.security.IssueSecurityLevel"
+        },
+        "fixVersions": {
+            "name": "fixVersions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+
+            ]
+        },
+        "reporter": {
+            "name": "reporter",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=vdrmrt",
+                "name": "vdrmrt",
+                "displayName": "Maarten Vandenryt",
+                "active": true
+            }
+        },
+        "created": {
+            "name": "created",
+            "type": "java.util.Date",
+            "value": "2011-06-01T17:19:42.000+0000"
+        },
+        "updated": {
+            "name": "updated",
+            "type": "java.util.Date",
+            "value": "2011-06-01T18:45:37.000+0000"
+        },
+        "customfield_10041": {
+            "name": "Tags",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:labels",
+            "value": [
+                "performance",
+                "plugin"
+            ]
+        },
+        "description": {
+            "name": "description",
+            "type": "java.lang.String",
+            "value": "With plugin heavy applications Zend_Loader::isReadable is called a lot even when using FileCache. The cause can be found in the fact that the PluginLoader load function checks if a file is readable for every class that not exists even if the class file for the requested plugin has been loaded with the plugin FileCache.\r\nFor example when requesting the HeadTitle plugin.\r\nOnce the plugin file cache has been primed an include_once 'Zend\/View\/Helper\/HeadTitle.php'; entry can be found. \r\nBut on the next requests the load function will first check if the class View_Helper_HeadTitle exists, it does not and the load function looks for a file in the application path, it can not be found. After that it checks for the class Zend_View_Helper_HeadTitle this one exists and the load function is left early.\r\n\r\nA possible solution is to check all the class prefixes for the requested plugin before checking the harddrive.\r\nApplying this solution I found a ~10% performance increase for a page with a lot of form elements and decorators.\r\n\r\nHere is the changed load function of Zend_Loader_PluginLoader\r\n{code}\r\n\/**\r\n     * Load a plugin via the name provided\r\n     *\r\n     * @param  string $name\r\n     * @param  bool $throwExceptions Whether or not to throw exceptions if the\r\n     * class is not resolved\r\n     * @return string|false Class name of loaded class; false if $throwExceptions\r\n     * if false and no class found\r\n     * @throws Zend_Loader_Exception if class not found\r\n     *\/\r\n    public function load($name, $throwExceptions = true)\r\n    {\r\n        $name = $this->_formatName($name);\r\n        if ($this->isLoaded($name)) {      \t\r\n            return $this->getClassName($name);\r\n        }\r\n\r\n        if ($this->_useStaticRegistry) {\r\n            $registry = self::$_staticPrefixToPaths[$this->_useStaticRegistry];\r\n        } else {\r\n            $registry = $this->_prefixToPaths;\r\n        }\r\n\r\n        $registry  = array_reverse($registry, true);\r\n        $found     = false;\r\n        $classFile = str_replace('_', DIRECTORY_SEPARATOR, $name) . '.php';\r\n        $incFile   = self::getIncludeFileCache();\r\n        \r\n        foreach ($registry as $prefix => $paths) {\r\n            $className = $prefix . $name;        \r\n            if (class_exists($className, false)) {            \r\n                $found = true;\r\n                break;\r\n            }\r\n        }\r\n        \r\n        if(!$found) { \r\n\t\t\tforeach ($registry as $prefix => $paths) {\r\n\t\t\t\t$className = $prefix . $name;           \r\n\t\r\n\t\t\t\t$paths     = array_reverse($paths, true);\r\n\t\t\t\t\r\n\t\t\t\tforeach ($paths as $path) {            \r\n\t\t\t\t\t$loadFile = $path . $classFile;\t\t\t\t\t\r\n\t\t\t\t\tif (Zend_Loader::isReadable($loadFile)) {\t\t\t\t\t\r\n\t\t\t\t\t\tinclude_once $loadFile;\r\n\t\t\t\t\t\tif (class_exists($className, false)) {\r\n\t\t\t\t\t\t\tif (null !== $incFile) {\r\n\t\t\t\t\t\t\t\tself::_appendIncFile($loadFile);\r\n\t\t\t\t\t\t\t}\r\n\t\t\t\t\t\t\t$found = true;\r\n\t\t\t\t\t\t\tbreak 2;\r\n\t\t\t\t\t\t}\r\n\t\t\t\t\t}\r\n\t\t\t\t\t\r\n\t\t\t\t}\r\n\t\t\t}\r\n        }\r\n\r\n        if (!$found) {\r\n            if (!$throwExceptions) {\r\n                return false;\r\n            }\r\n            $message = \"Plugin by name '$name' was not found in the registry; used paths:\";\r\n            foreach ($registry as $prefix => $paths) {\r\n                $message .= \"\\n$prefix: \" . implode(PATH_SEPARATOR, $paths);\r\n            }\r\n            \/\/ require_once 'Zend\/Loader\/PluginLoader\/Exception.php';\r\n            throw new Zend_Loader_PluginLoader_Exception($message);\r\n       }\r\n\r\n        if ($this->_useStaticRegistry) {\r\n            self::$_staticLoadedPlugins[$this->_useStaticRegistry][$name]     = $className;\r\n        } else {\r\n            $this->_loadedPlugins[$name]     = $className;\r\n        }       \r\n        return $className;\r\n    }\r\n{code}\r\n"
+        },
+        "priority": {
+            "name": "priority",
+            "type": "com.atlassian.jira.issue.priority.Priority",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/priority\/6",
+                "name": "N\/A"
+            }
+        },
+        "duedate": {
+            "name": "duedate",
+            "type": "java.util.Date"
+        },
+        "customfield_10022": {
+            "name": "Fix Version Priority",
+            "type": "com.atlassian.jira.plugin.system.customfieldtypes:select"
+        },
+        "watcher": {
+            "name": "watcher",
+            "type": "watcher",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11426\/watchers",
+                "isWatching": false,
+                "watchCount": 1
+            }
+        },
+        "worklog": {
+            "name": "worklog",
+            "type": "worklog",
+            "value": [
+
+            ]
+        },
+        "status": {
+            "name": "status",
+            "type": "com.atlassian.jira.issue.status.Status",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/status\/1",
+                "name": "Open"
+            }
+        },
+        "labels": {
+            "name": "labels",
+            "type": "com.atlassian.jira.issue.label.Label",
+            "value": [
+
+            ]
+        },
+        "assignee": {
+            "name": "assignee",
+            "type": "com.opensymphony.user.User",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=matthew",
+                "name": "matthew",
+                "displayName": "Matthew Weier O'Phinney",
+                "active": true
+            }
+        },
+        "links": {
+            "name": "links",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "attachment": {
+            "name": "attachment",
+            "type": "attachment",
+            "value": [
+
+            ]
+        },
+        "sub-tasks": {
+            "name": "sub-tasks",
+            "type": "issuelinks",
+            "value": [
+
+            ]
+        },
+        "versions": {
+            "name": "versions",
+            "type": "com.atlassian.jira.project.version.Version",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/version\/10580",
+                    "id": 10580,
+                    "description": "Mini Release",
+                    "name": "1.11.6",
+                    "userReleaseDate": "05\/May\/11",
+                    "archived": false,
+                    "releaseDate": "2011-05-05",
+                    "released": true
+                }
+            ]
+        },
+        "project": {
+            "name": "project",
+            "type": "com.atlassian.jira.project.Project",
+            "value": {
+                "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/project\/ZF",
+                "key": "ZF",
+                "name": "Zend Framework",
+                "roles": {
+
+                }
+            }
+        },
+        "components": {
+            "name": "components",
+            "type": "com.atlassian.jira.bc.project.component.ProjectComponent",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/component\/10001",
+                    "id": 10001,
+                    "name": "Zend_Loader",
+                    "isAssigneeTypeValid": false
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment",
+            "type": "com.atlassian.jira.issue.fields.CommentSystemField",
+            "value": [
+                {
+                    "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/comment\/46953",
+                    "author": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=xerkus",
+                        "name": "xerkus",
+                        "displayName": "Aleksey 'Xerkus' Khudyakov",
+                        "active": true
+                    },
+                    "body": "Foo\/Path\/Plugin.php\r\nBar\/Path\/Plugin.php\r\n{code}\r\n$loader->addPrefixPath('Foo_Path', 'Foo\/Path\/')\r\n       ->addPrefixPath('Bar_Path','Bar\/Path');\r\ninclude_once('Foo\/Path\/Plugin.php');\r\n$loader->load('Plugin'); \/\/Foo_Path_Plugin while it should be Bar_Path_Plugin \r\n{code}",
+                    "updateAuthor": {
+                        "self": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/user?username=xerkus",
+                        "name": "xerkus",
+                        "displayName": "Aleksey 'Xerkus' Khudyakov",
+                        "active": true
+                    },
+                    "created": "2011-06-01T18:45:37.000+0000",
+                    "updated": "2011-06-01T18:45:37.000+0000"
+                }
+            ]
+        }
+    },
+    "transitions": "http:\/\/fw02.zend.com\/issues\/rest\/api\/latest\/issue\/ZF-11426\/transitions"
+}
