@@ -42,9 +42,10 @@ return array(
     )),
     'view_manager' => array(
         'template_map' => array(
-            'issues/index'  => __DIR__ . '/../view/issues/index.phtml',
-            'issues/browse' => __DIR__ . '/../view/issues/browse.phtml',
-            'issues/issue'  => __DIR__ . '/../view/issues/issue.phtml',
+            'issues/sidebar' => __DIR__ . '/../view/issues/sidebar.phtml',
+            'issues/index'   => __DIR__ . '/../view/issues/index.phtml',
+            'issues/browse'  => __DIR__ . '/../view/issues/browse.phtml',
+            'issues/issue'   => __DIR__ . '/../view/issues/issue.phtml',
         ),
         'template_path_stack' => array(
             __DIR__ . '/../view',
