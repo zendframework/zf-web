@@ -142,7 +142,7 @@ Once you have, you can compile the CSS using the following:
 
 ```bash
 % cd public/css
-% sass scss/app.scss:../app.min.css --style compressed
+% sass scss/app.scss:app.min.css --style compressed
 ```
 
 This will also generate a `public/css/.sass-cache` directory; do _not_ commit
