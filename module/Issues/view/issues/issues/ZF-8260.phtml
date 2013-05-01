@@ -1,0 +1,119 @@
+<h2>ZF-8260: Interplay between Zend_Ldap and Zend_Auth_Adapter_Ldap causes issues with anonymous bind (or unbound) ldap connections.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-09T12:29:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-10T08:22:06.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michael Croes (mycroes)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stefan Gehrig (sgehrig)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Ldap</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Auth_Adapter_Ldap-&gt;setLdap() the adapter automatically loads the options as set for the given Zend_Ldap argument. However, this also returns username which may not have been explicitly set (and has thus defaulted to NULL), which then gets converted to the empty string ''. When the adapter then tries to authenticate, it passes a new options object with an empty string username, which Zend_Ldap interprets as a real username.</p>
+
+<p>There are a few problems here:
+- Zend_Ldap-&gt;bind() checks whether $username === null, to my knowledge it would be more sane to replace this with empty($username), because an empty username (in whatever way specified) will always result in errors somewhere down the road,
+- Zend_Auth_Adapter_Ldap converts options to string (IIRC because it does trim() on them) even when not applicable,
+- Zend_Ldap-&gt;getOptions() returns all implicit options too.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-11-10T05:04:57.000+0000</p> 
+        <div class="body">
+            <p>Can you please provide some sample use-case for what you want to do?</p>
+
+<p>I currently cannot understand which options you would want the auth-adapter to retain when setting an explicit LDAP adapter if there are conflicting options in the auth-adapter and in the LDAP adapter respectively.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Croes (mycroes) on 2009-11-10T05:44:52.000+0000</p> 
+        <div class="body">
+            <p>Here's some code to illustrate the issue:</p>
+
+<p>{{$opts = Zend_Registry::get('config')-&gt;ldap;
+$ldap = new Zend_Ldap($opts);
+$adapter = new Zend_Auth_Adapter_Ldap();
+$adapter-&gt;setLdap($ldap)
+        -&gt;setIdentity($user)
+    -&gt;setCredential($password);}}</p>
+
+<p>This sets up Zend_Ldap (without username / password) and sets up an auth adapter. The auth adapter meanwhile (in setLdap()) has asked options from Zend_Ldap, and stored them internally. As soon as _prepareOptions() is being called in the auth adapter, it will call setOptions on Zend_Ldap with the just requested options.</p>
+
+<p>This results in the following:
+- Zend_Ldap is created, no username or password is specified (both are NULL internally)
+- Zend_Auth_Adapter_Ldap queries for the options on setLdap(), this now contains an array with NULL for both username and password.
+- Zend_Auth_Adapter_Ldap calls Zend_Ldap-&gt;setOptions() with NULL for username and password, and Zend_Ldap calls trim() on them, causing them to be converted to string values '' (happens in Zend_Ldap-&gt;setOptions(), not in the auth adapter as I said in the report).
+Zend_Ldap tries to bind, sees username !== null, tries to figure out what to make from it, will result in an error because it can't figure out what to make from the empty string.</p>
+
+<p>So point 2 of the issue is invalid, but can be replaced by the fact that Zend_Ldap-&gt;setOptions() calls trim on values that might not be strings.</p>
+
+<p>I hope this is clear enough, else I can provide more information if needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-11-10T05:52:56.000+0000</p> 
+        <div class="body">
+            <p>Do you have the possibility to check out the most recent version from the SVN trunk?
+I just changed the detection of anonymous binds in {{Zend_Ldap}} - that might solve your problem already.
+If not please leave a short notice here and I'll have a look into this once more.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Croes (mycroes) on 2009-11-10T08:05:41.000+0000</p> 
+        <div class="body">
+            <p>Seems to work in trunk indeed, thanks for fixing.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-11-10T08:22:06.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (r18923)</p>
+
+        </div>
+    </div>
+    </div>
+

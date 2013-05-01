@@ -1,0 +1,164 @@
+<h2>ZF-7838: Null privilege tests incorrectly when explicit privileges are defined</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-12T14:41:03.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-15T08:51:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Juergen Schreck (mirage)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Acl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Assuming the following ACL</p>
+
+<p>{{$acl=new Zend_Acl();}}
+{{$acl-&gt;add(new Zend_Acl_Resource('files'));}}
+{{$acl-&gt;addRole(new Zend_Acl_Role('user'));}}</p>
+
+<p>{{$acl-&gt;allow('user', 'files');}}
+{{$acl-&gt;deny('user', 'files', 'create');}}</p>
+
+<p>Then</p>
+
+<p>{{isAllowed('user','files'); // returns false but should true because access was given to the entire resource and only revoked for the 'create' privilege.}}</p>
+
+<p>Could not find a suitable workaround other than never checking the default access but explicitly checking each privilege. The trouble with that is that undefined default privileges will correctly reflect the explicit definition of the null privilege for the resource. However the as reported here the null privilege reports wrong if a specific privilege is denied.</p>
+
+<p>Hope this makes sense.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-09-15T06:35:32.000+0000</p> 
+        <div class="body">
+            <p>Interesting, I'll have to dig around, I am not sure if this is a bug or not.  Either way, the bigger question is if fixing this would cause a backwards-incompatibility for people consuming Zend_Acl.</p>
+
+<p>Put another way:</p>
+
+<pre class="highlight"><code>
+$acl = new Zend_Acl();
+$acl-&gt;addRole('some-role');
+$acl-&gt;addResource('some-resource');
+$acl-&gt;allow('some-role', 'some-resource');
+
+echo ($acl-&gt;isAllowed('some-role','some-resource') ? 'true' : 'false') . PHP_EOL; // returns true
+
+$acl-&gt;deny('some-role', 'some-resource', 'some-privilege');
+
+echo ($acl-&gt;isAllowed('some-role','some-resource') ? 'true' : 'false') . PHP_EOL; // returns false
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-09-15T06:54:30.000+0000</p> 
+        <div class="body">
+            <p>Consider this code in addendum to the above:</p>
+
+<pre class="highlight"><code>
+// give carte blanche access
+$acl-&gt;allow('some-role', 'some-resource');
+
+echo ($acl-&gt;isAllowed('some-role','some-resource') ? 'true' : 'false') . PHP_EOL; // returns true
+
+// deny for a very specific priv, thus breaking carte blanche access
+$acl-&gt;deny('some-role', 'some-resource', 'some-privilege');
+
+echo ($acl-&gt;isAllowed('some-role','some-resource') ? 'true' : 'false') . PHP_EOL; // returns false
+echo ($acl-&gt;isAllowed('some-role','some-resource', 'some-privildge') ? 'true' : 'false') . PHP_EOL; // returns false
+</code></pre>
+
+<p>By giving carte blanche access (no privilege), a user has full power over all privileges possible, thus it returns true.  When you add a denied privilege to the tree, the user by definition can no longer have carte blanche access, thus when you ask if they have such access, it returns false, which is the correct behavior.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Juergen Schreck (mirage) on 2009-09-15T08:51:20.000+0000</p> 
+        <div class="body">
+            <p>Ralph,</p>
+
+<p>Thanks for looking into and explaining it. I don't agree with the logic as it works different than card blanche overrides for resources and roles alongside their support for inheritance. I.E. setting specific [card blanche] access lower in the inheritance tree doesn't alter the upstream [card blanche] definitions the same way.</p>
+
+<p>So, following my logic would be more consistent across the board. Frankly, I have to assume backward compatibility would not be a problem, because apparently no-one has come across this yet. :-)</p>
+
+<p>If it needs to stay as it is now, it would definitely be most useful for that to be explained in the reference guide.</p>
+
+<p>Aside from that, I also want to point out that card-blanche privilege access does not work consistently when checking for non-existent privileges. My gut instinct tells me that non-existent privileges should be denied as they don't exist from the ACL's point of view and thus, can't be tested. Another case could be made for it to reflect the current state of the card blanche access. Currently it doesn't operate like either of the above:</p>
+
+<pre class="literal">
+// give card-blanche access
+$acl-&gt;allow('some-role', 'some-resource');
+// deny for a very specific priv, thus breaking carte blanche access
+$acl-&gt;deny('some-role', 'some-resource', 'some-privilege');
+
+// check card blanche access
+echo ($acl-&gt;isAllowed('some-role','some-resource') ? 'true' : 'false') . PHP_EOL; // returns false
+
+// check against a non-existing privilege
+echo ($acl-&gt;isAllowed('some-role','some-resource', 'non-existent-privilige') ? 'true' : 'false') . PHP_EOL; // returns true even though card blanche is false - NOT GOOD
+</pre>
+
+<p>Compared to reversing the acl</p>
+
+<pre class="literal">
+// deny card-blanche access
+$acl-&gt;deny('some-role', 'some-resource');
+// allow for a very specific priv, thus breaking carte blanche access (not really, because it's already negative)
+$acl-&gt;allow('some-role', 'some-resource', 'some-privilege');
+
+// check card blanche access
+echo ($acl-&gt;isAllowed('some-role','some-resource') ? 'true' : 'false') . PHP_EOL; // returns false reflecting card blanche on resource
+
+// check specific privilege
+echo ($acl-&gt;isAllowed('some-role','some-resource', 'some-privilege') ? 'true' : 'false') . PHP_EOL; // returns true, ok - expected
+
+// check against a non-existing privilege
+echo ($acl-&gt;isAllowed('some-role','some-resource', 'non-existent-privilige') ? 'true' : 'false') . PHP_EOL; // returns false reflecting card blanche on resource
+</pre>
+
+<p>I guess there's multiple ways to address it (if at all)
+- let acl be configured for assertions to respond as pessimistic vs. optimistic
+- let assertions return a mixed state rather than just true or false</p>
+
+        </div>
+    </div>
+    </div>
+

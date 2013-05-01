@@ -1,0 +1,196 @@
+<h2>ZF-5535: Zend_Db_Table does not work with IBM DB/2</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-13T07:39:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-12-08T07:54:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michael Mest (michael.mest)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4553">ZF-4553</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I try to use Zend_Db_Table with DB/2.</p>
+
+<p>My Table class looks like this:</p>
+
+<pre class="highlight"><code>
+class Mitarbeiter extends Zend_Db_Table_Abstract{
+    protected $_name = 'mitarbeiter';
+    protected $_schema = 'orga';
+    protected $_primary = 'id';
+    protected $_referenceMap = array(
+        'Anrede' =&gt; array(
+            'columns'=&gt;'anrede',
+            'refTableClass' =&gt; 'Anrede',
+            'refColumns' =&gt; 'id')
+        );
+ }
+</code></pre>
+
+<p>When I run a simple select, i should get the following SQL-Statement:</p>
+
+<pre class="highlight"><code>
+"SELECT * FROM orga.mitarbeiter" but instead I get "SELECT mitarbeiter.* FROM orga.mitarbeiter"
+</code></pre>
+
+<p>This kind of SELECT-Statement is not allowed in DB/2.</p>
+
+<p>It would work, if the name of user which is connected to the database is the same that the table schema and u omit the schema name. The result of that would be a statement like</p>
+
+<pre class="highlight"><code>
+"SELECT mitarbeiter.* FROM mitarbeiter"
+</code></pre>
+
+<p>I have to add one more Information:</p>
+
+<p>The Statement:</p>
+
+<pre class="highlight"><code>
+"SELECT orga.mitarbeiter.* FROM orga.mitarbeiter"
+</code></pre>
+
+<p>would work too. It's just necessary that the "Column-Prefix" is the same, as the "Table-Part" of the From-Clause</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by huy tran (htran@cssb.mb.ca) on 2009-02-09T11:50:30.000+0000</p> 
+        <div class="body">
+            <p>I too ran into this problem with the Zend_Db_Table class for DB2.  Just like the ticket's description said by appending the schema name to the tablename.columnname the problem resolve.  So basically your sql statement will look something like this
+SELECT schema.table.column FROM schema.table;
+OR 
+SELECT schema.table.* FROM schema.table;</p>
+
+<p>After muckling around with the ZF i've decided to abstract a couple of classes to make this possible.
+1. I've created a new directory structure within the ZF architecture library folder like below
+    library
+      ZendExt
+         DB
+           Table
+2. Under the Table folder i added two new php files, Abstract.php and Select.php
+The code for</p>
+
+<p>----------Abstract.php-----------</p>
+
+&lt;?php
+class ZendExt_Db_Table_Abstract extends Zend_Db_Table_Abstract
+{
+    //this class abstract the db_table from the Zend library
+    //this allows us to append the schema name to the front of the column name.
+    //Eg: SELECT SCHEMANAME.TABLENAME.COLUMNNAME FROM TABLENAME;
+    public function select()
+    {
+        require_once 'ZendExt/Db/Table/Select.php';
+        return new ZendExt_Db_Table_Select($this);
+    }    
+}
+?&gt;
+
+<hr /><p>------------Select.php-------------
+&lt;?php
+class ZendExt_Db_Table_Select extends Zend_Db_Table_Select {
+
+    //Override function _renderColumns
+    protected function _renderColumns($sql)
+    {
+        if (!count($this-&gt;_parts[self::COLUMNS])) {
+            return null;
+        }
+
+        $columns = array();
+        foreach ($this-&gt;_parts[self::COLUMNS] as $columnEntry) {
+            list($correlationName, $column, $alias) = $columnEntry;
+            if ($column instanceof Zend_Db_Expr) {
+                $columns[] = $this-&gt;_adapter-&gt;quoteColumnAs($column, $alias, true);
+            } else {
+                if ($column == self::SQL_WILDCARD) {
+                    $column = new Zend_Db_Expr(self::SQL_WILDCARD);
+                    $alias = null;
+                }
+                if (empty($correlationName)) {
+                    $columns[] = $this-&gt;_adapter-&gt;quoteColumnAs($column, $alias, true);
+                } else {
+                    /*
+                    * @todo: 
+                    * By: Huy Tran
+                    * Date: 20080206
+                    * Description: This code here is for DB2 compatibility. This allow the appendtion of the schema to the front of the column name.
+                    * Eg. Select SELECT WEBSTUFF.ALIAS.ALNAME, WEBSTUFF.ALIAS.ALSID FROM WEBSTUFF.ALIAS 
+                    */
+                    
+                    $schema = $this-&gt;_parts[self::FROM][$correlationName]["schema"];
+                    $columns[] = $this-&gt;_adapter-&gt;quoteColumnAs(array($schema.'.'.$correlationName, $column), $alias, true);                    
+                }
+            }
+        }
+
+        return $sql .= ' ' . implode(', ', $columns);
+    }
+    
+}
+?&gt;</p>
+
+<hr /><ol><li>I then update the first 2 lines in my model from the DBTable folder to the following</li>
+</ol><p>require_once 'Zend/Db/Table/Abstract.php';</p>
+
+<p>class Model_DbTable_Alias extends Zend_Db_Table_Abstract</p>
+
+<p>TO</p>
+
+<p>require_once 'ZendExt/Db/Table/Abstract.php';</p>
+
+<p>class Model_DbTable_Alias extends ZendExt_Db_Table_Abstract</p>
+
+<ol><li>And thats it.  The whole purpose of this abstraction is to update the _renderColumns function within the Zend_Db_Table_Select to prepend the schema name to the column name.</li>
+</ol><p>Of course this is a temporary solution until Zend comes up with a fix.  But so far this fix has allow me to fix the problem described in the ticket.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2009-05-18T00:00:23.000+0000</p> 
+        <div class="body">
+            <p>It seems to duplicate ZF-4553</p>
+
+        </div>
+    </div>
+    </div>
+

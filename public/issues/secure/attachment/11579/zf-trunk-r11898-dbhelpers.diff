@@ -1,0 +1,220 @@
+Index: tests/Zend/Db/Adapter/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Adapter/TestCommon.php	(revision 11898)
++++ tests/Zend/Db/Adapter/TestCommon.php	(working copy)
+@@ -300,6 +300,66 @@
+         $this->assertEquals(array(2, 3), $ids);
+     }
+ 
++    public function testAdapterDeleteWhereBind()
++    {
++        $products = $this->_db->quoteIdentifier('zfproducts');
++        $product_id = $this->_db->quoteIdentifier('product_id');
++
++        $ids = $this->_db->fetchCol("SELECT $product_id FROM $products ORDER BY $product_id");
++        $this->assertEquals(array(1, 2, 3), $ids);
++
++        $rowsAffected = $this->_db->delete(
++            'zfproducts',
++            "$product_id = ?",
++            1
++        );
++        $this->assertEquals(1, $rowsAffected);
++
++        $ids = $this->_db->fetchCol("SELECT $product_id FROM $products ORDER BY $product_id");
++        $this->assertEquals(array(2, 3), $ids);
++    }
++    
++    public function testAdapterDeleteWhereBindArray()
++    {
++        $products = $this->_db->quoteIdentifier('zfproducts');
++        $product_id = $this->_db->quoteIdentifier('product_id');
++        $product_name = $this->_db->quoteIdentifier('product_name');
++
++        $ids = $this->_db->fetchCol("SELECT $product_id FROM $products ORDER BY $product_id");
++        $this->assertEquals(array(1, 2, 3), $ids);
++
++        $rowsAffected = $this->_db->delete(
++            'zfproducts',
++            array("$product_id = ?", "$product_name = ?"),
++            array(1, 'Windows')
++        );
++        $this->assertEquals(1, $rowsAffected);
++
++        $ids = $this->_db->fetchCol("SELECT $product_id FROM $products ORDER BY $product_id");
++        $this->assertEquals(array(2, 3), $ids);
++    }
++
++    public function testAdapterDeleteWhereBindDbExpr()
++    {
++        $products = $this->_db->quoteIdentifier('zfproducts');
++        $product_id = $this->_db->quoteIdentifier('product_id');
++
++        $expr = new Zend_Db_Expr("$product_id = ?");
++
++        $ids = $this->_db->fetchCol("SELECT $product_id FROM $products ORDER BY $product_id");
++        $this->assertEquals(array(1, 2, 3), $ids);
++
++        $rowsAffected = $this->_db->delete(
++            'zfproducts',
++            $expr,
++            1
++        );
++        $this->assertEquals(1, $rowsAffected);
++
++        $ids = $this->_db->fetchCol("SELECT $product_id FROM $products ORDER BY $product_id");
++        $this->assertEquals(array(2, 3), $ids);
++    }
++    
+     public function testAdapterDeleteEmptyWhere()
+     {
+         $bugs = $this->_db->quoteIdentifier('zfbugs');
+@@ -1702,7 +1762,63 @@
+         $value = $this->_db->fetchOne("SELECT $bug_status FROM $bugs WHERE $bug_id = 1");
+         $this->assertEquals('DBEXPR', $value);
+     }
++    
++    public function testAdapterUpdateWhereBind()
++    {
++        $bugs = $this->_db->quoteIdentifier('zfbugs');
++        $bug_id = $this->_db->quoteIdentifier('bug_id');
++        $bug_status = $this->_db->quoteIdentifier('bug_status');
+ 
++        $rowsAffected = $this->_db->update(
++            'zfbugs',
++            array('bug_status' => 'ARRAY'),
++            "$bug_id = ?",
++            1
++        );
++        $this->assertEquals(1, $rowsAffected);
++
++        $value = $this->_db->fetchOne("SELECT $bug_status FROM $bugs WHERE $bug_id = 1");
++        $this->assertEquals('ARRAY', $value);
++    }
++    
++    public function testAdapterUpdateWhereBindArray()
++    {
++        $bugs = $this->_db->quoteIdentifier('zfbugs');
++        $bug_id = $this->_db->quoteIdentifier('bug_id');
++        $bug_status = $this->_db->quoteIdentifier('bug_status');
++
++        $rowsAffected = $this->_db->update(
++            'zfbugs',
++            array('bug_status' => 'ARRAY'),
++            array("$bug_id = ?", "$bug_status = ?"),
++            array(1, 'NEW')
++        );
++        $this->assertEquals(1, $rowsAffected);
++
++        $value = $this->_db->fetchOne("SELECT $bug_status FROM $bugs WHERE $bug_id = 1");
++        $this->assertEquals('ARRAY', $value);
++    }
++
++    public function testAdapterUpdateWhereBindDbExpr()
++    {
++        $bugs = $this->_db->quoteIdentifier('zfbugs');
++        $bug_id = $this->_db->quoteIdentifier('bug_id');
++        $bug_status = $this->_db->quoteIdentifier('bug_status');
++
++        $whereExpr = new Zend_Db_Expr("$bug_id = ?");
++
++        $rowsAffected = $this->_db->update(
++            'zfbugs',
++            array('bug_status' => 'DBEXPR'),
++            $whereExpr,
++            1
++        );
++        $this->assertEquals(1, $rowsAffected);
++
++        $value = $this->_db->fetchOne("SELECT $bug_status FROM $bugs WHERE $bug_id = 1");
++        $this->assertEquals('DBEXPR', $value);
++    }
++
+     public function testAdapterUpdateEmptyWhere()
+     {
+         $bugs = $this->_db->quoteIdentifier('zfbugs');
+Index: library/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- library/Zend/Db/Adapter/Abstract.php	(revision 11898)
++++ library/Zend/Db/Adapter/Abstract.php	(working copy)
+@@ -513,12 +513,13 @@
+     /**
+      * Updates table rows with specified data based on a WHERE clause.
+      *
+-     * @param  mixed        $table The table to update.
+-     * @param  array        $bind  Column-value pairs.
+-     * @param  mixed        $where UPDATE WHERE clause(s).
+-     * @return int          The number of affected rows.
++     * @param  mixed    $table The table to update.
++     * @param  array    $bind  Column-value pairs.
++     * @param  mixed    $where UPDATE WHERE clause(s).
++     * @param  mixed    $params  An array of data to bind to the placeholders.
++     * @return int      The number of affected rows.
+      */
+-    public function update($table, array $bind, $where = '')
++    public function update($table, array $bind, $where = '', $params = array())
+     {
+         /**
+          * Build "col = ?" pairs for the statement,
+@@ -544,11 +545,23 @@
+              . $this->quoteIdentifier($table, true)
+              . ' SET ' . implode(', ', $set)
+              . (($where) ? " WHERE $where" : '');
++             
++        // make sure $params is an array;
++        // don't use (array) typecasting because
++        // because $params may be a Zend_Db_Expr object
++        if (!is_array($params)) {
++            $params = array($params);
++        }
++        
++        /**
++         * Merge the update fields values with any where bindings
++         */
++        $params = array_merge(array_values($bind), $params);
+ 
+         /**
+          * Execute the statement and return the number of affected rows
+          */
+-        $stmt = $this->query($sql, array_values($bind));
++        $stmt = $this->query($sql, $params);
+         $result = $stmt->rowCount();
+         return $result;
+     }
+@@ -556,11 +569,12 @@
+     /**
+      * Deletes table rows based on a WHERE clause.
+      *
+-     * @param  mixed        $table The table to update.
+-     * @param  mixed        $where DELETE WHERE clause(s).
+-     * @return int          The number of affected rows.
++     * @param  mixed    $table The table to update.
++     * @param  mixed    $where DELETE WHERE clause(s).
++     * @param  mixed    $bind  An array of data to bind to the placeholders.
++     * @return int      The number of affected rows.
+      */
+-    public function delete($table, $where = '')
++    public function delete($table, $where = '', $bind = array())
+     {
+         $where = $this->_whereExpr($where);
+ 
+@@ -570,11 +584,18 @@
+         $sql = "DELETE FROM "
+              . $this->quoteIdentifier($table, true)
+              . (($where) ? " WHERE $where" : '');
++             
++        // make sure $bind is an array;
++        // don't use (array) typecasting because
++        // because $bind may be a Zend_Db_Expr object
++        if (!is_array($bind)) {
++            $bind = array($bind);
++        }
+ 
+         /**
+          * Execute the statement and return the number of affected rows
+          */
+-        $stmt = $this->query($sql);
++        $stmt = $this->query($sql, $bind);
+         $result = $stmt->rowCount();
+         return $result;
+     }

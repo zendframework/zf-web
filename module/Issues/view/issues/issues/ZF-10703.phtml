@@ -1,0 +1,762 @@
+<h2>ZF-10703: Zend_Form_Element_File not rendering error messages when using ViewScript decorator</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-18T04:41:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-18T05:24:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christopher Valles (christopher.valles)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ryan Mauger (bittarman)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi, our forms are using the viewscript decorator and for all the element is working fine but the Zend_Form_Element_File.</p>
+
+<p>When we submit the form the $form-&gt;isValid() returns false but no errors are showed below the Zend_Form_Element_File field. If you try to get the errors of the form with $form-&gt;getErrors() the array is empty (so means that no errors where found). 
+If we remove the viewScript decorator and use the default one the errors are shown.</p>
+
+<p>Below our code (a little bit complex due to the inheritance we use), the field that fails is the one called "image":</p>
+
+<pre class="highlight"><code>
+&lt;?php
+/**
+ * Parent form for all the frontend forms
+ *
+ * @category App
+ * @package App_Frontend
+ * @copyright Company
+ */
+
+abstract class App_Frontend_Form extends App_Form
+{
+    /**
+     * Overrides init() in App_Form
+     * 
+     * @access public
+     * @return void
+     */
+    public function init(){
+        parent::init();
+        
+        $config = Zend_Registry::get('config');
+        
+        // add an anti-CSRF token to all forms
+        $csrfHash = new Zend_Form_Element_Hash('csrfhash');
+        $csrfHash-&gt;setOptions(
+            array(
+                'required'   =&gt; TRUE,
+                'filters'    =&gt; array(
+                    'StringTrim',
+                    'StripTags',
+                ),
+                'validators' =&gt; array(
+                    'NotEmpty',
+                ),
+                'salt' =&gt; $config-&gt;security-&gt;csrfsalt . get_class($this),
+            )
+        );
+        $this-&gt;addElement($csrfHash);
+    }
+    
+    /**
+     * Overrides render() in App_Form
+     * 
+     * @param Zend_View_Interface $view 
+     * @access public
+     * @return string
+     */
+    public function render(Zend_View_Interface $view = NULL){
+        $this-&gt;clearDecorators();
+        $this-&gt;setDecorators(array(
+            array('ViewScript', array('viewScript' =&gt; $this-&gt;_partial, 'form' =&gt; $this))
+        ));
+        
+        foreach($this-&gt;getElements() as $element){
+            $element-&gt;clearDecorators();
+            
+            if($element instanceof Zend_Form_Element_File){
+                $element-&gt;setDecorators(array(
+                    array('File'),
+                    array('Errors')
+                ));
+            }else{
+                $element-&gt;setDecorators(array(
+                    array('ViewHelper'),
+                    array('Errors')
+                ));
+            }
+            
+            $element-&gt;getView()-&gt;getHelper('FormErrors')-&gt;setElementStart('<strong class="error"><em>');
+            $element-&gt;getView()-&gt;getHelper('FormErrors')-&gt;setElementEnd('</em></strong>');
+            $element-&gt;getView()-&gt;getHelper('FormErrors')-&gt;setElementSeparator('<em>');
+        }
+        
+        if(NULL === $this-&gt;getAttrib('id')) {
+            $controllerName = Zend_Registry::get('controllerName');
+            $actionName = Zend_Registry::get('actionName');
+            
+            $this-&gt;setAttrib('id', $controllerName . '-' . $actionName);
+        }
+        
+        return parent::render($view);
+    }
+    
+    /**
+     * Convenience method to recognize translatable text with gettext
+     *
+     * @param string $text 
+     * @return void
+     */
+    public function t($text){
+        return $text;
+    }
+}
+</em></code></pre>
+
+<pre class="highlight"><code>
+&lt;?php
+/**
+ * Default parent form for all the forms in the application
+ *
+ * @category App
+ * @package App_Form
+ * @copyright Company
+ */
+
+abstract class App_Form extends Zend_Form
+{
+}
+</code></pre>
+
+
+<pre class="highlight"><code>
+&lt;?php
+
+/**
+ * Casting details form
+ *
+ * @category  frontend
+ * @package   frontend_forms
+ * @copyright Company
+ */
+class CastingDetailsForm extends App_Frontend_Form
+{
+    /**
+     * Set the partials to render the form
+     *
+     * @var array
+     */
+    protected $_partial = 'forms/create_casting_details.phtml';
+    
+    /**
+     * Overrides init() in Zend_Form
+     * 
+     * @access public
+     * @return void
+     */
+    public function init() {
+        // init the parent
+        parent::init();
+        
+        // set the form's method
+        $this-&gt;setMethod('post');
+        $this-&gt;setAttrib('enctype', 'multipart/form-data');
+        
+        //Casting details
+        $title = new Zend_Form_Element_Text('title', array(
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+            ),
+        ));
+        $this-&gt;addElement($title);
+        
+        $description = new Zend_Form_Element_Textarea('description', array(
+            'required' =&gt; TRUE,
+            'class' =&gt; 'charactercounter1000',
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'StringLength', 
+                    FALSE, 
+                    array(
+                        'max' =&gt; 1000,
+                        'messages' =&gt; array(
+                            Zend_Validate_StringLength::TOO_LONG =&gt; $this-&gt;t('The description is limited to 1000 characters')
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($description);
+        
+        $image = new Zend_Form_Element_File('image', array(
+            'required' =&gt; TRUE,
+            'destination' =&gt; ROOT_PATH . '/public/frontend/tmp/',
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'Count',
+                    TRUE,
+                    array(
+                        'min' =&gt; 1,
+                        'max' =&gt; 1,
+                        'messages' =&gt; array(
+                            Zend_Validate_File_Count::TOO_MANY =&gt; $this-&gt;t('One file allowed'),
+                            Zend_Validate_File_Count::TOO_FEW =&gt; $this-&gt;t('You must upload one file')
+                        )
+                    )
+                ),
+                array(
+                    'Extension',
+                    TRUE,
+                    array(
+                        'extension' =&gt; 'jpg,jpeg,png,gif',
+                        'messages' =&gt; array(
+                            Zend_Validate_File_Extension::FALSE_EXTENSION =&gt; $this-&gt;t('Only png, jpeg and gif files are allowed'),
+                        )
+                    )
+                ),
+                array(
+                    'Size',
+                    TRUE,
+                    array(
+                        'size' =&gt; 2097152,
+                        'messages' =&gt; array(
+                            Zend_Validate_File_Size::TOO_BIG =&gt; $this-&gt;t('Maximum file size 2Mb'),
+                        )
+                    )
+                ),
+            ),
+        ));
+        $this-&gt;addElement($image);
+        
+        $location = new Zend_Form_Element_Text('location', array(
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    FALSE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('Please specify a location')
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($location);
+        
+        $city = new Zend_Form_Element_Hidden('city_woeid', array(
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    FALSE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; '1'
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($city);
+        
+        $country = new Zend_Form_Element_Hidden('country_iso', array(
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    FALSE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; '2'
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($country);
+        
+        $endDate = new Zend_Form_Element_Text('end_date', array(
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'Date',
+                    FALSE,
+                    array(
+                        'format' =&gt; 'dd/mm/yyyy',
+                        'messages' =&gt; array(
+                            Zend_Validate_Date::INVALID_DATE =&gt; $this-&gt;t('Invalid date'),
+                            Zend_Validate_Date::FALSEFORMAT =&gt; $this-&gt;t('Invalid date format')
+                        )
+                    )
+                )
+            ),
+            'rel' =&gt; 'datepicker'
+        ));
+        $this-&gt;addElement($endDate);
+        
+        $media = array(
+            'photo' =&gt; $this-&gt;t('Photo'),
+            'video' =&gt; $this-&gt;t('Video'),
+            'audio' =&gt; $this-&gt;t('Audio')
+        );
+        $requirements = new Zend_Form_Element_MultiCheckbox('requirements', array(
+            'multiOptions' =&gt; $media,
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim'
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'InArray',
+                    FALSE,
+                    array(
+                        array_keys($media),
+                        'messages' =&gt; array(
+                            Zend_Validate_InArray::NOT_IN_ARRAY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                )
+            )
+        ));
+        $this-&gt;addElement($requirements);
+        
+        $otherRequirementsText = new Zend_Form_Element_Textarea('other_requirement_text', array(
+            'class' =&gt; 'charactercounter1000',
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+            ),
+        ));
+        $this-&gt;addElement($otherRequirementsText);
+        
+        $otherRequirementsFile = new Zend_Form_Element_File('other_requirement_file', array(
+            'destination' =&gt; ROOT_PATH . '/public/frontend/tmp/',
+            'validators' =&gt; array(
+                array(
+                    'Count',
+                    TRUE,
+                    array(
+                        'count' =&gt; 1,
+                        'messages' =&gt; array(
+                            Zend_Validate_File_Count::TOO_MANY =&gt; $this-&gt;t('One file allowed'),
+                            Zend_Validate_File_Count::TOO_FEW =&gt; $this-&gt;t('You must upload one file')
+                        )
+                    )
+                ),
+                array(
+                    'Extension',
+                    TRUE,
+                    array(
+                        'extension' =&gt; 'jpg,jpeg,png,gif',
+                        'messages' =&gt; array(
+                            Zend_Validate_File_Extension::FALSE_EXTENSION =&gt; $this-&gt;t('Only png, jpeg and gif files are allowed'),
+                        )
+                    )
+                ),
+                array(
+                    'Size',
+                    TRUE,
+                    array(
+                        'size' =&gt; 2097152,
+                        'messages' =&gt; array(
+                            Zend_Validate_File_Size::TOO_BIG =&gt; $this-&gt;t('Maximum file size 2Mb'),
+                        )
+                    )
+                ),
+            ),
+        ));
+        $this-&gt;addElement($otherRequirementsFile);
+        
+        //Role details
+        $roleModel = new Role();
+        $roles = $roleModel-&gt;findPairs();
+        
+        $role = new Zend_Form_Element_Radio('role', array(
+            'multiOptions' =&gt; $roles,
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim'
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('You must choose at least one role')
+                        )
+                    )
+                ),
+                array(
+                    'InArray',
+                    FALSE,
+                    array(
+                        array_keys($roles),
+                        'messages' =&gt; array(
+                            Zend_Validate_InArray::NOT_IN_ARRAY =&gt; $this-&gt;t('Invalid role selection')
+                        )
+                    )
+                )
+            )
+        ));
+        $this-&gt;addElement($role);
+        
+        $gender = array(
+            'm' =&gt; $this-&gt;t('Male'),
+            'f' =&gt; $this-&gt;t('Female')
+        );
+        $gender = new Zend_Form_Element_Select('gender', array(
+            'multiOptions' =&gt; array($this-&gt;t('Gender')) + $gender,
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'InArray',
+                    FALSE,
+                    array(
+                        array_keys($gender),
+                        'messages' =&gt; array(
+                            Zend_Validate_InArray::NOT_IN_ARRAY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($gender);
+        
+        $ages = array_combine(range(14, 99), range(14, 99));
+        $reverseAges = array_combine(range(99, 14), range(99, 14));
+        
+        $fromAge = new Zend_Form_Element_Select('from_age', array(
+            'multiOptions' =&gt; $ages,
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'InArray',
+                    FALSE,
+                    array(
+                        array_keys($ages),
+                        'messages' =&gt; array(
+                            Zend_Validate_InArray::NOT_IN_ARRAY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($fromAge);
+        
+        $toAge = new Zend_Form_Element_Select('to_age', array(
+            'multiOptions' =&gt; $reverseAges,
+            'required' =&gt; TRUE,
+            'filters' =&gt; array(
+                'StringTrim',
+                'StripTags',
+            ),
+            'validators' =&gt; array(
+                array(
+                    'NotEmpty',
+                    TRUE,
+                    array(
+                        'messages' =&gt; array(
+                            Zend_Validate_NotEmpty::IS_EMPTY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                ),
+                array(
+                    'InArray',
+                    FALSE,
+                    array(
+                        array_keys($reverseAges),
+                        'messages' =&gt; array(
+                            Zend_Validate_InArray::NOT_IN_ARRAY =&gt; $this-&gt;t('This field is required')
+                        )
+                    )
+                )
+            ),
+        ));
+        $this-&gt;addElement($toAge);
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+</code></pre><h1><code>&lt;?php echo $this-&gt;t('Create a casting') ?&gt;</code></h1><code>
+</code><h2><code>&lt;?php echo $this-&gt;t('Casting details') ?&gt;</code></h2><code>
+
+    
+        &lt;?php echo $this-&gt;form-&gt;csrfhash ?&gt;
+        </code><div class="flow"><code>
+            </code><p><code>
+                
+                    <span>&lt;?php echo $this-&gt;t('Title') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;title ?&gt;
+                    <small>&lt;?php echo $this-&gt;t('E.g. Two actors required for supporting roles in thriller feature film.') ?&gt;</small>
+                
+            </code></p><code>
+            </code><p><code>
+                
+                    <span>&lt;?php echo $this-&gt;t('Description') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;description ?&gt;
+                
+            </code></p><code>
+            </code><p><code>
+                
+                    <span>&lt;?php echo $this-&gt;t('Image') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;image ?&gt;
+                
+            </code></p><code>
+            </code><p class="location"><code>
+                
+                    <span>&lt;?php echo $this-&gt;t('Location') ?&gt;</span>
+                    
+                    &lt;?php echo $this-&gt;form-&gt;location ?&gt;
+                    <small>E.g. "Barcelona" or "United Kingdom"</small>
+                    &lt;?php echo $this-&gt;form-&gt;city_woeid ?&gt;
+                    &lt;?php echo $this-&gt;form-&gt;country_iso ?&gt;
+                
+            </code></p><code>
+            </code><p class="dates"><code>
+                
+                    <span>&lt;?php echo $this-&gt;t('Online casting ends') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;end_date ?&gt;
+                
+            </code></p><code>
+            </code><p class="inlineoptions"><code>
+                <span class="title">&lt;?php echo $this-&gt;t('Applicants must provide') ?&gt;</span>
+                &lt;?php echo $this-&gt;form-&gt;requirements ?&gt;
+            </code></p><code>
+            </code><p><code>
+                <a href="#">&lt;?php echo $this-&gt;t('Other requirements') ?&gt;</a> &lt;?php echo $this-&gt;t('(scripts, scores,...)') ?&gt;
+            </code></p><code>
+            </code><div><code>
+                </code><p><code>
+                    
+                        <span>&lt;?php echo $this-&gt;t('Explain or specify instructions') ?&gt;</span>
+                        &lt;?php echo $this-&gt;form-&gt;other_requirement_text ?&gt;
+                    
+                </code></p><code>
+                </code><p><code>
+                    
+                        <span>&lt;?php echo $this-&gt;t('Upload pdf (i.e. Scripts, scores)') ?&gt;</span>
+                        &lt;?php echo $this-&gt;form-&gt;other_requirement_file ?&gt;
+                    
+                </code></p><code>
+            </code></div><code>
+        </code></div><code>
+        
+        </code><h2><code>&lt;?php echo $this-&gt;t('Role details') ?&gt;</code></h2><code>
+        </code><div class="flow"><code>
+            </code><p class="listed roles"><code>
+                <span class="title">&lt;?php echo $this-&gt;t('Talent wanted') ?&gt;</span>
+                &lt;?php echo $this-&gt;form-&gt;role ?&gt;
+            </code></p><code>
+            </code><p><code>
+                
+                    <span>&lt;?php echo $this-&gt;t('Gender') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;gender ?&gt;
+                
+            </code></p><code>
+            </code><p class="inline"><code>
+                <span class="title">&lt;?php echo $this-&gt;t('Talent age') ?&gt;</span>
+                
+                    <span>&lt;?php echo $this-&gt;t('From') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;from_age ?&gt;
+                
+                
+                    <span>&lt;?php echo $this-&gt;t('to') ?&gt;</span>
+                    &lt;?php echo $this-&gt;form-&gt;to_age ?&gt;
+                
+            </code></p><code>
+        </code></div><code>
+        
+    </code><p class="buttons"><code>
+        <a href="/dashboard" class="skip">&lt;?php echo $this-&gt;t('Cancel') ?&gt;</a>
+    </code></p><code>
+
+</code>
+
+<pre class="highlight"><code>
+/**
+     * Show the casting details form on create casting process
+     *
+     * @access public
+     * @return void
+     **/
+    public function detailsAction(){
+        $this-&gt;title = $this-&gt;t-&gt;_('Create a casting');
+        
+        $form = new CastingDetailsForm();
+        if($this-&gt;getRequest()-&gt;isPost()){
+            if($form-&gt;isValid($this-&gt;getRequest()-&gt;getPost())){
+                //Never arrives here
+            }
+        }
+        
+        $this-&gt;view-&gt;form = $form;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christopher Valles (christopher.valles) on 2010-11-18T04:46:50.000+0000</p> 
+        <div class="body">
+            <p>Sorry, reviewing the ticket I just realized that I missed the enctype="multipart/form-data" on the partial.
+Now is working fine, you can close the issue.</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2010-11-18T05:23:56.000+0000</p> 
+        <div class="body">
+            <p>Closing at reporters request</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,208 @@
+<h2>ZF-2055: numerical values (e.g. phone number) are not searcheable</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-10-10T05:30:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-03-18T11:29:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Wladimir Schwitin (s_t_a_l_k_e_r)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Numerical values e.g. phone number are not searcheable. The field types "text", "keyword" and "unstored" are tested. The TestCase for PHPUnit exploits the problem:</p>
+
+<pre class="highlight"><code>
+
+&lt;?php
+set_include_path('.' . PATH_SEPARATOR . '/opt/lampp/lib/php/' . PATH_SEPARATOR . '../application/library/');
+
+require_once 'PHPUnit/Extensions/PerformanceTestCase.php';
+require_once 'Zend/Search/Lucene.php';
+require_once 'Zend/Search/Lucene/Search/Query/Boolean.php';
+
+/**
+ * This TestCase tests the search beavior in fields of type "keyword",
+ * "text" and "unstored".
+ */
+class BugExploitTest extends PHPUnit_Extensions_PerformanceTestCase{
+    private $index = null;
+    
+    // private $numericalValue = 'Zziqwez'; // found in fields of any type
+    // private $numericalValue = 'Hallowe'; // not found in field of type "text". why? 
+    private $numericalValue = '12345678'; // not found
+    
+    /**
+    * Creates an index and adds a document to it.
+    */
+    protected function setUp() {
+        try{
+            $this-&gt;index = Zend_Search_Lucene::open("/tmp/index");
+        }catch(Exception $e){
+            $this-&gt;index = Zend_Search_Lucene::create("/tmp/index");
+        }
+        
+        $doc = new Zend_Search_Lucene_Document();       
+        $doc-&gt;addField(Zend_Search_Lucene_Field::Keyword('keyword', $this-&gt;numericalValue));
+        $doc-&gt;addField(Zend_Search_Lucene_Field::Text('text', $this-&gt;numericalValue));
+        $doc-&gt;addField(Zend_Search_Lucene_Field::UnStored('unstored', $this-&gt;numericalValue));
+        $this-&gt;index-&gt;addDocument($doc);
+    }
+
+    /**
+    * Shuting down the index
+    */ 
+    protected function tearDown() {
+        $this-&gt;index-&gt;commit();
+        unset($this-&gt;index);
+    }
+    
+    /**
+    * Searching in the field of type "keyword".
+    * Our index should have one document at least. 
+    */
+    public function testSearchKeyword(){
+        $this-&gt;searchInField('keyword');
+    }
+    
+    /**
+    * Searching in the field of type "text".
+    * Our index should have two documents at least. 
+    * (tearDown non't deleletes any dokument) 
+    */
+    public function testSearchText(){
+        $this-&gt;searchInField('text');
+    }
+    
+    /**
+    * Searching in the field of type "unstored".
+    * Our index should have two documents at least. 
+    * (tearDown non't deleletes any dokument) 
+    */
+    public function testSearchUnStored(){
+        $this-&gt;searchInField('unstored');
+    }
+    
+    private function searchInField($fieldName){
+        $userQuery = Zend_Search_Lucene_Search_QueryParser::parse($this-&gt;numericalValue);
+        Zend_Search_Lucene::setDefaultSearchField($fieldName);
+        $hits = $this-&gt;index-&gt;find($userQuery);
+        // after adding a document we expect one search result at least
+        $this-&gt;assertNotEquals(0, count($hits));
+    }
+}
+?&gt;
+
+
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-10-15T14:05:29.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Alexander</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Boeren (mc) on 2007-10-29T11:42:46.000+0000</p> 
+        <div class="body">
+            <p>The default is to look for text (a-zA-Z) only, you can change this to include numbers by using:</p>
+
+<pre class="highlight"><code>
+Zend_Search_Lucene_Analysis_Analyzer::setDefault(
+  new Zend_Search_Lucene_Analysis_Analyzer_Common_TextNum_CaseInsensitive()
+  );
+</code></pre>
+
+<p>If you need more flexibility in searching, try creating your own analzyer based on e.g. Zend_Search_Lucene_Analysis_Analyzer_Common_Text</p>
+
+<p>That said, the default setting to search for text only is perhaps confusing for first-time users.</p>
+
+<p>I had a slightly different problem. I was trying to search for words_with_underscores in a Keyword field. The keyword field is indexed but not tokenized, so I expected to get an exact match when is did a search for words_with_underscores. Instead, a search for 'words with underscores' was performed yielding no matches, as the keyword field wasn't tokenized. My solution was to create a ...TextCode.... analyzer.</p>
+
+<p>Hope this helps!</p>
+
+<p>Ciao, Marc.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wladimir Schwitin (s_t_a_l_k_e_r) on 2007-11-07T02:26:25.000+0000</p> 
+        <div class="body">
+            <p>Thanks, Marc, for your helpfull comment. I inserted your code in the setUp block and the test successes!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2009-03-18T11:28:57.000+0000</p> 
+        <div class="body">
+            <p>Default text analyzer skips numbers.</p>
+
+<p>So you can either set another analyzer:</p>
+
+<pre class="highlight"><code>
+Zend_Search_Lucene_Analysis_Analyzer::setDefault(
+   new Zend_Search_Lucene_Analysis_Analyzer_Common_TextNum_CaseInsensitive());
+</code></pre>
+
+<p>or use Keyword field type.</p>
+
+<p>In the second case you have to use search API to search through keyword fields:</p>
+
+<pre class="highlight"><code>
+$subquery1 = Zend_Search_Lucene_Search_QueryParser::parse($queryString);
+
+$term  = new Zend_Search_Lucene_Index_Term('12345678', 'keyword');
+$subquery2 = new Zend_Search_Lucene_Search_Query_Term($term);
+
+$finalQuery = new Zend_Search_Lucene_Search_Query_Boolean();
+$finalQuery-&gt;addSubquery(subquery1);
+$finalQuery-&gt;addSubquery(subquery2);
+
+$hits  = $index-&gt;find($finalQuery);
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

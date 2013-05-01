@@ -1,0 +1,238 @@
+<h2>ZF-6956: Zend_CodeGenerator_Php_Property::fromReflection() has no meaningful implementation -- patch provided</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-08T10:06:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-28T13:15:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                John Kleijn (448191)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_CodeGenerator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11989/ZF-6956.patch">ZF-6956.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>.. also Zend_Reflection_Property is missing includes.</p>
+
+<p>Basically Zend_CodeGenerator_Php_Property::fromReflection() does nothing with the $reflectionProperty argument: no state is set. Below is a patch which fixes this deficiency and adds unit tests. isStatic() is broken, but there already is a bug report for that (ZF-6444). Other issues exist with Zend_CodeGenerator and Zend_Reflection as well. If I find time I'll post them, if not someone should take a close look at those components. I don't think they should have been released yet.</p>
+
+<p>This patch was created on the 1.8.3 tag (but the issue also exists in 1.8.2):</p>
+
+<h1>Index: tests/Zend/CodeGenerator/Php/PropertyTest.php.</h1>
+
+<pre class="highlight"><code>
+--- tests/Zend/CodeGenerator/Php/PropertyTest.php   (revision 15950)
++++ tests/Zend/CodeGenerator/Php/PropertyTest.php   (working copy)
+@@ -18,7 +18,6 @@
+  * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (<a href="http://www.zend.com">http://www.zend.com</a>)
+  * @license    <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>     New BSD License
+  */
+-
+ /**
+  * @see TestHelper
+  */
+@@ -24,6 +23,7 @@
+  */
+ require_once dirname(__FILE__) . '/../../../TestHelper.php';
+ 
++require_once 'Zend/Reflection/Property.php';
+ require_once 'Zend/CodeGenerator/Php/Property.php';
+ 
+ /**
+@@ -37,8 +37,11 @@
+  */
+ class Zend_CodeGenerator_Php_PropertyTest extends PHPUnit_Framework_TestCase
+ {
++    private $_dummyProperty = 'foo';
++    
++    protected static $_dummyStaticProperty = 'bar';
+     
+-    public function testConstructor()
++    public function testConstructor ()
+     {
+         $codeGenProperty = new Zend_CodeGenerator_Php_Property();
+         $this-&gt;isInstanceOf($codeGenProperty, 'Zend_CodeGenerator_Php_Property');
+@@ -44,6 +47,39 @@
+         $this-&gt;isInstanceOf($codeGenProperty, 'Zend_CodeGenerator_Php_Property');
+     }
+     
++    public function testWillLoadFromReflection ()
++    {
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this-&gt;assertSame($cgProp-&gt;getName(), '_dummyProperty');
++        $this-&gt;assertSame($cgProp-&gt;getDefaultValue(), 'foo');
++        $this-&gt;assertSame($cgProp-&gt;getVisibility(), 'private');
++        
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyStaticProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this-&gt;assertSame($cgProp-&gt;getName(), '_dummyStaticProperty');
++        $this-&gt;assertSame($cgProp-&gt;getDefaultValue(), 'bar');
++        $this-&gt;assertSame($cgProp-&gt;getVisibility(), 'protected');
++    }
+     
+-    
++    public function testZF6444 ()
++    {
++        $this-&gt;markTestInComplete("Depends on ZF-6444");
++        
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this-&gt;assertFalse($cgProp-&gt;isStatic());
++        
++        $reflProp = new Zend_Reflection_Property(__class__, '_dummyStaticProperty');
++        
++        $cgProp = Zend_CodeGenerator_Php_Property::fromReflection($reflProp);
++        
++        $this-&gt;assertTrue($cgProp-&gt;isStatic());
++    }
+ }
+</code></pre>
+
+<h1>Index: library/Zend/Reflection/Property.php</h1>
+
+<pre class="highlight"><code>
+--- library/Zend/Reflection/Property.php    (revision 15950)
++++ library/Zend/Reflection/Property.php    (working copy)
+@@ -19,6 +19,10 @@
+  * @version    $Id$
+  */
+ 
++require_once 'Zend/Reflection/Class.php';
++require_once 'Zend/Reflection/Docblock.php';
++require_once 'Zend/Reflection/Exception.php';
++
+ /**
+  * @todo       implement line numbers
+  * @category   Zend
+@@ -38,7 +42,6 @@
+         $phpReflection  = parent::getDeclaringClass();
+         $zendReflection = new $reflectionClass($phpReflection-&gt;getName());
+         if (!$zendReflection instanceof Zend_Reflection_Class) {
+-            require_once 'Zend/Reflection/Exception.php';
+             throw new Zend_Reflection_Exception('Invalid reflection class provided; must extend Zend_Reflection_Class');
+         }
+         unset($phpReflection);
+</code></pre>
+
+<h1>Index: library/Zend/CodeGenerator/Php/Property.php</h1>
+
+<pre class="highlight"><code>
+--- library/Zend/CodeGenerator/Php/Property.php (revision 15950)
++++ library/Zend/CodeGenerator/Php/Property.php (working copy)
+@@ -26,6 +26,11 @@
+ require_once 'Zend/CodeGenerator/Php/Member/Abstract.php';
+ 
+ /**
++ * @see Zend_Reflection_Property
++ */
++require_once 'Zend/Reflection/Property.php';
++
++/**
+  * @category   Zend
+  * @package    Zend_CodeGenerator
+  * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (<a href="http://www.zend.com">http://www.zend.com</a>)
+@@ -42,7 +47,7 @@
+      * @var string
+      */
+     protected $_defaultValue = null;
+-
++    
+     /**
+      * fromReflection()
+      *
+@@ -51,6 +56,25 @@
+      */
+     public static function fromReflection(Zend_Reflection_Property $reflectionProperty) {
+         $property = new self();
++        
++        $property-&gt;setName($reflectionProperty-&gt;getName());
++        
++        $allDefaultProperties = $reflectionProperty-&gt;getDeclaringClass()-&gt;getDefaultProperties();
++        
++        $property-&gt;setDefaultValue($allDefaultProperties[$reflectionProperty-&gt;getName()]);
++        
++        if ($reflectionProperty-&gt;getDocComment()) {
++            $property-&gt;setDocblock(Zend_CodeGenerator_Php_Docblock::fromReflection($reflectionProperty-&gt;getDocComment()));
++        }
++        
++        if ($reflectionProperty-&gt;isPrivate()) {
++            $property-&gt;setVisibility(self::VISIBILITY_PRIVATE);
++        } elseif ($reflectionProperty-&gt;isProtected()) {
++            $property-&gt;setVisibility(self::VISIBILITY_PROTECTED);
++        } else {
++            $property-&gt;setVisibility(self::VISIBILITY_PUBLIC);
++        }
++        
+         $property-&gt;setSourceDirty(false);
+         
+         return $property;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2009-06-08T10:08:47.000+0000</p> 
+        <div class="body">
+            <p>Mentioned patch not screwed up by wiki formatting</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2009-06-09T05:19:33.000+0000</p> 
+        <div class="body">
+            <p>Patch included in patch in ZF-6962</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-06-28T13:15:52.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r16344</p>
+
+        </div>
+    </div>
+    </div>
+

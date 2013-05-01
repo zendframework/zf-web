@@ -1,0 +1,216 @@
+<h2>ZF-3181: Zend_Controller_Action_Helper_Redirector triggers redirect in setGoto()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-25T17:01:02.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-29T02:14:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Bjorn Soldal (noia)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>During the declaration of a redirector as per the documentation as described at :</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.controller.actionhelpers.html#zend.controller.actionhelpers.redirector">http://framework.zend.com/manual/en/…</a></p>
+
+<pre class="highlight"><code>
+$this-&gt;_redirector-&gt;setCode('303')
+                          -&gt;setExit(false)
+                          -&gt;setGoto("index", "index");
+</code></pre>
+
+<p>The process was redirected, this is in contention with the documentation which states that goto(), gotoRoute() and gotoUrl() are the only functions of Zend_Controller_Action_Helper_Redirector which should cause the actual redirection.</p>
+
+<p>With kind regards,
+Noia</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-05-09T11:10:39.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next mini release and assigning to Ralph.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fred Woolard (fredw) on 2008-11-20T15:04:23.000+0000</p> 
+        <div class="body">
+            <p>Having a similar problem with the setGotoSimple() call, and anybody using setGotoUrl(), setGotoRoute will have the same problem also.</p>
+
+<p>At the end of each of these routines, there's this statement:</p>
+
+<p>$this-&gt;_redirect($url);</p>
+
+<p>This is where the return code, and associated header info is being prematurely injected into the controller's response object.</p>
+
+<p>I think the last line should rather be:</p>
+
+<p>$this-&gt;_redirectUrl = $url;</p>
+
+<p>But then the problem will become that the gotoXXXX, routines, which call redirectAndExit expect that the header info has already been pushed into the response object. So, a little re-think might be in order.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fred Woolard (fredw) on 2008-11-20T16:02:05.000+0000</p> 
+        <div class="body">
+            <p>My work-around is this:</p>
+
+<p>Replace the routine _redirect (Because it doesn't really redirect, just forms up the full URL and puts the headers into the response object) with this:</p>
+
+<pre><code>/**
+ * Set redirect in response object
+ *
+ * @return void
+ */
+protected function _setRedirectInResponse()
+{
+    $url = $this-&gt;_redirectUrl;
+    if ($this-&gt;getUseAbsoluteUri() &amp;&amp; !preg_match('#^(https?|ftp)://#', $url)) {
+        $host  = $_SERVER['HTTP_HOST'];
+        $proto = (empty($_SERVER['HTTPS'])) ? 'http' : 'https';
+        $port  = $_SERVER['SERVER_PORT'];
+        $uri   = $proto . '://' . $host;
+        if ((('http' == $proto) &amp;&amp; (80 != $port)) || (('https' == $proto) &amp;&amp; (443 != $port))) {
+            $uri .= ':' . $port;
+        }
+        $url = $uri . '/' . ltrim($url, '/');
+    }
+    $this-&gt;getResponse()-&gt;setRedirect($url, $this-&gt;getCode());
+}
+</code></pre>
+
+<p>Then in each of the setGotoXXX routines, change the last line as mentioned in previous comment:</p>
+
+<p>$this-&gt;_redirect($url);</p>
+
+<p>In the redirectAndExit() routine, add the line to call $this-&gt;_setRedirectInResponse.</p>
+
+<pre><code>public function redirectAndExit()
+{
+    // Close session, if started
+    if (class_exists('Zend_Session', false) &amp;&amp; Zend_Session::isStarted()) {
+        Zend_Session::writeClose();
+    } elseif (isset($_SESSION)) {
+        session_write_close();
+    }
+
+    $this-&gt;_setRedirectInResponse();
+
+    $this-&gt;getResponse()-&gt;sendHeaders();
+    exit();
+}
+</code></pre>
+
+<p>And in the gotoXXXX (not gotoXXXAndExit) routines add an else clause to the conditional check on whether to exit or not, e.g.:</p>
+
+<pre><code>public function gotoUrl($url, array $options = array())
+{
+    $this-&gt;setGotoUrl($url, $options);
+
+    if ($this-&gt;getExit()) {
+        $this-&gt;redirectAndExit();
+    }
+    else {
+        $this-&gt;_setRedirectInResponse();            
+    }
+}
+</code></pre>
+
+<p>In this way, the response code from the Redirector is not prematurely set in the controller's response object in any of the "set" methods; it is done only when the imperative redirectAndExit, and "goto" methods are called.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-10T12:00:16.000+0000</p> 
+        <div class="body">
+            <p>reassinging, this is more your realm.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-17T15:09:14.000+0000</p> 
+        <div class="body">
+            <p>I am unsure what the issue is here to be honest.</p>
+
+<p>In the above code, you are asking the redirector to set certain headers inside the response object.  If you don't do anything, those headers will be sent to the browser at the end of the request, completing the redirection.</p>
+
+<p>If you use any of the gotoXXXandExit() methods, then the redirection will happen immediately and the request will stop.</p>
+
+<p>Please help me understand the issue here.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bjorn Soldal (noia) on 2011-02-18T02:15:00.000+0000</p> 
+        <div class="body">
+            <p>When I reported this issue the only three commands which should trigger a redirect were goto(), gotoRoute() and gotoUrl(). The issue was that when I was defining a redirector I didn't immediately want to redirect the user there and then but rather fire the redirector after some clean-up had been done.</p>
+
+<p>The issue was that either your documentation is wrong, or the code is wrong.</p>
+
+<p>Typically anything which matches set*() won't be expected to change the behaviour of execution but is rather a step in defining another object or process.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-18T09:48:14.000+0000</p> 
+        <div class="body">
+            <p>I think your terminology is wrong here, and perhaps we should look at the docs.  You don't "trigger" a redirect. You can either set a redirect (header) and wait till the end of the request, or set the redirect (header) and exit.  Setting a redirect and not getting a redirect is not something anyone would expect to happen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bjorn Soldal (noia) on 2011-02-18T09:52:54.000+0000</p> 
+        <div class="body">
+            <p>Ok, prepare might be a better word then. The way I read the documentation at the time (bearing in mind this issue is now nearly 3 years old!) was that the redirect is configured with set methods but not actually issued to the client before a goto or other method invocation occurs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-05-26T20:51:17.000+0000</p> 
+        <div class="body">
+            <p>My vote is with Ralph on this one - I can't see the issue.  The setGotoXXX methods all call _redirect, which in turn calls setRedirect on the Response object. That setRedirect method simply adds a Location header and sets the response code.  Under no circumstance would the redirect occur immediately at the point setGotoXXX is called.</p>
+
+        </div>
+    </div>
+    </div>
+

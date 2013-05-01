@@ -1,0 +1,71 @@
+Index: library/Zend/Db/Table/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Abstract.php	(revision 24878)
++++ library/Zend/Db/Table/Abstract.php	(working copy)
+@@ -1181,6 +1181,22 @@
+      */
+     public function delete($where)
+     {
++        $depTables = $this->getDependentTables();
++        if (!empty($depTables)) {
++            $resultSet = $this->fetchAll($where);
++            if (count($resultSet) > 0 ) {
++                foreach ($resultSet as $row) {
++                    /**
++                     * Execute cascading deletes against dependent tables
++                     */
++                    foreach ($depTables as $tableClass) {
++                        $t = self::getTableFromString($tableClass, $this);
++                        $t->_cascadeDelete($tableClass, $row->getPrimaryKey());
++                    }
++                }
++            }
++        }
++
+         $tableSpec = ($this->_schema ? $this->_schema . '.' : '') . $this->_name;
+         return $this->_db->delete($tableSpec, $where);
+     }
+Index: tests/Zend/Db/Table/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Table/TestCommon.php	(revision 24878)
++++ tests/Zend/Db/Table/TestCommon.php	(working copy)
+@@ -1646,6 +1646,39 @@
+         $this->assertType('Zend_Db_Table_Row', $tblRecursive->find(6)->current());
+     }
+ 
++    /**
++     * @group ZF-11810
++     */
++    public function testTableCascadeRecurseDeleteUsingTableDeleteMethod()
++    {
++        $tblRecursive = $this->_getTable('My_ZendDbTable_TableCascadeRecursive');
++
++        // Enforce initial table structure
++        $parentRow = $tblRecursive->find(1)->current();
++        $this->assertType('Zend_Db_Table_Row', $parentRow);
++        $childRows = $parentRow->findDependentRowset('My_ZendDbTable_TableCascadeRecursive', 'Children');
++        $this->assertType('Zend_Db_Table_Rowset', $childRows);
++        $this->assertEquals(2, count($childRows));
++        foreach ( $childRows as $childRow ) {
++            $this->assertType('Zend_Db_Table_Row', $childRow);
++            $subChildRows = $childRow->findDependentRowset('My_ZendDbTable_TableCascadeRecursive', 'Children');
++            $this->assertType('Zend_Db_Table_Rowset', $subChildRows);
++            $this->assertEquals( $childRow['item_id'] == 3 ? 2 : 0 , count($subChildRows));
++        }
++
++        // Perform the delete
++        $tblRecursive->delete($tblRecursive->getAdapter()->quoteInto('item_id = ?', 1));
++
++        // Assert that all children of #1 (2,3,4,5) are removed recursively
++        $this->assertNull($tblRecursive->find(1)->current());
++        $this->assertNull($tblRecursive->find(2)->current());
++        $this->assertNull($tblRecursive->find(3)->current());
++        $this->assertNull($tblRecursive->find(4)->current());
++        $this->assertNull($tblRecursive->find(5)->current());
++        //... but #6 remains
++        $this->assertType('Zend_Db_Table_Row', $tblRecursive->find(6)->current());
++    }
++
+     public function testSerialiseTable()
+     {
+         $table = $this->_table['products'];

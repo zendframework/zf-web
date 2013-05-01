@@ -1,0 +1,357 @@
+<h2>ZF-10802: Zend_Db_Select returns weird results when joining when adding columns or external code</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-12-09T04:18:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-12-15T03:34:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Webdevilopers (tridem)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have a strange behaviour of Zend_Db_Select inside one of my mappers. The dbTable model is working fine so far (see code below).</p>
+
+<p>Each one of the following examples has an unexpected behaviour.</p>
+
+<p>Example 1:</p>
+
+<pre class="highlight"><code>
+        $select = $this-&gt;getSelect()
+            -&gt;setIntegrityCheck(false);
+            
+        #echo $select;
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            #,array()
+            );
+                
+        echo $select;
+</code></pre>
+
+<p><em>returns</em>:</p>
+
+<pre class="highlight"><code>
+SELECT `typesToRecipe`.* FROM `typesToRecipe` WHERE (deleteDate IS NULL) AND (basic = 0)
+</code></pre>
+
+<p>Example 2:</p>
+
+<pre class="highlight"><code>
+        $select = $this-&gt;getSelect()
+            -&gt;setIntegrityCheck(false);
+            
+        #echo $select;
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            ,array() // changed
+            );
+                
+        echo $select;
+</code></pre>
+
+<p><em>returns</em>:</p>
+
+<pre class="highlight"><code>
+SELECT `recipes`.* FROM `typesToRecipe` INNER JOIN `recipes` WHERE (deleteDate IS NULL) AND (basic = 0)
+</code></pre>
+
+<p>Example 3:</p>
+
+<pre class="highlight"><code>
+        $select = $this-&gt;getSelect()
+            -&gt;setIntegrityCheck(false);
+            
+        echo $select; // changed
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            #,array()
+            );
+                
+        echo $select;
+</code></pre>
+
+<p><em>returns (desired clause!)</em>:</p>
+
+<pre class="highlight"><code>
+SELECT `recipes`.* FROM `recipes` WHERE (deleteDate IS NULL) AND (basic = 0)
+SELECT `recipes`.*, `typesToRecipe`.* FROM `recipes` INNER JOIN `typesToRecipe` ON recipes.id = typesToRecipe.recipeId WHERE (deleteDate IS NULL) AND (basic = 0)
+</code></pre>
+
+<p>Example 4:</p>
+
+<pre class="highlight"><code>
+        $select = $this-&gt;getSelect()
+            -&gt;setIntegrityCheck(false);
+            
+        echo $select; // changed
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            ,array() // changed
+            );
+                
+        echo $select;
+</code></pre>
+
+<p><em>returns</em>:</p>
+
+<pre class="highlight"><code>
+SELECT `recipes`.* FROM `recipes` WHERE (deleteDate IS NULL) AND (basic = 0)
+SELECT `recipes`.* FROM `recipes` INNER JOIN `typesToRecipe` ON recipes.id = typesToRecipe.recipeId WHERE (deleteDate IS NULL) AND (basic = 0)
+</code></pre>
+
+<p>I see absolutely no reason why removing or adding of an echo is able to change the select clause.
+What is happening here?</p>
+
+<p><em>mapper model</em></p>
+
+<pre class="highlight"><code>
+&lt;?php
+class Application_Model_Recipe extends My_Model_Abstract
+{
+    protected $_mapperClass = 'Application_Model_Mapper_Recipe';
+
+    public function fetchAll($where, $order = 'name', $count = null, $offset = null)
+    {
+        if (!$where instanceof Zend_Db_Table_Select) {
+            $where = $this-&gt;createQuery($where);
+        }
+
+        $result = $this-&gt;getDbTable()-&gt;fetchAll($where, $order, $count, $offset);
+
+        if (null === $result-&gt;current()) {
+            return;
+        }
+        $entries = array();
+        foreach ($result as $row) {
+            $entry = new $this-&gt;_modelClass();
+            $this-&gt;populate($row, $entry);
+            $entries[] = $entry;
+        }
+        return $entries;
+    }
+        
+    public function createQuery($where)
+    {
+    // examples inside here
+    return $select;
+    }
+}
+</code></pre>
+
+<p><em>dbTable model</em></p>
+
+<pre class="highlight"><code>
+&lt;?php
+class Application_Model_DbTable_Recipe extends My_Model_DbTable_Abstract
+{
+    protected $_name = 'recipes';
+
+    public function select() {
+        $select = parent::select();
+        $select-&gt;where('deleteDate ?', new Zend_Db_Expr('IS NULL'));
+        $select-&gt;where('basic = 0');
+        return $select;
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-12-11T12:49:20.000+0000</p> 
+        <div class="body">
+            <p>Zend_Db_Table_Select::assemble() (line 200) makes a verification if exists columns assigned if not exists this method force called to Zend_Db_Table_Select::from().</p>
+
+<p>But you can force the called of the Zend_Db_Table_Select::from() well before, in the moment of creation of Zend_Db_Table_Select.</p>
+
+<pre class="highlight"><code>
+$table = new Foo();
+$table-&gt;select(true); // per default this parameter is false
+</code></pre>
+
+<p>This was fixed in issue ZF-2925.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Webdevilopers (tridem) on 2010-12-12T23:46:23.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the hint Ramon. I will integrate it!</p>
+
+<p>Still I am wondering about the behaviour of example 3
+where the query changes simply because I added (any) code</p>
+
+<pre class="highlight"><code>
+echo $select;
+</code></pre>
+
+<p>without changing anything else. Any ideas?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Webdevilopers (tridem) on 2010-12-13T00:13:53.000+0000</p> 
+        <div class="body">
+            <p>I now tried this code:</p>
+
+<pre class="highlight"><code>
+        $select = $this-&gt;getDbTable()
+            #-&gt;select(Zend_Db_Table_Abstract::SELECT_WITH_FROM_PART)
+            -&gt;select(true)
+            -&gt;setIntegrityCheck(false);
+            
+        #echo $select;
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            ,array()
+            );
+
+        echo $select;exit;
+        return $select;
+</code></pre>
+
+<p>I still get the wrong query:</p>
+
+<pre class="highlight"><code>
+SELECT `recipes`.* FROM `typesToRecipe` INNER JOIN `recipes` WHERE (deleteDate IS NULL) AND (basic = 0)
+</code></pre>
+
+<p>And again when I add the <em>echo</em></p>
+
+<pre class="highlight"><code>
+        $select = $this-&gt;getDbTable()
+            #-&gt;select(Zend_Db_Table_Abstract::SELECT_WITH_FROM_PART)
+            -&gt;select(true)
+            -&gt;setIntegrityCheck(false);
+            
+        echo $select;
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            ,array()
+            );
+
+        echo $select;exit;
+        return $select;
+</code></pre>
+
+<p>I get the correct query</p>
+
+<pre class="highlight"><code>
+SELECT `recipes`.* FROM `recipes` WHERE (deleteDate IS NULL) AND (basic = 0) // first echo
+SELECT `recipes`.* FROM `recipes` INNER JOIN `typesToRecipe` ON recipes.id = typesToRecipe.recipeId WHERE (deleteDate IS NULL) AND (basic = 0) // second echo
+</code></pre>
+
+<p>This makes absolutely no sens to me, hmm...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-12-13T14:51:59.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+Still I am wondering about the behaviour of example 3
+where the query changes simply because I added (any) code
+{quote}</p>
+
+<p>Query 3 is related by 
+{quote}
+Zend_Db_Table_Select::assemble() (line 200) makes a verification if exists columns assigned if not exists this method force called to Zend_Db_Table_Select::from().
+{quote}</p>
+
+<p>See Zend_Db_Table_Select::assemble() (line 200).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-12-13T15:46:48.000+0000</p> 
+        <div class="body">
+            <p>Here code reproduced by me <a href="http://pastebin.com/RTZFKjzH">http://pastebin.com/RTZFKjzH</a> of according with information  given, and not see the problem. 
+See the your method Recipes::select().</p>
+
+<p>Greetings
+Ramon</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Webdevilopers (tridem) on 2010-12-15T03:34:40.000+0000</p> 
+        <div class="body">
+            <p>You are right Ramon, I forgot to add Zend_Db_Table_Abstract::SELECT_WITH_FROM_PART in my dbTable!</p>
+
+<p>Could you just remove it from your code to test my example with and without the echo?
+So my wring dbTable was looking like this:</p>
+
+<pre class="highlight"><code>
+    public function select() {
+        $select = parent::select(); // missing Zend_Db_Table_Abstract::SELECT_WITH_FROM_PART
+        $select-&gt;where('deleteDate ?', new Zend_Db_Expr('IS NULL'));
+        $select-&gt;where('basic = 0');
+        return $select;
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+$select = $this-&gt;getDbTable()
+            #-&gt;select(Zend_Db_Table_Abstract::SELECT_WITH_FROM_PART)
+            -&gt;select(true)
+            -&gt;setIntegrityCheck(false);
+            
+        echo $select; // different query result when adding?!
+            
+        $select-&gt;join('typesToRecipe',
+            'recipes.id = typesToRecipe.recipeId'
+            ,array()
+            );
+
+        echo $select;exit;
+        return $select;
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,130 @@
+diff -ru Amf.svn/Parse/Amf0/Serializer.php Amf.new/Parse/Amf0/Serializer.php
+--- Amf.svn/Parse/Amf0/Serializer.php	2009-09-02 12:35:34.000000000 -0500
++++ Amf.new/Parse/Amf0/Serializer.php	2009-09-02 13:46:49.000000000 -0500
+@@ -119,7 +119,7 @@
+                 case (is_bool($data)):
+                     $markerType = Zend_Amf_Constants::AMF0_BOOLEAN;
+                     break;
+-                case (is_string($data) && (strlen($data) > 65536)):
++                case (is_string($data) && (($this->_mbStringFunctionsOverloaded ? mb_strlen($data, '8bit') : strlen($data)) > 65536)):
+                     $markerType = Zend_Amf_Constants::AMF0_LONGSTRING;
+                     break;
+                 case (is_string($data)):
+diff -ru Amf.svn/Parse/Amf3/Serializer.php Amf.new/Parse/Amf3/Serializer.php
+--- Amf.svn/Parse/Amf3/Serializer.php	2009-09-02 12:35:34.000000000 -0500
++++ Amf.new/Parse/Amf3/Serializer.php	2009-09-02 13:28:27.000000000 -0500
+@@ -199,7 +199,7 @@
+      * @return Zend_Amf_Parse_Amf3_Serializer
+      */
+     protected function writeBinaryString($string){
+-        $ref = strlen($string) << 1 | 0x01;
++        $ref = ($this->_mbStringFunctionsOverloaded ? mb_strlen($string, '8bit') : strlen($string)) << 1 | 0x01;
+         $this->writeInteger($ref);
+         $this->_stream->writeBytes($string);
+ 
+@@ -214,7 +214,7 @@
+      */
+     public function writeString($string)
+     {
+-        $len = strlen($string);
++        $len = $this->_mbStringFunctionsOverloaded ? mb_strlen($string, '8bit') : strlen($string);
+         if(!$len){
+             $this->writeInteger(0x01);
+             return $this;
+diff -ru Amf.svn/Parse/Serializer.php Amf.new/Parse/Serializer.php
+--- Amf.svn/Parse/Serializer.php	2009-09-02 12:35:34.000000000 -0500
++++ Amf.new/Parse/Serializer.php	2009-09-02 13:27:14.000000000 -0500
+@@ -38,6 +38,11 @@
+     protected $_stream;
+ 
+     /**
++     * @var bool mbstring.func_overload str functions?
++     */
++    protected $_mbStringFunctionsOverloaded;
++
++    /**
+      * Constructor
+      *
+      * @param  Zend_Amf_Parse_OutputStream $stream
+@@ -46,6 +51,7 @@
+     public function __construct(Zend_Amf_Parse_OutputStream $stream)
+     {
+         $this->_stream = $stream;
++        $this->_mbStringFunctionsOverloaded = function_exists('mb_strlen') && (ini_get('mbstring.func_overload') !== '') && ((int)ini_get('mbstring.func_overload') & 2);
+     }
+ 
+     /**
+diff -ru Amf.svn/Util/BinaryStream.php Amf.new/Util/BinaryStream.php
+--- Amf.svn/Util/BinaryStream.php	2009-09-02 12:35:34.000000000 -0500
++++ Amf.new/Util/BinaryStream.php	2009-09-02 13:15:47.000000000 -0500
+@@ -41,6 +41,11 @@
+     protected $_streamLength;
+ 
+     /**
++     * @var bool mbstring.func_overload str functions?
++     */
++    protected $_mbStringFunctionsOverloaded;
++
++    /**
+      * @var bool BigEndian encoding?
+      */
+     protected $_bigEndian;
+@@ -67,11 +72,12 @@
+             throw new Zend_Amf_Exception('Inputdata is not of type String');
+         }
+ 
+-        $this->_stream       = $stream;
+-        $this->_needle       = 0;
+-        $this->_streamLength = strlen($stream);
+-        $testEndian          = unpack("C*", pack("S*", 256));
+-        $this->_bigEndian    = 1;
++        $this->_mbStringFunctionsOverloaded = function_exists('mb_strlen') && (ini_get('mbstring.func_overload') !== '') && ((int)ini_get('mbstring.func_overload') & 2);
++        $this->_stream                      = $stream;
++        $this->_needle                      = 0;
++        $this->_streamLength                = $this->_mbStringFunctionsOverloaded ? mb_strlen($stream, '8bit') : strlen($stream);
++        $testEndian                         = unpack("C*", pack("S*", 256));
++        $this->_bigEndian                   = 1;
+     }
+ 
+     /**
+@@ -94,11 +100,11 @@
+      */
+     public function readBytes($length)
+     {
+-        if (($length + $this->_needle) > strlen($this->_stream)) {
++        if (($length + $this->_needle) > ($this->_mbStringFunctionsOverloaded ? mb_strlen($this->_stream, '8bit') : strlen($this->_stream))) {
+             require_once 'Zend/Amf/Exception.php';
+             throw new Zend_Amf_Exception("Buffer underrun at needle position: " . $this->_needle . " while requesting length: " . $length);
+         }
+-        $bytes = substr($this->_stream, $this->_needle, $length);
++        $bytes = $this->_mbStringFunctionsOverloaded ? mb_substr($this->_stream, $this->_needle, $length, '8bit') : substr($this->_stream, $this->_needle, $length);
+         $this->_needle += $length;
+         return $bytes;
+     }
+@@ -182,7 +188,7 @@
+      */
+     public function writeUtf($stream)
+     {
+-        $this->writeInt(strlen($stream));
++        $this->writeInt($this->_mbStringFunctionsOverloaded ? mb_strlen($stream, '8bit') : strlen($stream));
+         $this->_stream .= $stream;
+         return $this;
+     }
+@@ -207,7 +213,7 @@
+      */
+     public function writeLongUtf($stream)
+     {
+-        $this->writeLong(strlen($stream));
++        $this->writeLong($this->_mbStringFunctionsOverloaded ? mb_strlen($stream, '8bit') : strlen($stream));
+         $this->_stream .= $stream;
+     }
+ 
+@@ -255,7 +261,7 @@
+      */
+     public function readDouble()
+     {
+-        $bytes          = substr($this->_stream, $this->_needle, 8);
++        $bytes          = $this->_mbStringFunctionsOverloaded ? mb_substr($this->_stream, $this->_needle, 8, '8bit') : substr($this->_stream, $this->_needle, 8);
+         $this->_needle += 8;
+         $double         = unpack("dflt", strrev($bytes));
+         return $double['flt'];

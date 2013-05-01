@@ -1,0 +1,175 @@
+<h2>ZF-5572: Validation of Backend parameters performed by private static methods in Frontend - can't override</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-17T08:06:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-02-11T09:31:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've been working around this for a while using Adapters, but it's always causing problems. Essentially, the Frontend dictates validity for Cache IDs and other parameters for its Backends. This prevents custom backends from using alternative IDs as the need arises. Since the validation is additionally preserved in private static methods (see Zend_Cache_Core) they cannot be overridden. Here's a simple example of how to bypass the Frontend validation using an Adapter:</p>
+
+<pre class="highlight"><code> 
+class ZFExt_Cache_Backend_Static_Adapter
+{
+
+    protected $_cache = null;
+
+    public function __construct(Zend_Cache_Core $cache)
+    {
+        $this-&gt;_cache = $cache;
+    }
+
+    public function load($id)
+    {
+        $id = $this-&gt;_encodeId($id);
+        $this-&gt;__call('load', array($id));
+    }
+
+    public function test($id)
+    {
+        $id = $this-&gt;_encodeId($id);
+        $this-&gt;__call('test', array($id));
+    }
+
+    public function save($data, $id, $tags = array(), $specificLifetime = false)
+    {
+        $id = $this-&gt;_encodeId($id);
+        $this-&gt;__call('save', array($data, $id, $tags, $specificLifetime));
+    }
+
+    public function remove($id)
+    {
+        $id = $this-&gt;_encodeId($id);
+        $this-&gt;__call('remove', array($id));
+    }
+
+    public function __call($method, array $args)
+    {
+        return call_user_func_array(array($this-&gt;_cache, $method), $args);
+    }
+
+    public function removeRecursive($id) {
+        $this-&gt;_cache-&gt;getBackend()-&gt;removeRecursive($id);
+    }
+
+    protected function _encodeId($id) {
+        return bin2hex($id); // encode path to alphanumeric hexadecimal
+    }
+}
+</code></pre>
+
+<p>Moving validation closer to the Backend and allowing it to be altered would make customised backends that bit easier to work on.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2009-02-01T00:52:58.000+0000</p> 
+        <div class="body">
+            <p>I prefer to keep "id" as simple strings (KISS philosophy).</p>
+
+<p>If you need some complex ids, just serialize them and transform them into strings with md5() for example</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-02-02T03:41:02.000+0000</p> 
+        <div class="body">
+            <p>Hi Fabien,</p>
+
+<p>I think you misunderstood the intent of the improvement request, so allow me to elaborate in a bit more detail. I completely agree that in most cases, a simple string is a sufficient id (no argument there!).</p>
+
+<p>The problem arises when you need something more than a simple string because the raw ID is, in and of itself, meaningful data. A typical example is when caching pages into static files or memcached. In either case, the only meaningful id is the REQUEST_URI value. Having to apply MD5 to this defeats the purpose of the ID. I will qualify that (somewhat) by noting it can still work with MD5 ids, but it complicates matters by requiring extra programming within the HTTP server using Perl (or some other means) which diverges from KISS by requiring such additional work.</p>
+
+<p>I'm not suggesting that the current validation be completed omitted, however. I'm suggesting a refactoring of the validation logic to move it within Zend_Cache_Backend as protected methods. This would leave the current behaviour completely unaffected with one difference - custom Backends could replace the default validation methods with something better suited to their goals if needed.</p>
+
+<p>Since I'm working on a Zend_Cache_Backend_Static proposal (hence this issue :)), I performed such a refactoring already to see what it required and to ensure it passed all current Zend_Cache unit tests (unmodified) without problems. You can find the source and tests here:
+<a href="http://github.com/padraic/zfcache/tree/master">http://github.com/padraic/zfcache/tree/master</a></p>
+
+<p>It would be really great if you could take a look at what was involved in the refactoring - it's not a lot really - and reconsider this issue. The alternative for my own proposal is implementing a hackish Adapter to forcefully encode/decode IDs on each side of Zend_Cache_Core along with some even muddier edge case handling. I'd really like to avoid that if possible.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2009-02-05T10:19:06.000+0000</p> 
+        <div class="body">
+            <p>I'm really sorry but I don't want to change this behaviour until next major release.</p>
+
+<p>The "id" is used by the backend but it's a part of frontend APIs.</p>
+
+<p>I prefer a KISS API with "low coupling" between core/frontends and backends.</p>
+
+<p>I'm really sorry because your proposal is good on a technical point of vue. But i'ts a philosophic issue for me.</p>
+
+<p>IMHO, md5() the REQUEST_URI is a good option (it's already done in the Page Frontend).</p>
+
+<p>By the way, I looked on your repository but I didn't found your Zend_Cache_Backend_Static ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-02-11T06:09:45.000+0000</p> 
+        <div class="body">
+            <p>Hi Fabien,</p>
+
+<p>Thanks for taking the time to address the issue. I'm looking into ways of working around the problem for now. Should be noted that MD5 hashing doesn't solve it here - the point is that cache hits should occur without PHP ever being touched. The only inbound programming opportunity would be the HTTP server itself - and while that's possible, it's not something I'd like to impose on users.</p>
+
+<p>I understand your objections but, with respect, there are no unit tests covering the behaviour you want to preserve. Hopefully this can be fixed for 2.0 because I'm about to create a horribly fudged workaround to keep the proposals alive.</p>
+
+<p>In any case, I'd love to hear your opinion on the proposals in a few weeks once they've progressed a bit more.</p>
+
+<p>Paddy</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2009-02-11T09:31:18.000+0000</p> 
+        <div class="body">
+            <p>please send me directly an email when you will have some code to show</p>
+
+<p>but don't forget that you won't never do better than apache mod_cache</p>
+
+        </div>
+    </div>
+    </div>
+

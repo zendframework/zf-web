@@ -1,0 +1,225 @@
+Index: library/Zend/CodeGenerator/Php/Class.php
+===================================================================
+--- library/Zend/CodeGenerator/Php/Class.php    (revision 24297)
++++ library/Zend/CodeGenerator/Php/Class.php    (working copy)
+@@ -83,6 +83,11 @@
+      * @var array Array of properties
+      */
+     protected $_properties = null;
++
++    /**
++     * @var array Array of constants
++     */
++    protected $_constants = null;
+
+     /**
+      * @var array Array of methods
+@@ -279,6 +284,21 @@
+     }
+
+     /**
++     * setConstants()
++     *
++     * @param array $constants
++     * @return Zend_CodeGenerator_Php_Class
++     */
++    public function setConstants(Array $constants)
++    {
++        foreach ($constants as $const) {
++            $this->setConstant($const);
++        }
++
++        return $this;
++    }
++
++    /**
+      * setProperty()
+      *
+      * @param array|Zend_CodeGenerator_Php_Property $property
+@@ -296,6 +316,9 @@
+             throw new Zend_CodeGenerator_Php_Exception('setProperty() expects either an array of property options or an instance of Zend_CodeGenerator_Php_Property');
+         }
+
++        if ($property->isConst()) {
++            return $this->setConstant($property);
++        }
+         if (isset($this->_properties[$propertyName])) {
+             require_once 'Zend/CodeGenerator/Php/Exception.php';
+             throw new Zend_CodeGenerator_Php_Exception('A property by name ' . $propertyName . ' already exists in this class.');
+@@ -304,7 +327,38 @@
+         $this->_properties[$propertyName] = $property;
+         return $this;
+     }
++
++    /**
++     * setConstant()
++     *
++     * @param array|Zend_CodeGenerator_Php_Property $const
++     * @return Zend_CodeGenerator_Php_Class
++     */
++    public function setConstant($const)
++    {
++        if (is_array($const)) {
++            $const = new Zend_CodeGenerator_Php_Property($const);
++            $constName = $const->getName();
++        } elseif ($const instanceof Zend_CodeGenerator_Php_Property) {
++            $constName = $const->getName();
++        } else {
++            require_once 'Zend/CodeGenerator/Php/Exception.php';
++            throw new Zend_CodeGenerator_Php_Exception('setConstant() expects either an array of property options or an instance of Zend_CodeGenerator_Php_Property');
++        }
+
++        if (!$const->isConst()) {
++            require_once 'Zend/CodeGenerator/Php/Exception.php';
++            throw new Zend_CodeGenerator_Php_Exception('setProperty() expects argument to define a constant');
++        }
++        if (isset($this->_constants[$constName])) {
++            require_once 'Zend/CodeGenerator/Php/Exception.php';
++            throw new Zend_CodeGenerator_Php_Exception('A constant by name ' . $constName . ' already exists in this class.');
++        }
++
++        $this->_constants[$constName] = $const;
++        return $this;
++    }
++
+     /**
+      * getProperties()
+      *
+@@ -316,6 +370,16 @@
+     }
+
+     /**
++     * getConstants()
++     *
++     * @return array
++     */
++    public function getConstants()
++    {
++        return $this->_constants;
++    }
++
++    /**
+      * getProperty()
+      *
+      * @param string $propertyName
+@@ -330,8 +394,24 @@
+         }
+         return false;
+     }
+-
++
+     /**
++     * getConstant()
++     *
++     * @param string $constName
++     * @return Zend_CodeGenerator_Php_Property
++     */
++    public function getConstant($constName)
++    {
++        foreach ($this->_constants as $const) {
++            if ($const->getName() == $constName) {
++                return $const;
++            }
++        }
++        return false;
++    }
++
++    /**
+      * hasProperty()
+      *
+      * @param string $propertyName
+@@ -341,8 +421,19 @@
+     {
+         return isset($this->_properties[$propertyName]);
+     }
+-
++
+     /**
++     * hasConstant()
++     *
++     * @param string $constName
++     * @return bool
++     */
++    public function hasConstant($constName)
++    {
++        return isset($this->_constants[$constName]);
++    }
++
++    /**
+      * setMethods()
+      *
+      * @param array $methods
+@@ -437,6 +528,12 @@
+             }
+         }
+
++        foreach ($this->_constants as $constant) {
++            if ($constant->isSourceDirty()) {
++                return true;
++            }
++        }
++
+         foreach ($this->_methods as $method) {
+             if ($method->isSourceDirty()) {
+                 return true;
+@@ -481,6 +578,13 @@
+
+         $output .= self::LINE_FEED . '{' . self::LINE_FEED . self::LINE_FEED;
+
++        $constants = $this->getConstants();
++        if (!empty($constants)) {
++            foreach ($constants as $const) {
++                $output .= $const->generate() . self::LINE_FEED . self::LINE_FEED;
++            }
++        }
++
+         $properties = $this->getProperties();
+         if (!empty($properties)) {
+             foreach ($properties as $property) {
+@@ -507,6 +611,7 @@
+     protected function _init()
+     {
+         $this->_properties = new Zend_CodeGenerator_Php_Member_Container(Zend_CodeGenerator_Php_Member_Container::TYPE_PROPERTY);
++        $this->_constants = new Zend_CodeGenerator_Php_Member_Container(Zend_CodeGenerator_Php_Member_Container::TYPE_PROPERTY);
+         $this->_methods = new Zend_CodeGenerator_Php_Member_Container(Zend_CodeGenerator_Php_Member_Container::TYPE_METHOD);
+     }
+
+Index: tests/Zend/CodeGenerator/Php/ClassTest.php
+===================================================================
+--- tests/Zend/CodeGenerator/Php/ClassTest.php  (revision 24297)
++++ tests/Zend/CodeGenerator/Php/ClassTest.php  (working copy)
+@@ -309,4 +309,34 @@
+ CODE;
+         $this->assertEquals( $expected, $codeGenClass->generate() );
+     }
++
++    /**
++     * @group ZF-11513
++     */
++    public function testAllowsClassConstantToHaveSameNameAsClassProperty()
++    {
++        $const = new Zend_CodeGenerator_Php_Property();
++        $const->setName('name')->setDefaultValue('constant')->setConst(true);
++
++        $property = new Zend_CodeGenerator_Php_Property();
++        $property->setName('name')->setDefaultValue('property');
++
++        $codeGenClass = new Zend_CodeGenerator_Php_Class();
++        $codeGenClass->setName('My_Class')->setProperties(array($const, $property));
++
++        $expected = <<<CODE
++class My_Class
++{
++
++    const name = 'constant';
++
++    public \$name = 'property';
++
++
+ }
++
++CODE;
++        $this->assertEquals( $expected, $codeGenClass->generate() );
++    }
++
++}

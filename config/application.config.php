@@ -15,6 +15,7 @@ return array(
         'PageController',
         'Changelog',
         'Downloads',
+        'Issues',
         'Manual',
         // 'Search',
         'Security',

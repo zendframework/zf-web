@@ -1,0 +1,194 @@
+<h2>ZF-11033: setDefaultTranslator() should accept Zend_Translate_Adapter, not just Zend_Translate</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-04T02:17:36.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-04T02:30:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alexander Grimalovsky (flying)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller_Router</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Controller_Router_Route::setDefaultTranslator() currently accepts only Zend_Translate objects. However there is several reasons for it to accept also Zend_Translate_Adapter (or only Zend_Translate_Adapter):</p>
+
+<ol><li>All actual functionality of Zend_Translate component is implemented by Zend_Translate_Adapter</li>
+<li>Same methods in other components (Zend_Form::setDefaultTranslator() and Zend_Validate::setDefaultTranslator()) accepts both Zend_Translate and Zend_Translate_Adapter as argument</li>
+<li>It is not possible to get Zend_Translate object from Zend_Translate_Adapter so it is not possible to set default translator for router in a case if we have only instance of Zend_Translate_Adapter.</li>
+</ol>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexander Grimalovsky (flying) on 2011-02-04T02:20:33.000+0000</p> 
+        <div class="body">
+            <p>Unable to find how to attach file to report, here is patch for v1.11.3 with proposed fix for this issue.</p>
+
+<p>--- Zend/Controller/Router/Route.php    Thu Jan 20 17:04:57 2011
++++ Zend/Controller/Router/Route.php    Fri Feb 04 13:14:26 2011
+@@ -34,14 +34,14 @@
+     /**
+      * Default translator
+      *
+-     * @var Zend_Translate
++     * @var Zend_Translate_Adapter
+      */
+     protected static $_defaultTranslator;</p>
+
+<pre><code> /**
+  * Translator
+  *
+</code></pre>
+
+<p>-     * @var Zend_Translate
++     * @var Zend_Translate_Adapter
+      */
+     protected $_translator;</p>
+
+<p>@@ -150,14 +150,14 @@
+      * @param string $route Map used to match with later submitted URL path
+      * @param array $defaults Defaults for map variables with keys as variable names
+      * @param array $reqs Regular expression requirements for variables (keys as variable names)
+-     * @param Zend_Translate $translator Translator to use for this instance
++     * @param Zend_Translate|Zend_Translate_Adapter $translator Translator to use for this instance
+      */
+-    public function __construct($route, $defaults = array(), $reqs = array(), Zend_Translate $translator = null, $locale = null)
++    public function __construct($route, $defaults = array(), $reqs = array(), $translator = null, $locale = null)
+     {
+         $route               = trim($route, $this-&gt;_urlDelimiter);
+         $this-&gt;_defaults     = (array) $defaults;
+         $this-&gt;_requirements = (array) $reqs;
+-        $this-&gt;_translator   = $translator;
++        $this-&gt;setTranslator($translator);
+         $this-&gt;_locale       = $locale;</p>
+
+<pre><code>     if ($route !== '') {
+</code></pre>
+
+<p>@@ -439,18 +439,27 @@
+     /**
+      * Set a default translator
+      *
+-     * @param  Zend_Translate $translator
++     * @param  Zend_Translate|Zend_Translate_Adapter|null $translator
+      * @return void
+      */
+-    public static function setDefaultTranslator(Zend_Translate $translator = null)
++    public static function setDefaultTranslator($translator = null)
+     {
+-        self::$_defaultTranslator = $translator;
++        if (null === $translator) {
++            self::$_defaultTranslator = null;
++        } elseif ($translator instanceof Zend_Translate_Adapter) {
++            self::$_defaultTranslator = $translator;
++        } elseif ($translator instanceof Zend_Translate) {
++            self::$_defaultTranslator = $translator-&gt;getAdapter();
++        } else {
++            require_once 'Zend/Controller/Router/Exception.php';
++            throw new Zend_Controller_Router_Exception('Invalid translator specified');
++        }
+     }</p>
+
+<pre><code> /**
+  * Get the default translator
+  *
+</code></pre>
+
+<p>-     * @return Zend_Translate
++     * @return Zend_Translate_Adapter
+      */
+     public static function getDefaultTranslator()
+     {
+@@ -460,19 +469,26 @@
+     /**
+      * Set a translator
+      *
+-     * @param  Zend_Translate $translator
++     * @param  Zend_Translate|Zend_Translate_Adapter $translator
+      * @return void
+      */
+-    public function setTranslator(Zend_Translate $translator)
++    public function setTranslator($translator)
+     {
+-        $this-&gt;_translator = $translator;
++        if ($translator instanceof Zend_Translate_Adapter) {
++            $this-&gt;_translator = $translator;
++        } elseif ($translator instanceof Zend_Translate) {
++            $this-&gt;_translator = $translator-&gt;getAdapter();
++        } else {
++            require_once 'Zend/Controller/Router/Exception.php';
++            throw new Zend_Controller_Router_Exception('Invalid translator specified');
++        }
+     }</p>
+
+<pre><code> /**
+  * Get the translator
+  *
+  * @throws Zend_Controller_Router_Exception When no translator can be found
+</code></pre>
+
+<p>-     * @return Zend_Translate
++     * @return Zend_Translate_Adapter
+      */
+     public function getTranslator()
+     {
+@@ -487,8 +503,10 @@
+                 $translator = null;
+             }</p>
+
+<ul><li>if ($translator instanceof Zend_Translate) {</li>
+<li>if ($translator instanceof Zend_Translate_Adapter) {
+             return $translator;</li>
+<li>} elseif ($translator instanceof Zend_Translate) {</li>
+<li>return $translator-&gt;getAdapter();
+         }
+     }</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Grimalovsky (flying) on 2011-02-04T02:30:03.000+0000</p> 
+        <div class="body">
+            <p>Adding patch as a comment also didn't work well, so here is link to patch file:
+<a href="http://dl.dropbox.com/u/7763774/Route.patch">http://dl.dropbox.com/u/7763774/Route.patch</a></p>
+
+        </div>
+    </div>
+    </div>
+

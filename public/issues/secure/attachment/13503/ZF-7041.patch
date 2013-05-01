@@ -1,0 +1,391 @@
+Index: library/Zend/Db/Adapter/Mysqli.php
+===================================================================
+--- library/Zend/Db/Adapter/Mysqli.php	(revision 23450)
++++ library/Zend/Db/Adapter/Mysqli.php	(working copy)
+@@ -221,18 +221,19 @@
+             $row = array_merge($row_defaults, $row);
+             if (preg_match('/unsigned/', $row['Type'])) {
+                 $row['Unsigned'] = true;
++                $row['Type'] = preg_replace('/\s*unsigned/', '', $row['Type']);
+             }
+-            if (preg_match('/^((?:var)?char)\((\d+)\)/', $row['Type'], $matches)) {
++            if (preg_match('/^(bit|year|(?:var)?(?:char|binary))\((\d+)\)/', $row['Type'], $matches)) {
+                 $row['Type'] = $matches[1];
+                 $row['Length'] = $matches[2];
+-            } else if (preg_match('/^decimal\((\d+),(\d+)\)/', $row['Type'], $matches)) {
+-                $row['Type'] = 'decimal';
+-                $row['Precision'] = $matches[1];
+-                $row['Scale'] = $matches[2];
+-            } else if (preg_match('/^float\((\d+),(\d+)\)/', $row['Type'], $matches)) {
+-                $row['Type'] = 'float';
+-                $row['Precision'] = $matches[1];
+-                $row['Scale'] = $matches[2];
++                // the optional argument of a MySQL year type is the format (length)
++                // and it can be 2 or 4.
++                // the optional argument of a MySQL bit type indicates the number 
++                // of bits per value, from 1 to 64.
++            } else if (preg_match('/^(decimal|numeric|float|double|real)\((\d+),(\d+)\)/', $row['Type'], $matches)) {
++                $row['Type'] = $matches[1];
++                $row['Precision'] = $matches[2];
++                $row['Scale'] = $matches[3];
+             } else if (preg_match('/^((?:big|medium|small|tiny)?int)\((\d+)\)/', $row['Type'], $matches)) {
+                 $row['Type'] = $matches[1];
+                 /**
+Index: library/Zend/Db/Adapter/Pdo/Mysql.php
+===================================================================
+--- library/Zend/Db/Adapter/Pdo/Mysql.php	(revision 23450)
++++ library/Zend/Db/Adapter/Pdo/Mysql.php	(working copy)
+@@ -173,18 +173,19 @@
+                 = array(null, null, null, null, false, null, false);
+             if (preg_match('/unsigned/', $row[$type])) {
+                 $unsigned = true;
++                $row[$type] = preg_replace('/\s*unsigned/', '', $row[$type]);
+             }
+-            if (preg_match('/^((?:var)?char)\((\d+)\)/', $row[$type], $matches)) {
++            if (preg_match('/^(bit|year|(?:var)?(?:char|binary))\((\d+)\)/', $row[$type], $matches)) {
+                 $row[$type] = $matches[1];
+                 $length = $matches[2];
+-            } else if (preg_match('/^decimal\((\d+),(\d+)\)/', $row[$type], $matches)) {
+-                $row[$type] = 'decimal';
+-                $precision = $matches[1];
+-                $scale = $matches[2];
+-            } else if (preg_match('/^float\((\d+),(\d+)\)/', $row[$type], $matches)) {
+-                $row[$type] = 'float';
+-                $precision = $matches[1];
+-                $scale = $matches[2];
++                // the optional argument of a MySQL year type is the format (length)
++                // and it can be 2 or 4.
++                // the optional argument of a MySQL bit type indicates the number 
++                // of bits per value, from 1 to 64.
++            } else if (preg_match('/^(decimal|numeric|float|double|real)\((\d+),(\d+)\)/', $row[$type], $matches)) {
++                $row[$type] = $matches[1];
++                $precision = $matches[2];
++                $scale = $matches[3];
+             } else if (preg_match('/^((?:big|medium|small|tiny)?int)\((\d+)\)/', $row[$type], $matches)) {
+                 $row[$type] = $matches[1];
+                 // The optional argument of a MySQL int type is not precision
+Index: library/Zend/Db/Adapter/Pdo/Sqlite.php
+===================================================================
+--- library/Zend/Db/Adapter/Pdo/Sqlite.php	(revision 23450)
++++ library/Zend/Db/Adapter/Pdo/Sqlite.php	(working copy)
+@@ -225,14 +225,23 @@
+         foreach ($result as $key => $row) {
+             list($length, $scale, $precision, $primary, $primaryPosition, $identity) =
+                 array(null, null, null, false, null, false);
+-            if (preg_match('/^((?:var)?char)\((\d+)\)/i', $row[$type], $matches)) {
++            // Sqlite3 does not support unsigned data - all numeric data are signed
++            // so $row[$type] is just cleaned for this information if contains 'unsigned' 
++            $row[$type] = preg_replace('/\s*unsigned/i', '', $row[$type]);
++            if (preg_match('/^((?:native |varying )?character|(?:n|nvar|var)?char)\((\d+)\)/i', $row[$type], $matches)) {
+                 $row[$type] = $matches[1];
+                 $length = $matches[2];
+-            } else if (preg_match('/^decimal\((\d+),(\d+)\)/i', $row[$type], $matches)) {
+-                $row[$type] = 'DECIMAL';
+-                $precision = $matches[1];
+-                $scale = $matches[2];
++            } else if (preg_match('/^(decimal|numeric|float|double|real)\((\d+),(\d+)\)/i', $row[$type], $matches)) {
++                $row[$type] = $matches[1];
++                $precision = $matches[2];
++                $scale = $matches[3];
++            } else if (preg_match('/^(integer|(?:big|medium|small|tiny)?int)\((\d+)\)/i', $row[$type], $matches)) {
++                $row[$type] = $matches[1];
++                // The optional argument of a MySQL int type is not precision
++                // or length; it is only a hint for display width.
+             }
++            // @todo affinity dependent parsing: 
++            // in Sqlite3 for the user defined types the affinity is NUMERIC.
+             if ((bool) $row[$pk]) {
+                 $primary = true;
+                 $primaryPosition = $p;
+Index: tests/Zend/Db/Adapter/MysqliTest.php
+===================================================================
+--- tests/Zend/Db/Adapter/MysqliTest.php	(revision 23450)
++++ tests/Zend/Db/Adapter/MysqliTest.php	(working copy)
+@@ -236,6 +236,69 @@
+         $this->assertEquals('zfprice',  $desc['price']['TABLE_NAME']);
+         $this->assertRegExp('/float/i', $desc['price']['DATA_TYPE']);
+     }
++    
++    /**
++     * Ensures that describeTable() returns correct types
++     * 
++     * @group 	ZF-7041
++     * @link	http://framework.zend.com/issues/browse/ZF-7041
++     */
++    public function testZF7041()
++    {
++        $desc = $this->_db->describeTable('zffieldtypes');
++        $this->assertEquals('int',       $desc['integer_5']['DATA_TYPE']);
++        $this->assertNULL(               $desc['integer_5']['PRECISION']);
++        $this->assertNULL(               $desc['integer_5']['SCALE']);
++        $this->assertEquals('bigint',    $desc['bigint_u']['DATA_TYPE']);
++        $this->assertTrue(               $desc['bigint_u']['UNSIGNED']);
++        $this->assertNULL(               $desc['bigint_u']['PRECISION']);
++        $this->assertNULL(               $desc['bigint_u']['SCALE']);
++        // In MySQL, NUMERIC is implemented as DECIMAL.
++        $this->assertEquals('decimal',   $desc['numeric_10_3']['DATA_TYPE']); 
++        $this->assertEquals('10',        $desc['numeric_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['numeric_10_3']['SCALE']);
++        $this->assertEquals('decimal',   $desc['decimal_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['decimal_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['decimal_10_3']['SCALE']);
++        $this->assertEquals('float',     $desc['float_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['float_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['float_10_3']['SCALE']);
++        // MySQL also treats REAL as a synonym for DOUBLE, unless the REAL_AS_FLOAT SQL mode is enabled.
++        $this->assertEquals('double',    $desc['real_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['real_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['real_10_3']['SCALE']);
++        $this->assertEquals('double',    $desc['double_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['double_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['double_10_3']['SCALE']);
++        $this->assertEquals('decimal',   $desc['decimal_only']['DATA_TYPE']);
++        // MySQL default precision for DECIMAL is 10 and scale is 0.
++        $this->assertEquals('10',        $desc['decimal_only']['PRECISION']);
++        $this->assertEquals('0',         $desc['decimal_only']['SCALE']);
++        $this->assertEquals('float',     $desc['float_only']['DATA_TYPE']);
++        $this->assertNULL(               $desc['float_only']['PRECISION']);
++        $this->assertNULL(               $desc['float_only']['SCALE']);
++        $this->assertEquals('float',     $desc['float_u']['DATA_TYPE']);
++        $this->assertTrue(               $desc['float_u']['UNSIGNED']);
++        $this->assertNULL(               $desc['float_u']['PRECISION']);
++        $this->assertNULL(               $desc['float_u']['SCALE']);
++        $this->assertEquals('varbinary', $desc['varbinary_100']['DATA_TYPE']);
++        $this->assertEquals('100',       $desc['varbinary_100']['LENGTH']);
++        $this->assertEquals('binary',    $desc['binary_100']['DATA_TYPE']);
++        $this->assertEquals('100',       $desc['binary_100']['LENGTH']);
++        $this->assertEquals('binary',    $desc['binary_only']['DATA_TYPE']);
++        // MySQL default argument for BINARY is 1.
++        $this->assertEquals('1',         $desc['binary_only']['LENGTH']);
++        $this->assertEquals('bit',       $desc['bit_50']['DATA_TYPE']);
++        $this->assertEquals('50',        $desc['bit_50']['LENGTH']);
++        $this->assertEquals('bit',       $desc['bit_only']['DATA_TYPE']);
++        // MySQL default argument for BIT is 1.
++        $this->assertEquals('1',         $desc['bit_only']['LENGTH']);
++        $this->assertEquals('year',      $desc['year_2']['DATA_TYPE']);
++        $this->assertEquals('2',         $desc['year_2']['LENGTH']);
++        $this->assertEquals('year',      $desc['year_only']['DATA_TYPE']);
++        // MySQL default argument for YEAR is 4.
++        $this->assertEquals('4',         $desc['year_only']['LENGTH']);
++    }
+ 
+     /**
+      * Ensures that the PDO Buffered Query does not throw the error
+Index: tests/Zend/Db/Adapter/Pdo/MysqlTest.php
+===================================================================
+--- tests/Zend/Db/Adapter/Pdo/MysqlTest.php	(revision 23450)
++++ tests/Zend/Db/Adapter/Pdo/MysqlTest.php	(working copy)
+@@ -253,6 +253,69 @@
+     }
+ 
+     /**
++     * Ensures that describeTable() returns correct types
++     * 
++     * @group 	ZF-7041
++     * @link	http://framework.zend.com/issues/browse/ZF-7041
++     */
++    public function testZF7041()
++    {
++        $desc = $this->_db->describeTable('zffieldtypes');
++        $this->assertEquals('int',       $desc['integer_5']['DATA_TYPE']);
++        $this->assertNULL(               $desc['integer_5']['PRECISION']);
++        $this->assertNULL(               $desc['integer_5']['SCALE']);
++        $this->assertEquals('bigint',    $desc['bigint_u']['DATA_TYPE']);
++        $this->assertTrue(               $desc['bigint_u']['UNSIGNED']);
++        $this->assertNULL(               $desc['bigint_u']['PRECISION']);
++        $this->assertNULL(               $desc['bigint_u']['SCALE']);
++        // In MySQL, NUMERIC is implemented as DECIMAL.
++        $this->assertEquals('decimal',   $desc['numeric_10_3']['DATA_TYPE']); 
++        $this->assertEquals('10',        $desc['numeric_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['numeric_10_3']['SCALE']);
++        $this->assertEquals('decimal',   $desc['decimal_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['decimal_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['decimal_10_3']['SCALE']);
++        $this->assertEquals('float',     $desc['float_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['float_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['float_10_3']['SCALE']);
++        // MySQL also treats REAL as a synonym for DOUBLE, unless the REAL_AS_FLOAT SQL mode is enabled.
++        $this->assertEquals('double',    $desc['real_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['real_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['real_10_3']['SCALE']);
++        $this->assertEquals('double',    $desc['double_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['double_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['double_10_3']['SCALE']);
++        $this->assertEquals('decimal',   $desc['decimal_only']['DATA_TYPE']);
++        // MySQL default precision for DECIMAL is 10 and scale is 0.
++        $this->assertEquals('10',        $desc['decimal_only']['PRECISION']);
++        $this->assertEquals('0',         $desc['decimal_only']['SCALE']);
++        $this->assertEquals('float',     $desc['float_only']['DATA_TYPE']);
++        $this->assertNULL(               $desc['float_only']['PRECISION']);
++        $this->assertNULL(               $desc['float_only']['SCALE']);
++        $this->assertEquals('float',     $desc['float_u']['DATA_TYPE']);
++        $this->assertTrue(               $desc['float_u']['UNSIGNED']);
++        $this->assertNULL(               $desc['float_u']['PRECISION']);
++        $this->assertNULL(               $desc['float_u']['SCALE']);
++        $this->assertEquals('varbinary', $desc['varbinary_100']['DATA_TYPE']);
++        $this->assertEquals('100',       $desc['varbinary_100']['LENGTH']);
++        $this->assertEquals('binary',    $desc['binary_100']['DATA_TYPE']);
++        $this->assertEquals('100',       $desc['binary_100']['LENGTH']);
++        $this->assertEquals('binary',    $desc['binary_only']['DATA_TYPE']);
++        // MySQL default argument for BINARY is 1.
++        $this->assertEquals('1',         $desc['binary_only']['LENGTH']);
++        $this->assertEquals('bit',       $desc['bit_50']['DATA_TYPE']);
++        $this->assertEquals('50',        $desc['bit_50']['LENGTH']);
++        $this->assertEquals('bit',       $desc['bit_only']['DATA_TYPE']);
++        // MySQL default argument for BIT is 1.
++        $this->assertEquals('1',         $desc['bit_only']['LENGTH']);
++        $this->assertEquals('year',      $desc['year_2']['DATA_TYPE']);
++        $this->assertEquals('2',         $desc['year_2']['LENGTH']);
++        $this->assertEquals('year',      $desc['year_only']['DATA_TYPE']);
++        // MySQL default argument for YEAR is 4.
++        $this->assertEquals('4',         $desc['year_only']['LENGTH']);
++    }
++    
++    /**
+      * test that quoteTableAs() accepts a string and an alias,
+      * and returns each as delimited identifiers.
+      * Most RDBMS want an 'AS' in between.
+Index: tests/Zend/Db/Adapter/Pdo/SqliteTest.php
+===================================================================
+--- tests/Zend/Db/Adapter/Pdo/SqliteTest.php	(revision 23450)
++++ tests/Zend/Db/Adapter/Pdo/SqliteTest.php	(working copy)
+@@ -198,6 +198,52 @@
+         $this->assertEquals(100, $metadata['bug_description']['LENGTH']);
+         $this->assertEquals(20, $metadata['bug_status']['LENGTH']);
+     }
++    
++    /**
++     * Ensures that describeTable() returns correct types
++     * 
++     * @group 	ZF-7041
++     * @link	http://framework.zend.com/issues/browse/ZF-7041
++     */
++    public function testZF7041()
++    {
++        $desc = $this->_db->describeTable('zffieldtypes');
++        $this->assertEquals('INTEGER',   $desc['integer_5']['DATA_TYPE']);
++        $this->assertNULL(               $desc['integer_5']['PRECISION']);
++        $this->assertNULL(               $desc['integer_5']['SCALE']);
++        $this->assertEquals('BIGINT',    $desc['bigint_u']['DATA_TYPE']);
++        // Sqlite3 does not support unsigned data
++        $this->assertNULL(               $desc['bigint_u']['UNSIGNED']);
++        $this->assertNULL(               $desc['bigint_u']['PRECISION']);
++        $this->assertNULL(               $desc['bigint_u']['SCALE']);
++        $this->assertEquals('NUMERIC',   $desc['numeric_10_3']['DATA_TYPE']); 
++        $this->assertEquals('10',        $desc['numeric_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['numeric_10_3']['SCALE']);
++        $this->assertEquals('DECIMAL',   $desc['decimal_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['decimal_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['decimal_10_3']['SCALE']);
++        $this->assertEquals('FLOAT',     $desc['float_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['float_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['float_10_3']['SCALE']);
++        $this->assertEquals('REAL',      $desc['real_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['real_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['real_10_3']['SCALE']);
++        $this->assertEquals('DOUBLE',    $desc['double_10_3']['DATA_TYPE']);
++        $this->assertEquals('10',        $desc['double_10_3']['PRECISION']);
++        $this->assertEquals('3',         $desc['double_10_3']['SCALE']);
++        $this->assertEquals('DECIMAL',   $desc['decimal_only']['DATA_TYPE']);
++        $this->assertNULL(               $desc['decimal_only']['PRECISION']);
++        $this->assertNULL(               $desc['decimal_only']['SCALE']);
++        $this->assertEquals('FLOAT',     $desc['float_only']['DATA_TYPE']);
++        $this->assertNULL(               $desc['float_only']['PRECISION']);
++        $this->assertNULL(               $desc['float_only']['SCALE']);
++        $this->assertEquals('FLOAT',     $desc['float_u']['DATA_TYPE']);
++        // Sqlite3 does not support unsigned data
++        $this->assertNULL(               $desc['float_u']['UNSIGNED']);
++        $this->assertNULL(               $desc['float_u']['PRECISION']);
++        $this->assertNULL(               $desc['float_u']['SCALE']);
++        // @todo Sqlite3 *BINARY|YEAR|BIT the affinity is NUMERIC
++    }
+ 
+     public function getDriver()
+     {
+Index: tests/Zend/Db/TestUtil/Common.php
+===================================================================
+--- tests/Zend/Db/TestUtil/Common.php	(revision 23450)
++++ tests/Zend/Db/TestUtil/Common.php	(working copy)
+@@ -222,6 +222,7 @@
+         'noprimarykey'  => 'zfnoprimarykey',
+         'Documents'     => 'zfdocuments',
+         'Price'         => 'zfprice',
++        'FieldTypes'    => 'zffieldtypes',
+         'AltBugsProducts' => 'zfalt_bugs_products'
+     );
+ 
+@@ -295,6 +296,31 @@
+             'PRIMARY KEY'   => 'product_id'
+             );
+     }
++    
++    protected function _getColumnsFieldTypes()
++    {
++        return array(
++            'field_id'      => 'INTEGER NOT NULL',
++            'integer_5'     => 'INTEGER(5) NOT NULL',
++            'bigint_u'      => 'BIGINT UNSIGNED NOT NULL',
++            'decimal_10_3'  => 'DECIMAL(10,3) NOT NULL',
++            'numeric_10_3'  => 'NUMERIC(10,3) NOT NULL',
++            'float_10_3'    => 'FLOAT(10,3) NOT NULL',
++            'real_10_3'     => 'REAL(10,3) NOT NULL', 
++            'double_10_3'   => 'DOUBLE(10,3) NOT NULL',
++            'decimal_only'  => 'DECIMAL NOT NULL',
++            'float_only'    => 'FLOAT NOT NULL',
++            'float_u'       => 'FLOAT UNSIGNED NOT NULL',
++            'varbinary_100' => 'VARBINARY(100)',
++            'binary_100'    => 'BINARY(100)',
++            'binary_only'   => 'BINARY',
++            'bit_50'        => 'BIT(50)',
++            'bit_only'      => 'BIT',
++            'year_2'        => 'YEAR(2)',
++            'year_only'     => 'YEAR',
++            'PRIMARY KEY'   => 'field_id'
++        );
++    }
+ 
+     protected function _getDataAccounts()
+     {
+@@ -411,6 +437,32 @@
+             )
+         );
+     }
++    
++    protected function _getDataFieldTypes()
++    {
++        return array(
++            array(
++                'field_id'      => 1,
++                'integer_5'     => 12345,
++                'bigint_u'      => 12345,
++                'decimal_10_3'  => 200.456,
++                'numeric_10_3'  => 200.456,
++                'float_10_3'    => 200.456,
++                'real_10_3'     => 200.456, 
++                'double_10_3'   => 200.456,
++                'decimal_only'  => 200,
++                'float_only'    => 200,
++                'float_u'       => 200,
++                'varbinary_100' => 'binary content',
++                'binary_100'    => 'binary content',
++                'binary_only'   => 'b',
++                'bit_50'        => 'bit',
++                'bit_only'      => 'bit',
++                'year_2'        => '99',
++                'year_only'     => '1999'
++            )
++        );
++    }
+ 
+     public function populateTable($tableId)
+     {
+@@ -492,6 +544,9 @@
+         $this->createTable('Price');
+         $this->populateTable('Price');
+ 
++        $this->createTable('FieldTypes');
++        $this->populateTable('FieldTypes');
++
+         $this->createView();
+     }
+ 

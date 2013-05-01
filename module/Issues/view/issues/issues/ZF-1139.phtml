@@ -1,0 +1,185 @@
+<h2>ZF-1139: Enable applying user-specified callbacks to namespaces</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-26T13:56:03.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-09-19T14:19:56.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.3 (05/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Gavin (gavin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Darby Felton (darby)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10360/Namespace.patch">Namespace.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Simple operations like counting and filtering are supported indirectly via <a href="http://www.php.net/~helly/php/ext/spl/interfaceIteratorAggregate.html">{{Zend_Session_Namespace::getIterator()}}</a>.</p>
+
+<p>However, there are many other logical operations for set data types (e.g. Zend Framework session namespaces) that are not supported, including elementary "union".  Thus, if a developer has an array of key =&gt; value pairs, the developer must iterate over the entire array, setting corresponding members in the desired namespace, one pair at a time.</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Session.php';
+$namespace = new Zend_Session_Namespace('myspace'); 
+$namespace-&gt;tree = 'cherry';
+$namespace-&gt;rock = 'marble';
+$namespace-&gt;apply(
+    'array_merge',
+    array('tree' =&gt; 'apple', 'fruit' =&gt; 'peach'),
+    array('flower' =&gt; 'rose'));
+echo "After applySet(): ";
+print_r($_SESSION);
+
+$namespace-&gt;applySet(
+    'array_merge',
+    array('tree' =&gt; 'apple', 'fruit' =&gt; 'peach'),
+    array('flower' =&gt; 'rose'));
+echo "After applySet(): ";
+print_r($_SESSION);
+</code></pre>
+
+<p>Outputs:</p>
+
+<pre class="highlight"><code>
+After applySet(): Array
+(
+    [myspace] =&gt; Array
+        (
+            [tree] =&gt; cherry
+            [rock] =&gt; marble
+        )
+
+)
+After applySet(): Array
+(
+    [myspace] =&gt; Array
+        (
+            [tree] =&gt; apple
+            [rock] =&gt; marble
+            [fruit] =&gt; peach
+            [flower] =&gt; rose
+        )
+
+)
+</code></pre>
+
+<p>As an experimental patch to explore possibilities, consider the following:</p>
+
+<pre class="highlight"><code>
+Index: Namespace.php
+===================================================================
+--- Namespace.php   (revision 4225)
++++ Namespace.php   (working copy)
+@@ -255,6 +255,48 @@
+ 
+ 
+     /**
++     * apply() - enables applying user-selected function, such as array_merge() to the namespace
++     * Caveat: ignores members expiring now.
++     *
++     * Example:
++     *   $namespace-&gt;apply('array_merge', array('tree' =&gt; 'apple', 'fruit' =&gt; 'peach'), array('flower' =&gt; 'rose'));
++     *   $namespace-&gt;apply('count');
++     *
++     * @param string $callback - callback function
++     * @param mixed  OPTIONAL arguments passed to the callback function
++     */
++    public function apply($callback)
++    {
++        $arg_list = func_get_args();
++        $arg_list[0] = $_SESSION[$this-&gt;_namespace];
++        return call_user_func_array($callback, $arg_list);
++    }
++
++
++    /**
++     * applySet() - enables applying user-selected function, and sets entire namespace to the result
++     * Result of $callback must be an array. Caveat: ignores members expiring now.
++     *
++     * Example:
++     *   $namespace-&gt;applySet('array_merge', array('tree' =&gt; 'apple', 'fruit' =&gt; 'peach'), array('flower' =&gt; 'rose'));
++     *
++     * @param string $callback - callback function
++     * @param mixed  OPTIONAL arguments passed to the callback function
++     */
++    public function applySet($callback)
++    {
++        $arg_list = func_get_args();
++        $arg_list[0] = $_SESSION[$this-&gt;_namespace];
++        $result = call_user_func_array($callback, $arg_list);
++        if (!is_array($result)) {
++            throw new Zend_Session_Exception("Result must be an array. Got: " . gettype($result));
++        }
++        $_SESSION[$this-&gt;_namespace] = $result;
++        return $result;
++    }
++
++
++    /**
+      * __isset() - determine if a variable in this object's namespace is set
+      *
+      * @param string $name - programmatic name of a key, in a  pair in the current namespace
+</code></pre>
+
+<p>Cleanup of metadata associated with session variables dropped by applySet(), if any, is not done in this patch, but should be added (i.e. todo).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-26T13:57:06.000+0000</p> 
+        <div class="body">
+            <p>experimental patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-17T19:16:49.000+0000</p> 
+        <div class="body">
+            <p>Assign to Darby.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-09-19T14:19:56.000+0000</p> 
+        <div class="body">
+            <p>This patch was already applied to Zend_Session_Namespace, in <a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=4471">SVN r4471</a>. Resolving as fixed for 0.9.3.</p>
+
+        </div>
+    </div>
+    </div>
+

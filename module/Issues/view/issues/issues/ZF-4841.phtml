@@ -1,0 +1,163 @@
+<h2>ZF-4841: Zend_Form_Decorator_Label-&gt;setTag() produces invalid XHMTL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-06T14:07:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-19T10:22:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.6 (24/Nov/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Bryan C. Geraghty (archwisp)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12383/Label.patch">Label.patch</a></li>
+            <li><a href="/issues/secure/attachment/12384/LabelTest.patch">LabelTest.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Description:</p>
+
+<p>The tag "option" does not appear to be cleared properly when setTag is used and is rendered as an html property.</p>
+
+<pre class="highlight"><code>
+$start_date = new Zend_Form_Element_Text('start_date', array('label' =&gt; 'Start Date'));
+$start_date-&gt;getDecorator('label')-&gt;setTag('div');
+$form-&gt;addElement($start_date);
+</code></pre>
+
+<p>Produces:</p>
+
+<pre class="highlight"><code>
+</code></pre><div><code>Start Date</code></div><code>
+</code>
+
+<pre class="highlight"><code>
+Index: Form/Decorator/Label.php
+===================================================================
+--- Form/Decorator/Label.php    (revision 12325)
++++ Form/Decorator/Label.php    (working copy)
+@@ -289,6 +289,10 @@
+         }   
+ 
+         if (!empty($label)) {
++           if (!empty($tag) &amp;&amp; isset($options['tag'])) {
++               unset($options['tag']);
++           }
++
+             $options['class'] = $class;
+             $label = $view-&gt;formLabel($element-&gt;getFullyQualifiedName(), trim($label), $options); 
+         } else {
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michaël Perrin (sweedymick) on 2009-07-16T09:03:09.000+0000</p> 
+        <div class="body">
+            <p>I encounter this problem as well, and not only with the Label decorator. Setting a tag on an HtmlTag decorator instance will render some invalid HTML code, with the tag attribute being rendered.</p>
+
+<p>This doesn't happen when no tag is defined (the default one is used instead) because the getTag() method of the decorator (called in the render() method) will try to get this attribute from the options, set it in the object property with the setTag() method, and then explicitly remove the "tag" attribute from the options using removeOption().</p>
+
+<p>The patch I made is slightly different to yours, as the setTag() method now sets the provided tag in the options instead of the class property, and then it will be the getTag() option which will do the same job as it did. I did that to ensure that the default "dt" tag option is never used between the time the object is instantiated and the time it is rendered.</p>
+
+<pre class="highlight"><code>
+Index: Form/Decorator/Label.php
+===================================================================
+--- Form/Decorator/Label.php    (revision 13615)
++++ Form/Decorator/Label.php    (working copy)
+@@ -101,7 +101,7 @@
+         if (empty($tag)) {
+             $this-&gt;_tag = null;
+         } else {
+-            $this-&gt;_tag = (string) $tag;
++            $this-&gt;setOption('tag', (string) $tag);
+         }
+         return $this;
+     }
+@@ -117,7 +117,7 @@
+             $tag = $this-&gt;getOption('tag');
+             if (null !== $tag) {
+                 $this-&gt;removeOption('tag');
+-                $this-&gt;setTag($tag);
++                $this-&gt;_tag = $tag;
+             }
+             return $tag;
+         }
+ </code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-19T10:00:20.000+0000</p> 
+        <div class="body">
+            <p>This issue has a root cause that is not addressed by either of the fixes above.</p>
+
+<p>The getTag() method checks the options array for a tag option and correctly removes it if found. However, when there is an explicit call to setTag(), the tag option is not removed.</p>
+
+<p>If the intention is to clear the tag, this causes a problem as the getTag() method will restore the original tag from the options array if it has been supplied.</p>
+
+<p>If the intention is to change the tag, the 'tag' option is still passed to the HtmlTag decorator and rendered as an attribute.</p>
+
+<p>Since, by default, the decorator is initialised by Zend_Form_Element with a tag option of 'dt', this affects the most common use case.</p>
+
+<p>The fix is to remove the 'tag' option (if it exists) whenever setTag() is called. Patch for Label.php and LabelTest.php attached.</p>
+
+<h1>Index: Label.php</h1>
+
+<p>--- Label.php   (revision 19044)
++++ Label.php   (working copy)
+@@ -103,6 +103,8 @@
+         } else {
+             $this-&gt;_tag = (string) $tag;
+         }
++        $this-&gt;removeOption('tag');
++
+         return $this;
+     }</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-11-19T10:22:45.000+0000</p> 
+        <div class="body">
+            <p>Patch from Steve applied to trunk and 1.9 release branch.</p>
+
+        </div>
+    </div>
+    </div>
+

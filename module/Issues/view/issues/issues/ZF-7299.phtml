@@ -1,0 +1,386 @@
+<h2>ZF-7299: Zend_Paginator wrong query when getting number of results</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-17T04:46:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-30T00:09:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Hristo Angelov (hedonism)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi there,</p>
+
+<p>I have problem after Zend_Paginator tries to get the number of results.</p>
+
+<p>Here is the example:</p>
+
+<pre class="highlight"><code>
+$users = new Users();
+$rows = $users-&gt;fetchAll($select);
+</code></pre>
+
+<pre class="highlight"><code>
+SELECT
+`users`.`id`,
+`users`.`first_name`,
+`users`.`last_name`,
+`users`.`position`,
+`users`.`username`,
+`users`.`email`,
+(
+    SELECT time 
+    FROM events 
+    WHERE
+        events.target_id = users.id
+        AND
+        action = 'eventLogin'
+        AND
+        target_table = 'users'
+    ORDER BY time DESC
+    LIMIT 1
+) AS `last_login_date`, 
+(
+    SELECT time 
+    FROM events 
+    WHERE
+        events.target_id = users.id 
+        AND 
+        action = 'eventCreate' 
+        AND 
+        target_table = 'users' 
+    ORDER BY time ASC 
+    LIMIT 1
+) AS `creation_date`, 
+(
+    SELECT COUNT(id) 
+    FROM events 
+    WHERE 
+        events.target_id = users.id 
+        AND 
+        action = 'eventAccessCodesSent' 
+        AND 
+        target_table = 'users'
+) AS `access_codes_sent`, 
+IF (users.status = '1', 1, 0) AS `active`,
+`roles_translations`.`name` AS `role_name`,
+`languages_translations`.`name` AS `language_name`,
+GROUP_CONCAT(DISTINCT countries_translations.name SEPARATOR ', ') AS `countries`,
+`groups`.`name` AS `groups`,
+GROUP_CONCAT(DISTINCT branches_translations.name SEPARATOR ', ') AS `branches`,
+`media`.`name` AS `media_name`,
+`types_translations`.`title` AS `media_type`,
+`coverage_translations`.`title` AS `media_coverage`,
+GROUP_CONCAT(DISTINCT categories_translations.name SEPARATOR ', ') AS `categories` 
+
+FROM `users` 
+
+INNER JOIN `roles` 
+    ON users.role_id = roles.id AND roles.type != 7 
+LEFT JOIN `roles_translations` 
+    ON users.role_id = roles_translations.role_id 
+    AND roles_translations.language_id = 1 
+LEFT JOIN `languages_translations` 
+    ON users.language_id = languages_translations.id 
+    AND languages_translations.language_id = 1 
+LEFT JOIN `users_countries` 
+    ON users.id = users_countries.country_id 
+LEFT JOIN `countries_translations` 
+    ON users_countries.country_id = countries_translations.country_id 
+    AND countries_translations.language_id = 1 
+LEFT JOIN `users_groups` 
+    ON users.id = users_groups.user_id 
+LEFT JOIN `groups` 
+    ON users_groups.group_id = groups.id 
+LEFT JOIN `users_branches` 
+    ON users.id = users_branches.user_id 
+LEFT JOIN `branches_translations` 
+    ON users_branches.branch_id = branches_translations.branch_id 
+    AND branches_translations.language_id = 1 
+LEFT JOIN `users_media` 
+    ON users.id = users_media.user_id 
+LEFT JOIN `media` 
+    ON users_media.media_id = media.id 
+LEFT JOIN `types_translations` 
+    ON media.type_id = types_translations.type_id 
+    AND types_translations.language_id = 1 
+LEFT JOIN `coverage_translations` 
+    ON media.coverage_id = coverage_translations.coverage_id 
+    AND coverage_translations.language_id = 1 
+LEFT JOIN `users_categories` 
+    ON users.id = users_categories.user_id 
+LEFT JOIN `categories_translations` 
+    ON users_categories.category_id = categories_translations.category_id 
+    AND categories_translations.language_id = 1 
+
+WHERE (users.status != 2) 
+
+GROUP BY `users`.`id` 
+
+HAVING (creation_date &gt;= '2009-07-17')
+</code></pre>
+
+<pre class="highlight"><code>
+$paginator = new Dnez_Paginator(
+new Zend_Paginator_Adapter_DbTableSelect($select)
+);
+
+$paginator-&gt;setLimit(20, 0);
+$paginator-&gt;setItemCountPerPage(20);
+$paginator-&gt;setPageRange(5);
+</code></pre>
+
+<pre class="highlight"><code>
+SELECT
+COUNT(1) AS `zend_paginator_row_count`
+
+FROM (
+
+    SELECT
+    `users`.`id`,
+    `users`.`first_name`,
+    `users`.`last_name`, 
+    `users`.`position`, 
+    `users`.`username`, 
+    `users`.`email`, 
+    (
+        SELECT time 
+        FROM events 
+        WHERE 
+            events.target_id = users.id 
+            AND 
+            action = 'eventLogin' 
+            AND 
+            target_table = 'users' 
+        ORDER BY time DESC 
+        LIMIT 1
+    ) AS `last_login_date`, 
+    (
+        SELECT time 
+        FROM events 
+        WHERE 
+            events.target_id = users.id 
+            AND 
+            action = 'eventCreate' 
+            AND target_table = 'users' 
+        ORDER BY time ASC 
+        LIMIT 1
+    ) AS `creation_date`, 
+    (
+        SELECT COUNT(id) 
+        FROM events 
+        WHERE 
+            events.target_id = users.id 
+            AND 
+            action = 'eventAccessCodesSent' 
+            AND 
+            target_table = 'users'
+    ) AS `access_codes_sent`,
+    IF (users.status = '1', 1, 0) AS `active`,
+    `roles_translations`.`name` AS `role_name`,
+    `languages_translations`.`name` AS `language_name`,
+    GROUP_CONCAT(DISTINCT countries_translations.name SEPARATOR ', ') AS `countries`,
+    `groups`.`name` AS `groups`,
+    GROUP_CONCAT(DISTINCT branches_translations.name SEPARATOR ', ') AS `branches`,
+    `media`.`name` AS `media_name`,
+    `types_translations`.`title` AS `media_type`,
+    `coverage_translations`.`title` AS `media_coverage`, 
+    GROUP_CONCAT(DISTINCT categories_translations.name SEPARATOR ', ') AS `categories` 
+    
+    FROM `users`
+    
+    INNER JOIN `roles` 
+        ON users.role_id = roles.id 
+        AND roles.type != 7
+    LEFT JOIN `roles_translations` 
+        ON users.role_id = roles_translations.role_id 
+        AND roles_translations.language_id = 1
+    LEFT JOIN `languages_translations` 
+        ON users.language_id = languages_translations.id 
+        AND languages_translations.language_id = 1
+    LEFT JOIN `users_countries` 
+        ON users.id = users_countries.country_id
+    LEFT JOIN `countries_translations` 
+        ON users_countries.country_id = countries_translations.country_id 
+        AND countries_translations.language_id = 1
+    LEFT JOIN `users_groups` 
+        ON users.id = users_groups.user_id
+    LEFT JOIN `groups` 
+        ON users_groups.group_id = groups.id
+    LEFT JOIN `users_branches` 
+        ON users.id = users_branches.user_id
+    LEFT JOIN `branches_translations` 
+        ON users_branches.branch_id = branches_translations.branch_id 
+        AND branches_translations.language_id = 1
+    LEFT JOIN `users_media` 
+        ON users.id = users_media.user_id
+    LEFT JOIN `media`
+        ON users_media.media_id = media.id
+    LEFT JOIN `types_translations` 
+        ON media.type_id = types_translations.type_id 
+        AND types_translations.language_id = 1 
+    LEFT JOIN `coverage_translations` 
+        ON media.coverage_id = coverage_translations.coverage_id 
+        AND coverage_translations.language_id = 1
+    LEFT JOIN `users_categories` 
+        ON users.id = users_categories.user_id
+    LEFT JOIN `categories_translations` 
+        ON users_categories.category_id = categories_translations.category_id 
+        AND categories_translations.language_id = 1
+                 
+    WHERE (users.status != 2) 
+    
+    GROUP BY `users`.`id` 
+    
+    HAVING (creation_date &gt;= '2009-07-17')
+
+) AS `t` 
+
+-- the problematic where
+WHERE (users.status != 2)
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-07-17T04:50:54.000+0000</p> 
+        <div class="body">
+            <p>Could you confirm that this error still exists with the latest trunk?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hristo Angelov (hedonism) on 2009-07-17T04:58:11.000+0000</p> 
+        <div class="body">
+            <p>I think this code example below fixes the bug:</p>
+
+<pre class="highlight"><code>            
+// the first row below this comment is nuber 250 of Zend/Paginator/Adapter/DbSelect.php file
+
+$rowCount-&gt;reset(Zend_Db_Select::COLUMNS)
+    -&gt;reset(Zend_Db_Select::ORDER)
+    -&gt;reset(Zend_Db_Select::LIMIT_OFFSET)
+    -&gt;reset(Zend_Db_Select::GROUP)
+    -&gt;reset(Zend_Db_Select::DISTINCT)
+    -&gt;reset(Zend_Db_Select::HAVING)
+    -&gt;reset(Zend_Db_Select::WHERE) //the missing reset call fixing this bug
+    -&gt;columns($expression);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hristo Angelov (hedonism) on 2009-07-17T05:01:21.000+0000</p> 
+        <div class="body">
+            <p>Hi again,</p>
+
+<p>Yes i think the problem is still there. The where clause is not reset.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2009-07-18T21:45:14.000+0000</p> 
+        <div class="body">
+            <p>Can you confirm that? The where clause does not need to be reset there in most cases, so please double check :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hristo Angelov (hedonism) on 2009-07-19T23:10:07.000+0000</p> 
+        <div class="body">
+            <p>Yes. The where clause in count query is not needed. You can see from example above. The count query looks like this:</p>
+
+<pre class="highlight"><code>
+
+SELECT
+    COUNT(1)
+FROM
+(
+/* here is the original query */
+)
+
+WHERE
+/* where clause from original query  - causes SQL error */
+
+</code></pre>
+
+<p>In example above the where clause is not needed but only in count query. In current version we have the same where clauses in count and original queries which causes the SQL error because the count query don't have columns from where clause of original query. So the where clause in count query is wrong and never needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hristo Angelov (hedonism) on 2009-07-19T23:18:44.000+0000</p> 
+        <div class="body">
+            <p>I made small correction of the code. So the clearing must be applied here:</p>
+
+<pre class="highlight"><code>
+/** 
+* If there is more than one column AND it's a DISTINCT query, more
+* than one group, or if the query has a HAVING clause, then take
+* the original query and use it as a subquery os the COUNT query.
+*/
+if (($isDistinct &amp;&amp; count($columnParts) &gt; 1) || count($groupParts) &gt; 1 || !empty($havingParts)) {
+    $rowCount-&gt;reset(Zend_Db_Select::FROM);
+    $rowCount-&gt;reset(Zend_Db_Select::WHERE); //clear and where clause
+    $rowCount-&gt;from($this-&gt;_select);
+} else if ($isDistinct) {
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hristo Angelov (hedonism) on 2009-07-19T23:27:37.000+0000</p> 
+        <div class="body">
+            <p>In current trunk the count query works.
+New code:</p>
+
+<pre class="highlight"><code>
+Old code:
+</code></pre>
+
+<p>$rowCount-&gt;reset(Zend_Db_Select::FROM);
+$rowCount-&gt;from($this-&gt;_select);
+```</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,76 @@
+--- tests/Zend/Controller/Action/Helper/RedirectorTest.php	(revision 23237)
++++ tests/Zend/Controller/Action/Helper/RedirectorTest.php	(working copy)
+@@ -417,13 +417,8 @@
+         $this->redirector->setUseAbsoluteUri(true);
+         $this->redirector->gotoUrl('/bar/baz');
+         $headers = $this->response->getHeaders();
+-        $uri = false;
+-        foreach ($headers as $header) {
+-            if ('Location' == $header['name']) {
+-                $uri = $header['value'];
+-            }
+-        }
+-        if (!$uri) {
++
++        if (!($uri = $this->_parseLocationHeaderValue())) {
+             $this->fail('No redirect header set in response');
+         }
+ 
+@@ -431,6 +426,23 @@
+     }
+ 
+     /**
++     * ZF-10163
++     */
++    public function testUseAbsoluteUriStripsPortFromServerHttpHost()
++    {
++        $_SERVER['HTTP_HOST']   = 'foobar.example.com:8080';
++        $_SERVER['SERVER_PORT'] = '8080';
++        $this->redirector->setUseAbsoluteUri(true);
++        $this->redirector->gotoUrl('/bar/baz');
++
++        if (!($uri = $this->_parseLocationHeaderValue())) {
++            $this->fail('No redirect header set in response');
++        }
++
++        $this->assertEquals('http://foobar.example.com:8080/bar/baz', $uri);
++    }
++
++    /**
+      * ZF-2602
+      */
+     public function testPassingEmptyStringToGotoUrlRedirectsToRoot()
+@@ -525,6 +537,17 @@
+     }
+ 
+     /**#@-*/
++
++    protected function _parseLocationHeaderValue()
++    {
++        $headers = $this->response->getHeaders();
++
++        foreach ($headers as $header) {
++            if ('Location' == $header['name']) {
++                return $header['value'];
++            }
++        }
++    }
+ }
+ 
+ /**
+Index: library/Zend/Controller/Action/Helper/Redirector.php
+===================================================================
+--- library/Zend/Controller/Action/Helper/Redirector.php	(revision 23237)
++++ library/Zend/Controller/Action/Helper/Redirector.php	(working copy)
+@@ -215,7 +215,10 @@
+             $port  = (isset($_SERVER['SERVER_PORT'])?$_SERVER['SERVER_PORT']:80);
+             $uri   = $proto . '://' . $host;
+             if ((('http' == $proto) && (80 != $port)) || (('https' == $proto) && (443 != $port))) {
+-                $uri .= ':' . $port;
++                // do not append if HTTP_HOST already contains port
++                if (strrchr($host, ':') === false) {
++                    $uri .= ':' . $port;
++                }
+             }
+             $url = $uri . '/' . ltrim($url, '/');
+         }

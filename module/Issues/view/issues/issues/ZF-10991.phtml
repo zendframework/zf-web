@@ -1,0 +1,213 @@
+<h2>ZF-10991: ReCAPTCHA does work in forms using Array Notation</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-24T04:05:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-26T09:14:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.9 (14/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Leigh Makewell (lmakewell)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you create a form containing a ReCaptcha captcha element it will not validate if that form is using array notation.</p>
+
+<p>This form will validate correctly</p>
+
+<pre class="highlight"><code>
+class Contact_Form_Test extends Zend_Form
+{
+    private static $_privKey = '';
+    private static $_pubKey = '';
+
+
+    public function init()
+    {
+        $this-&gt;setMethod('post');
+
+        $element = new Zend_Form_Element_Captcha('recaptcha', array(
+            'label' =&gt; "Please verify you're a human",
+            'captcha' =&gt; 'ReCaptcha',
+            'captchaOptions' =&gt; array(
+                'privKey' =&gt; self::$_privKey,
+                'pubKey' =&gt; self::$_pubKey,
+            ),
+        ));
+        $this-&gt;addElement($element);
+        $this-&gt;addElement('Submit', 'submit');
+    }
+
+}
+</code></pre>
+
+<p>This form will not validate and dies with a 'missingValue' error. Note the addition of $this-&gt;setElementsBelongTo('contact');</p>
+
+<pre class="highlight"><code>
+class Contact_Form_Test extends Zend_Form
+{
+    private static $_privKey = '';
+    private static $_pubKey = '';
+
+
+    public function init()
+    {
+        $this-&gt;setElementsBelongTo('contact');
+        $this-&gt;setMethod('post');
+
+        $element = new Zend_Form_Element_Captcha('recaptcha', array(
+            'label' =&gt; "Please verify you're a human",
+            'captcha' =&gt; 'ReCaptcha',
+            'captchaOptions' =&gt; array(
+                'privKey' =&gt; self::$_privKey,
+                'pubKey' =&gt; self::$_pubKey,
+            ),
+        ));
+        $this-&gt;addElement($element);
+        $this-&gt;addElement('Submit', 'submit');
+    }
+
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-01-24T04:46:39.000+0000</p> 
+        <div class="body">
+            <p>Please use always the code tags!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guy Halford-Thompson (guyht) on 2011-01-24T05:34:55.000+0000</p> 
+        <div class="body">
+            <p>Edit: Added code tags</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-11T21:15:35.000+0000</p> 
+        <div class="body">
+            <p>On analysis, this appears to be due to a change in the ReCaptcha JavaScript API. Previously, it would use the element name in order to find and populate the challenge and response values, but now appears to be hard-coded to use only the keys "recaptcha_challenge_field" and "recaptcha_response_field" -- which makes it (a) impossible to namespace these in a form, and (b) have more than one ReCaptcha on a single page (since whichever ReCaptcha operates last populates those keys in the POST).</p>
+
+<p>What's more frustrating is that if you disable JS, it's actually possible to use namespaced values via the </p> section, as it uses the existing elements you create via Zend_Form.
+
+<p>As such, I'm unsure how to resolve this issue. We could potentially generate some JS that wraps the ReCaptcha API, but this could prove to be a moving target and maintenance nightmare. Another option is to support namespaces via </p> only, and document a methodology for pre-seeding the values yourself:
+
+<pre class="highlight"><code>
+$formValues         = $this-&gt;_request-&gt;getPost('contact', array());
+if (!isset($formValues['recaptcha_challenge_field'])) {
+    $formValues['recaptcha_challenge_field'] = $this-&gt;_request-&gt;getPost('recaptcha_challenge_field', '');
+}
+if (!isset($formValues['recaptcha_response_field'])) {
+    $formValues['recaptcha_response_field'] = $this-&gt;_request-&gt;getPost('recaptcha_response_field', '');
+}
+if (!$form-&gt;isValid($formValues)) { ... }
+</code></pre>
+
+<p>Finally, we could raise an exception if we determine that the element is part of a form array.</p>
+
+<p>Guy, Leigh, which approach would you like to see?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-11T21:35:12.000+0000</p> 
+        <div class="body">
+            <p>I've discovered other folks have had similar issues: <a href="http://ish.io/embedded/formish/recaptcha.html">http://ish.io/embedded/formish/recaptcha.html</a></p>
+
+<p>I think we may be able to munge this during onSubmit by doing a query on the given form for the appropriate elements, and then creating some new hidden ones that are namespaced but with the same values. I'll try and get something in for this in the next day or two. (We hit this on the ZF site, btw. :) )</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-12T16:01:06.000+0000</p> 
+        <div class="body">
+            <p>The following dojo code worked for me to make the JS version of ReCaptcha work:</p>
+
+<pre class="highlight"><code>
+dojo.create("input", {type: "hidden", id: "contact-captcha-challenge", name: "contact[recaptcha_challenge_field]"}, dojo.byId("captcha-element"));
+dojo.create("input", {type: "hidden", id: "contact-captcha-response", name: "contact[recaptcha_response_field]"}, dojo.byId("captcha-element"));
+dojo.connect(dojo.byId("contact"), "onsubmit", function(e) { dojo.attr("contact-captcha-response", {value: dojo.attr("recaptcha_response_field", "value")}); dojo.attr("contact-captcha-challenge", {value: dojo.attr("recaptcha_challenge_field", "value")});});
+</code></pre>
+
+<p>Basically, it adds two hidden fields named appropriately into the DOM where the captcha element should live, and then binds to the form's onSubmit event in order to copy the recaptcha information into those hidden fields.</p>
+
+<p>This can probably be written as a custom decorator using generic JS (using document.getElementById() and element.value).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-12T17:59:38.000+0000</p> 
+        <div class="body">
+            <p>Fixed in current trunk and 1.11 release branch via a custom decorator for the ReCaptcha captcha element.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thanos Kyritsis (djart) on 2011-07-18T14:01:34.000+0000</p> 
+        <div class="body">
+            <p>Subversion revision #24223 for library/Zend/Form/Element/Captcha.php may have fixed ReCaptcha, but broke at least two other Captchas (I tried Figlet and Image).</p>
+
+<p>The example at <a href="http://framework.zend.com/manual/en/learning.quickstart.create-form.html">http://framework.zend.com/manual/en/…</a> no longer works, because the developer now (since 1.11.9) needs to explicitly add the 'captcha' decorator to the figlet (or image captcha) form element.</p>
+
+<p>Should I open a new issue for this ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-18T14:14:06.000+0000</p> 
+        <div class="body">
+            <p>Please do.</p>
+
+<p>I recall seeing the logic for adding the captcha decorator, as I had to add some conditional logic <em>not</em> to load it if one was already loaded (as, for example, with the Word or ReCaptcha decorators); it may be that this conditional logic may have introduced a new break. I had to add tests to ensure that the ReCaptcha decorator was being invoked; my guess is that we're missing tests for the others.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-07-26T09:14:34.000+0000</p> 
+        <div class="body">
+            <p><a href="http://framework.zend.com/issues/browse/ZF-11609">ZF-11609 - ZF 1.11.9: No Captcha img rendered</a></p>
+
+        </div>
+    </div>
+    </div>
+

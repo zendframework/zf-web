@@ -1,0 +1,150 @@
+<h2>ZF-11911: Long cache ids cause the file backend to produce too long file names</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-11-25T11:10:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-02-26T18:43:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                David Fuhr (davidfuhr)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Bennewitz (private) (mabe)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>We are generating our cache ids partly dynamic. In some cases they can be very long. If the get too long the file backend fails saving them as it creates the file names using the ids.</p>
+
+<p>Different file systems have different length limits: <a href="http://en.wikipedia.org/wiki/Comparison_of_file_systems#Limits">http://en.wikipedia.org/wiki/…</a></p>
+
+<p>This could be fixed on application level, but i believe it is better to fix this on framework level as the limitations on length are backend specific.</p>
+
+<p>I've created a patch against the trunk (r24565) which introduces a new config option ("max_file_length"). This enables automatic file name shortening using the hashed cache id (to minimize the risk of id collisions). The option is disabled by default to keep BC. I suggest to set it to 255 as this seems to be the limit for most of the common file systems (ext2/3/4, ntfs, jfs, xfs, btrfs, ...).</p>
+
+<p>A test case to reproduce the problem is also included.</p>
+
+<pre class="literal">
+### Eclipse Workspace Patch 1.0
+#P ZendFramework-trunk
+Index: library/Zend/Cache/Backend/File.php
+===================================================================
+--- library/Zend/Cache/Backend/File.php (Revision 24565)
++++ library/Zend/Cache/Backend/File.php (Arbeitskopie)
+@@ -96,6 +96,7 @@
+         'hashed_directory_umask' =&gt; 0700,
+         'file_name_prefix' =&gt; 'zend_cache',
+         'cache_file_umask' =&gt; 0600,
++        'max_file_length' =&gt; null,
+         'metadatas_array_max_size' =&gt; 100
+     );
+ 
+@@ -863,6 +864,15 @@
+     {
+         $prefix = $this-&gt;_options['file_name_prefix'];
+         $result = $prefix . '---' . $id;
++        
++        if (null !== $this-&gt;_options['max_file_length']) {
++            $path = $this-&gt;_path($result);
++            if (strlen($path . $result) &gt; $this-&gt;_options['max_file_length']) {
++                $idHash = md5($result);
++                $result = substr($result, 0, $this-&gt;_options['max_file_length'] - strlen($path) - strlen($idHash)) . $idHash;
++            }
++        }
++        
+         return $result;
+     }
+ 
+Index: tests/Zend/Cache/FileBackendTest.php
+===================================================================
+--- tests/Zend/Cache/FileBackendTest.php    (Revision 24565)
++++ tests/Zend/Cache/FileBackendTest.php    (Arbeitskopie)
+@@ -120,7 +120,20 @@
+         $res = $this-&gt;_instance-&gt;save('data to cache', 'foo', array('tag1', 'tag2'));
+         $this-&gt;assertFalse($res);
+     }
+-
++    
++    /**
++     * Tests if long file names are prevented
++     *
++     * Depending on the FS there are different limits for the maximum file
++     * name length. Most FS' limit is 255 bytes or characters.
++     *
++     * @link <a href="http://en.wikipedia.org/wiki/Comparison_of_file_systems#Limits">http://en.wikipedia.org/wiki/…</a>
++     */
++    public function testSaveWithVeryLongCacheId()
++    {
++        $cacheId = str_pad('', 300, 'a');
++        $this-&gt;_instance-&gt;setOption('max_file_length', 255);
++        $res = $this-&gt;_instance-&gt;save('data to cache', $cacheId);
++        $this-&gt;assertTrue($res);
++    }
+ }
+-
+-
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-30T14:06:53.000+0000</p> 
+        <div class="body">
+            <p>You will need to sign and submit a CLA before we can include your suggested fix in Zend Framework.
+See here: <a href="http://framework.zend.com/wiki/display/ZFPROP/Contributor+License+Agreement">http://framework.zend.com/wiki/display/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Fuhr (davidfuhr) on 2011-12-21T08:39:23.000+0000</p> 
+        <div class="body">
+            <p>CLA is singed end sent.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2012-01-08T15:29:44.000+0000</p> 
+        <div class="body">
+            <p>The way you go doesn't work because it's changing the cache ids and methods like getIds no longer works as expected.</p>
+
+<p>You can simply hash the cache id in your application before calling the cache.</p>
+
+<p>On ZF2 you can get information about the backend how long the key can be.</p>
+
+        </div>
+    </div>
+    </div>
+

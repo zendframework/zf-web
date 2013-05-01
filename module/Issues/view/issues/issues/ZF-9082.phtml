@@ -1,0 +1,198 @@
+<h2>ZF-9082: autoload behaviour is broken when using __autoload function as only autoload mechanism</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-04T06:48:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-02-16T20:03:57.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Johannes Schlimm (schlimmer)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>    </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm not sure wether it's a general problem or only ocurres in conjunction with Zend_Validate::is().</p>
+
+<p>Since ZF 1.9.7 the following did work:</p>
+
+<pre class="literal">
+&lt;?php
+ini_set('include_path', [Path to ZF library folder]);
+
+function __autoload($class) {
+  require(str_replace('_', '/', $class) . '.php');
+}
+
+echo Zend_Validate::is('1', 'Int');
+</pre>
+
+<p>This is no longer working when using ZF 1.10.0. All I get is a 'Failed opening required 'Int.php'' message.</p>
+
+<p>But it's working this way:</p>
+
+<pre class="literal">
+&lt;?php
+ini_set('include_path', [Path to ZF library folder]);
+
+require_once("Zend/Loader.php");
+require_once("Zend/Loader/Autoloader.php");
+$autoloader = Zend_Loader_Autoloader::getInstance();
+echo Zend_Validate::is('1', 'Int');
+</pre>
+
+<p>Because I can't find any hint describing this modified behaviour I guess it's a bug introduced in ZF 1.10.0</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-02-04T08:21:23.000+0000</p> 
+        <div class="body">
+            <p>You shouldn't be defining __autoload(); the recommended method for autoloading (both by the PHP project as well as ZF) is to register functions with spl_autoload. You <em>will</em> get unpredictable and unexpected results if you define __autoload() and also have spl_autoload in play (which is what Zend_Loader_Autoloader registers with).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Johannes Schlimm (schlimmer) on 2010-02-04T13:45:30.000+0000</p> 
+        <div class="body">
+            <p>Please have a look at line 200 of Zend/Validate.php:</p>
+
+<pre class="literal">
+if (!class_exists($className)) {
+</pre>
+
+<p>The documentation at <a href="http://www.php.net/manual/en/function.class-exists.php">http://php.net/manual/en/…</a> says:</p>
+
+<pre class="literal">
+bool class_exists  ( string $class_name  [, bool $autoload = true  ] )
+...
+since PHP 5.0.0
+</pre>
+
+<p>The second parameter defaults to true! So the call to class_exists() on line 200 in Zend/Validate.php tries to load the class although it's obvious it shouldn't! Second problem: At that point $className is 'Int' (not 'Zend_Validate_Int'). So it won't succeed. Imho the lines above line 200 in Zend/Validate.php are not correct ($className should be 'Zend_Validate_Int' on line 200) and also class_exists() should be called with explicitly set second parameter with a value of false.</p>
+
+<p>Btw.: Changing</p>
+
+<pre class="literal">
+if (!class_exists($className)) {
+</pre>
+
+<p>to</p>
+
+<pre class="literal">
+if (!class_exists($className, false)) {
+</pre>
+
+<p>solved the problem for me.
+But still imho it's no correct, that $className has the value 'Int' on that line.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Johannes Schlimm (schlimmer) on 2010-02-04T14:00:18.000+0000</p> 
+        <div class="body">
+            <p>Sorry, should be "class_exists"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-02-05T05:29:02.000+0000</p> 
+        <div class="body">
+            <p>Actually, it's doing exactly what it should be -- it attempts to autoload first, in the event that the short name, 'Int', is autoloadable. If the class is not found by the autoloader, it then falls back to looping over registered prefix paths, prepending prefix paths to the passed name and attempting to load the class via Zend_Loader::loadClass() if a matching file is detected via Zend_Loader::isReadable().</p>
+
+<p>This logic has not changed for many, many months.</p>
+
+<p>The real issue is that your __autoload() function is doing a require() instead of an include() or include_once(). Autoloaders should not throw exceptions or result in fatal errors; they should return boolean false if unable to resolve the class, and the classname otherwise.</p>
+
+<p>Oddly, I've tried your exact setup in both PHP 5.2.12 and PHP 5.3.1, and it echoes "1" in both cases -- I get no failure.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Johannes Schlimm (schlimmer) on 2010-02-05T11:40:01.000+0000</p> 
+        <div class="body">
+            <p>Guess what? It's again an issue related to [<a href="http://framework.zend.com/manual/en/performance.classloading.html">http://framework.zend.com/manual/en/…</a>], section "Strip require_once calls with find and sed". That's also the reason why i had to require_once("Zend/Loader.php"); in my second example: I'm using a version of ZF 1.10.0 that has those require_once calls commented out.</p>
+
+<p>It's not the first time I fall into this trap. There were issues with it in the past too. I just didn't think about it, because for some time there was no problem caused by it.</p>
+
+<p>So maybe it's a documentation fault. In other words: The documentation of the above mentioned part of the performance guide is not correct for ZF 1.10.0, because if one follows the instructions, also <em>all</em> require_once calls for Zend_Loader get commented out. And that is at least one time too much.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Muir (dmuir) on 2010-02-16T20:03:56.000+0000</p> 
+        <div class="body">
+            <p>I had the same issue as Johannes (was using require in my autoloader), but changing to include still throws warnings. It also still had the same issue when registering my autoloader with spl_autoload. So I tried using Zend_Loader_Autoload, and it loads the validator without throwing any errors/warnings. But it can't find my model classes (which aren't namespaced).
+So I set fallbackAutloader = true. Now it finds my models, but throws warnings whenever Zend_Validate::is() is used.</p>
+
+<p>The problem existed prior to 1.10.0 if you added a default namespace and the class didn't exist under that namespace (and the namespace hadn't been explicitly added to the autoloader).
+Zend_Filter::filterStatic() uses Zend_Validate::is()'s old behaviour, so works fine unless namespaces are added.</p>
+
+<p>to reproduce:</p>
+
+<pre class="highlight"><code>
+require 'Zend/Loader/Autoloader.php';
+$autoloader = Zend_Loader_Autoloader::getInstance();
+
+//works
+Zend_Filter::addDefaultNamespaces('Foo');
+echo Zend_Filter::filterStatic('1', 'Int');
+
+//works
+echo Zend_Validate::is('1', 'Int');
+
+//fails to load Foo/Int.php
+$autoloader-&gt;registerNamespace('Foo');
+echo Zend_Filter::filterStatic('1', 'Int');
+
+$autoloader-&gt;unregisterNamespace('Foo');
+
+//fails to load Foo/Int.php
+$autoloader-&gt;setFallbackAutoloader(true);
+echo Zend_Filter::filterStatic('1', 'Int');
+
+//fails to load Int.php 
+echo Zend_Validate::is('1', 'Int');
+</code></pre>
+
+<p>Essentially, Zend_Validate::is() and Zend_Filter::filterStatic() are not fully compatible with Zend_Loader_Autoload.
+Not sure what other classes have the problem.</p>
+
+        </div>
+    </div>
+    </div>
+

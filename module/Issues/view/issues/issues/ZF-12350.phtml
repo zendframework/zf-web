@@ -1,0 +1,235 @@
+<h2>ZF-12350: Function preDispatch called twice in case of module specific bootstrap</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-07-27T09:35:25.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-27T16:05:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Piotr Deszyński (piteer1)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ryan Mauger (bittarman)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This bug occures while using modular ZF1 structure and module specific Bootstrap class. To reproduce this bug:</p>
+
+<ol><li>Create empty ZF1 project (I was using ZF Tool) and make it default modular structure.</li>
+<li>Add following settings into application.ini:</li>
+</ol><pre class="literal">
+resources.frontController.moduleDirectory   = APPLICATION_PATH "/modules"
+resources.modules[] =
+</pre>
+
+<ol><li>Add to default module empty boostrap class:</li>
+</ol><pre class="literal">
+&lt;?php
+
+class Default_Bootstrap extends Zend_Application_Bootstrap_Bootstrap {
+}
+</pre>
+
+<ol><li>Create any FrontController Plugin with preDispatch method and add it using application.ini for e.g.:</li>
+</ol><pre class="literal">
+resources.frontController.plugins.dispatchTest = "Test_Controller_Plugin_DispatchTest"
+</pre>
+
+<p>From now on preDispatch method will be called more than once. This leads to confusion.</p>
+
+<p>To fix this behaviour it's needed to remove module specific Bootstrap.</p>
+
+<p>Expected behaviour:</p>
+
+<p>PreDispatch called only once.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2012-07-27T09:43:59.000+0000</p> 
+        <div class="body">
+            <p>This sounds more like the common problem of not having a favicon.ico, or another missing file which is referenced in the output html (like a link to a stylesheet which is broken).</p>
+
+<p>Could you clarify how you are determining that preDispatch is called twice?</p>
+
+<p>Please also note, that preDispatch will also be called more than once on requests involving the error controller, or any use of _forward in a controller, or if you change the requested controller / action, as all of these methods involve running a second iteration of the dispatch loop.</p>
+
+<p>I'm going to close this issue as preDispatch being called more than  once is expected behaviour in many circumstances.</p>
+
+<p>Please provide a clear, reproduce case, and documentation of how you are observing preDispatch being called more than once if you wish to re-open, so that we can rule out all of the legitimate use cases where this is normal behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Deszyński (piteer1) on 2012-07-27T13:45:02.000+0000</p> 
+        <div class="body">
+            <p>I tried this while using curl instead of a browser (so this shouldn't make favicon.ico request). Additionally it's like I wrote: when you remove module specific Bootstrap, everything behaves like it should. There is no _forward call, there is no error either.</p>
+
+<p>I will write again how to reproduce this bug:</p>
+
+<ol><li>Create new empty ZF project (using ZF tool) in zf1-project directory</li>
+<li>cd zf1-project</li>
+<li>mkdir application/modules/default</li>
+<li>mv application/controllers application/modules/default</li>
+<li>mv application/views application/modules/default</li>
+<li>Create test plugin:</li>
+</ol><pre class="literal">
+&lt;?php
+
+class Test_Controller_Plugin_Test extends Zend_Controller_Plugin_Abstract {
+
+    public function preDispatch(Zend_Controller_Request_Abstract $request) {
+        var_dump('pre dispatch');
+    }
+}
+
+</pre>
+
+<p>and put it into file 'library/Test/Controller/Plugin/Test.php'</p>
+
+<ol><li>Add following settings into application.ini:</li>
+</ol><pre class="literal">
+autoloaderNamespaces.Test = "Test_"
+resources.frontController.moduleDirectory   = APPLICATION_PATH "/modules"
+resources.modules[] =
+resources.frontController.plugins.test = "Test_Controller_Plugin_Test"
+
+</pre>
+
+<ol><li>Create Bootstrap class for default module:</li>
+</ol><pre class="literal">
+&lt;?php
+
+class Default_Bootstrap extends Zend_Application_Bootstrap_Bootstrap {
+}
+</pre>
+
+<p>and put this code into 'application/modules/default/Bootstrap.php'</p>
+
+<ol><li>Open a browser or use cURL to test (for e.g. localhost/zf1-project/public) the text 'pre dispatch' will be seen twice.</li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Deszyński (piteer1) on 2012-07-27T14:00:11.000+0000</p> 
+        <div class="body">
+            <p>Additionally you can change Plugin class to:</p>
+
+<pre class="literal">
+&lt;?php
+
+class Test_Controller_Plugin_Test extends Zend_Controller_Plugin_Abstract {
+
+    private static $_preDispatchCalled = 0;
+
+    public function preDispatch(Zend_Controller_Request_Abstract $request) {
+        self::$_preDispatchCalled++;
+    }
+
+    public static function getDispatchCalled() {
+        return self::$_preDispatchCalled;
+    }
+}
+</pre>
+
+<p>And run a test:</p>
+
+<pre class="literal">
+&lt;?php
+
+class IndexControllerTest extends Zend_Test_PHPUnit_ControllerTestCase
+{
+
+    public function setUp()
+    {
+        $this-&gt;bootstrap = new Zend_Application(APPLICATION_ENV, APPLICATION_PATH . '/configs/application.ini');
+        parent::setUp();
+    }
+
+    public function testPreDispatchOnce() {
+        $this-&gt;dispatch('/');
+        $this-&gt;assertTrue(Test_Controller_Plugin_Test::getDispatchCalled() === 1);
+    }
+
+
+}
+</pre>
+
+<p>This test will fail whether it shoulnd't have</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2012-07-27T14:22:26.000+0000</p> 
+        <div class="body">
+            <p>Given the steps you outlined, there are no controllers in your new 'default' module, so there would have been a controller not found exception, looping the request to the error controller.
+try creating application/modules/default/controllers/IndexController.php and in it put:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class IndexController extends Zend_Controller_Action
+{
+    public function indexAction()
+    {
+        $this-&gt;getHelper('viewRenderer')-&gt;setNeverRender(true);
+    }
+}
+</code></pre>
+
+<p>This should make your test pass (it does for me). Also, this is expected behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2012-07-27T14:36:47.000+0000</p> 
+        <div class="body">
+            <p>Additionally, I've just noticed I did one thing different from you when creating the test, I used  Zend_Application_Module_Bootstap as the bootstrap for the 'default' module as it is a module bootstrap the way you have used it. Having two or more Zend_Application_Bootstrap_Bootstrap bootstraps will cause unexpected problems also, as this is not its intended use.</p>
+
+<p>You would save yourself some pain by not having a 'default' module in the modules directory, as this really isn't the way that your application will behave anyway.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Deszyński (piteer1) on 2012-07-27T16:05:43.000+0000</p> 
+        <div class="body">
+            <p>Yes, thank you. probably that was the cause. Sorry for the problem.</p>
+
+        </div>
+    </div>
+    </div>
+

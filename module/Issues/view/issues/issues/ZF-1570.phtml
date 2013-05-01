@@ -1,0 +1,167 @@
+<h2>ZF-1570: Db2: lastInsertId() should fall back to IDENTITY_VAL_LOCAL()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-14T16:18:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC3 (23/Jun/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Salvador Ledezma (ledezma)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Db2</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10572/Db2.php">Db2.php</a></li>
+            <li><a href="/issues/secure/attachment/10573/TestCommon.php">TestCommon.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If a table name is passed into lastInsertId(), it assumes a sequence is used as a primary key though it can be an identity</p>
+
+<p>lastInsertId() returns the latest identity value unless a parameter(s) is(are) passed in.  When there is a parameter passed in, the existence of a sequence object is assumed.</p>
+
+<p>In the case where a parameter is passed in but no sequence object exists, the method should be given one last chance to check for the identity value.  The patch catches the exception and if the error message is "object not found" it tries the identity:</p>
+
+<pre class="highlight"><code>
+   public function lastInsertId($tableName = null, $primaryKey = null)
+    {
+        $this-&gt;_connect();
+
+        if ($tableName !== null) {
+            $sequenceName = $tableName;
+            if ($primaryKey) {
+                $sequenceName .= "_$primaryKey";
+            }
+            $sequenceName .= '_seq';
+            try {
+                return $this-&gt;lastSequenceId($sequenceName);    
+            } catch (Zend_Db_Exception $e) {
+                $found = stristr($e-&gt;getMessage(), "SQL0204N");
+                if (!$found){
+                    /**
+                    * @see Zend_Db_Adapter_Db2_Exception
+                    */
+                    require_once 'Zend/Db/Adapter/Db2/Exception.php';
+                    throw new Zend_Db_Adapter_Db2_Exception($e);
+                }
+            }
+        }
+
+        $sql = 'SELECT IDENTITY_VAL_LOCAL() AS VAL FROM SYSIBM.SYSDUMMY1';
+        $value = $this-&gt;fetchOne($sql);
+        return $value;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-06-14T16:20:17.000+0000</p> 
+        <div class="body">
+            <p>This file contains the change to lastInsertId()</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-06-14T16:22:59.000+0000</p> 
+        <div class="body">
+            <p>The unit test for testAdapterInsert() has an additional call to lastInsertId() to ensure that passing in the table name still returns the last inserted id.</p>
+
+<p>If this does not work for other adapters, then we can move this extra check into Db2Test.php:</p>
+
+<pre class="highlight"><code>
+ $bugs = $this-&gt;_db-&gt;quoteIdentifier('zfbugs');   
+ $lastInsertId = $this-&gt;_db-&gt;lastInsertId($bugs);
+  $this-&gt;assertEquals('5', (string) $lastInsertId,
+            'Expected new id to be 5');
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-14T17:50:22.000+0000</p> 
+        <div class="body">
+            <p>Reword summary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-14T18:17:54.000+0000</p> 
+        <div class="body">
+            <p>I have strong objections to this patch.</p>
+
+<p>By allowing someone to pass a table name to {{lastInsertId()}}, but then subsequently returning the result from {{IDENTITY_VAL_LOCAL()}}, the interface would give a false impression that the value returned was the last identity value inserts to the specified table.  But it's not -- it's the last value inserted to <em>any</em> table in the scope of the current database connection.</p>
+
+<pre class="highlight"><code>
+$db-&gt;insert('zfbugs', $bugData);
+$db-&gt;insert('zfproducts', $productData);
+$bugId = $db-&gt;lastInsertId('zfbugs');  // returns the product_id, not the bug_id
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Salvador Ledezma (ledezma) on 2007-06-14T18:52:48.000+0000</p> 
+        <div class="body">
+            <p>I understand your concerns.</p>
+
+<p>This becomes an issue of correct usage because there is also the case when a sequence is used to populate a row, but lastInsertId() is called without a table name:</p>
+
+<pre class="highlight"><code>
+$data = array(
+  'id'    =&gt; $db-&gt;nextSequenceId("mytable_id_seq"),
+  'stuff' =&gt; 'sequences, yeah!'
+);
+$db-&gt;insert('zfbugs', $data);
+$bugId = $db-&gt;lastInsertId();  // this unexpectedly returns IDENTITY_VAL_LOCAL()
+</code></pre>
+
+<p>After taking a look at the documentation (<a href="http://framework.zend.com/manual/en/zend.db.html#zend.db.adapter.write">http://framework.zend.com/manual/en/…</a>), it is very explicit as to when parameters should or should not be used in lastInsertId().</p>
+
+<p>I am comfortable if this patch is rejected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-14T19:42:16.000+0000</p> 
+        <div class="body">
+            <p>We agree that the interface for {{lastInsertId()}} is already defined to return {{IDENTITY_VAL_LOCAL()}} only in the case that no table name is specified in the argument.</p>
+
+        </div>
+    </div>
+    </div>
+

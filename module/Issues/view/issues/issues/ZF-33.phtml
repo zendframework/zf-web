@@ -1,0 +1,283 @@
+<h2>ZF-33: Cannot reliably draw on loaded documents containing rotated pages</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-06-19T22:59:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-02-10T16:36:21.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Aaron Edmonds (datafirminc)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Dolf Schimmel (Freeaqingme) (freak)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Pdf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-129">ZF-129</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10004/6890.pdf">6890.pdf</a></li>
+            <li><a href="/issues/secure/attachment/10001/nstv.pdf">nstv.pdf</a></li>
+            <li><a href="/issues/secure/attachment/10003/reduction1.pdf">reduction1.pdf</a></li>
+            <li><a href="/issues/secure/attachment/10005/zf33illustration.png">zf33illustration.png</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If an existing PDF document is loaded which contains a page that is rotated, drawing pretty much doesn't work as the end-user would expect. The original report:</p>
+
+<p>bq. drawText renders text rotated 90 degrees counter-clockwise when using a 5.5(w) x 8.5(h) in. document. You can see an example of this at <a href="http://dfinc.net/pdf/nstv.pdf">http://dfinc.net/pdf/nstv.pdf</a> .</p>
+
+<p>The problem Aaron is experiencing is that the page he's trying to draw to has been rotated 270 degrees and cropped in the page dictionary:</p>
+
+<pre class="literal">
+10 0 obj&lt;[17 0 R 19 0 R 20 0 R 21 0 R 22 0 R 23 0 R 24 0 R 25 0 R]
+/Type/Page/Parent 4 0 R/Rotate 270/MediaBox[0 0 612 792]
+/CropBox[0.0 396.0 612.0 792.0]/Resources 11 0 R&gt;&gt;
+endobj
+</pre>
+
+<p>Zend_Pdf currently does not handle page rotation, so doesn't do anything special with the rotation entry in the page's dictionary.</p>
+
+<p>The issue is that even though the page is "rotated", it is only rotated at display time; the page's coordinate system is unchanged. This is why the $line_1 y coordinate in the example below must be at just over 9 inches to appear on the page.</p>
+
+<p>The illustration zf33illustration.png attached to this issue shows the actual drawing coordinate system for this page:</p>
+
+<p>!zf33illustration.png|thumbnail!</p>
+
+<p>As a workaround, the user can rotate the drawing coordinate system with {{page-&gt;rotate($x, $y, $degrees)}} and then adjust the {{$x}} and {{$y}} coordinates appropriately, but this is a pain.</p>
+
+<p>I'm not sure what we should actually do here. It would be convenient for the end-user if we 'automagically' rotated and translated the coordinate system if a rotated page is loaded, but there may be cases where such behavior is not desired.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Aaron Edmonds (datafirminc) on 2006-06-19T23:00:48.000+0000</p> 
+        <div class="body">
+            <p>This is the example of the issue. All that was used to generate this is the $page-&gt;drawText method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2006-06-20T10:34:27.000+0000</p> 
+        <div class="body">
+            <p>This isn't a problem with drawing the text. The following example works as expected (result attached as reduction1.pdf):</p>
+
+<pre class="highlight"><code>
+$pdf = new Zend_Pdf();
+
+// 5.5x8.5in document. the extra colon needed in the page definition appears to be a bug...
+$pdf-&gt;pages[] = ($page = $pdf-&gt;newPage('396:612:'));
+
+$page-&gt;setFont(Zend_Pdf_Font::fontWithName(Zend_Pdf_Font::FONT_TIMES), 18);
+$page-&gt;drawText('This is a test', 72, 300);
+
+$pdf-&gt;save('/path/to/reduction1.pdf');
+</code></pre>
+
+<p>The problem is not that the PDF document uses a custom size, it's that the page that is being drawn to is rotated:</p>
+
+<pre class="literal">
+10 0 obj 
+&lt;[17 0 R 19 0 R 20 0 R 21 0 R 22 0 R 23 0 R 24 0 R 25 0 R 27 0 R ] /Type /Page /Parent 4 0 R /Rotate 270 /MediaBox [0 0 612 792 ] 
+/CropBox [0 396 612 792 ] /Resources 11 0 R &gt;&gt;
+endobj
+</pre>
+
+<p>The text appears to be drawing on the page in its original (non-rotated) orientation. Looking to see what needs to be fixed...</p>
+
+<p>In the interim, can you post the actual code you're using to generate this document (as  with the sample above)?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron Edmonds (datafirminc) on 2006-06-20T10:49:13.000+0000</p> 
+        <div class="body">
+            <p>Here is the code that is used to generate the pdf. This is extracted from a method in a controller for a MCV app. The view just sets the content type and echoes $data.</p>
+
+<pre class="highlight"><code>
+        $data = $this-&gt;Sale-&gt;read();
+        
+        $pdf = Zend_Pdf::load(ROOT.DS.'pdfs'.DS.'6890.pdf');
+        
+        $page = $pdf-&gt;pages[0];
+        $page-&gt;setFont(new Zend_Pdf_Font_Standard(Zend_Pdf_Const::FONT_HELVETICA), 12);
+        $margin_left = 50;
+        
+        // Line #1
+        $line_1 = 650;
+        // Plate Number
+        $page-&gt;drawText($data['Inventory']['license_number'], $margin_left + 5, $line_1);
+        
+        $this-&gt;set('data', $pdf-&gt;render());
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron Edmonds (datafirminc) on 2006-06-20T10:55:59.000+0000</p> 
+        <div class="body">
+            <p>Actually I forgot a line of code. The pdf that is imported is two pages so I use ``` to take off the extra page. Not sure if that helps but I thought I'd put it in there.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron Edmonds (datafirminc) on 2006-06-20T11:03:28.000+0000</p> 
+        <div class="body">
+            <p>This is the source template that is used in my code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2006-06-20T11:08:06.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the code. I'm trying to reproduce your issue here, but Zend_Pdf is throwing an exception when trying to read the nstv.pdf file. (That's another bug.) Can you attach the original 6890.pdf file?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2006-06-20T11:08:54.000+0000</p> 
+        <div class="body">
+            <p>LOL - you beat me to the punch. Taking a look now...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2006-06-20T12:11:31.000+0000</p> 
+        <div class="body">
+            <p>Attached illustration showing the actual drawing coordinate system</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2006-06-20T12:20:18.000+0000</p> 
+        <div class="body">
+            <p>Changed title of issue and revised description to reflect root of problem. We'll need to hash out a solution here--it's not going to be a trivial change.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron Edmonds (datafirminc) on 2006-06-20T13:04:29.000+0000</p> 
+        <div class="body">
+            <p>Can you give an example of how you could use $page-&gt;rotate($x, $y, $degrees) to fix the text?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Willie Alberty (willie) on 2006-06-20T14:30:46.000+0000</p> 
+        <div class="body">
+            <p>You need to do two things:</p>
+
+<p>First, you need to rotate the coordinate system. {{$x}} and {{$y}} specify the rotation point. Positive numbers for {{$degrees}} rotate counter-clockwise; negative numbers rotate clockwise. I find it easiest to rotate about the origin (imagine rotating the a sheet of paper with the lower-left corner pinned). So you'd need something like this: {{$page-&gt;rotate(0, 0, deg2rad(-90));}}</p>
+
+<p>Then, you need to adjust the {{$x}} and {{$y}} coordinates for your drawing commands. Right now, you'll have to do this manually. (In addition to {{$page-&gt;rotate()}}, we really need {{$page-&gt;translate()}} so it becomes automatic. See ZF-64.) If you rotated about the origin, you probably only need an offset for your {{$x}} coordinates: {{$xOffset = -792}}</p>
+
+<p>Note that the rotation origin and the specific offsets you use will be entirely dependent on the page you're working with. For your specific example, the page was rotated 270 degrees clockwise and the bottom half was cropped. Other documents will be different. Trial-and-error and a little bit of sleuthing inside the PDF file itself will help you find the right values to use.</p>
+
+<p>Here's a full example using your document:</p>
+
+<pre class="highlight"><code>
+$pdf = Zend_Pdf::load('/path/to/6890.pdf');
+
+$page = $pdf-&gt;pages[0];
+$page-&gt;setFont(Zend_Pdf_Font::fontWithName(Zend_Pdf_Font::FONT_TIMES), 18);
+
+// Rotate the coordinate system 90 degrees clockwise
+$page-&gt;rotate(0, 0, deg2rad(-90));
+
+// Calculate the x and y offsets to "shift the origin."
+$xOffset = -792;
+$yOffset = 0;
+
+// Make the text blue (so you can see it; I find it easier to adjust positioning this way).
+$page-&gt;setFillColor(new Zend_Pdf_Color_HTML('blue'));
+
+$page-&gt;drawText('This is a test', (24 + $xOffset), (418 + $yOffset));
+
+$pdf-&gt;save('/path/to/result.pdf');
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jayson Minard (jayson) on 2006-07-09T00:34:45.000+0000</p> 
+        <div class="body">
+            <p>Positioned out a few releases, if timing isn't right please set fix version to something more appropriate.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:16:40.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.6.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2007-05-25T02:04:14.000+0000</p> 
+        <div class="body">
+            <p>Zend_Pdf needs clear API for rotating.</p>
+
+<p>There are two different rotating types:
+a) page presentation rotating (/Rotate PDF page property is intended for this and must be multiple of 90)
+b) drawing coordinate system rotation (also needs translate() implementation)</p>
+
+<p>That's a question, should we automatically translate drawing coordinate system if page presentation is rotated???</p>
+
+<p>It needs to be discussed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2007-05-25T02:04:45.000+0000</p> 
+        <div class="body">
+            <p>Postponed to post-1.0 period</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:59.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-12-03T09:47:53.000+0000</p> 
+        <div class="body">
+            <p>It's clear now how to implement this feature, but it breaks backward compatibility at drawing behavior level. Automatic rotation and shifting coordinate system affects drawing behavior.</p>
+
+<p>So it may come only with ZF 1.8 or 2.0 and must be described in the release notes.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,188 @@
+<h2>ZF-9320: Zend_Validate_File_MimeType erroneously specifies magic file</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-03T23:39:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-08-12T11:07:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.3 (01/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Stewart Lord (stewartlord)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate_File</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If no MAGIC environment variable is set, Zend_Validate_File_MimeType should allow finfo() to fall back on its internal mime database* rather than attempting to load a magic mime file from one of its preset search paths. This is preferable because the internal database is guaranteed to be compatible with libmagic; whereas, the magic files in the file-system are not. In some cases (e.g. Mac OS X 10.5) the magic file in the file-system is incompatible and will produce errors.</p>
+
+<p>*The fileinfo extension (finfo) comes bundled with an internal magic mime database. If no magic file is specified, the internal magic database gets used. This is an undocumented feature of finfo. See: <a href="http://svn.php.net/viewvc/php/php-src/branches/PHP_5_3/ext/fileinfo/">http://svn.php.net/viewvc/php/…</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-04T11:08:06.000+0000</p> 
+        <div class="body">
+            <p>Note that ZF actually supports also PHP 5.2 and is not limited to PHP 5.3.</p>
+
+<p>Additionally the internal magic database can be excluded from a distribution. There were some severe issues on some linux distributions with the internal database. That was the reason why we added the automatic search, as most people do not set the correct database. And the internal database is only a limited part of the external database.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stewart Lord (stewartlord) on 2010-03-04T22:28:39.000+0000</p> 
+        <div class="body">
+            <p>I wasn't aware that the internal database had problems. Sounds like a problem either way then.</p>
+
+<p>Not sure if it helps, but this is the problem I am seeing under 10.5 (this goes away when I use the internal magic database):</p>
+
+<p>Notice: finfo::finfo() [finfo.finfo]: Warning: description `8-bit ISDN mu-law compressed (CCITT G.721 ADPCM voice data enco' truncated in [...]Zend/Validate/File/MimeType.php on line 306
+ ...snip...
+Notice: finfo::finfo() [finfo.finfo]: Warning: &lt;= not supported in [...]Zend/Validate/File/MimeType.php on line 306
+ ...snip...
+Warning: finfo::finfo() [finfo.finfo]: Failed to load magic database at '/usr/share/file/magic'. in [...]Zend/Validate/File/MimeType.php on line 306</p>
+
+<p>If there were some way to suppress and detect these warnings, Zend_Validate_File_MimeType could try to fallback on the internal database. That might be difficult though as finfo is not returning false despite its failure to load the magic database.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-08T12:11:22.000+0000</p> 
+        <div class="body">
+            <p>Change from bug to improvement...
+A broken database file will always fail within MimeType.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-08T12:13:25.000+0000</p> 
+        <div class="body">
+            <p>Implemented new behaviour:
+* MagicFile will be checked by finfo.
+* When finfo does not complain, the database is seen as OK
+* When finfo fails, the next database is checked
+* If no database is found, the internal database is used
+* When also the internal database fails, finfo will not be used</p>
+
+<p>Note that Notices/Warnings will not be suppressed as this is not allowed within ZF for debugging reasons.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stewart Lord (stewartlord) on 2010-03-08T13:11:33.000+0000</p> 
+        <div class="body">
+            <p>Thanks Thomas. A couple of questions:</p>
+
+<ol><li><p>In my environment, finfo() was not returning false even when it failed to load the magic mime db. It looks like you're checking for false. Am I missing something?</p></li>
+<li><p>If warnings/notices are not suppressed, won't this still break uploads where the app attempts a subsequent redirect?</p></li>
+</ol><p>Cheers,
+Stewart</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-08T14:28:03.000+0000</p> 
+        <div class="body">
+            <p>According to manual:
+"Returns a magic database resource on success or FALSE on failure."</p>
+
+<p>Also a broken database is a failure and returns FALSE (at last it does in some environments). When it does not return false in your environment when if throwing out 2 notices and one warning it is errorous itself.</p>
+
+<p>You can not call finfo on a broken database.</p>
+
+<p>Additionally this would mean that there is no way how we could prevent a errorous database to be loaded as finfo() accepty ANYTHING as long as it can be read and returns a resource.</p>
+
+<p>Warnings and notices to not prevent code from being executed. They are just nasty as they appear within the error log. As you said that finfo does not fail on a errorous database even a supression would not bring anything as the broken file is accepted. Defining the correct mimebase all works as expected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stewart Lord (stewartlord) on 2010-03-08T15:33:49.000+0000</p> 
+        <div class="body">
+            <p>I can understand if there is no palatable solution; I just wanted to clarify that this patch doesn't actually fix the problem I am reporting.</p>
+
+<p>I think that the problem ultimately stems from a bug in finfo() because it does not adhere to its documented behaviour. If it did, then the MimeType validator would have worked as written because isValid() already checks for a false return from finfo() (and falls back to the internal db).</p>
+
+<p>The additional check in setMagicFile() is good, but it doesn't address the problem I am experiencing because of the aforementioned bug.</p>
+
+<p>Regarding the warnings/notices, I was suggesting that they would interfere with a 'location' header (i.e. redirect) because they will be output in some environments (at least in development and testing).</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-09T11:36:27.000+0000</p> 
+        <div class="body">
+            <p>Well.. ZF can not solve PHP internal bugs.</p>
+
+<p>When finfo accepts broken databases without returning false but returns a finfo resource then there is no way how to prevent this behaviour per code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gordon Stratton (tsr2600) on 2010-08-12T10:51:17.000+0000</p> 
+        <div class="body">
+            <p>I agree that ZF should not be solving internal PHP bugs.</p>
+
+<p>One current issue is that on newer Debian systems (Debian Testing as of 2010-08-12), the search path for the MIME magic database hits a directory, and unfortunately finfo loads this properly, resulting in an empty database and breaking the validator.</p>
+
+<p>One easy fix for this would be to change:</p>
+
+<pre class="highlight"><code>
+} else if (!is_readable($file)) {
+</code></pre>
+
+<p>to</p>
+
+<pre class="highlight"><code>
+} else if (!is_file($file) || !is_readable($file)) {
+</code></pre>
+
+<p>in the file Zend/Validate/File/MimeType.php in the method setMagicFile().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-08-12T11:07:00.000+0000</p> 
+        <div class="body">
+            <p>Fix integrated... thank you for your patch</p>
+
+        </div>
+    </div>
+    </div>
+

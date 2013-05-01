@@ -1,0 +1,262 @@
+<h2>ZF-2468: using own frontends and/or backends</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-01-23T10:15:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marc Bennewitz (GIATA mbH) (mben)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2705">ZF-2705</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Now the way to use own frontend or backend objects this objects must named Zend_Cache_[Frontend|Backend], because the static arrays in Zend_Cache only contain the last class name (e.g 'File' for Zend_Cache_[Frontend|Backend]_File )</p>
+
+<p>I think it is better to store the last class name as lower case and the full class name in this arrays like:</p>
+
+<pre class="highlight"><code>
+public static $standardFrontends = array(
+    'core' =&gt; 'Zend_Cache_Core',
+    'output' =&gt; 'Zend_Cache_Frontend_Output',
+    'class' =&gt; 'Zend_Cache_Frontend_Class',
+    // ...
+);
+</code></pre>
+
+<p>and the same for the backend array.</p>
+
+<p>Then in the method Zend_Cache::factory you can handle it as follow:</p>
+
+<pre class="highlight"><code>
+$frontendLower = strtolower($frontend);
+if (isset(self::$standardFrontends[$frontendLower])) {
+    $frontendClass = self::$standardFrontends[$frontendLower];
+} else {
+    $frontendClass = self::_normalizeName($frontend);
+}
+// self::$standardFrontends is public and can therefore be change from the outside
+Zend_Loader::loadClass($frontendClass);
+$frontendObject = new $frontendClass($frontendOptions);
+
+$backendLower  = strtolower($backend);
+if (isset(self::$standardBackends[$backendLower])) {
+    $backendClass = self::$standardBackends[$backendLower];
+} else {
+    $backendClass = self::_normalizeName($backend);
+}
+// self::$standardBackends is public and can therefore be change from the outside
+Zend_Loader::loadClass($backendClass);
+$backendObject = new $backendClass($backendOptions);
+// ...
+</code></pre>
+
+<p>I use the self::$standard* arrays because on the self::$available* arrays is the comment "Only for backward compatibily (will be removed in 1.2.0)"</p>
+
+<p>Now you can use the factory methode as follow:</p>
+
+<pre class="highlight"><code>
+Zend_Cache::factory('Core', 'File');
+// or
+Zend_Cache::factory('My_Own_Frontend', 'My_Own_Backend');
+// or
+Zend_Cache::$standardFrontends['Core'] = 'My_Own_Frontend';
+Zend_Cache::$standardBackends['File'] = 'My_Own_Backend';
+Zend_Cache::factory('core', 'file');
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2008-03-20T04:47:56.000+0000</p> 
+        <div class="body">
+            <p>I realy like the array approach for determining standard classes in the factory, but a cleaner solution to modify the array  might be to add:</p>
+
+<pre class="highlight"><code>
+public static function addFrontendClass($name, $classname);
+public static function addBackendClass($name, $classname);
+</code></pre>
+
+<p>Another approach might be to move the classname resolution to seperate protected functions, so that subclassing Zend_Cache is easier.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-03-20T17:59:27.000+0000</p> 
+        <div class="body">
+            <p>this sounds good</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-04-04T17:29:39.000+0000</p> 
+        <div class="body">
+            <p>I just commited something in trunk SVN.</p>
+
+<p>Can you have a look at it ?</p>
+
+<pre class="highlight"><code> 
+    /**
+     * Factory
+     *
+     * @param string $frontend        frontend name
+     * @param string $backend         backend name
+     * @param array  $frontendOptions associative array of options for the corresponding frontend constructor
+     * @param array  $backendOptions  associative array of options for the corresponding backend constructor
+     * @param boolean $customFrontendNaming if true, the frontend argument is used as a complete class name ; if false, the frontend argument is used as the end of "Zend_Cache_Frontend_[...]" class name
+     * @param boolean $customBackendNaming if true, the backend argument is used as a complete class name ; if false, the backend argument is used as the end of "Zend_Cache_Backend_[...]" class name
+     * @param boolean $autoload if true, there will no require_once for backend and frontend (usefull only for custom backends/frontends)
+     * @throws Zend_Cache_Exception
+     * @return Zend_Cache_Frontend
+     */
+</code></pre>
+
+<p>So, to use a completly custom frontend, you can use something like :</p>
+
+<p>Zend_Cache::factory('MyCustomFrontend','MyCustomBackend',array(...),array(...), true, true, false);
+(without autoload)</p>
+
+<p>Zend_Cache will do a require_once "My/Custom/Frontend.php" (the include_path must be ok for that)</p>
+
+<p>or :</p>
+
+<p>Zend_Cache::factory('MyCustomFrontend','MyCustomBackend',array(...),array(...), true, true, true);
+(with autoload)</p>
+
+<p>Zend_Cache won't do any require_once at all (but the autoload has to work for MyCustomFrontend)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2008-04-05T04:04:24.000+0000</p> 
+        <div class="body">
+            <p>In my current project, i had to have my dummy backend. I subclassed Zend_Cache like this:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+/** FIXME: this is a modified version of Zend_Cache, because ZF doesn't have a
+ *  clean way to add custom front/backends.
+ *  See <a href="http://framework.zend.com/issues/browse/ZF-2468">http://framework.zend.com/issues/browse/ZF-2468</a>
+ */
+
+abstract class My_Cache extends Zend_Cache
+{
+    // FIXME: these arrays could be pre-loaded, but that would break inheritance
+    protected static $frontendClasses = null;
+    protected static $backendClasses = null;
+
+    protected static function _loadDefaultClasses() {
+        if(!is_array(self::$frontendClasses)) {
+            foreach(self::$standardFrontends as $name) {
+                self::addFrontendClass($name, 'Zend_Cache_' . ($name != 'Core' ? 'Frontend_' : '') . $name);
+            }
+        }
+        if(!is_array(self::$backendClasses)) {
+            foreach(self::$standardBackends as $name) {
+                self::addBackendClass($name, 'Zend_Cache_Backend_' . $name);
+            }
+        }
+    }
+    protected static function _normalizeKey($name) {
+        return strtolower(str_replace(array(' ','-','_','.'),'',$name));
+    }
+    public static function addFrontendClass($name, $classname) {
+        self::$frontendClasses[self::_normalizeKey($name)] = $classname;
+    }
+    public static function addBackendClass($name, $classname) {
+        self::$backendClasses[self::_normalizeKey($name)] = $classname;
+    }
+    /**
+     * Factory
+     *
+     * @param string $frontend frontend name
+     * @param string $backend backend name
+     * @param array $frontendOptions associative array of options for the corresponding frontend constructor
+     * @param array $backendOptions associative array of options for the corresponding backend constructor
+     */
+    public static function factory($frontend, $backend, $frontendOptions = array(), $backendOptions = array())
+    {
+        // FIXME: these arrays could be pre-loaded, but that would break inheritance
+        self::_loadDefaultClasses();
+
+        // working on the frontend
+        if (array_key_exists(self::_normalizeKey($frontend), self::$frontendClasses)) {
+            // we use a standard frontend
+            $frontendClass = self::$frontendClasses[self::_normalizeKey($frontend)];
+        } else {
+            // we use a custom frontend
+            $frontendClass = $frontend;
+        }
+        Zend_Loader::loadClass($frontendClass);
+
+        // working on the backend
+        if (array_key_exists(self::_normalizeKey($backend), self::$backendClasses)) {
+            // we use a standard frontend
+            $backendClass = self::$backendClasses[self::_normalizeKey($backend)];
+        } else {
+            // we use a custom frontend
+            $backendClass = $backend;
+        }
+        Zend_Loader::loadClass($backendClass);
+
+        // Making objects
+        $frontendObject = new $frontendClass($frontendOptions);
+        $backendObject = new $backendClass($backendOptions);
+        $frontendObject-&gt;setBackend($backendObject);
+        return $frontendObject;
+    }
+}
+</code></pre>
+
+<p>Of course I used the occasion to use the Zend_Loader instead of require, although I also use an autoloader. I would like to see this add* interface and only a fifth argument on the factory to enable autoloading. Default classed should be in the assoc. array, instead of using this workaround. This makes loading custom classes transparent and keeps the argumentlist clean.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:37.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

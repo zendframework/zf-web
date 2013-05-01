@@ -1,0 +1,167 @@
+<h2>ZF-4511: Zend_Test_PHPUnit_ControllerTestCase::resetResponse() does not allow a new clean dispatch</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-07T10:04:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-17T11:00:05.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.3 (22/Sep/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Giorgio Sironi (giorgiosironi)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Test_PHPUnit</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12208/ControllerTestCase.patch">ControllerTestCase.patch</a></li>
+            <li><a href="/issues/secure/attachment/12209/ControllerTestCaseTest.patch">ControllerTestCaseTest.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>After calling a dispatch() in a test, the resetResponse() method cleans the response object and the registry instance. However, the request object still contains param from the previous dispatch and so it contaminates the new one. I personally call $this-&gt;setUp() after every dispatch/assertions cycle to ensure cleanliness.
+Not sure if it is the intended behaviour, I think reset the request object or provide a parameter of resetResponse() or a resetRequest() method would be useful.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Travis Pew (travisp) on 2008-10-29T10:05:21.000+0000</p> 
+        <div class="body">
+            <p>I agree that this is an issue and comes up a lot for me in unit testing, especially when param are set during dispatch.</p>
+
+<p>For example:
+function testCreateAccount()
+{
+   $this-&gt;_login();  //dispatches to /auth/login and logs the user in 
+   $this-&gt;dispatch('/account/create'); //any param set during the dispatch to /auth/login remain
+}</p>
+
+<p>This is particularly a problem when an error is thrown and I want to do a second dispatch.  The ErrorHandler plugin sets the 'error_handler' param, which in some cases can cause issues.</p>
+
+<p>I therefore think it would make sense to have the following in Zend_Test_PHPUnit_ControllerTestCase to make it clear that this should be called.
+function resetRequest() {
+   $this-&gt;_request = null;
+   return $this;
+}</p>
+
+<p>It would go along nicely with resetResponse, which according to the PHPdoc is 'Useful for test cases that need to test multiple trips to the server.'</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-10-29T10:18:49.000+0000</p> 
+        <div class="body">
+            <p>Actually, dispatch() should simply always create a new request and response pair. (I thought I had it doing this already, but it's not.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-06T11:22:20.000+0000</p> 
+        <div class="body">
+            <p>Added resetRequest() in r12337 and r12339.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Abdemoulaie (hobodave) on 2009-03-11T16:40:18.000+0000</p> 
+        <div class="body">
+            <p>I'm reopening this due to the exact same problem being caused by the super globals being persistent across multiple requests.</p>
+
+<p>e.g. <a href="http://pastie.org/private/mpga8blwtx4gcstiplkjw">http://pastie.org/private/mpga8blwtx4gcstiplkjw</a></p>
+
+<p>In this case, I log my user in with login(), and immediately reset the response and request. Yet, since the $_POST data still contains 'username' and 'password' values, it causes undesired behavior in my changePassword action. Obviously this is easy enough to work around now that I know what's going on. However, it's very misleading to have a resetRequest() that doesn't truly reset the request. The manual even states that these are to be used to simulate multiple requests.</p>
+
+<p>If I submit two forms in a row in my browser, the data from the first doesn't linger and affect the behavior of the second :p.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Travis Pew (travisp) on 2009-03-11T16:48:18.000+0000</p> 
+        <div class="body">
+            <p>I wanted to add that while there is a resetRequest() function now, the dispatch() function still doesn't seem to actually create the new request and response pair.  That is, I still have to call the resetRequest() and resetResponse() before any second dispatch within a single unit test.</p>
+
+<p>And to second what David said, $_POST and $_GET have to be cleared with clearPost() and clearGet(), since the newly created Request object will simply read from these.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duo Zheng (duoduo) on 2009-09-16T11:36:58.000+0000</p> 
+        <div class="body">
+            <p>I am with David and Travis.</p>
+
+<p>$_POST and $_GET still persists. The reference guide also gives an example of this to clear POST paramaters:</p>
+
+<pre class="highlight"><code>
+$this-&gt;resetRequest()
+         -&gt;resetResponse();
+
+$this-&gt;request-&gt;setPost(array());
+</code></pre>
+
+<p>The setPost(array()) will not clear anything. resetRequest and resetResponse should handle calling clearPost() and clearGet(). If not at the very least documentation needs to updated also to use $this-&gt;request-&gt;clearPost(), but it is deceiving that resetRequest actually doesn't fully reset.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Travis Pew (travisp) on 2009-09-17T10:33:03.000+0000</p> 
+        <div class="body">
+            <p>patch for unit tests for resetRequest() and a proposed patch to fix resetRequest()</p>
+
+<p>the patch to fix resetRequest calls getRequest()-&gt;clearQuery();
+but it could have just as easily called $_GET = array(); to fix the problem</p>
+
+<p>And I'm unsure if we also want to clear $_REQUEST. Some parts of Zend use it, but there is no method in the request object to clear the _REQUEST superglobal.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-09-17T10:49:48.000+0000</p> 
+        <div class="body">
+            <p>My own patch calls both clearQuery() and clearPost() prior to unsetting the request.</p>
+
+<p>Resetting $_REQUEST is not a good idea, as it would also reset cookies -- which likely *should* persist between requests.</p>
+
+<p>My patch will apply shortly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-09-17T11:00:04.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk and 1.9 release branch</p>
+
+        </div>
+    </div>
+    </div>
+

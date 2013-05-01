@@ -1,0 +1,178 @@
+<h2>ZF-9240: Zend_Cache_Manager does not allow custom backend</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-23T06:50:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-23T13:49:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Renan de Lima (renanbr)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9134">ZF-9134</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12791/patch.diff">patch.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is a mix of improvement and bug fix. When I tried to use a custom backend class as cache backend, Zend_Cache_Manager fails. The sample below is about Zend_Cache_Backend_ZendServer_ShMem just to make easer to understand what's happening, but you can reproduce this using any other custom class.</p>
+
+<p>h3. Usage</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+$manager = new Zend_Cache_Manager();
+$manager-&gt;setCacheTemplate('custom',
+                           array('frontend' =&gt; array('name' =&gt; 'Core'),
+                                 'backend'  =&gt; array('name' =&gt; 'Zend_Cache_Backend_ZendServer_ShMem')));
+
+$backend = $manager-&gt;getCache('custom')-&gt;getBackend();
+</code></pre>
+
+<p>h3. Expected result</p>
+
+<p>$cache instanceof Zend_Cache_Backend_ZendServer_ShMem; // true</p>
+
+<p>h3. Actual result</p>
+
+<p>{quote}
+Fatal error: Uncaught exception 'Zend_Cache_Exception' with message 'file Zend/Cache/Backend/ZendCacheBackendZendserverShmem.php not found in include_path' in /path/to/library/Zend/Cache.php:208
+Stack trace:</p>
+
+<h1>0 /path/to/library/Zend/Cache.php(147): Zend_Cache::throwException('file Zend/Cache...')</h1>
+
+<h1>1 /path/to/library/Zend/Cache.php(93): Zend_Cache::_makeBackend('Zend_Cache_Back...', Array, false, false)</h1>
+
+<h1>2 /path/to/library/Zend/Cache/Manager.php(172): Zend_Cache::factory('Core', 'Zend_Cache_Back...', Array, Array)</h1>
+
+<h1>3 /var/www/sample.php(8): Zend_Cache_Manager-&gt;getCache('custom')</h1>
+
+<h1>4 {main}</h1>
+
+<p>thrown in /path/to/library/Zend/Cache.php on line 208
+{quote}</p>
+
+<p>Actually it's perfectly expected, but there is no way to bypass this exception using Zend_Cache_Manager::setCacheTemplate() nor Zend_Cache_Manager::setTemplateOptions() once latest arguments to Zend_Cache::factory() is not available through Zend_Cache_Manager. Those arguments are necessary for custom backend usage. A nice improvement could be implemented.</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.cache.backends.html#zend.cache.backends.zendserver">http://framework.zend.com/manual/en/…</a></p>
+
+<p>h3. Suggest</p>
+
+<p>Zend_Cache::factory() has 4 arguments. See a slice of the code from Zend/Cache.php file:</p>
+
+<pre class="highlight"><code>
+/**
+ * @param mixed  $frontend        frontend name (string) or Zend_Cache_Frontend_ object
+ * @param mixed  $backend         backend name (string) or Zend_Cache_Backend_ object
+ * @param array  $frontendOptions associative array of options for the corresponding frontend constructor
+ * @param array  $backendOptions  associative array of options for the corresponding backend constructor
+ * @param boolean $customFrontendNaming if true, the frontend argument is used as a complete class name ; if false, the frontend argument is used as the end of "Zend_Cache_Frontend_[...]" class name
+ * @param boolean $customBackendNaming if true, the backend argument is used as a complete class name ; if false, the backend argument is used as the end of "Zend_Cache_Backend_[...]" class name
+ * @param boolean $autoload if true, there will no require_once for backend and frontend (usefull only for custom backends/frontends)
+ */
+public static function factory($frontend, $backend, $frontendOptions = array(), $backendOptions = array(), $customFrontendNaming = false, $customBackendNaming = false, $autoload = false);
+</code></pre>
+
+<p>Zend_Cache_Manager doesn't allow us to use fifth, sixth nor seventh arguments of this method. We could add to Zend_Cache_Manager::$_optionTemplates new optional entries.</p>
+
+<pre class="highlight"><code>
+array(
+    'sample' =&gt; array(
+        'frontend' =&gt; array(
+            'name'          =&gt; 'something',
+            'custom_naming' =&gt; false,       // HERE (fifth)
+            'options'       =&gt; array(),
+        ),
+        'backend' =&gt; array(
+            'name'          =&gt; 'another-thing',
+            'custom_naming' =&gt; false,       // HERE (sixth)
+            'options'       =&gt; array(),
+        ),
+        'autoload' =&gt; false,                // and HERE (seventh)
+    ),
+)
+</code></pre>
+
+<p>Attached is a patch that implements that improvement. Below is another sample, this time using the new template arguments.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+$manager = new Zend_Cache_Manager();
+$manager-&gt;setCacheTemplate('custom',
+                           array('frontend' =&gt; array('name' =&gt; 'Core'),
+                                 'backend'  =&gt; array('name'          =&gt; 'Zend_Cache_Backend_ZendServer_ShMem',
+                                                     'custom_naming' =&gt; true)),
+                                 'autoload' =&gt; true);
+
+$backend = $manager-&gt;getCache('custom')-&gt;getBackend();
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Renan de Lima (renanbr) on 2010-02-23T06:57:02.000+0000</p> 
+        <div class="body">
+            <p>attached file that implements this improvement</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Renan de Lima (renanbr) on 2010-02-23T07:03:59.000+0000</p> 
+        <div class="body">
+            <p>ZF-9240 contains a patch that solve this issue reported by ZF-9134</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-04-23T13:44:54.000+0000</p> 
+        <div class="body">
+            <p>Correction in revision <a href="http://framework.zend.com/code/changelog/Standard_Library?cs=21977">21977</a>.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-04-23T13:49:22.000+0000</p> 
+        <div class="body">
+            <p>Attributed fix version for Mini Release.</p>
+
+        </div>
+    </div>
+    </div>
+

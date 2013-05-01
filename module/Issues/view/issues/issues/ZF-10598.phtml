@@ -1,0 +1,261 @@
+<h2>ZF-10598: Zend Select odd behavior</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-10-25T16:13:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-04-23T07:46:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                The Lone Coder (loconut)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8944">ZF-8944</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Here is some code that was designed to randomly choose a row from the databse. I discovered that doing $select-&gt;__toString() would always show the correct SQL and when put in MySQL directly would work, but when used with fetchRow($select) the end result seemed to ignore the limit clause. If I switched to fetchAll($select) it worked.</p>
+
+<pre class="highlight"><code>
+    public static function ChooseRandomPoolFile()
+    {
+        $retval = false;
+
+        $tbl = new TableAdapters_PoolFiles();
+        $db = $tbl-&gt;getAdapter();
+        $select = $db-&gt;select()
+            -&gt;from('PoolFiles', array('Sum' =&gt; new Zend_Db_Expr('COUNT(*)')))
+            -&gt;where('FileSize &gt; 0')
+            -&gt;order(array('DateAdded ASC', 'BlockID ASC'));
+        $count = $db-&gt;fetchOne($select);
+        unset($select);
+
+        if (is_numeric($count) &amp;&amp; ($count &gt; 0)) {
+            $offset = mt_rand(0, ($count - 1));
+            $select = $tbl-&gt;select()
+                -&gt;where('FileSize &gt; 0')
+                -&gt;order(array('DateAdded ASC', 'BlockID ASC'))
+                -&gt;limit(1, $offset);
+            $result = $tbl-&gt;fetchRow($select);
+            if ($result instanceof Zend_Db_Table_Row) {
+                $retval = new self($result, false);
+            }
+        }
+
+        return $retval;
+    }
+</code></pre>
+
+<p>the above would always return the same row despite getting a varying / valid offset. Changing the above to:</p>
+
+<pre class="highlight"><code>
+    public static function ChooseRandomPoolFile()
+    {
+        $retval = false;
+
+        $tbl = new TableAdapters_PoolFiles();
+        $db = $tbl-&gt;getAdapter();
+        $select = $db-&gt;select()
+            -&gt;from('PoolFiles', array('Sum' =&gt; new Zend_Db_Expr('COUNT(*)')))
+            -&gt;where('FileSize &gt; 0')
+            -&gt;order(array('DateAdded ASC', 'BlockID ASC'));
+        $count = $db-&gt;fetchOne($select);
+        unset($select);
+
+        if (is_numeric($count) &amp;&amp; ($count &gt; 0)) {
+            $offset = mt_rand(0, ($count - 1));
+            $select = $tbl-&gt;select()
+                -&gt;where('FileSize &gt; 0')
+                -&gt;order(array('DateAdded ASC', 'BlockID ASC'))
+                -&gt;limit(1, $offset);
+            $result = $tbl-&gt;fetchAll($select);
+            if (($result instanceof Zend_Db_Table_Rowset) &amp;&amp; ($result-&gt;count() == 1)) {
+                $retval = new self($result-&gt;current(), false);
+            }
+        }
+
+        return $retval;
+    }
+</code></pre>
+
+<p>would work fine.</p>
+
+<p>Long story short it appears fetchRow ignores the limit clause assuming it can, but forgetting users may want to select 1 but after some offset?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-10-25T17:04:26.000+0000</p> 
+        <div class="body">
+            <p>Sorry on the above I made a typo- I took my final version and re-edited it while I was typing my post to make my original, and typed fetchOne instead of fetchRow. The one that doesn't work should be:</p>
+
+<p>public static function ChooseRandomPoolFile()
+{
+$retval = false;</p>
+
+<p>$tbl = new TableAdapters_PoolFiles();
+$db = $tbl-&gt;getAdapter();
+$select = $db-&gt;select()
+-&gt;from('PoolFiles', array('Sum' =&gt; new Zend_Db_Expr('COUNT')))
+-&gt;where('FileSize &gt; 0')
+-&gt;order(array('DateAdded ASC', 'BlockID ASC'));
+$count = $db-&gt;fetchOne($select);
+unset($select);</p>
+
+<p>if (is_numeric($count) &amp;&amp; ($count &gt; 0)) {
+$offset = mt_rand(0, ($count - 1));
+$select = $tbl-&gt;select()
+-&gt;where('FileSize &gt; 0')
+-&gt;order(array('DateAdded ASC', 'BlockID ASC'))
+-&gt;limit(1, $offset);
+$result = $tbl-&gt;fetchRow($select);
+if ($result instanceof Zend_Db_Table_Row) { $retval = new self($result, false); }
+}</p>
+
+<p>return $retval;
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-10-25T17:11:06.000+0000</p> 
+        <div class="body">
+            <p>Upon inspection of Zend/Db/Table/Abstract.php around line 1361 it appears that the limit is overridden.</p>
+
+<p>Ideally it should preserve any limit offset that was passed in.</p>
+
+<p>change the limits to something like</p>
+
+<p>$this-&gt;limit(1, $select-&gt;getPart('limitoffset'));</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-10-25T17:27:29.000+0000</p> 
+        <div class="body">
+            <p>proposed patch?</p>
+
+<h1>Index: Zend/Db/Table/Abstract.php</h1>
+
+<p>--- Zend/Db/Table/Abstract.php  (revision 1791)
++++ Zend/Db/Table/Abstract.php  (working copy)
+@@ -1358,10 +1358,10 @@
+                 $this-&gt;_order($select, $order);
+             }</p>
+
+<ul><li>$select-&gt;limit(1);</li>
+<li><pre><code>     $select-&gt;limit(1, $select-&gt;getPart(Zend_Db_Select::LIMIT_OFFSET));
+
+ } else {
+</code></pre></li>
+<li>$select = $where-&gt;limit(1);</li>
+<li><pre><code>     $select = $where-&gt;limit(1, $select-&gt;getPart(Zend_Db_Select::LIMIT_OFFSET));
+ }
+
+ $rows = $this-&gt;_fetch($select);
+</code></pre></li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-10-25T17:31:23.000+0000</p> 
+        <div class="body">
+            <p>JIRA stinks for posting code... yeesh.</p>
+
+<p>patch placed at:
+<a href="http://webtrotter.com/zf1.10.8.patch">http://webtrotter.com/zf1.10.8.patch</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-10-25T17:33:46.000+0000</p> 
+        <div class="body">
+            <p>I believe my patch to Zend_Db_Table_Abstract is a better solution though.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-19T07:31:37.000+0000</p> 
+        <div class="body">
+            <p>All you need to do is put the  ``` tag around your code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-19T07:36:12.000+0000</p> 
+        <div class="body">
+            <p>If you are using MySQL, why not instead do something like this: $select-&gt;order(new Zend_Db_Expr('RAND()')); as opposed to finding the count and crafting your own random algorithm?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-11-19T08:47:06.000+0000</p> 
+        <div class="body">
+            <p>Well, regardless of a better implementation of the above code, the bug is real. Fact is, if you give a limit with a specific row offset and fetchOne, it obliterates the offset. Simply passing in the offset as in my patch lets one specify an arbitrary offset and still be able to fetchOne.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2010-11-19T08:50:24.000+0000</p> 
+        <div class="body">
+            <p>Have a look at the lines referenced in the patch.</p>
+
+<p>In Zend/Db/Table/Abstract.php:</p>
+
+<p>There are two instances where it has $select-&gt;limit(1) instead of
+$select-&gt;limit(1, $select-&gt;getPart(Zend_Db_Select::LIMIT_OFFSET))</p>
+
+<p>Which would fix the problem. It seems pretty obvious looking at the source what the problem is and the solution is only a half step away.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by The Lone Coder (loconut) on 2011-02-06T12:16:20.000+0000</p> 
+        <div class="body">
+            <p>I've updated the parent task as this is still not resolved. I'm commenting here to reawaken anyone watching.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-04-23T07:46:42.000+0000</p> 
+        <div class="body">
+            <p>Patch provided in ZF-11253.</p>
+
+        </div>
+    </div>
+    </div>
+

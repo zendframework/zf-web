@@ -1,0 +1,599 @@
+<h2>ZF2-322: Allow elements and fieldsets to have their own object and hydrator</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-05-26T15:37:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-23T09:01:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michael Gallego (bakura)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Michael Gallego (bakura)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi,</p>
+
+<p>In many cases, the hydrated objects are compound models. For example, one of my entity, Employee, is composed of an Address entity, a Sector entity as well as a Company entity. Therefore, my register form have information that belong to those entities (street, city, zipCode belong to the Address...).</p>
+
+<p>However, currently, dealing such cases (that happen often as most of my forms are like that) is cumbersome, and the only solution I've found is to overload the bindValues function in the form, like this :</p>
+
+<pre class="highlight"><code>
+public function bindValues()
+        {
+            if (!is_object($this-&gt;object)) {
+                return;
+            }
+            if (!$this-&gt;isValid) {
+                return;
+            }
+
+            $hydrator = $this-&gt;getHydrator();
+            $filter   = $this-&gt;getInputFilter();
+            $data = $filter-&gt;getValues();
+
+            // On compose l'élément "company" afin d'avoir un objet complet
+            $address = new Address();
+            $address-&gt;setStreet($data['street']);
+            $data['address'] = $address;
+
+            $sector = $this-&gt;em-&gt;getReference('Member\Entity\Sector', $data['sector']);
+            $data['sector'] = $sector;
+
+            $company = new Company();
+            $company-&gt;setName($data['company'])
+                    -&gt;setSector($sector)
+                    -&gt;setDescription($data['description'])
+                    -&gt;setAddress($address);
+            $data['company'] = $company;
+
+            $hydrator-&gt;hydrate($data, $this-&gt;object);
+        }
+</code></pre>
+
+<p>Not only this is very ugly, I can't reuse this code (as I have those same fields - and more - in the Edit form).</p>
+
+<p>Symfony 2 has a very elegant solution to this problem : <a href="http://symfony.com/doc/current/book/forms.html#embedded-forms">http://symfony.com/doc/current/…</a></p>
+
+<p>I think we really must have something similar in ZF 2, and I suggest that each Element and Fieldset could have their own object as well as their own hydrator. For instance, I could create a "Sector" type (that would inherit of Zend\Form\Element) that would contain the name of this entity, as well as a specific hydrator.</p>
+
+<p>On the other hand, I could create an "Address" type that would inherit from Zend\Form\Fieldset (as it contains a city field, a post code field...).</p>
+
+<p>Therefore, when the bindValues function of the Form would be called, it would iterate through all the elements/fieldset. If an object name is specified, this object would be created and would be returned to the form.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michael Gallego (bakura) on 2012-05-30T09:44:04.000+0000</p> 
+        <div class="body">
+            <p>I tried to think more about that. Honestly, I tried to write some code but I didn't get anything good. My architecture level is too bad. Once again, my goal is not to criticize here, and Zend\Form is really good, but to me it lacks flexibility and becomes ugly when you deal with entities, and as most of my forms contain fields from several entities, it makes it quite hard.</p>
+
+<p>However, my first intention was to add an object and hydrator to the base class Element, but it didn't make sense.</p>
+
+<p>Instead, I think we should have two specialized Fieldset and Element, called for instance ObjectFieldset and ObjectElement, that could be added to a form or a fieldset. Those elements would have an hydrator, an object and an input filter. Of course, one ObjectElement/ObjectFieldset could contain as well another ObjectElement/ObjectFieldset.</p>
+
+<p>When the Form bind or extract values, if the element is of type ObjectElement/ObjectFieldset, it would instead call the bind/extract and return a real object, that would then be injected into the main object.</p>
+
+<p>In the view, if the element is an ObjectFieldset, we could eventually choose which fields we want to show, validate and retrieve.</p>
+
+<p>There is another feature that would be cool (it's in Symfony 2 too) is the concept of Collections. Let's say we want to add a collection of Addresses (each Address being an ObjectFieldset).</p>
+
+<p>I see one major goal with this approach of ObjectElement/ObjectFieldset : we could define one Element type for Entity (one FieldsetElement for user that would contain a FieldsetObject of Address...) that would contain the forms AND an input filter provider.</p>
+
+<p>Finally, all the forms (register form, login form...) would only be composition of those base elements. Basically, a RegisterForm and an EditForm would be exactly the same : they only would include a UserElement (FieldsetObject), and then you would choose which element you want to show/edit/retrieve in the view.</p>
+
+<p>In fact, the major problem I see here is name collision. A complex approach would have to be used to differentiate each element. So if a form have an address FieldsetObject, the name would be address['street'], address['zipcode']. If it contains a collection of addresses, it would be address[0]['street'] and so on.</p>
+
+<p>Here is a use case :</p>
+
+<pre class="highlight"><code>
+// Address contains many fields, so it inherits from an ObjectFieldset. You could implement your own input
+    // filters specification as well
+    class Address extends ObjectFieldset
+    {
+        public function __construct()
+        {
+            $factory = new Factory();
+
+            $this-&gt;setObject('Application\Entity\Address')
+                 -&gt;setHydrator(new ClassMethodsHydrator());
+
+            $this-&gt;add($factory-&gt;create(array(
+                'name' =&gt; 'street',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text'
+                )
+            )));
+
+            $this-&gt;add($factory-&gt;create(array(
+                'name' =&gt; 'postcode',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text'
+                )
+            )));
+        }
+    }
+
+    // Activity contains only one field (name of the activity), so it inherits from an ObjectElement
+    class Activity extends ObjectElement
+    {
+        public function __construct()
+        {
+            $factory = new Factory();
+
+            $this-&gt;setObject('Application\Entity\Activity')
+                 -&gt;setHydrator(new ClassMethodsHydrator());
+
+            $this-&gt;setName('actitity')
+                 -&gt;setAttributes('type' =&gt; 'select');
+            )));
+        }
+    }
+
+    // Registering a user needs the adress, the activity and some other fields that are specific to the user
+    class RegisterUser extends Form
+    {
+        public function __construct()
+        {
+            $this-&gt;add(array(
+                'name' =&gt; 'login',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text'
+                )
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'activity',
+                'type' =&gt; 'Application\Form\Element\Activity'
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'address',
+                'type' =&gt; 'Application\Form\Element\Address',
+            ));
+        }
+    }
+
+
+    // In the controller :
+
+    $form = new RegisterUser();
+    $form-&gt;bind($user);
+    $form-&gt;setData($request-&gt;post());
+
+    if ($form-&gt;isValid()) {
+        // the bindValues has been called. Because elements "address" and "activity" are of type ObjectElement or
+        // ObjectFieldset, their specific hydrator as been called and their object has been filed. Then, this object
+        // has been "injected" into the user object
+    }
+
+
+
+    // In the view :
+
+    $echo $this-&gt;formInput($form-&gt;login);
+    $echo $this-&gt;formInput($form-&gt;address-&gt;street);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dylan Arnold (dtron) on 2012-06-14T10:44:03.000+0000</p> 
+        <div class="body">
+            <p>I just came up against a similar issue. I just read your snippets and had a look at that symfony link. Looks interesting.</p>
+
+<p>My current use case is a Vehicle form.</p>
+
+<p>Fields such as:
+- <em>registrationNumber</em>: (Text)
+- <em>make</em>: (Object reference to <em><em>Make</em></em> entity)
+- <em>model</em>: (Text)</p>
+
+<p>I guess in my case a select element for the make would be good. May or may not need anything fancy to populate it but essentially it would be generated from a list in the database.</p>
+
+<p>If it's a new <em><em>Vehicle</em></em>, a way to hydrate the make field with a <em><em>Make</em></em> object would be good. In my case a way to pull an existing entity from Doctrine based on the selected value would be ideal.</p>
+
+<p>I think updating a <em><em>Vehicle</em></em> and changing it's make is a similar scenario.</p>
+
+<p>I haven't put a great deal of thought into this. I think there are a few use cases for this sort of addition. Collections, not sure? and modification of referenced object fields as described by Michael.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-06-20T17:25:58.000+0000</p> 
+        <div class="body">
+            <p>Postponing to 2.1.0. Not enough information here right now for me to determine exactly how to proceed, and you can theoretically accomplish this with the current code right now. To do so, you'd have your hydration implementation detect properties that need further hydration, and hydrate them individually as well. It's more roundabout, but gets the job done.</p>
+
+<p>Once 2.0.0 ships stable, we can turn back to this and address.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Gallego (bakura) on 2012-06-20T17:45:29.000+0000</p> 
+        <div class="body">
+            <p>Which information exactly do you need ?</p>
+
+<p>I think that currently the cleanest solution is whenever a form has to deal with an entity that has relationships, create a new hydrator specifically for this form. Not the cleanest solution, but it is ok until we have 2.1.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Martin (cgmartin) on 2012-06-20T17:52:16.000+0000</p> 
+        <div class="body">
+            <p>What if, at a minimum, we move the current hydrator methods in BaseForm to Fieldset (which BaseForm extends), and have BaseForm process it's own hydrator as well as iterate over any child fieldsets during bindValues()/isValid()? Where there could be a 1:1 map of entity to Fieldset.</p>
+
+<p>This could allow the forms be mixed and matched as fieldsets of parent forms.</p>
+
+<p>Just thinking out loud here...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Gallego (bakura) on 2012-06-20T17:55:12.000+0000</p> 
+        <div class="body">
+            <p>"What if, at a minimum, we move the current hydrator methods in BaseForm to Fieldset"</p>
+
+<p>Not only the hydrator, but the "object" property as well (I don't know if it was implied in your sentence ;-)).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Martin (cgmartin) on 2012-06-20T17:58:24.000+0000</p> 
+        <div class="body">
+            <p>Michael Gallego: right, yes, any dependencies for doing the hydration, moving those over to Fieldset.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-06-20T18:28:11.000+0000</p> 
+        <div class="body">
+            <p>Chris -- that's a no-go currently. Basically, you're asking for a fieldset to have the same behavior as a form, which is not what the current design does. It's actually non-trivial to accomplish at this point, which is why I want to postpone it.</p>
+
+<p>Michael: what I need is some use case examples: a form definition, some entity definitions, the code you want to run, and what you expect to have happen when you do so.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Gallego (bakura) on 2012-06-20T19:18:03.000+0000</p> 
+        <div class="body">
+            <p>Hi Matthew,</p>
+
+<p>here are the first use-cases (I realized how much it is from the current architecture of Zend\Form, so I understand if it's not possible... but here is a rough idea) :</p>
+
+<p>Entities :</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+    class Company
+    {
+        /**
+         * @var int
+         */
+        protected $id;
+
+        /**
+         * @var string
+         */
+        protected $name;
+
+        /**
+         * @var \Member\Entity\Address
+         */
+        protected $address;
+
+        /**
+         * @var string
+         */
+        protected $description;
+    }
+
+
+    class Address
+    {
+        /**
+         * @var int
+         */
+        protected $id;
+
+        /**
+         * @var string
+         */
+        protected $street;
+
+        /**
+         * @var \Member\Entity\City
+         */
+        protected $city;
+    }
+
+
+    class City
+    {
+        /**
+         * @var int
+         */
+        protected $id;
+
+        /**
+         * @var string
+         */
+        protected $name;
+
+        /**
+         * @var string
+         */
+        protected $postCode;
+    }
+</code></pre>
+
+<p>Forms :</p>
+
+<pre class="highlight"><code>
+/**
+     * The idea would be to be able to "compose" fieldsets in order to reduce writing the same filters and inputs
+     * accross several form
+     */
+
+    // Register form is for registering a company, so it extends from CompanyFieldset
+
+    class RegisterForm extends CompanyFieldset
+    {
+        public function __construct()
+        {
+            parent::__construct();
+
+            $this-&gt;setName('register')
+                 -&gt;setAttribute('method', 'post')
+                 -&gt;setHydrator(new ClassMethodsHydrator());
+
+            /**
+             * Divers
+             */
+
+            $this-&gt;add(array(
+                'type' =&gt; 'Zend\Form\Element\Csrf',
+                'name' =&gt; 'csrf'
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'submit',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'submit',
+                    'label' =&gt; 'Valider'
+                )
+            ));
+        }
+    }
+
+
+    class CompanyFieldset extends Zend\Form\Fieldset
+    {
+        public function __construct()
+        {
+            parent::__construct();
+
+            $this-&gt;setName('company-form')
+                 -&gt;setAttribute('method', 'post')
+                 -&gt;setHydrator(new ClassMethodsHydrator())
+                 -&gt;setObject(new Company())
+                 -&gt;setInputFilter(new CompanyFilter());
+
+            $this-&gt;add(array(
+                'name' =&gt; 'name',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text',
+                    'label' =&gt; 'Name of your company'
+                )
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'description',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'textarea',
+                    'label' =&gt; 'Please describe your company'
+                )
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'address',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'fieldset',
+                    'target' =&gt; new AddressFieldset()
+                )
+            ));
+        }
+    }
+
+    class AddressFieldset extends Zend\Form\Fieldset
+    {
+        public function __construct()
+        {
+            parent::__construct();
+
+            $this-&gt;setName('address-form')
+                 -&gt;setAttribute('method', 'post')
+                 -&gt;setHydrator(new ClassMethodsHydrator())
+                 -&gt;setObject(new Address())
+                 -&gt;setInputFilter(new AddressFilter());
+
+            $this-&gt;add(array(
+                'name' =&gt; 'street',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text',
+                    'label' =&gt; 'Street'
+                )
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'city',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'fieldset',
+                    'target' =&gt; new CityFieldset()
+                )
+            ));
+        }
+    }
+
+
+    class CityFieldset extends Zend\Form\Fieldset
+    {
+        public function __construct()
+        {
+            parent::__construct();
+
+            $this-&gt;setName('city-form')
+                 -&gt;setAttribute('method', 'post')
+                 -&gt;setHydrator(new ClassMethodsHydrator())
+                 -&gt;setObject(new City())
+                 -&gt;setInputFilter(new CityFilter());
+
+            $this-&gt;add(array(
+                'name' =&gt; 'name',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text',
+                    'label' =&gt; 'Name of your city'
+                )
+            ));
+
+            $this-&gt;add(array(
+                'name' =&gt; 'postcode',
+                'attributes' =&gt; array(
+                    'type' =&gt; 'text',
+                    'label' =&gt; 'Postcode of your city'
+                )
+            ));
+        }
+    }
+</code></pre>
+
+<p>What it returns :</p>
+
+<pre class="highlight"><code>
+/**
+     * In the view, it should be flexible enough to allow not to show EVERY inputs (simpler : we could get the
+     * fieldset in the register form and remove fields we don't want for this specific form). This would have the following advantage :        * you could write your form for every entities once, and then "compose" your specific form (register, update...) and remove/add the inputs * you want to appear for this specific form
+     */
+
+    // Here are the values given that should be hydrated. Basically, whenever the hydrator sees that an input is a field set, it uses the hydrator of this field set instead of the current one
+
+    /**
+     * array(
+     *      'name' =&gt; 'My super company',
+     *      'description' =&gt; 'My super description',
+     *      'address' =&gt; array(
+     *          'street' =&gt; '1 rue de Belleville',
+     *          'city' =&gt; array(
+     *              'name' =&gt; 'Paris',
+     *              'postcode' =&gt; 75019
+     *          )
+     *      )
+     * )
+     */
+</code></pre>
+
+<p>I'm going to write you another use cases in a few minutes.</p>
+
+<p>EDIT : I realize that the word "field set" may be confusing. In fact I would prefer "Type" (as Symfony does) or even "Element" (but in Zend\Form terminology I think that element represents only one input, however those can have multiple).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Gallego (bakura) on 2012-06-20T19:23:52.000+0000</p> 
+        <div class="body">
+            <p>Well, basically the other use case of for OneToMany relationships, for example : a company that would have multiple addresses. It should be possible to add them in JavaScript (or directly in code). The type of such elements would be a collection of field set (as opposed to a simple field set).</p>
+
+<pre class="highlight"><code>
+/**
+ * array(
+ *      'name' =&gt; 'My super company',
+ *      'description' =&gt; 'My super description',
+ *      'addresses' =&gt; array(
+ *          [0] =&gt; array(
+ *              'street' =&gt; '1 rue de Belleville',
+ *              'city' =&gt; array(
+ *                  'name' =&gt; 'Paris',
+ *                  'postcode' =&gt; 75019
+ *              )
+ *          )
+ *          [1] =&gt; array(
+ *              'street' =&gt; '1 rue des Champs Elysées',
+ *              'city' =&gt; array(
+ *                  'name' =&gt; 'Paris',
+ *                  'postcode' =&gt; 75019
+ *              )
+ *          )
+ *      )
+ * )
+ */
+</code></pre>
+
+<p>Basically, we could extend the ClassMethodsHydrator and, whenever it encounters a collection, it would call "addAddress" for each element in the collection (or simply call the setAddresses, and let the developer write the function).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sascha-Oliver Prolic (prolic) on 2012-06-20T19:35:08.000+0000</p> 
+        <div class="body">
+            <p>I would agree with Matthew, that a single Hydrator should be able to do this kind of stuff, not several attached to fieldsets.</p>
+
+<p>I have a RecursiveHydrator implementation for Doctrine\ORM and Doctrine\ODM. I think this can be backported for Zend\Db, but therefore I would need a common persistence interface. (Well, we have one, thats Doctrine\Common\Persistence*, but Zend\Db users/lovers are afraid of Doctrine Interfaces in their project.)</p>
+
+<p>A RecursiveHydrator for Zend\Db could be available soon in ZfcBase, you can follow our discussion at:
+<a href="https://github.com/ZF-Commons/ZfcBase/issues/25">https://github.com/ZF-Commons/ZfcBase/issues/25</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Gallego (bakura) on 2012-07-05T16:10:11.000+0000</p> 
+        <div class="body">
+            <p>Closed. I finally written those myself, and everything is integrated in beta 5.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-07-23T09:01:10.000+0000</p> 
+        <div class="body">
+            <p>Feature merged</p>
+
+<p><a href="https://github.com/zendframework/zf2/pull/1694">https://github.com/zendframework/zf2/pull/1694</a></p>
+
+        </div>
+    </div>
+    </div>
+

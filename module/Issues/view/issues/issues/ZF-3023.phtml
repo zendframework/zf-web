@@ -1,0 +1,142 @@
+<h2>ZF-3023: Zend_View error with custom layout path inside view base path</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-02T09:40:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-13T00:44:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Taylor Barstow (tbarstow)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_View</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11202/build.zip">build.zip</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The following order of events causes an error where the view renderer cannot find a view script that is definitely in the right place:</p>
+
+<ol><li>In your bootstrap, initialize Zend_Layout's MVC support</li>
+<li>Set a custom layout path within the view base path for the default module: /path/to/modules/default/views/layouts</li>
+<li>Request an action that is in some other module</li>
+<li>In a plugin that executes its postDispatch() AFTER the layout plugin, forward to an action in the default module</li>
+<li>The view renderer cannot render the view script for the new action, because the view object's script path does not include /path/to/modules/default/views/scripts</li>
+</ol><p>You might ask how I found this.  Actually the easiest way to trigger it is to cause the "forward" in step 4 by making the view renderer throw an exception, which makes the error handler plugin forward to the error controller.</p>
+
+<p>Now, I've already spent a good amount of time tracking this down, so I'll share my insights on why this is happening.</p>
+
+<p>After the initial action request, the layout plugin's postDispatch() calls Zend_Layout's render() method.  This adds the following script path (line 725 of Zend/Layout.php @ 1.5.1):</p>
+
+<p>/path/to/modules/default/views/layout</p>
+
+<p>Then, a later plugin (in my example, the error handler) comes along and forwards to the default module.  This causes the view renderer's initView() method to get called, which will try to add the new module's view base path to the view:</p>
+
+<p>/path/to/modules/default/views</p>
+
+<p>But there is a problem in this case.  Take a look at the view renderer's initView() method.  You'll see the following starting on line 481 (1.5.1):</p>
+
+<p>// Determine if this path has already been registered
+$currentPaths = $this-&gt;view-&gt;getScriptPaths();
+$path         = str_replace(array('/', '\'), '/', $path);
+$pathExists   = false;
+foreach ($currentPaths as $tmpPath) {
+  $tmpPath = str_replace(array('/', '\'), '/', $tmpPath);
+  if (strstr($tmpPath, $path)) {
+    $pathExists = true;
+    break;
+  }
+}
+if (!$pathExists) {
+  $this-&gt;view-&gt;addBasePath($path, $prefix);</p>
+
+<p>Notice the strstr about halfway down, then take a look at those paths again.  The second path never gets added, so the error/error.phtml script isn't found.</p>
+
+<p>Obviously, the workaround is to keep your layout path outside of your view base path, or just stick to the default.</p>
+
+<p>But this is still a bug.  It seemed perfectly natural to me (and potentially others) to put my layouts in /path/to/modules/default/view/layouts, and it took me quite a while to track down the problem.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Taylor Barstow (tbarstow) on 2008-04-02T09:42:25.000+0000</p> 
+        <div class="body">
+            <p>Very concise test case illustrating the issue.  Install it and make a request to Test_IndexController::indexAction() to see the exception.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-02T10:07:12.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Ralph to review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-05-09T12:47:07.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next mini release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-07-26T14:05:26.000+0000</p> 
+        <div class="body">
+            <p>It seems as though fixing this issue (by changing the comparison to (tmpPath == $path) instead of (strstr($tmpPath, $path)) would introduce a regression that breaks the current unit tests.  For that reason, it seems like we are gonna have to find another way to fix this in 1.6, perhaps a new feature that would better manage script paths in viewrenderer - or it will have to wait until 2.0.</p>
+
+<p>Matthew, do you have any ideas in this department?</p>
+
+<p>My only suggestion in the interim is to not keep layouts inside of your default modules views/ directory.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Taylor Barstow (tbarstow) on 2010-01-11T12:57:18.000+0000</p> 
+        <div class="body">
+            <p>Since no one else seems too worried about this, and I worked around it a long time ago, maybe this one should just go away?  It's technically a bug, but does anyone care?  I don't.  Just my .02.  I'm going to unwatch it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benoît Durand (intiilapa) on 2011-02-13T00:44:35.000+0000</p> 
+        <div class="body">
+            <p>The status Postponed means that the fix's version is the next major release.</p>
+
+        </div>
+    </div>
+    </div>
+

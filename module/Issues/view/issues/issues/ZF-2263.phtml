@@ -1,0 +1,156 @@
+<h2>ZF-2263: findManyToManyRowset fails if uses match column's data type instead of intersect column data type</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-12-03T20:56:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-19T02:24:12.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Duane Day (duagne)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>To replicate the bug, modify the schema of the example database from the manual so that the primary key of the products table is a 4-character code instead of an integer:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE products (
+  product_id        CHAR(4) NOT NULL PRIMARY KEY,
+  product_name      VARCHAR(100)
+);
+
+CREATE TABLE bugs (
+  bug_id            INTEGER NOT NULL PRIMARY KEY,
+  bug_description   VARCHAR(100),
+  bug_status        VARCHAR(20),
+  reported_by       VARCHAR(100) REFERENCES accounts(account_name),
+  assigned_to       VARCHAR(100) REFERENCES accounts(account_name),
+  verified_by       VARCHAR(100) REFERENCES accounts(account_name)
+);
+
+CREATE TABLE bugs_products (
+  bug_id            INTEGER NOT NULL REFERENCES bugs,
+  product_id        CHAR(4) NOT NULL REFERENCES products,
+  PRIMARY KEY       (bug_id, product_id)
+);
+
+INSERT INTO products VALUES ('TEST','Test Product');
+INSERT INTO bugs (bug_id, bug_description) VALUES (1234,'Test');
+INSERT INTO bugs (bug_id, bug_description) VALUES (2345,'Test2');
+INSERT INTO bugs_products (1234,'Test');
+</code></pre>
+
+<p>Then attempt to use findManyToManyRowset() to find all the bugs associated to a product:</p>
+
+<pre class="highlight"><code>
+$prodsTable = new Products();
+$prodsRowset = $prodsTable-&gt;find('TEST');
+$prodTest = $prodsRowset-&gt;current();
+
+$bugsRowset   = $prodTest-&gt;findManyToManyRowset('Bugs', 'BugsProducts');
+</code></pre>
+
+<p>The above code causes Zend_Db_Table_Row_Abstract::findManyToManyRowset to create the following incorrect sql ("i.product_id = 0" should be "i.product_id = 'TEST'"):</p>
+
+<pre class="highlight"><code>
+SELECT
+    `m`.*
+FROM `bugs_products` AS `i`
+ INNER JOIN `bugs` AS `m` ON `i`.`bug_id` = `m`.`id`
+WHERE
+    (`i`.`product_id` = 0)
+</code></pre>
+
+<p>The error is in the for loop that starts on Line 851 of Zend/Db/Table/Row/Abstract.php:</p>
+
+<pre class="highlight"><code>
+        for ($i = 0; $i &lt; count($callerMap[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+            $callerColumnName = $db-&gt;foldCase($callerMap[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+            $value = $this-&gt;_data[$callerColumnName];
+            $interColumnName = $db-&gt;foldCase($callerMap[Zend_Db_Table_Abstract::COLUMNS][$i]);
+            $interCol = $db-&gt;quoteIdentifier("i.$interColumnName", true);
+            $matchColumnName = $db-&gt;foldCase($matchMap[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+            $matchInfo = $matchTable-&gt;info();
+            $type = $matchInfo[Zend_Db_Table_Abstract::METADATA][$matchColumnName]['DATA_TYPE'];
+            $select-&gt;where($db-&gt;quoteInto("$interCol = ?", $value, $type));
+        }
+</code></pre>
+
+<p>The final line of this for loop uses the type of the <em>match</em> column to call quoteInto() with a value from the <em>intersect</em> column.  So if the two rows have different data types, this may return the incorrect rowset.</p>
+
+<p>The correct thing to do would be to use the type of the intersect column instead</p>
+
+<pre class="highlight"><code>
+        for ($i = 0; $i &lt; count($callerMap[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+            $callerColumnName = $db-&gt;foldCase($callerMap[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+            $value = $this-&gt;_data[$callerColumnName];
+            $interColumnName = $db-&gt;foldCase($callerMap[Zend_Db_Table_Abstract::COLUMNS][$i]);
+            $interCol = $db-&gt;quoteIdentifier("i.$interColumnName", true);
+            $type = $interInfo[Zend_Db_Table_Abstract::METADATA][$interColumnName]['DATA_TYPE'];
+            $select-&gt;where($db-&gt;quoteInto("$interCol = ?", $value, $type));
+        }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-01-24T13:36:14.000+0000</p> 
+        <div class="body">
+            <p>+1 for me : I can reproduct that bug with another similar situation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-02-16T22:17:03.000+0000</p> 
+        <div class="body">
+            <p>Resolved in trunk - r8087</p>
+
+<p>Can you please let me know ASAP if this resurfaces?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-19T02:24:12.000+0000</p> 
+        <div class="body">
+            <p>Bookkeeping. Assigning closed and resolved issues to those who resolved them. The only unassigned issues should be new and unreviewed.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,162 @@
+<h2>ZF-10977: Allow JSON action helper to accept pre-encoded JSON</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-21T06:20:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-30T12:32:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Duccio Gasparri (dgasparri)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14624/ZF-10977_adamlundrigan.patch">ZF-10977_adamlundrigan.patch</a></li>
+            <li><a href="/issues/secure/attachment/14697/ZF-10977_adamlundrigan_v2.patch">ZF-10977_adamlundrigan_v2.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>A very nice method for returning json content is to use the json ActionHelper:</p>
+
+<pre class="highlight"><code>
+function listAction()
+{
+  return $this-&gt;_helper-&gt;json($dataArray);
+}
+</code></pre>
+
+<p>But using this method with data stored in some temporary cache requires the decoding and re-encoding of the information:</p>
+
+<pre class="highlight"><code> 
+function listAction()
+{
+  return $this-&gt;_helper-&gt;json(json_decode(file_get_contents($cacheFile)));
+
+  //or
+
+  return $this-&gt;_helper-&gt;json(unserialize(file_get_contents($cacheFile)));
+}
+</code></pre>
+
+<p>It would be faster to just json encode the data in the cache and output them with a simple:</p>
+
+<pre class="highlight"><code> 
+  return $this-&gt;_helper-&gt;json(file_get_contents($cacheFile),array('jsonEncode'=&gt;false));
+</code></pre>
+
+<p>It is quite easy to implement, as it requires only a couple of lines in Zend_Json::encode():</p>
+
+<pre class="highlight"><code> 
+        if (isset($options['jsonEncode']) &amp;&amp; false === $options['jsonEncode']) {
+            return $valueToEncode;
+        }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-08-28T03:33:20.000+0000</p> 
+        <div class="body">
+            <p>I've attached a patch which implements the functionality you are looking for.  As {{Zend_Controller_Action_Helper_Json}} doesn't use a configuration array, the usage is slightly different:</p>
+
+<pre class="highlight"><code>
+return $this-&gt;_helper-&gt;json(file_get_contents($cacheFile), true, false, true);
+</code></pre>
+
+<p>Where {{$this-&gt;_helper-&gt;json}} has the following method signuature:</p>
+
+<pre class="highlight"><code>
+/**
+ * Strategy pattern: call helper as helper broker method
+ *
+ * Allows encoding JSON. If $sendNow is true, immediately sends JSON
+ * response.
+ *
+ * @param  mixed   $data
+ * @param  boolean $sendNow
+ * @param  boolean $keepLayouts
+ * @param  boolean $dataIsJson Provided data is already JSON
+ * @return string|void
+ */
+public function direct($data, $sendNow = true, $keepLayouts = false, $dataIsJson = false)
+</code></pre>
+
+<p>The usage is a little clumsy, and I think that this action helper could be restructured to also allow setting configurations in the syntax you use in your example without breaking BC.</p>
+
+<p>Thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-28T13:46:05.000+0000</p> 
+        <div class="body">
+            <p>I've reviewed the patch and confirm it operates as intended. Please ensure a matching unit test is included before committing.</p>
+
+<p>Recommend committing to trunk (need to check with Matthew on adding to release branch as it adds to the API). Please ensure a ZF2 git pull request including matching changes is issued for ZF2 before resolving.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duccio Gasparri (duccio@citta.bo.it) on 2011-08-30T13:28:47.000+0000</p> 
+        <div class="body">
+            <p>The patch works perfectly, but I do agree that the usage could be a little clumsy. If you are worried about that, a way to mantain BC could be to check if $sendNow is an array, and then parse it for the relevant parameters. Could that work?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-19T02:14:34.000+0000</p> 
+        <div class="body">
+            <p>Upon further review, I missed one thing:  The original patch I suggested short-circuits the calling of {{Zend_View_Helper_Json}} entirely, which means that the JSON headers never get set.  I've attached an updated patch with unit tests which address this issue by extending the encoding enable/disable flag into {{Zend_View_Helper_Json}} as well.  There is also an updated manual page for {{Zend_View_Helper_Json}} which explains how to disable encoding.  I did not update the {{Zend_Controller_Action_Helper_Json}} manual page, as it needs a rewrite (see below).</p>
+
+<p>The question of providing an array shortcut via {{$sendNow}} is related to ZF-11826.  {{Zend_Controller_Action_Helper_Json}}'s manual page gives incorrect examples which show an array shortcut functionality that doesn't exist in that component.  Whether we choose to add that feature, or simply change the manual page, it will be done under that issue #.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-30T12:32:12.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24829.  No forward-port to ZF2 as it does not have the JSON action helper anymore.</p>
+
+        </div>
+    </div>
+    </div>
+

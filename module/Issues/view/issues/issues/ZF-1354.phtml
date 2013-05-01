@@ -1,0 +1,725 @@
+<h2>ZF-1354: Zend_Controller_Action lacks view dependency injection</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-05-06T14:09:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I would consider ZF feature complete when I can use ZF and build and entire basic application with commonplace methods, without having once to extend a single class.  IMO, to extend is to add value that is too specific for the 80/20.</p>
+
+<p>One of the last pieces of that puzzle for me, in the case of Zend_Controller_Action, is to not have to extend Zend_Controller_Action to be able to inject a specific view object.  To me its important to have a single view object since now view helpers can optionally share a variable space within that view.</p>
+
+<p>To accomplish this level of dependency injection, I suggest that the current initView() / render() / getScriptName() undergo some mutation.</p>
+
+<p>Initially, i think the following invoke parameters should be allowed for view configuration:
+view
+viewSetBasePath
+viewAddScriptPath
+viewAddHelperPath
+viewAddHelperPrefix
+viewAddFilterPath
+viewScriptName</p>
+
+<p>Additionally, I would like to add the following proof-of-concept (Xend_Controller_Action) that runtime view object configuration is not only possible but adds much value to Zend_Controller_Action.  It would allow the following simple usage (as well as others in init())</p>
+
+<pre class="highlight"><code>
+// in bootstrap file
+    $controller-&gt;setControllerDirectory('../application/user/default/controllers')
+               -&gt;setParam('viewSetBasePath', ':moduleDir/views/')
+               -&gt;setParam('viewScriptName', ':action-name.phtml')
+               -&gt;setParam('view', $view);
+</code></pre>
+
+<pre class="highlight"><code>
+&lt;?php
+
+/** Zend_Controller_Exception */
+require_once 'Zend/Controller/Action.php';
+
+abstract class Xend_Controller_Action extends Zend_Controller_Action
+{
+
+    /**
+     * View object
+     * @var Zend_View_Interface
+     */
+    public $view = null;
+
+    /**
+     * View script base path
+     * @see {render()}
+     * @var string
+     */
+    public $viewBasePath = ':moduleDir/views/';
+    
+    /**
+     * View script file name
+     * @see {render()}
+     * @var string
+     */
+    public $viewScriptName = ':controller_name/:action_name.phtml';
+    
+    /**
+     * Render a view
+     *
+     * Renders a view. By default, views are found in the view script path as
+     * /.phtml. You may change the script suffix by 
+     * resetting {@link $viewSuffix}. You may omit the controller directory
+     * prefix by specifying boolean true for $noController.
+     *
+     * By default, the rendered contents are appended to the response. You may 
+     * specify the named body content segment to set by specifying a $name.
+     *
+     * @see Zend_Controller_Response_Abstract::appendBody()
+     * @param  string|null $action Defaults to action registered in request object
+     * @param  string|null $name Response object named path segment to use; defaults to null
+     * @param  bool $noController  Defaults to false; i.e. use controller name as subdir in which to search for view script
+     * @return void
+     */
+    public function render($action = null, $name = null, $noController = false)
+    {
+        $view   = $this-&gt;initView();
+        $script = $this-&gt;getViewScript($action);
+
+        $this-&gt;getResponse()-&gt;appendBody(
+            $view-&gt;render($script),
+            $name
+        );
+    }
+    
+    /**
+     * Initialize View object 
+     *
+     * Initializes {@link $view} if not otherwise a Zend_View_Interface.
+     *
+     * If {@link $view} is not otherwise set, instantiates a new Zend_View 
+     * object, using the 'views' subdirectory at the same level as the 
+     * controller directory for the current module as the base directory. 
+     * It uses this to set the following:
+     * - script path = views/scripts/
+     * - helper path = views/helpers/
+     * - filter path = views/filters/
+     * 
+     * @return Zend_View_Interface
+     * @throws Zend_Controller_Exception if base view directory does not exist
+     */
+    public function initView()
+    {
+        $viewConfigure   = $this-&gt;getInvokeArg('viewConfigure');
+        $viewSetBasePath = $this-&gt;getInvokeArg('viewSetBasePath');
+        
+        require_once 'Zend/View/Interface.php';
+        if (isset($this-&gt;view) &amp;&amp; ($this-&gt;view instanceof Zend_View_Interface)) {
+            return $this-&gt;view;
+        } elseif ( ($invokeView = $this-&gt;getInvokeArg('view')) instanceof Zend_View_Interface) {
+            $this-&gt;view = $invokeView;
+        } else {
+            require_once 'Zend/View.php';
+            $this-&gt;view = new Zend_View();
+            $viewConfigure = true;
+        }
+        
+        if ($viewConfigure || (count(array_intersect(array('viewSetBasePath', 'viewAddScriptPath', 'viewAddHelperPath', 'viewAddHelperPrefix', 'viewAddFilterPath', 'viewScriptName'), array_keys($this-&gt;getInvokeArgs()))) &gt; 0) ) {
+            $this-&gt;viewConfigure();
+        }
+        
+        return $this-&gt;view;
+    }
+
+    /**
+     * Construct view script path
+     *
+     * Used by render() to determine the path to the view script.
+     * 
+     * @param  string $action Defaults to action registered in request object
+     * @param  bool $noController  Defaults to false; i.e. use controller name as subdir in which to search for view script
+     * @return string
+     * @throws Zend_Controller_Exception with bad $action
+     */
+    public function getViewScript($action = null, $noController = false)
+    {
+        $request = $this-&gt;getRequest();
+        if (null === $action) {
+            $action = $request-&gt;getActionName();
+        } elseif (!is_string($action)) {
+            throw new Zend_Controller_Exception('Invalid action specifier for view render');
+        }
+
+        $viewScriptName = $this-&gt;getInvokeArg('viewScriptName');
+        if ($viewScriptName === null) {
+            $viewScriptName = $this-&gt;viewScriptName;
+        }
+        
+        $script = $this-&gt;_translateViewPath($viewScriptName);
+        
+        return $script;
+    }
+        
+    public function viewConfigure()
+    {
+        
+        $available_directives = array('viewSetBasePath', 'viewAddScriptPath', 'viewAddHelperPath', 'viewAddHelperPrefix', 'viewAddFilterPath', 'viewScriptName');
+        $executable_directives = array_intersect($available_directives, array_keys($this-&gt;getInvokeArgs()));
+        
+        if (count($executable_directives) == 0) {
+            $executable_directives = array('viewSetBasePath');
+        }
+        foreach ($executable_directives as $execute_directive) {
+            switch ($execute_directive) {
+                case 'viewSetBasePath':
+                    $basePath = ($this-&gt;getInvokeArg('viewSetBasePath')) ? $this-&gt;getInvokeArg('viewSetBasePath') : $this-&gt;viewBasePath;
+                    $this-&gt;view-&gt;setBasePath($this-&gt;_translateViewPath($basePath));
+                    break;
+                case 'viewAddScriptPath':
+                case 'viewAddFilterPath':
+                    $command = str_replace('view', '', $execute_directive);
+                    $this-&gt;view-&gt;$command($this-&gt;_translateViewPath($this-&gt;getInvokeArg($execute_directive)));
+                    break;
+                case 'viewAddHelperPath':
+                    $this-&gt;addHelperPath($this-&gt;getInvokeArg($execute_directive), $this-&gt;getInvokeArg('viewAddHelperPrefix'));
+                    break;
+            }
+        }
+    }
+
+    private function _translateViewPath($path)
+    {
+        $available_replacements = array('moduleDir', 'controllerDir', 'controllerName', 'controller_name', 'actionName', 'action_name');
+        
+        // gather some info from outside.
+        $request        = $this-&gt;_request;
+        $wordDelim      = $this-&gt;getFrontController()-&gt;getDispatcher()-&gt;getWordDelimiter();
+        $controllerDirs = $this-&gt;getFrontController()-&gt;getControllerDirectory();
+        $controllerDir  = (array_key_exists($request-&gt;getModuleName(), $controllerDirs)) ? $controllerDirs[$request-&gt;getModuleName()] : $controllerDirs['default'];
+        $moduleDir      = dirname($controllerDir);
+        
+        // eval'ed for performance - on demand
+        $replacements = array(
+            ':controllerDir'   =&gt; '$rpath = $controllerDir;',
+            ':moduleDir'       =&gt; '$rpath = $moduleDir;',
+            ':moduleName'      =&gt; '$rpath = str_replace(" ", "", ucwords(strreplace($wordDelim, " ", strtolower($request-&gt;getModuleName()))));',
+            ':module_name'     =&gt; '$rpath = str_replace(" ", "_", str_replace($wordDelim, " ", strtolower($request-&gt;getModuleName())));',
+            ':module-name'     =&gt; '$rpath = str_replace(" ", "-", str_replace($wordDelim, " ", strtolower($request-&gt;getModuleName())));',
+            ':controllerName'  =&gt; '$rpath = str_replace(" ", "", ucwords(str_replace($wordDelim, " ", strtolower($request-&gt;getControllerName()))));',
+            ':controller_name' =&gt; '$rpath = str_replace(" ", "_", str_replace($wordDelim, " ", strtolower($request-&gt;getControllerName())));',
+            ':controller-name' =&gt; '$rpath = str_replace(" ", "-", str_replace($wordDelim, " ", strtolower($request-&gt;getControllerName())));',
+            ':actionName'      =&gt; '$rpath = str_replace(" ", "", ucwords(str_replace($wordDelim, " ", strtolower($request-&gt;getActionName()))));',
+            ':action_name'     =&gt; '$rpath = str_replace(" ", "_", str_replace($wordDelim, " ", strtolower($request-&gt;getActionName())));',
+            ':action-name'     =&gt; '$rpath = str_replace(" ", "-", str_replace($wordDelim, " ", strtolower($request-&gt;getActionName())));'
+            );
+        
+        foreach ($replacements as $replacement_key =&gt; $replacement_value) {
+            if (preg_match('/'.$replacement_key.'/', $path)) {
+                eval($replacement_value);
+                $path = preg_replace('/'.$replacement_key.'/', $rpath, $path);
+            }
+        }
+
+        return $path;
+    }
+
+}
+
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sebastian Krebs (kingcrunch) on 2007-05-06T16:07:02.000+0000</p> 
+        <div class="body">
+            <p>Especially for specify an own viewScriptName i would prefer such a behaviour, because i use naming for Views like its used by Controllers (Index/IndexView.phtml). Now i have to overwrite the hole initView-Method</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shaun Rowe (shakie) on 2007-05-07T19:04:32.000+0000</p> 
+        <div class="body">
+            <p>I would be very keen to see this improvement brought to the core. I also have in place a similar extension to Zend_Controller_Action</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by michael depetrillo (klassicd) on 2007-05-11T23:26:41.000+0000</p> 
+        <div class="body">
+            <p>This is a good idea but I don't think you need all those parameters.</p>
+
+<p>If Zend_Controller_Action could simply look for a param named 'view' in the front controller then subclassing the action controller would not be necessary.</p>
+
+<p>Developers should be able to set the view script/helper/filter path in the bootstrap or via a plugin.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-05-12T09:27:58.000+0000</p> 
+        <div class="body">
+            <p>if you set a hard coded path in your bootstrap, then you leave out the possibilities (and best practices IMO) of being able to house your modules view scripts within your modules directory.  Since there could be many different paths to your modules, you can't set a hard coded path at bootstrap time, you only know the skeleton of the path RELATIVE to the dispatched module/controller.. and the script name is relative to the action dispatched.  So if I have deployed an application with the Conventional/or Classical Modular Directory Structure (<a href="http://framework.zend.com/wiki/display/ZFDEV/Choosing+Your+Application%27s+Directory+Layout">http://framework.zend.com/wiki/display/…</a>), then your path to your view scripts will not be completely known until the actions initView() and getScriptName() methods are called.</p>
+
+<p>Make sense?
+-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-18T12:57:17.000+0000</p> 
+        <div class="body">
+            <p>I've spoken briefly with Ralph about this off-list, but I'm bringing it back here. I'm worried about adding code such as he suggests as it introduces a lot of coupling between the components. While I realize that both Zend_Controller_Action and Zend_View are components of MVC and should have some coupling, I'm worried that introducing this type of functionality explicitly in the action controller will lead to maintenance headaches later should, for instance, the design of Zend_View change.</p>
+
+<p>It appears to me that the following goals are desired:</p>
+
+<ul><li>Globally available view object for all controllers and actions</li>
+<li>No need to explicitly instantiate view object within controllers</li>
+<li>Class prefixes for view helpers and filters based on current module; ability to autospecify these</li>
+<li>Ability to set default view rendering options for all controllers</li>
+<li>Ability to autorender (i.e., no explicit call to render() required</li>
+</ul><p>As it turns out, we already have a way to accomplish all of the above: via an action controller helper.</p>
+
+<p>If you set an action controller helper from your bootstrap, it will be globally available to any action controller. Additionally, action controller helpers tie in to preDispatch() and postDispatch(), allowing us to set options in the view object automatically prior to executing a controller's action method, and also perform actions after the action method is done -- such as rendering.  Additionally, we have access to the request object, allowing us to determine the current module, and thus the path to view scripts and a class prefix to use with helpers and filters.</p>
+
+<p>I'm attaching a proof of concept below. The usage is pretty nice:</p>
+
+<pre class="highlight"><code>
+// in your bootstrap (needed so helper is present at preDispatch()):
+Zend_Controller_Action_HelperBroker::addHelper(new Zend_Controller_Action_Helper_View());
+
+// and a controller class, foo module:
+class Foo_BarController extends Zend_Controller_Action
+{
+    // renders bar/index.phtml by default; no action required
+    public function indexAction()
+    {
+    }
+
+    // render bar/form.phtml instead of bar/baz.phtml
+    public function bazAction()
+    {
+        $this-&gt;_helper-&gt;view('form');
+    }
+
+    // don't render anything
+    public function hideAction()
+    {
+        $this-&gt;_helper-&gt;view-&gt;noRender();
+    }
+
+    // renders bar/populate.phtml with variable 'foo' set to 'bar'
+    public function populateAction()
+    {
+        $this-&gt;view-&gt;foo = 'bar';
+    }
+}
+
+// in one of your view scripts:
+&lt;?php $this-&gt;foo(); // call Foo_Bar_View_Helper_Foo::foo() ?&gt;
+</code></pre>
+
+<p>As you can see, it simplifies code tremendously in the controllers, and offers quite a lot of flexibility. You can also at any time set a customized view object into it, or pull out the view object and modify it (clear variables, set new paths, etc.).</p>
+
+<p>The advantage to this is that it keeps the action controller code very specific to its primary task; it simply acts as the glue between a controller and a view.  Additionally, it's completely optional: if you don't want to use it, you don't have to; if your code requires a different approach to views, dont' use it.</p>
+
+<p>Thoughts?</p>
+
+<pre class="highlight"><code>
+&lt;?php
+class Zend_Controller_Action_Helper_View extends Zend_Controller_Action_Helper_Abstract
+{
+    /**
+     * @var Zend_View_Interface
+     */
+    public $view;
+
+    /**
+     * Front controller instance
+     * @var Zend_Controller_Front
+     */
+    protected $_frontController;
+
+    /**
+     * Whether or not to use a controller name as a subdirectory when rendering
+     * @var boolean
+     */
+    protected $_noController    = false;
+
+    /**
+     * Whether or not to autorender postDispatch
+     * @var boolean
+     */
+    protected $_noRender        = false;
+
+    /**
+     * Which named segment of the response to utilize
+     * @var string
+     */
+    protected $_responseSegment = null;
+
+    /**
+     * Which action view script to render
+     * @var string
+     */
+    protected $_scriptAction    = null;
+
+    /**
+     * View script suffix
+     * @var string
+     */
+    protected $_viewSuffix      = 'phtml';
+
+    public function setView(Zend_View_Interface $view)
+    {
+        $this-&gt;view = $view;
+    }
+
+    /**
+     * Retrieve front controller instance
+     * 
+     * @return Zend_Controller_Front
+     */
+    public function getFrontController()
+    {
+        if (null === $this-&gt;_frontController) {
+            $this-&gt;_frontController = Zend_Controller_Front::getInstance();
+        }
+
+        return $this-&gt;_frontController;
+    }
+
+    protected function _generateDefaultPrefix()
+    {
+        if (null === $this-&gt;_actionController) {
+            return 'Zend_View_Helper';
+        }
+
+        $class = get_class($this-&gt;_actionController);
+
+        if (!strstr($class, '_')) {
+            $prefix = 'Zend_View_Helper';
+        } else {
+            $prefix = substr($class, 0, strpos($class, '_')) . '_View_Helper';
+        }
+
+        return $prefix;
+    }
+
+    /**
+     * Retrieve base path based on location of 
+     * 
+     * @return void
+     */
+    protected function _getBasePath()
+    {
+        if (null === $this-&gt;_actionController) {
+            return '.' . DIRECTORY_SEPARATOR . 'views';
+        }
+
+        $front      = $this-&gt;getFrontController();
+        $modulePath = $front-&gt;getControllerDirectory($this-&gt;getRequest()-&gt;getModuleName());
+        if (null === $modulePath) {
+            throw new Zend_Controller_Action_Exception('Cannot determine view base path: invalid module "' . $module . '"in request');
+
+        }
+        $path = realpath($modulePath . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'views');
+        return $path;
+    }
+
+    /**
+     * Initialize the view object
+     *
+     * $options may contain the following keys:
+     * - noController - flag indicating whether or not to look for view scripts in subdirectories named after the controller
+     * - noRender - flag indicating whether or not to autorender postDispatch()
+     * - responseSegment - which named response segment to render a view script to
+     * - scriptAction - what action script to render
+     * - viewSuffix - what view script filename suffix to use
+     * 
+     * @param  string $path 
+     * @param  string $prefix 
+     * @param  array $options 
+     * @return void
+     */
+    public function initView($path = null, $prefix = null, array $options = array())
+    {
+        if (null === $this-&gt;view) {
+            $this-&gt;setView(new Zend_View());
+        }
+
+        if (null === $path) {
+            $path = $this-&gt;_getBasePath();
+        }
+
+        if (null === $prefix) {
+            $prefix = $this-&gt;_generateDefaultPrefix();
+        }
+
+        $this-&gt;view-&gt;addBasePath($path, $prefix);
+
+        $this-&gt;_noRender        = false;
+        $this-&gt;_responseSegment = null;
+        $this-&gt;_scriptAction    = null;
+
+        foreach ($options as $key =&gt; $value)
+        {
+            switch ($key) {
+                case 'noController':
+                case 'noRender':
+                    $property = '_' . $key;
+                    $this-&gt;{$property} = ($value) ? true : false;
+                    break;
+                case 'responseSegment':
+                case 'scriptAction':
+                case 'viewSuffix':
+                    $property = '_' . $key;
+                    $this-&gt;{$property} = (string) $value;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if ((null !== $this-&gt;_actionController) &amp;&amp; (null === $this-&gt;_actionController-&gt;view)) {
+            $this-&gt;_actionController-&gt;view       = $this-&gt;view;
+            $this-&gt;_actionController-&gt;viewSuffix = $this-&gt;_viewSuffix;
+        }
+    }
+
+    /**
+     * preDispatch - initialize view
+     * 
+     * @return void
+     */
+    public function preDispatch()
+    {
+        $this-&gt;initView();
+    }
+
+    /**
+     * Set the noRender flag (i.e., whether or not to autorender)
+     * 
+     * @param  boolean $flag 
+     * @return Wopnet_Controller_Helper_View
+     */
+    public function setNoRender($flag = true)
+    {
+        $this-&gt;_noRender = ($flag) ? true : false;
+        return $this;
+    }
+
+    /**
+     * Retrieve noRender flag value
+     * 
+     * @return boolean
+     */
+    public function getNoRender()
+    {
+        return $this-&gt;_noRender;
+    }
+
+    /**
+     * Set the view script to use
+     * 
+     * @param  string $name 
+     * @return Wopnet_Controller_Helper_View
+     */
+    public function setScriptAction($name)
+    {
+        $this-&gt;_scriptAction = (string) $name;
+        return $this;
+    }
+
+    /**
+     * Retrieve view script name
+     * 
+     * @return string
+     */
+    public function getScriptAction()
+    {
+        return $this-&gt;_scriptAction;
+    }
+
+    /**
+     * Set the response segment name
+     * 
+     * @param  string $name 
+     * @return Wopnet_Controller_Helper_View
+     */
+    public function setResponseSegment($name)
+    {
+        $this-&gt;_responseSegment = (string) $name;
+        return $this;
+    }
+
+    /**
+     * Retrieve named response segment name
+     * 
+     * @return string
+     */
+    public function getResponseSegment()
+    {
+        return $this-&gt;_responseSegment;
+    }
+
+    /**
+     * Set the noController flag (i.e., whether or not to render into controller subdirectories)
+     * 
+     * @param  boolean $flag 
+     * @return Wopnet_Controller_Helper_View
+     */
+    public function setNoController($flag = true)
+    {
+        $this-&gt;_noController = ($flag) ? true : false;
+        return $this;
+    }
+
+    /**
+     * Retrieve noController flag value
+     * 
+     * @return boolean
+     */
+    public function getNoController()
+    {
+        return $this-&gt;_noController;
+    }
+
+    /**
+     * Set options for rendering a view script
+     * 
+     * @param  string $action View script to render
+     * @param  string $name Response named segment to render to
+     * @param  boolean $noController Whether or not to render within a subdirectory named after the controller
+     * @return Wopnet_Controller_Helper_View
+     */
+    public function setRender($action = null, $name = null, $noController = false)
+    {
+        $this-&gt;_scriptAction    = (string) $action;
+        $this-&gt;_responseSegment = (string) $name;
+        $this-&gt;_noController    = ($noController) ? true : false;
+
+        return $this;
+    }
+
+    /**
+     * postDispatch - auto render a view
+     *
+     * Only autorenders if: 
+     * - _noRender is false
+     * - action controller is present
+     * - request has not been re-dispatched (i.e., _forward() has not been called)
+     * 
+     * @return void
+     */
+    public function postDispatch()
+    {
+        if (!$this-&gt;_noRender 
+            &amp;&amp; (null !== $this-&gt;_actionController)
+            &amp;&amp; $this-&gt;getRequest()-&gt;isDispatched())
+        {
+            $this-&gt;_actionController-&gt;render($this-&gt;_scriptAction, $this-&gt;_responseSegment, $this-&gt;_noController);
+        }
+    }
+
+    /**
+     * Use this helper as a method; proxies to setRender()
+     * 
+     * @param  string $action 
+     * @param  string $name 
+     * @param  boolean $noController 
+     * @return void
+     */
+    public function direct($action = null, $name = null, $noController = false)
+    {
+        $this-&gt;setRender($action, $name, $noController);
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-18T15:05:57.000+0000</p> 
+        <div class="body">
+            <p>Ralph and I have discussed this offline, and are breaking it into two phases.</p>
+
+<ul><li>ViewRenderer action helper (as proposed above) to tackle view injection</li>
+<li>ability to specify view base path and view script path spec via router like paths</li>
+</ul><p>The first has been committed to the incubator. The second will be worked on separately, and may be incorporated in the ViewRenderer at a later date.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-22T07:39:04.000+0000</p> 
+        <div class="body">
+            <p>I have added a new method to Zend_Controller_Action, renderScript(), which takes a specific script path and name, as well as a response segment; this will allow helpers such as the ViewRenderer to implement their own logic for determining the script name and then rendering it. At this point, the infrastructure is now in place to allow injection of the sort Ralph outlines.</p>
+
+<p>I have received the go-ahead to commit the ViewRenderer to core, and will do so this week.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-22T13:51:50.000+0000</p> 
+        <div class="body">
+            <p>I've promoted the component to core, and contacted Ralph to see if he wants to implement the script path customizations now or at a later date.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-24T08:29:26.000+0000</p> 
+        <div class="body">
+            <p>I have implemented the initial functionality to allow script path customizations to core, but it currently breaks tests; I should have changes ready sometime Thursday, 24 May 2007.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-24T15:28:58.000+0000</p> 
+        <div class="body">
+            <p>Zend_Controller_Action_Helper_ViewRenderer is in core and supports the following:</p>
+
+<ul><li>Initialize view object in action controller automatically</li>
+<li>Render view automatically when action ends</li>
+<li>Allow injecting custom path specifications to use when setting view base path and view script paths</li>
+</ul><p>This helper will be on by default with the 1.0.0RC1 release.</p>
+
+        </div>
+    </div>
+    </div>
+

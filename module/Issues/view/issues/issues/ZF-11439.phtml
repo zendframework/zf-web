@@ -1,0 +1,186 @@
+<h2>ZF-11439: Zend_Tool produces incorrect controller class name when module name contains hyphen</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-06-03T19:21:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-28T16:42:29.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.8 (07/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Brian Strickland (strick)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Tool</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you run:<br />
+zf create module test-mod
+zf create controller Index index-action-included[=1] test-mod</p>
+
+<p>You'll get an error:
+Parse error: parse error, expecting <code>'{'</code> ... and you get a file with the invalid class name: Test-mod_IndexController</p>
+
+<p>Expected name would be: TestMod_IndexController which would be accessed by <a href="http://project/test-mod">http://project/test-mod</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-04T23:56:23.000+0000</p> 
+        <div class="body">
+            <p>Reproduced issue against trunk:</p>
+
+<pre class="highlight"><code>
+[adam@zfdev zftest]$ zf create project ZF-11439
+[adam@zfdev ZF-11439]$ zf create module test-mod
+[adam@zfdev ZF-11439]$ zf create controller Index index-action-included=1 test-mod
+</code></pre>
+
+<p>Received this error message:</p>
+
+<pre class="highlight"><code>
+PHP Parse error:  syntax error, unexpected '-', expecting '{' in /tmp/zftest/ZF-11439/tests/application/modules/test-mod/controllers/IndexControllerTest.php on line 3
+PHP Stack trace:
+PHP   1. {main}() /tmp/zfdev/trunk/bin/zf.php:0
+PHP   2. ZF::main() /tmp/zfdev/trunk/bin/zf.php:623
+PHP   3. ZF-&gt;run() /tmp/zfdev/trunk/bin/zf.php:74
+PHP   4. ZF-&gt;_runTool() /tmp/zfdev/trunk/bin/zf.php:117
+PHP   5. Zend_Tool_Framework_Client_Abstract-&gt;dispatch() /tmp/zfdev/trunk/bin/zf.php:600
+PHP   6. Zend_Tool_Framework_Client_Abstract-&gt;_handleDispatch() /tmp/zfdev/trunk/library/Zend/Tool/Framework/Client/Abstract.php:241
+PHP   7. Zend_Tool_Framework_Client_Abstract-&gt;_handleDispatchExecution() /tmp/zfdev/trunk/library/Zend/Tool/Framework/Client/Abstract.php:318
+PHP   8. call_user_func_array() /tmp/zfdev/trunk/library/Zend/Tool/Framework/Client/Abstract.php:324
+PHP   9. Zend_Tool_Project_Provider_Controller-&gt;create() /tmp/zfdev/trunk/library/Zend/Tool/Framework/Client/Abstract.php:0
+PHP  10. Zend_Tool_Project_Profile_Resource-&gt;create() /tmp/zfdev/trunk/library/Zend/Tool/Project/Provider/Controller.php:199
+PHP  11. Zend_Tool_Project_Profile_Resource-&gt;__call() /tmp/zfdev/trunk/library/Zend/Tool/Project/Profile/Resource.php:0
+PHP  12. call_user_func_array() /tmp/zfdev/trunk/library/Zend/Tool/Project/Profile/Resource.php:256
+PHP  13. Zend_Tool_Project_Context_Zf_TestApplicationActionMethod-&gt;create() /tmp/zfdev/trunk/library/Zend/Tool/Project/Profile/Resource.php:0
+PHP  14. Zend_CodeGenerator_Php_File::fromReflectedFileName() /tmp/zfdev/trunk/library/Zend/Tool/Project/Context/Zf/TestApplicationActionMethod.php:176
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-05T00:29:57.000+0000</p> 
+        <div class="body">
+            <p>Issue can be fixed by applying filter Zend_Filter_Word_DashToCamelCase in ControllerFile and TestApplicationControllerFile contexts:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Tool/Project/Context/Zf/ControllerFile.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Zf/ControllerFile.php     (revision 24119)
++++ library/Zend/Tool/Project/Context/Zf/ControllerFile.php     (working copy)
+@@ -100,7 +100,9 @@
+      */
+     public function getContents()
+     {
+-        $className = ($this-&gt;_moduleName) ? ucfirst($this-&gt;_moduleName) . '_' : '';
++        $filter = new Zend_Filter_Word_DashToCamelCase();
++
++        $className = ($this-&gt;_moduleName) ? $filter-&gt;filter(ucfirst($this-&gt;_moduleName)) . '_' : '';
+         $className .= ucfirst($this-&gt;_controllerName) . 'Controller';
+
+         $codeGenFile = new Zend_CodeGenerator_Php_File(array(
+Index: library/Zend/Tool/Project/Context/Zf/TestApplicationControllerFile.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Zf/TestApplicationControllerFile.php      (revision 24119)
++++ library/Zend/Tool/Project/Context/Zf/TestApplicationControllerFile.php      (working copy)
+@@ -103,7 +103,7 @@
+         /* @var $controllerDirectoryResource Zend_Tool_Project_Profile_Resource */
+         $controllerDirectoryResource = $this-&gt;_resource-&gt;getParentResource();
+         if ($controllerDirectoryResource-&gt;getParentResource()-&gt;getName() == 'TestApplicationModuleDirectory') {
+-            $className = ucfirst($controllerDirectoryResource-&gt;getParentResource()-&gt;getForModuleName())
++            $className = $filter-&gt;filter(ucfirst($controllerDirectoryResource-&gt;getParentResource()-&gt;getForModuleName()))
+                 . '_' . $className;
+         }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-05T00:35:26.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24120</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-05T00:59:54.000+0000</p> 
+        <div class="body">
+            <p>Problem also affects the following contexts:
+* DbTableFile  (zf create db-table -&gt; class Test-mod_Model_DbTable_Test extends Zend_Db_Table_Abstract)
+* FormFile  (zf create form -&gt; class Test-mod_Form_Test extends Zend_Form)
+* ModelFile  (zf create model -&gt; class Test-mod_Model_Test)</p>
+
+<p>All of which rely upon AbstractClassFile context to create their class names.</p>
+
+<p>Fix is to apply Zend_Filter_Word_DashToCamelCase in AbstractClassFile:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Tool/Project/Context/Zf/AbstractClassFile.php
+===================================================================
+--- library/Zend/Tool/Project/Context/Zf/AbstractClassFile.php  (revision 24119)
++++ library/Zend/Tool/Project/Context/Zf/AbstractClassFile.php  (working copy)
+@@ -67,7 +67,8 @@
+                 $prefix = $containingResource-&gt;getAttribute('classNamePrefix');
+                 $fullClassName = $prefix;
+             } elseif ($containingResource-&gt;getName() == 'ModuleDirectory') {
+-                $prefix = ucfirst($containingResource-&gt;getAttribute('moduleName')) . '_';
++                $filter = new Zend_Filter_Word_DashToCamelCase();
++                $prefix = $filter-&gt;filter(ucfirst($containingResource-&gt;getAttribute('moduleName'))) . '_';
+                 $fullClassName = $prefix;
+             }
+         }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-05T01:01:34.000+0000</p> 
+        <div class="body">
+            <p>Additional fix added to trunk r24121</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-28T16:42:29.000+0000</p> 
+        <div class="body">
+            <p>Merged to release-1.11 in r24161</p>
+
+        </div>
+    </div>
+    </div>
+

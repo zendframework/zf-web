@@ -1,0 +1,312 @@
+<h2>ZF-4880: Zend_Gdata_YouTube getVideoId broken</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-08T11:30:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ben Klang (bklang)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Gdata</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>While parsing a playlist feed from YouTube using the Zend_Gdata_YouTube_VideoFeed class my webserver started throwing these errors attempting to fetch an entry's video ID:</p>
+
+<p>Nov  8 13:01:36 www03 apache2: PHP Fatal error:  Uncaught exception 'Zend_Gdata_App_Exception' with message 'Slash not found in atom:id' in /srv/vhost/users/bklang/sites/test.seedandfeed.org/lib/Zend/Gdata/YouTube/VideoEntry.php:471 Stack trace: #0 /srv/vhost/users/bklang/sites/test.seedandfeed.org/lib/Site.php(179): Zend_Gdata_YouTube_VideoEntry-&gt;getVideoId() #1 /srv/vhost/users/bklang/sites/test.seedandfeed.org/media_videos.php(9): Site::getVideos('<a href="http://gdata.yo">http://gdata.yo</a>...') #2 {main}   thrown in /srv/vhost/users/bklang/sites/tes</p>
+
+<p>Tracing through the feed XML as returned by YouTube indicates that the video ID is actually set as a child element within the media:group element:
+(XML snippet from YouTube playlist feed):
+    iskn7S0CLYM</p>
+
+<p>I have created and will attach a patch that modifies the library to read the video ID directly from the media:group rather than from the atom:id.</p>
+
+<p>I could not find a way to attach a file so here is the patch in unified diff form:</p>
+
+<p>diff -urN Zend/Gdata/YouTube/Extension/MediaGroup.php Zend.fixed/Gdata/YouTube/Extension/MediaGroup.php
+--- Zend/Gdata/YouTube/Extension/MediaGroup.php 2008-05-05 10:54:00.000000000 -0400
++++ Zend.fixed/Gdata/YouTube/Extension/MediaGroup.php   2008-11-08 14:21:04.000000000 -0500
+@@ -30,6 +30,11 @@
+ require_once 'Zend/Gdata/YouTube/Extension/MediaContent.php';</p>
+
+<p>/**
++ * @see Zend_Gdata_YouTube_Extension_VideoId
++ */
++require_once 'Zend/Gdata/YouTube/Extension/VideoId.php';
++
++/**
+  * @see Zend_Gdata_YouTube_Extension_Duration
+  */
+ require_once 'Zend/Gdata/YouTube/Extension/Duration.php';
+@@ -57,6 +62,7 @@
+     protected $_rootNamespace = 'media';</p>
+
+<pre><code> protected $_duration = null;
+</code></pre>
+
+<p>+    protected $_videoId = null;
+     protected $_private = null;</p>
+
+<pre><code> public function __construct($element = null)
+</code></pre>
+
+<p>@@ -104,6 +110,11 @@
+                 $private-&gt;transferFromDOM($child);
+                 $this-&gt;_private = $private;
+                 break;
++            case $this-&gt;lookupNamespace('yt') . ':' . 'videoid':
++                $videoId = new Zend_Gdata_YouTube_Extension_VideoId();
++                $videoId-&gt;transferFromDOM($child);
++                $this-&gt;_videoId = $videoId;
++                break;</p>
+
+<pre><code>     default:
+         parent::takeChildFromDOM($child);
+</code></pre>
+
+<p>@@ -112,6 +123,16 @@
+     }</p>
+
+<pre><code> /**
+</code></pre>
+
+<p>+     * Returns the video ID value of this element
++     *
++     * @return Zend_Gdata_YouTube_Extension_VideoId
++     */
++    public function getVideoId()
++    {
++        return $this-&gt;_videoId;
++    }
++
++    /**
+      * Returns the duration value of this element
+      *
+      * @return Zend_Gdata_YouTube_Extension_Duration
+diff -urN Zend/Gdata/YouTube/Extension/VideoId.php Zend.fixed/Gdata/YouTube/Extension/VideoId.php
+--- Zend/Gdata/YouTube/Extension/VideoId.php    1969-12-31 19:00:00.000000000 -0500
++++ Zend.fixed/Gdata/YouTube/Extension/VideoId.php  2008-11-08 14:21:31.000000000 -0500
+@@ -0,0 +1,107 @@
++&lt;?php
++
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (<a href="http://www.zend.com">http://www.zend.com</a>)
++ * @license    <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>     New BSD License
++ */
++
++/**
++ * Represents the yt:videoid element used by the YouTube data API
++ *
++ * @category   Zend
++ * @package    Zend_Gdata
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (<a href="http://www.zend.com">http://www.zend.com</a>)
++ * @license    <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>     New BSD License
++ */
++class Zend_Gdata_YouTube_Extension_VideoID extends Zend_Gdata_Extension
++{
++
++    protected $_rootNamespace = 'yt';
++    protected $_rootElement = 'videoid';
++    protected $_videoId = null;
++
++    /**
++     * Constructs a new Zend_Gdata_YouTube_Extension_Statistics object.
++     * @param string $viewCount(optional) The viewCount value
++     * @param string $watchCount(optional) The watchCount value
++     */
++    public function __construct($videoId = null)
++    {
++        foreach (Zend_Gdata_YouTube::$namespaces as $nsPrefix =&gt; $nsUri) {
++            $this-&gt;registerNamespace($nsPrefix, $nsUri);
++        }
++        parent::__construct();<br />
++        $this-&gt;_videoId = $videoId; 
++    }
++
++    /**
++     * Retrieves a DOMElement which corresponds to this element and all 
++     * child properties.  This is used to build an entry back into a DOM
++     * and eventually XML text for sending to the server upon updates, or
++     * for application storage/persistence.<br />
++     *
++     * @param DOMDocument $doc The DOMDocument used to construct DOMElements
++     * @return DOMElement The DOMElement representing this element and all 
++     * child properties.
++     */
++    public function getDOM($doc = null)
++    {
++        $element = parent::getDOM($doc);
++        if ($this-&gt;_videoId !== null) {
++            $element-&gt;setAttribute('videoid', $this-&gt;_videoId);
++        }
++        return $element;
++    }
++
++    /**
++     * Given a child DOMNode tries to map the data into
++     * instance members.  If no mapping is defined the data is passed upward
++     * to the parent class for handling.
++     * TODO: Convert attributes to proper types
++     *
++     * @param DOMNode $child The DOMNode needed to be handled
++     */
++    protected function takeChildFromDOM($child)
++    {
++        if ($child-&gt;nodeType == XML_TEXT_NODE) {
++            $this-&gt;_videoId = $child-&gt;nodeValue;
++        }
++        parent::takeChildFromDOM($child);
++    }
++
++    /**
++     * Get the value for this element's viewCount attribute.
++     *
++     * @return int The value associated with this attribute.
++     */
++    public function getId()
++    {
++        return $this-&gt;_videoId;
++    }
++
++    /**
++     * Magic toString method allows using this directly via echo
++     * Works best in PHP &gt;= 4.2.0
++     *
++     * @return string
++     */
++    public function __toString() 
++    {
++        return 'Video ID=' . $this-&gt;_videoId;
++    }
++
++}
+diff -urN Zend/Gdata/YouTube/VideoEntry.php Zend.fixed/Gdata/YouTube/VideoEntry.php
+--- Zend/Gdata/YouTube/VideoEntry.php   2008-05-05 10:54:00.000000000 -0400
++++ Zend.fixed/Gdata/YouTube/VideoEntry.php 2008-11-08 14:01:47.000000000 -0500
+@@ -147,6 +147,13 @@
+     protected $_where = null;</p>
+
+<pre><code> /**
+</code></pre>
+
+<p>+     * YouTube Video ID
++     *
++     * @var Zend_Gdata_YouTube_Extension_VideoId
++     */
++    protected $_videoId = null;
++
++    /**
+      * Creates a Video entry, representing an individual video
+      *
+      * @param DOMElement $element (optional) DOMElement from which this
+@@ -458,19 +465,17 @@
+     }</p>
+
+<pre><code> /**
+</code></pre>
+
+<p>-     * Gets the YouTube video ID based upon the atom:id value
++     * Gets the YouTube video ID
+      *
+      * @return string The video ID
+      */
+     public function getVideoId()
+     {
+-        $fullId = $this-&gt;getId()-&gt;getText();
+-        $position = strrpos($fullId, '/');
+-        if ($position === false) {
+-            require_once 'Zend/Gdata/App/Exception.php';
+-            throw new Zend_Gdata_App_Exception('Slash not found in atom:id');
++        $this-&gt;ensureMediaGroupIsNotNull();
++        if ($this-&gt;getMediaGroup()-&gt;getVideoId() != null) {
++            return $this-&gt;getMediaGroup()-&gt;getVideoId()-&gt;getId();
+         } else {
+-            return substr($fullId, strrpos($fullId,'/') + 1);
++            return null;
+         }
+     }</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by jeremy clerc (jeremy) on 2009-07-09T04:04:13.000+0000</p> 
+        <div class="body">
+            <p>This problem isn't fix in 1.8.4 version of Zend_Gdata.
+I don't understand the way to apply your patch, how to add this in zend gdata librairy ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Trevor Johns (tjohns) on 2009-07-20T17:35:33.000+0000</p> 
+        <div class="body">
+            <p>Ben,
+Sorry for not getting back to you sooner on this, it looks like your patch slipped through the cracks.</p>
+
+<p>Before I can even begin to look at this, I need two things:</p>
+
+<ol><li>You need to sign the Zend Framework CLA: <a href="http://framework.zend.com/wiki/display/ZFPROP/Contributor+License+Agreement">http://framework.zend.com/wiki/display/…</a></li>
+<li>You need to send us your patch as an attachment. The formatting here messes up patches that are pasted into comment fields (like yours was).</li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:23.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

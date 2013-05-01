@@ -1,0 +1,181 @@
+<h2>ZF-2388: Mysqli: Statement object cannot be reused (again)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-01-07T04:45:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-22T08:40:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.3 (01/Feb/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Mike Wossen (gw128)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Mysqli</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>h3. Problem</p>
+
+<p>Fixing issue ZF-1778 created new issue:</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('mysqli', ...);
+
+$stmt1 = $db-&gt;prepare('UPDATE A SET B=?');
+$result1 = $stmt1-&gt;execute(array('1'));
+
+$stmt2 = $db-&gt;prepare('UPDATE B SET C=?');
+$result2 = $stmt2-&gt;execute(array('2'));
+
+// this will fail (return false), because initiating stmt2 will close stmt1.
+$result3 = $stmt1-&gt;execute(array('3'));
+</code></pre>
+
+<p>h3. Solution</p>
+
+<p>Zend/Db/Adapter/Mysqli.php</p>
+
+<pre class="highlight"><code>
+/**
+* Prepare a statement and return a PDOStatement-like object.
+*
+* @param  string  $sql  SQL query
+* @return Zend_Db_Statement_Mysqli
+*/
+public function prepare($sql)
+{
+    $this-&gt;_connect();
+    if ($this-&gt;_stmt) {
+        $this-&gt;_stmt-&gt;close();
+    }
+    $stmt = new Zend_Db_Statement_Mysqli($this, $sql);
+    if ($stmt === false) {
+        return false;
+    }
+    $stmt-&gt;setFetchMode($this-&gt;_fetchMode);
+    $this-&gt;_stmt = $stmt;
+    return $stmt;
+}
+</code></pre>
+
+<p>should be changed back to ( version commit <a href="http://framework.zend.com/fisheye/viewrep/Zend_Framework/branch/release-1.0/library/Zend/Db/Adapter/Mysqli.php?r1=5867&amp;r2=5906">pre 5906</a>):</p>
+
+<pre class="highlight"><code>
+/**
+* Prepare a statement and return a PDOStatement-like object.
+*
+* @param  string  $sql  SQL query
+* @return Zend_Db_Statement_Mysqli
+*/
+public function prepare($sql)
+{
+    $this-&gt;_connect();
+    $stmt = new Zend_Db_Statement_Mysqli($this, $sql);
+    if ($stmt === false) {
+        return false;
+    }
+    $stmt-&gt;setFetchMode($this-&gt;_fetchMode);
+    return $stmt;
+}
+</code></pre>
+
+<p>h3. Should be reconsidered</p>
+
+<p>NB! Fixing this problem rises ZF-1778 again, thus logic should be reconsidered.</p>
+
+<p>IMHO "Fixed code" is more correct because same logic is used in pdo abstraction class Zend/Db/Adapter/Pdo/Abstract.php</p>
+
+<pre class="highlight"><code>
+/**
+* Prepares an SQL statement.
+*
+* @param string $sql The SQL statement with placeholders.
+* @param array $bind An array of data to bind to the placeholders.
+* @return PDOStatement
+*/
+public function prepare($sql)
+{
+    $this-&gt;_connect();
+    $stmt = new Zend_Db_Statement_Pdo($this, $sql);
+    $stmt-&gt;setFetchMode($this-&gt;_fetchMode);
+    return $stmt;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:55.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-01-07T16:45:38.000+0000</p> 
+        <div class="body">
+            <p>the questions is wheather ZF-1778 also appears for PDO. I think it only works when using with mysql and set to unbuffered resultsets. I will try maybe...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-13T10:34:30.000+0000</p> 
+        <div class="body">
+            <p>Reassigning to Ralph to bring closure to this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Anthon Pang, VIP Software Technologies Inc. (vipsoft) on 2011-01-12T09:54:36.000+0000</p> 
+        <div class="body">
+            <p>It would be nice to get this fixed, as it's contrary to advice given. (see ZF-10930)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-01-22T08:40:45.000+0000</p> 
+        <div class="body">
+            <p>This is a limitation in mysqli, not Zend_Db.  Mysqli can only have a single buffered statement open at a time, that is why the previous statement must be closed before a new one can be utilized.  This is the reason why mysqli_multi_query().  In order for us to be able to accomplish this, we'd have to do a dance with mysqli_store_result() inbetween preparations.  Since we have no context for how you are using the Statement or more specifically, how much data you have in a result set, we cannot simply assume that you'd like to store that in PHP space (as opposed to keeping the data inside the mysql connection).</p>
+
+<p>Long story short, if you need multiple statements at once, you should be looking at PDO.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+    </div>
+

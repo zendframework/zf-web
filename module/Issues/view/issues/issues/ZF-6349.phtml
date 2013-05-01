@@ -1,0 +1,162 @@
+<h2>ZF-6349: Zend_Soap_AutoDiscover does not generate interoperable document-literal WSDL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-19T16:26:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-30T15:50:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Fabien Crespel (fcrespel)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Soap_Wsdl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6348">ZF-6348</a></li>
+            <li><a href="/issues/browse/ZF-6346">ZF-6346</a></li>
+            <li><a href="/issues/browse/ZF-6049">ZF-6049</a></li>
+            <li><a href="/issues/browse/ZF-6351">ZF-6351</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11882/Zend_Soap_AutoDiscover-DocumentLiteral-Tests.diff">Zend_Soap_AutoDiscover-DocumentLiteral-Tests.diff</a></li>
+            <li><a href="/issues/secure/attachment/11881/Zend_Soap_AutoDiscover-DocumentLiteral.diff">Zend_Soap_AutoDiscover-DocumentLiteral.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><em>Note to admins reading this: there should be a Zend_Soap_AutoDiscover component, I had to use Zend_Soap_Wsdl here instead.</em></p>
+
+<p>Zend_Soap_AutoDiscover support setting WSDL binding and operation styles (such as rpc-encoded, rpc-literal, document-literal) since <a href="http://framework.zend.com/code/changelog/Standard_Library/standard/trunk/library/Zend/Soap?cs=13137">rev 13137</a> (ZF-5188). However, the generated <em>document-literal</em> WSDL does not comply with the <a href="">www.ws-i.org/Profiles/BasicProfile-1.1.html</a>" rel="nofollow"&gt;WS-I Basic Profile 1.1 and is <em>not interoperable</em> with other popular clients such as .NET, JAX-RPC, JAX-WS, or gSOAP (see ZF-6049 for a example with JAX-WS).</p>
+
+<p>The <a href="http://www.ws-i.org/Profiles/BasicProfile-1.1.html#Bindings_and_Parts">WS-I Basic Profile 1.1</a> specifies that document-literal WSDL documents must use an {{element}} attribute in message parts (R2204), and that message can only contain zero or one {{part}} (R2210). This makes functions with more than 1 parameter impossible to represent this way. A commonly accepted workaround implemented in .NET and Java (probably others too, except PHP...) is to <em>wrap parameters</em> in a {{complexType}}, and have this {{complexType}} in an element with the <em>same name</em> as the function. The message {{part}} would then be named "parameters" and make reference to the said element.</p>
+
+<p>For more information about this "document-literal-wrapped" convention, see the following links:
+* [<a href="http://www.ibm.com/developerworks/webservices/library/ws-whichwsdl/">http://ibm.com/developerworks/webservices/…</a>]
+* [<a href="http://msdn.microsoft.com/en-us/library/ms996466.aspx">http://msdn.microsoft.com/en-us/library/…</a>]
+* [<a href="http://atmanes.blogspot.com/2005/03/wrapped-documentliteral-convention.html">http://atmanes.blogspot.com/2005/03/…</a>]</p>
+
+<p>The attached patch adds support for <em>WS-I compliant and interoperable document-literal WSDL generation</em>.
+It also fixes <em>rpc-literal</em> WSDL generation to be WS-I compliant. I will detail what this patch does exactly in a comment below.</p>
+
+<p>Making PHP work with the generated WSDL is beyond the scope of this issue, I think, so I created ZF-6351 to discuss it.</p>
+
+<p>Note: this patch depends on 2 others patches I submitted earlier under ZF-6346 and ZF-6348.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Fabien Crespel (fcrespel) on 2009-04-19T17:02:35.000+0000</p> 
+        <div class="body">
+            <p>This patch makes Zend_Soap_AutoDiscover generate valid WSDL with respect to the <a href="http://schemas.xmlsoap.org/wsdl/">WSDL Schema</a> and <a href="">www.ws-i.org/Profiles/BasicProfile-1.1.html</a>" rel="nofollow"&gt;WS-I Basic Profile 1.1. Points to note:
+* A new {{_addFunctionToWsdl()}} protected method avoids duplicating code in {{setClass()}} and {{addFunction()}}
+* The {{types}} node must precede (almost) all other elements (<a href="http://www.ws-i.org/Profiles/BasicProfile-1.1.html#Placement_of_WSDL_import_Elements">R2023</a>), so {{addSchemaTypeSection()}} is called right after instantiating Zend_Soap_Wsdl.
+* When using the *document* style, parameters (arguments and return value) are wrapped as described in the issue description above. Using elements to describe parameters instead of parts also allows having *optional* (nillable) parameters.
+* When using the *RPC* style, parameters are described in typed message parts (as before). Additionally, a *namespace* attribute is automatically added to the {{_operationBodyStyle}} if not already present, as required by <a href="http://www.ws-i.org/Profiles/BasicProfile-1.1.html#Namespaces_for_soapbind_Elements">R2717</a>
+* Function *documentation* is now supported (depends on ZF-6346)
+* Message names had to be changed from {{$name.'Request'}} / {{$name.'Response'}} to  *{{$name.'In'}} / {{$name.'Out'}}* (inspired by .NET) to avoid confusion, because the return value's wrapper element must be named {{$name.'Response'}} too</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien Crespel (fcrespel) on 2009-04-19T17:20:48.000+0000</p> 
+        <div class="body">
+            <p>Here is another patch to update AutoDiscover tests. With this patch applied, all tests pass.</p>
+
+<p>Additionally, during the development of these patches, I used a custom ZFTestService project and TestService class to test compliance and interoperability with other SOAP clients. The produced document-literal and rpc-literal WSDL documents were tested with:
+* the <a href="http://www.ws-i.org/deliverables/workinggroup.aspx?wg=testingtools">WS-I Interoperability Testing Tools 1.1</a> - and passed compliance tests. Note though that the {{ArrayOfTypeSequence}} strategy must be used instead of {{ArrayOfTypeComplex}}, as the latter uses soap-enc:Array, which is forbidden by the <a href="http://www.ws-i.org/Profiles/BasicProfile-1.1.html#soapenc_Array">WS-I Basic Profile 1.1</a>.
+* a <em>.NET 2.0</em> client in C# - everything worked
+* a <em>JAX-RPC</em> client (for rpc-literal) and <em>JAX-WS</em> client (for document-literal) - everything worked
+* a <em>C++</em> client using <em>gSOAP</em> - everything worked</p>
+
+<p>Since these tests need external tools, I don't think they could be integrated in automated tests.. what to do with them?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jerome Mouneyrac (mouneyrac) on 2009-05-05T22:17:46.000+0000</p> 
+        <div class="body">
+            <p>Thanks Fabien. I do confirm that when I tried to generate a Web Service Java client with Nebeans 6.7, the wsdl generated by 1.8 zend soap autodiscover seems to be invalid:
+[WARNING] R2716 WSI-BasicProfile ver. 1.0, namespace attribute not allowed in doc/lit for soapbind:body: "get_token"
+[WARNING] ignoring operation "get_token": message part does not refer to a schema element declaration</p>
+
+<pre class="highlight"><code>
+$autodiscover = new Zend_Soap_AutoDiscover();
+  
+$autodiscover-&gt;setOperationBodyStyle(
+                    array('use' =&gt; 'literal',
+                          'namespace' =&gt; $CFG-&gt;wwwroot)
+                );
+              
+$autodiscover-&gt;setBindingStyle(
+                    array('style' =&gt; 'document')
+                );
+
+$autodiscover-&gt;setClass('ws_authentication',$CFG-&gt;wwwroot);
+                $autodiscover-&gt;handle();
+</code></pre>
+
+<pre class="highlight"><code>
+/**
+ * authentication class 
+ */
+class ws_authentication {
+    /**
+     *
+     * @param array|struct $params
+     * @return integer
+     */
+    function get_token($params) {
+        if ($params['username'] == 'wsuser' &amp;&amp; $params['password'] == 'wspassword') {
+            return '456';
+        } else {
+            throw new moodle_exception('wrongusernamepassword');
+        }
+    }
+}
+</code></pre>
+
+<p>Btw it is hard to find any document on how to make a basic Java or .Net client for Zend_SOAP. Does someone know a blog/document explaining about to write/setup an autodiscover working with any basic Java client generator.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-05-30T15:48:18.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk as of issue r15832.</p>
+
+<p>Please test this patch against your Zend_Soap_AutoDiscover production code!!</p>
+
+        </div>
+    </div>
+    </div>
+

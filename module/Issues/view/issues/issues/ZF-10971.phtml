@@ -1,0 +1,192 @@
+<h2>ZF-10971: unable to setup a REST route for a specific module in configuration file (.ini)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-20T09:46:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-03-22T23:17:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Guillaume ORIOL (goriol)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Luke Crouch (lcrouch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Rest_Route</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9778">ZF-9778</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The Zend_Application_Resource_Router resource plugin calls the addConfig($config) method of the front controller router (ie Zend_Controller_Router_Rewrite) passing to it the subset of the configuration file starting by "resources.router.routes.*"</p>
+
+<p>In my use case:
+resources.router.routes.rest.type = "Zend_Rest_Route"
+resources.router.routes.rest.modules = "rest"</p>
+
+<p>The router will then call the getInstance() method of the specified route (here Zend_Rest_Route) with the same $config argument.</p>
+
+<p>Here is the problem: that method (getInstance) will only produce arrays as the item values of $restfulConfigArray (responders).
+(Furthermore, the test will fail with numeric keys as an equality operator "==" is used instead of an identity "===" operator to check if the key is "type".)</p>
+
+<p>At last, getInstance() will instantiate the route with its class constructor that calls _parseResponders($responders). Unfortunately, this method determines which modules or controolers are RESTful by checking the type of the responders: if they are arrays or not.</p>
+
+<p>I would suggest to change the getInstance method this way:</p>
+
+<pre class="highlight"><code>
+    public static function getInstance(Zend_Config $config)
+    {
+        $frontController = Zend_Controller_Front::getInstance();
+        $defaultsArray = array();
+        $restfulConfigArray = array();
+        foreach ($config as $key =&gt; $values) {
+            if ($key === 'type') {
+                // do nothing
+            } elseif ($key === 'defaults') {
+                $defaultsArray = $values-&gt;toArray();
+            } else {
+                if (false === strpos($values, ',')) {
+                    $restfulConfigArray[] = $key;
+                } else {
+                    $restfulConfigArray[$key] = explode(',', $values);
+                }
+            }
+        }
+
+        $instance = new self($frontController, $defaultsArray, $restfulConfigArray);
+        return $instance;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Nick Levett (nicklevett) on 2011-01-24T04:44:54.000+0000</p> 
+        <div class="body">
+            <p>I'm hitting this as well trying to add two modules as RESTful. I'm not sure what the correct syntax is as well...</p>
+
+<pre class="highlight"><code>
+routes.rest.type = Zend_Rest_Route
+routes.rest.modules = site,cms
+</code></pre>
+
+<p>Will hit $restfulConfigArray[$key] = explode(',', $values); and then fail in _parseResponders function.</p>
+
+<p>I've modified the patch slightly:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Instantiates route based on passed Zend_Config structure
+     */
+    public static function getInstance(Zend_Config $config)
+    {
+        $frontController = Zend_Controller_Front::getInstance();
+        $defaultsArray = array();
+        $restfulConfigArray = array();
+        foreach ($config as $key =&gt; $values) {
+            if ($key === 'type') {
+                // do nothing
+            } elseif ($key === 'defaults') {
+                $defaultsArray = $values-&gt;toArray();
+            } else {
+                if (false === strpos($values, ',')) {
+                    $restfulConfigArray[$key] = $values;
+                } else {
+                    $restfulConfigArray[$key] = explode(',', $values);
+                }
+            }
+        }
+        $instance = new self($frontController, $defaultsArray, $restfulConfigArray);
+        return $instance;
+    }
+</code></pre>
+
+<p>Which allows:</p>
+
+<pre class="highlight"><code>
+routes.siterest.type = Zend_Rest_Route
+routes.siterest.module = site
+
+routes.cmsrest.type = Zend_Rest_Route
+routes.cmsrest.module = cms
+</code></pre>
+
+<p>I do however believe my original syntax of routes.rest.modules = site,cms should work but would require the _parseResponders function to be rewritten.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guillaume ORIOL (goriol) on 2011-01-24T05:36:28.000+0000</p> 
+        <div class="body">
+            <p>As you said, we are not sure what syntax is expected in configuration file.</p>
+
+<p>When I wrote that patch, I was expecting something like this:</p>
+
+<pre class="highlight"><code>
+routes.siterest.type = Zend_Rest_Route
+routes.siterest.site =
+</code></pre>
+
+<p>Let me explain why. The documentation specifies this syntax (1) for a whole module:</p>
+
+<pre class="highlight"><code>
+$front = Zend_Controller_Front::getInstance();
+$restRoute = new Zend_Rest_Route($front, array(), array('product'));
+$front-&gt;getRouter()-&gt;addRoute('rest', $restRoute);
+</code></pre>
+
+<p>and this one (2) for specific controllers in a module:</p>
+
+<pre class="highlight"><code>
+$front = Zend_Controller_Front::getInstance();
+$restRoute = new Zend_Rest_Route($front, array(),
+    array('product' =&gt; array('ratings')
+));
+$front-&gt;getRouter()-&gt;addRoute('rest', $restRoute);
+</code></pre>
+
+<p>In use case (1), the module name is the value; but in use case (2) the module name is the key. That is what I tried to mimic with this patch.</p>
+
+<p>We obviously need some clarifications on this syntax.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rafael Oleza Alomar (rafeca) on 2011-03-22T23:17:49.000+0000</p> 
+        <div class="body">
+            <p>This issue is a duplicate of ZF-9778</p>
+
+        </div>
+    </div>
+    </div>
+

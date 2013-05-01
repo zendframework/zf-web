@@ -1,0 +1,365 @@
+<h2>ZF-3398: Zend_Translate - Zend_Translate_Adapter_Db - Making it work </h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-05T10:58:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-06-06T04:08:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Helgi Hrafn Halldórsson (harabanar)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2248">ZF-2248</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Looking at Zend_Translate, it would be nice to have Zend_Translate_Adapter_Db where the $data would be a Zend_Db_Table_Abstract, and you could specify the columns for messageId, message and locale.</p>
+
+<p>My coworkers and I have looked at this and made some adjustments to the Zend_Translate::setAdapter function since it does not allow other adapters then specified in the function. As well as setting the $_cache and $_adapter variables as protected if Zend_Translate will be overwritten. Here is a patch</p>
+
+<pre class="highlight"><code>
+Index: Translate.php
+===================================================================
+--- Translate.php   (revision 9612)
++++ Translate.php   (working copy)
+@@ -52,14 +52,19 @@
+      *
+      * @var Zend_Translate_Adapter
+      */
+-    private $_adapter;
+-    private static $_cache = null;
++    protected $_adapter;
++    /**
++     * Cache to store to
++     *
++     * @var Zend_Cache_Core
++     */
++    protected static $_cache = null;
+ 
+ 
+     /**
+      * Generates the standard translation object
+      *
+-     * @param  string              $adapter  Adapter to use
++     * @param  string|Zend_Translate_Adapter $adapter  Adapter to use
+      * @param  array               $data     Translation source data for the adapter
+      *                                       Depends on the Adapter
+      * @param  string|Zend_Locale  $locale   OPTIONAL locale to use
+@@ -75,7 +80,7 @@
+     /**
+      * Sets a new adapter
+      *
+-     * @param  string              $adapter  Adapter to use
++     * @param  string|Zend_Translate_Adapter $adapter  Adapter to use
+      * @param  string|array        $data     Translation data
+      * @param  string|Zend_Locale  $locale   OPTIONAL locale to use
+      * @param  array               $options  OPTIONAL Options to use
+@@ -83,42 +88,54 @@
+      */
+     public function setAdapter($adapter, $data, $locale = null, array $options = array())
+     {
+-        switch (strtolower($adapter)) {
+-            case 'array':
+-                $adapter = 'Zend_Translate_Adapter_Array';
+-                break;
+-            case 'csv':
+-                $adapter = 'Zend_Translate_Adapter_Csv';
+-                break;
+-            case 'gettext':
+-                $adapter = 'Zend_Translate_Adapter_Gettext';
+-                break;
+-            case 'qt':
+-                $adapter = 'Zend_Translate_Adapter_Qt';
+-                break;
+-            case 'tbx':
+-                $adapter = 'Zend_Translate_Adapter_Tbx';
+-                break;
+-            case 'tmx':
+-                $adapter = 'Zend_Translate_Adapter_Tmx';
+-                break;
+-            case 'xliff':
+-                $adapter = 'Zend_Translate_Adapter_Xliff';
+-                break;
+-            case 'xmltm':
+-                $adapter = 'Zend_Translate_Adapter_XmlTm';
+-                break;
+-        }
++        if(is_string($adapter)) {
++            switch (strtolower($adapter)) {
++                case self::AN_ARRAY:
++                    $adapter = 'Zend_Translate_Adapter_Array';
++                    break;
++                case self::AN_CSV :
++                    $adapter = 'Zend_Translate_Adapter_Csv';
++                    break;
++                case self::AN_GETTEXT :
++                    $adapter = 'Zend_Translate_Adapter_Gettext';
++                    break;
++                case self::AN_QT :
++                    $adapter = 'Zend_Translate_Adapter_Qt';
++                    break;
++                case self::AN_TBX :
++                    $adapter = 'Zend_Translate_Adapter_Tbx';
++                    break;
++                case self::AN_TMX :
++                    $adapter = 'Zend_Translate_Adapter_Tmx';
++                    break;
++                case self::AN_XLIFF :
++                    $adapter = 'Zend_Translate_Adapter_Xliff';
++                    break;
++                case self::AN_XMLTM :
++                    $adapter = 'Zend_Translate_Adapter_XmlTm';
++                    break;
++                default:
++                    require_once 'Zend/Translate/Exception.php';
++                    throw new Zend_Translate_Exception(
++                        "Adapter '" . $adapter . "' can not be automatically loaded"
++                    );
++            }
+ 
+-        Zend_Loader::loadClass($adapter);
+-        if (self::$_cache !== null) {
+-            call_user_func(array($adapter, 'setCache'), self::$_cache);
++            Zend_Loader::loadClass($adapter);
++
++            if (self::$_cache !== null) {
++                call_user_func(array($adapter, 'setCache'), self::$_cache);
++            }
++
++            $this-&gt;_adapter = new $adapter($data, $locale, $options);
+         }
+-        $this-&gt;_adapter = new $adapter($data, $locale, $options);
+-        if (!$this-&gt;_adapter instanceof Zend_Translate_Adapter) {
+-            require_once 'Zend/Translate/Exception.php';
+-            throw new Zend_Translate_Exception("Adapter " . $adapter . " does not extend Zend_Translate_Adapter'");
++        else if($adapter instanceof Zend_Translate_Adapter) {
++           $this-&gt;_adapter = $adapter;
++           return ;
+         }
++
++        require_once 'Zend/Translate/Exception.php';
++        throw new Zend_Translate_Exception("Adapter must be set");
+     }
+
+</code></pre>
+
+<p>Then again .. the Zend_Translate_Adapter_Db ..</p>
+
+<pre class="highlight"><code>&lt;?php
+
+/** Zend_Locale */
+require_once 'Zend/Locale.php';
+
+/** Zend_Translate_Adapter */
+require_once 'Zend/Translate/Adapter.php';
+
+class Zend_Translate_Adapter_Db extends Zend_Translate_Adapter
+{
+    /**
+     * The table colums
+     *
+     * @var Array
+     */
+    protected $tableColumns = array(
+        'messageId' =&gt; 'messageId',
+        'locale'    =&gt; 'locale',
+        'message'   =&gt; 'message'
+    );
+
+    /**
+     * Generates the adapter
+     *
+     * @param  string|array|Zend_Db_Table $data Translation database table name and table columns
+     *                                      for this adapter
+     * @param  string|Zend_Locale $locale  (optional) Locale/Language to set, identical with Locale
+     *                                     identifiers see Zend_Locale for more information
+     * @param  array $options (optional) Options for the adaptor
+     * @throws Zend_Translate_Exception
+     * @return void
+     */
+    public function __construct($data, $locale = null, array $options = array())
+    {
+        if (!is_array($data)) {
+            $newData['dbTable'] = $data;
+            $data = $newData;
+            unset($newData);
+        }
+
+        if (isset($data['tableColumns'])) {
+            $this-&gt;setTableColumns((array) $data['tableColumns']);
+            unset($data['tableColumns']);
+        }
+
+        parent::__construct($data['dbTable'], $locale, $options);
+    }
+
+    /**
+     * Set the table columns
+     *
+     * @param array $columns
+     */
+    public function setTableColumns(array $columns)
+    {
+        foreach ($columns as $column =&gt; $value) {
+            if (array_key_exists($column, $this-&gt;tableColumns))
+                $this-&gt;tableColumns[$column] = $value;
+        }
+    }
+
+    /**
+     * Load translation data
+     *
+     * @param  mixed   $dbTable   The database table model
+     * @param  string  $locale    Locale to add data for, identical with locale identifier,
+     * @param  array   $option    OPTIONAL Options to use
+     * @throws Zend_Translate_Exception
+     * @return void
+     */
+    protected function _loadTranslationData($dbTable, $locale, array $options = array())
+    {
+        $options = array_merge($this-&gt;_options, $options);
+
+        if (is_string($dbTable)) {
+            require_once 'Zend/Loader.php';
+            Zend_Loader::loadClass($dbTable);
+            $dbTable = new $dbTable;
+        }
+
+        if (! $dbTable instanceof Zend_Db_Table_Abstract) {
+            require_once 'Zend/Translate/Exception.php';
+            throw new Zend_Translate_Exception(
+                "Database table must be instance of 'Zend_Db_Table_Abstract'"
+            );
+        }
+
+        if ($options['clear'] || !isset($this-&gt;_translate[$locale])) {
+            $this-&gt;_translate[$locale] = array();
+        }
+
+        $colMessageId = $this-&gt;tableColumns['messageId'];
+        $colLocale = $this-&gt;tableColumns['locale'];
+        $colMessage = $this-&gt;tableColumns['message'];
+
+        $translates = $dbTable-&gt;fetchAll(
+            array(
+                "$colLocale = ?" =&gt; $locale
+            ),
+            array(
+                $colMessageId
+            )
+        );
+
+        foreach ($translates as $translate) {
+            $messageId = $translate-&gt;$colMessageId;
+            $this-&gt;_translate[$translate-&gt;$colLocale][$messageId] = $translate-&gt;$colMessage;
+        }
+    }
+
+    /**
+     * returns the adapters name
+     *
+     * @return string
+     */
+    public function toString()
+    {
+        return 'Db';
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-06-05T11:26:50.000+0000</p> 
+        <div class="body">
+            <p>Duplicate of existing issue ZF-2248.
+Can not be integrated as described here because it breaks existing model.</p>
+
+<p>Please be patient until the official adapter is released.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2008-06-06T01:35:05.000+0000</p> 
+        <div class="body">
+            <p>then again .. why not fix the Zend_Translate so it can be easily be overwritten, as shown above. The setAdapter function does not allow other adapters then specified in the <em>switch</em> statement. The patch I proposed makes that possible :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-06-06T03:31:05.000+0000</p> 
+        <div class="body">
+            <p>First:
+You can easily specify your own adapter even with existing model.
+Just extend Zend_Translate_Adapter.
+There is no need of changing it for this reason.
+This is simply OOP and described within the manual.</p>
+
+<p>Zend_Translate MUST NOT BE EXTENDED... 
+You will also not extend Zend_Db but only Zend_Db_Table for example.</p>
+
+<p>Second:
+Zend_Translate is actually being reworked and will not exist as is in future. This changes will break BC with 2.0 but make additional features possible.</p>
+
+<p>Third:
+Only viewing your patch I see several problems which would pop up when viewing the change in a broader environment.
+It seems to fit only for one or two usecases.</p>
+
+<p>Fourth:
+As Zend_Translate is one of the CORE components, NO CODE will be integrated without being reviewed, documented, tested, tested, and of course tested in different environments.</p>
+
+<p>Fifth:
+In the original issue an link has been set to lead to this ticket. So it is not forgotten. Maybe parts of it will be used for the sql adapter but this will be checked as soon as the basework is finished and all available code segments are reviewed, including yours.</p>
+
+<p>So please be patient until all work has been done. ;-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Helgi Hrafn Halldórsson (harabanar) on 2008-06-06T04:08:48.000+0000</p> 
+        <div class="body">
+            <p>Thank you for your comments, and of course you're working on all of this :D</p>
+
+<p>When looking over the setAdapter function in Zend_Translate I dont't see the possibility to use a adapter that I would create even if I extend Zend_Translate_Adapter. Because the <em>switch</em> statement only allows the predefined Zend_Translate_Adapters. But anyways I wanted at least to submit this issue for people to think about, and I have surtenly done that :D</p>
+
+<p>thank you for your responses. ;)</p>
+
+        </div>
+    </div>
+    </div>
+

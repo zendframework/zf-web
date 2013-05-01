@@ -1,0 +1,150 @@
+<h2>ZF-9814: Zend_Db_Table doesn't scale to i5/OS</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-05-06T09:23:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-10-21T11:41:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Aaron S. Hawley (ashawley)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Db2</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13057/Db2_describeTable-faster.patch">Db2_describeTable-faster.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The query in Zend_Db_Adapter_Db2::describeTable() for i5/OS runs very slow.  Though we have over 20 million distinct column names on the machine I'm using.  That's not uncommon for IBM i servers since they are so (overly?) database-integrated.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2010-05-06T09:32:51.000+0000</p> 
+        <div class="body">
+            <p>I'm closing this as not an issue.
+To prevent the describe table query being needed repeatedly, you may either use a meta-data cache, or hardcode the columns for each table into your Zend_Db_Table definition.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron S. Hawley (ashawley) on 2010-05-06T09:33:26.000+0000</p> 
+        <div class="body">
+            <p>I was able to improve performance significantly by removing the 4 calls to the scalar function UPPER() and the use of SELECT DISTINCT.</p>
+
+<p>Unfortunately, this loses case-folding (case-insensitive) nature of Zend_Db_Table, since SQL is case-insensitive with identifiers.  Seems ok as long as we enforce case-sensitivity in our code and database guidelines.  We'd rather leverage Zend_Db_Table than not.</p>
+
+<p>I'll inline the attached patch below:</p>
+
+<pre class="literal">
+2010-05-06  Aaron S. Hawley  
+
+    * Zend/Db/Adapter/Db2.php (describeTable): Improve performance of
+    i5/OS query by avoiding UPPER() and DISTINCT.  It's not uncommon
+    for AS/400 machines to have distinct columns numbering in the tens
+    of millions.
+
+--- Zend/Db/Adapter/Db2.php 2010-04-29 12:37:50.021322300 -0400
++++ Zend/Db/Adapter/Db2.php 2010-05-06 11:44:19.584306100 -0400
+@@ -399,7 +399,7 @@
+         } else {
+ 
+             // DB2 On I5 specific query
+-            $sql = "SELECT DISTINCT C.TABLE_SCHEMA, C.TABLE_NAME, C.COLUMN_NAME, C.ORDINAL_POSITION,
++            $sql = "SELECT C.TABLE_SCHEMA, C.TABLE_NAME, C.COLUMN_NAME, C.ORDINAL_POSITION,
+                 C.DATA_TYPE, C.COLUMN_DEFAULT, C.NULLS ,C.LENGTH, C.SCALE, LEFT(C.IDENTITY,1),
+                 LEFT(tc.TYPE, 1) AS tabconsttype, k.COLSEQ
+                 FROM QSYS2.SYSCOLUMNS C
+@@ -411,10 +411,10 @@
+                        AND C.TABLE_NAME = k.TABLE_NAME
+                        AND C.COLUMN_NAME = k.COLUMN_NAME)
+                 WHERE "
+-                 . $this-&gt;quoteInto('UPPER(C.TABLE_NAME) = UPPER(?)', $tableName);
++                 . $this-&gt;quoteInto('C.TABLE_NAME = ?', $tableName);
+ 
+             if ($schemaName) {
+-                $sql .= $this-&gt;quoteInto(' AND UPPER(C.TABLE_SCHEMA) = UPPER(?)', $schemaName);
++                $sql .= $this-&gt;quoteInto(' AND C.TABLE_SCHEMA = ?', $schemaName);
+             }
+ 
+             $sql .= " ORDER BY C.ORDINAL_POSITION FOR FETCH ONLY";
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron S. Hawley (ashawley) on 2010-05-06T09:49:22.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the quick reply.  I'm not sure the caching would work because I should have said "never returns" instead of "very slow".  So that really only leaves the option of hardcoding the meta data.</p>
+
+<p>Could we keep this issue open to see if other people have the issue as well?  It might take awhile.  Those of us writing PHP for the i are likely few and far between.  Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron S. Hawley (ashawley) on 2010-07-01T06:58:44.000+0000</p> 
+        <div class="body">
+            <p>Duplicate of ZF-6606</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alan Seiden (aseiden) on 2010-08-24T11:02:26.000+0000</p> 
+        <div class="body">
+            <p>Metadata caching does work for me on i5. To reply to Aaron's comment about his script never returning, he may need to allow a larger timeout value in the script to allow time for the cache to be written (the first time through).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alan Seiden (aseiden) on 2010-08-24T11:38:35.000+0000</p> 
+        <div class="body">
+            <p>Even though metadata caching for Zend_Db_Table does work for me on i5, and speeds up subsequent queries, I will avoid Zend_Db_Table when I can. I always fear that a real user will be the one to experience that slow first time through, as the cache is being written, causing a time-out for the unlucky user. I know that I can carefully make sure the cache is there before users hit the site, but I'd rather avoid even the possibility if I can.</p>
+
+<p>That said, this technique does work, but if you use it on a production site, make sure all cached metadata is there before any users arrive.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Dubé (christiand) on 2011-10-21T11:41:42.000+0000</p> 
+        <div class="body">
+            <p>With Aaron proposed "fix" my queries went from ~85sec to &lt; 2sec</p>
+
+<p>I also added caching in my boostrap and now queries are almost instantaneous.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,168 @@
+<h2>ZF-9479: Zend_Gdata_Youtube does not work with v2.0 API</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-19T03:30:00.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-12T03:35:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                R Slootjes (rslootjes)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Gdata</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14933/ZF-9479.patch">ZF-9479.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Try the following code:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Gdata/Youtube.php';
+$yt = new Zend_Gdata_YouTube();
+$yt-&gt;setMajorProtocolVersion(2);
+
+$query = $yt-&gt;newVideoQuery();
+
+$query-&gt;videoQuery = 'zend framework';
+$query-&gt;startIndex = 0;
+$query-&gt;maxResults = 10;
+$query-&gt;orderBy = 'viewCount';
+$query-&gt;safeSearch = 'strict';
+
+$videoFeed = $yt-&gt;getVideoFeed($query);
+</code></pre>
+
+<p>The 2.0 headers are properly sent but the query is still generated with 1.0 params. After doing some research I found out that the "getQueryUrl"-function in Zend_Gdata_YouTube_VideoQuery can have 2 arguments with version numbers. The function which calls this (getVideoFeed() in Zend_Gdata_YouTube) does NOT provide the version at all so it will never trigger the function to use 2.0 params instead of 1.0 params.</p>
+
+<p>I  changed line 259 in Zend_Gdata_YouTube from:</p>
+
+<pre class="highlight"><code>
+$uri = $location-&gt;getQueryUrl();
+</code></pre>
+
+<p>to:</p>
+
+<pre class="highlight"><code>
+$uri = $location-&gt;getQueryUrl($this-&gt;getMajorProtocolVersion());
+</code></pre>
+
+<p>to make it work for now but changing the library myself isnt a very wise thing to do. I suggest this will be taken care of quickly since the 2.0 version seems useless for Zend Framework right now. If I am wrong about the usage of this please document this (better).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-24T04:42:14.000+0000</p> 
+        <div class="body">
+            <p>Confirmed.  Unit test:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Gdata/YouTubeOnlineTest.php
+===================================================================
+--- tests/Zend/Gdata/YouTubeOnlineTest.php      (revision 24628)
++++ tests/Zend/Gdata/YouTubeOnlineTest.php      (working copy)
+@@ -263,6 +263,23 @@
+             }
+         }
+     }
++    /**
++     * @group ZF-9479
++     */
++    public function testPerformV2Query()
++    {
++        $this-&gt;gdata-&gt;setMajorProtocolVersion(2);
++        $query = $this-&gt;gdata-&gt;newVideoQuery();
++        $query-&gt;videoQuery = 'zend framework';
++        $query-&gt;startIndex = 0;
++        $query-&gt;maxResults = 10;
++        $query-&gt;orderBy = 'viewCount';
++        $query-&gt;safeSearch = 'strict';
++        $videoFeed = $this-&gt;gdata-&gt;getVideoFeed($query);
++        $this-&gt;assertTrue(count($videoFeed-&gt;entry) &gt; 0,
++            'Could not retrieve a single entry for location search:' .
++            $query-&gt;getQueryUrl(2));
++    }
+
+     public function testPerformV2Query_Location()
+     {
+
+</code></pre>
+
+<p>When running the above example I receive a 400 status code + the following body:</p>
+
+<pre class="highlight"><code>
+GData<code>InvalidRequestUriException</code>The parameter 'vq' is not available in this version. Please use 'q' instead.</code></pre>
+
+<p>After applying the suggested fix:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Gdata/YouTube.php
+===================================================================
+--- library/Zend/Gdata/YouTube.php      (revision 24628)
++++ library/Zend/Gdata/YouTube.php      (working copy)
+@@ -256,7 +256,7 @@
+         if ($location == null) {
+             $uri = self::VIDEO_URI;
+         } else if ($location instanceof Zend_Gdata_Query) {
+-            $uri = $location-&gt;getQueryUrl();
++            $uri = $location-&gt;getQueryUrl($this-&gt;getMajorProtocolVersion());
+         } else {
+             $uri = $location;
+         }
+</code></pre>
+
+<p>The unit test passes</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-24T04:46:18.000+0000</p> 
+        <div class="body">
+            <p>Attached patch which fixes all calls to {{getQueryUrl}} from {{Zend_Gdata_YouTube}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-12T03:35:11.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (1.12.0): r24796</p>
+
+        </div>
+    </div>
+    </div>
+

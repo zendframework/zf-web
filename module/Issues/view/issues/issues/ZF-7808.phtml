@@ -1,0 +1,182 @@
+<h2>ZF-7808: Missing or incorrect aliases for columns in 'intersectionTable' and 'matchTable' when using findManyToManyRowset() method</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-09T04:38:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:52:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Webdevilopers (tridem)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have 3 models named Article, Category, ArticleCategories extending Zend_Db_Table_Abstract.
+The Article and the Category Model override the select() Method by adding a condition.
+This condition includes a column named 'deleted' in both db tables which causes the major problem.</p>
+
+<p>This is the working sql query without the conditions:
+'SELECT <code>categories</code>.<code>categories_id</code>, <code>categories</code>.<code>categories_name</code>, <code>categories</code>.<code>categories_description</code>, <code>i</code>.*, <code>m</code>.* FROM <code>categories</code>
+INNER JOIN <code>categories2articles</code> AS <code>i</code>
+INNER JOIN <code>articles</code> AS <code>m</code> ON <code>i</code>.<code>articles_id</code> = <code>m</code>.<code>articles_id</code> WHERE (<code>i</code>.<code>categories_id</code> = 1)'</p>
+
+<p>By adding the condition I get:
+'Zend_Db_Statement_Mysqli_Exception' with message 'Mysqli prepare error: Column 'deleted' in where clause is ambiguous'</p>
+
+<p>This is, of course, a normal behaviour, since both sql strings for the conditions are the same,
+nameley: 'AND deleted IS NULL'.</p>
+
+<p>Initially I try specify the columns. F.e. by adding the db table names as aliases which leads me to:</p>
+
+<p>'AND categories.deleted IS NULL' // $select-&gt;where($this-&gt;_name . '.deleted ?', new Zend_Db_Expr('IS NULL'));
+and
+'AND articles.deleted IS NULL' // $select-&gt;where($this-&gt;_name . '.deleted ?', new Zend_Db_Expr('IS NULL'));</p>
+
+<p>The problem remains since the findManyToManyRowset() method creates its own aliases 'i' for '$intersectionTable' and 'm' for '$matchTable'.</p>
+
+<p>I could hardcode these aliases in the models select() methods by:
+$select-&gt;where('m.deleted ?', new Zend_Db_Expr('IS NULL'));
+$select-&gt;where('i.deleted ?', new Zend_Db_Expr('IS NULL'));</p>
+
+<p>But this will obviously cause problems with my table abstraction sooner or later.</p>
+
+<p>Shouldn't the method simply add the correct columns to the correct aliases when calling the models table definition / override select() method?</p>
+
+&lt;?php
+$category = new Category();
+$categoriesRowset = $category-&gt;fetchAll();
+
+/**
+ * @return 'Zend_Db_Statement_Mysqli_Exception' with message 'Mysqli prepare error: Column 'deleted' in where clause is ambiguous'
+ */
+foreach ($categoriesRowset as $categoryRow) {
+    $articlesRowset = $categoryRow-&gt;findManyToManyRowset('Article',
+        'ArticleCategories',
+        null,
+        null
+    );
+}
+?&gt;
+
+&lt;?php
+class Article extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'articles';
+    protected $_primary = 'articles_id';
+    protected $_referenceMap = array(
+        'ArticleCategories' =&gt; array(
+            'columns' =&gt; 'articles_id',
+            'refTableClass' =&gt; 'ArticleCategories',
+            'refColumns' =&gt; 'categories_id'
+        )
+    );
+
+    public function select()
+    {
+        $select = parent::select();
+
+        $select
+            -&gt;where('deleted ?', new Zend_Db_Expr('IS NULL'))
+        ;
+
+        /**
+         * @return SELECT `articles`.* FROM `articles` WHERE (deleted IS NULL)
+         */
+        return $select;
+    }
+}
+?&gt;
+
+&lt;?php
+class Category extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'categories';
+    protected $_primary = 'categories_id';
+    protected $_dependentTables = array('ArticleCategories');
+
+    public function select()
+    {
+        $select = parent::select();
+
+        $select
+            -&gt;from('categories', array(
+                'categories_id', 'categories_name', 'categories_description'
+            ))
+            -&gt;where('deleted ?', new Zend_Db_Expr('IS NULL'))
+        ;
+
+        /**
+         * @return SELECT `categories`.`categories_id`, `categories`.`categories_name`, `categories`.`categories_description` FROM `categories` WHERE (deleted IS NULL)
+         */
+        return $select;
+    }
+?&gt;
+
+&lt;?php
+class ArticleCategories extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'categories2articles';
+    protected $_primary = array('articles_id', 'categories_id');
+    protected $_referenceMap = array(
+        'Article' =&gt; array(
+            'columns' =&gt; 'articles_id',
+            'refTableClass' =&gt; 'Article',
+            'refColumns' =&gt; 'articles_id'
+        ),
+        'Category' =&gt; array(
+            'columns' =&gt; 'categories_id',
+            'refTableClass' =&gt; 'Category',
+            'refColumns' =&gt; 'categories_id'
+        )
+    );
+?&gt;
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:52:44.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

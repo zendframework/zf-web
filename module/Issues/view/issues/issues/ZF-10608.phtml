@@ -1,0 +1,171 @@
+<h2>ZF-10608: Label decorators do not allow modification of the wrapping tag.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-10-28T08:40:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-27T11:34:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Anthony W. (fumanchu182)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7182">ZF-7182</a></li>
+            <li><a href="/issues/browse/ZF-9953">ZF-9953</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When working with the Label decorator in a decorator stack you are not allowed to modify a wapper tag that is specified, for example if you use:</p>
+
+<pre class="highlight"><code>
+    public $basicElementDecorators = array(
+        'ViewHelper',
+        'Errors',
+        array('HtmlTag', array('tag'=&gt;'div', 'class'=&gt;'form_element_wrapper')),
+        array('Label', array('tag'=&gt;'div', 'class'=&gt;'applytowrapper')),
+        array(array('wrapper'=&gt;'HtmlTag'), array('tag'=&gt;'div', 'class'=&gt;'form_element_container'))
+    );
+</code></pre>
+
+<p>This does not move the attribute to the wrapper instead it generates:</p>
+
+<pre class="highlight"><code>
+</code></pre><div class="form_element_container"><code>
+    </code><div><code>
+        Date of Birth
+    </code></div><code>
+</code></div><code>
+</code>
+
+<p>I noticed that there is no configurable way to modify the attributes of the wrapping tag of the Label decorator due to the way it calls the render(); function of the wrapping tag:</p>
+
+<pre class="highlight"><code>
+        if (null !== $tag) {
+            require_once 'Zend/Form/Decorator/HtmlTag.php';
+            $decorator = new Zend_Form_Decorator_HtmlTag();
+            $decorator-&gt;setOptions(array('tag' =&gt; $tag,
+                                         'id'  =&gt; $this-&gt;getElement()-&gt;getName() . '-label'));
+
+            $label = $decorator-&gt;render($label);
+        }
+</code></pre>
+
+<p>My proposal is to allow a special key in the options array of the Label decorator called 'tag_options'.  If this key is found it is merged with the above segment but also removed from the label tag's options array as we do not want to render attributes in the tag that are invalid.  Patch:</p>
+
+<pre class="highlight"><code>
+--- Label.php   2010-10-28 11:09:22.677596859 -0400
++++ MyLabel.php 2010-10-28 11:09:18.333231838 -0400
+@@ -300,7 +300,12 @@ class Zend_Form_Decorator_Label extends 
+         $id        = $this-&gt;getId();
+         $class     = $this-&gt;getClass();
+         $options   = $this-&gt;getOptions();
++        $tag_options = null;
+ 
++        if(isset($options['tag_options'])) {
++                $tag_options = $options['tag_options'];
++                unset($options['tag_options']);
++        }
+ 
+         if (empty($label) &amp;&amp; empty($tag)) {
+             return $content;
+@@ -314,10 +319,15 @@ class Zend_Form_Decorator_Label extends 
+         }
+ 
+         if (null !== $tag) {
++            if($tag_options === null) {
++                $tag_options = array('tag' =&gt; $tag,'id'  =&gt; $this-&gt;getElement()-&gt;getName() . '-label');
++            } else {
++                $tag_options = array_merge(array('tag'=&gt; $tag, 'id' =&gt; $this-&gt;getElement()-&gt;getName() . '-label'), $tag_options);
++            }
++
+             require_once 'Zend/Form/Decorator/HtmlTag.php';
+             $decorator = new Zend_Form_Decorator_HtmlTag();
+-            $decorator-&gt;setOptions(array('tag' =&gt; $tag,
+-                                         'id'  =&gt; $this-&gt;getElement()-&gt;getName() . '-label'));
++            $decorator-&gt;setOptions($tag_options);
+ 
+             $label = $decorator-&gt;render($label);
+         }
+</code></pre>
+
+<p>I think this is an important improvement over the existing way on how it renders the wrapping tag.  Extending the Label decorator class may also be a viable means of doing this but overwriting render() to provide functionality from the beginning did not seem intuitive to me.  Therefore if I know specify:</p>
+
+<pre class="highlight"><code>
+    public $basicElementDecorators = array(
+        'ViewHelper',
+        'Errors',
+        array('HtmlTag', array('tag'=&gt;'div', 'class'=&gt;'form_element_wrapper')),
+        array('Label', array('tag'=&gt;'div', 'tag_options'=&gt;array('class'=&gt;'applytowrapper'))),
+        array(array('wrapper'=&gt;'HtmlTag'), array('tag'=&gt;'div', 'class'=&gt;'form_element_container'))
+    );
+</code></pre>
+
+<p>This generates:</p>
+
+<pre class="highlight"><code>
+</code></pre><div class="applytowrapper"><code>
+    Date of Birth
+</code></div><code>
+</code>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-28T08:58:39.000+0000</p> 
+        <div class="body">
+            <p>May I offer an alternate solution? Create an alternate, custom decorator for labels, and use that. The more options we provide, the harder it is to understand precedence and specificity.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Anthony W. (fumanchu182) on 2010-10-28T09:54:53.000+0000</p> 
+        <div class="body">
+            <p>For a default decorator that ships with ZF, not allowing the ability to apply attributes to a wrapping tag element makes that element useless.  Especially if you are trying to change the look and feel of a form through CSS.  If I cannot specify the id of the class then I have to select it via a parent or child DOM element which may not always be available.  Since it is the default decorator that ships with the library this is a 100% improvement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-04-26T12:31:49.000+0000</p> 
+        <div class="body">
+            <p>There is already a solution: <a href="http://framework.zend.com/apidoc/core/db_Form_Decorator_Label.html#%5CZend_Form_Decorator_Label::setTagClass%28%29">{{Zend_Form_Decorator_Label::setTagClass()}}</a></p>
+
+<p>You can find an example here: <a href="http://www.zfforum.de/faq-howto/7813-zend_form-setzen-einer-klasse-fuer-das-umschliessende-html-element-eines-labels-1-11-4-a.html">zfforum.de</a> (in German)</p>
+
+        </div>
+    </div>
+    </div>
+

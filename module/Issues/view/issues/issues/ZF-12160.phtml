@@ -1,0 +1,217 @@
+<h2>ZF-12160: Zend_Validate_EmailAddress Deep MX Checking Logic Flaw</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-04-18T13:17:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-04-18T13:35:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Edward &quot;Sonny&quot; Savage (sonnysavage)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+            <li>emailaddresses</li>
+            <li>validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Validate_EmailAddress::_isReserved fails on MX IP addresses that are public. Some are because of public IPs in the $_invalidIp array, and some are because there's something wrong with the logic.</p>
+
+<p>These two domains return false negatives:
+ - <a href="http://dnsquery.org/dnsquery/harn.ufl.edu/MX">http://dnsquery.org/dnsquery/harn.ufl.edu/MX</a>
+ - <a href="http://dnsquery.org/dnsquery/martinhealth.org/MX">http://dnsquery.org/dnsquery/martinhealth.org/MX</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Edward &quot;Sonny&quot; Savage (sonnysavage) on 2012-04-18T13:33:16.000+0000</p> 
+        <div class="body">
+            <p>My next comment will be a patch, using my solution. I decided that the simplest (clearest?) way to compare IP addresses was to convert them to their decimal integer equivalents, and I restructured the reserved IP array to accommodate that.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Edward &quot;Sonny&quot; Savage (sonnysavage) on 2012-04-18T13:35:39.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+Index: EmailAddress.php
+===================================================================
+--- EmailAddress.php    (revision 1376)
++++ EmailAddress.php    (working copy)
+@@ -63,27 +63,27 @@
+     );
+ 
+     /**
+-     * @see <a href="http://en.wikipedia.org/wiki/IPv4">http://en.wikipedia.org/wiki/IPv4</a>
+-     * @var array
++     * @see <a href="http://en.wikipedia.org/wiki/Reserved_IP_addresses#Reserved_IPv4_addresses">http://en.wikipedia.org/wiki/…</a>
++     * @var array [first octet] =&gt; [[CIDR] =&gt; [[range start], [range end]]]
+      */
+-    protected $_invalidIp = array(
+-        '0'   =&gt; '0.0.0.0/8',
+-        '10'  =&gt; '10.0.0.0/8',
+-        '127' =&gt; '127.0.0.0/8',
+-        '128' =&gt; '128.0.0.0/16',
+-        '169' =&gt; '169.254.0.0/16',
+-        '172' =&gt; '172.16.0.0/12',
+-        '191' =&gt; '191.255.0.0/16',
++    protected $_reservedIps = array(
++        '0' =&gt; array('0.0.0.0/8' =&gt; array('0.0.0.0', '0.255.255.255',),),
++        '10' =&gt; array('10.0.0.0/8' =&gt; array('10.0.0.0', '10.255.255.255',),),
++        '127' =&gt; array('127.0.0.0/8' =&gt; array('127.0.0.0', '127.255.255.255',),),
++        '169' =&gt; array('169.254.0.0/16' =&gt; array('169.254.0.0', '169.254.255.255',),),
++        '172' =&gt; array('172.16.0.0/12' =&gt; array('172.16.0.0', '172.31.255.255',),),
+         '192' =&gt; array(
+-            '192.0.0.0/24',
+-            '192.0.2.0/24',
+-            '192.88.99.0/24',
+-            '192.168.0.0/16'
++            '192.0.2.0/24' =&gt; array('192.0.2.0', '192.0.2.255',),
++            '192.88.99.0/24' =&gt; array('192.88.99.0', '192.88.99.255',),
++            '192.168.0.0/16' =&gt; array('192.168.0.0', '192.168.255.255',),
+         ),
+-        '198' =&gt; '198.18.0.0/15',
+-        '223' =&gt; '223.255.255.0/24',
+-        '224' =&gt; '224.0.0.0/4',
+-        '240' =&gt; '240.0.0.0/4'
++        '198' =&gt; array(
++            '198.18.0.0/15' =&gt; array('198.18.0.0', '198.19.255.255',),
++            '198.51.100.0/24' =&gt; array('198.51.100.0', '198.51.100.255',),
++        ),
++        '203' =&gt; array('203.0.113.0/24' =&gt; array('203.0.113.0', '203.0.113.255',),),
++        '224' =&gt; array('224.0.0.0/4' =&gt; array('224.0.0.0', '239.255.255.255',),),
++        '240' =&gt; array('240.0.0.0/4' =&gt; array('240.0.0.0', '255.255.255.255',),),
+     );
+ 
+     /**
+@@ -337,64 +337,52 @@
+      * @param string $host
+      * @return boolean
+      */
+-    private function _isReserved($host){
++    private function _isReserved($host)
++    {
+         if (!preg_match('/^([0-9]{1,3}\.){3}[0-9]{1,3}$/', $host)) {
+             $host = gethostbyname($host);
+         }
+ 
+-        $octet = explode('.',$host);
+-        if ((int)$octet[0] &gt;= 224) {
++        $octets = explode('.', $host);
++        if (224 &lt;= (int) $octets[0]) {
++            // IP Addresses beginning with 224 or greater are all reserved, short-circuit range checks
+             return true;
+-        } else if (array_key_exists($octet[0], $this-&gt;_invalidIp)) {
+-            foreach ((array)$this-&gt;_invalidIp[$octet[0]] as $subnetData) {
+-                // we skip the first loop as we already know that octet matches
+-                for ($i = 1; $i &lt; 4; $i++) {
+-                    if (strpos($subnetData, $octet[$i]) !== $i * 4) {
+-                        break;
+-                    }
+-                }
++        } elseif (array_key_exists($octets[0], $this-&gt;_reservedIps)) {
++            // for integer comparisons
++            $intIp = $this-&gt;_ipToInt($host);
+ 
+-                $host       = explode("/", $subnetData);
+-                $binaryHost = "";
+-                $tmp        = explode(".", $host[0]);
+-                for ($i = 0; $i &lt; 4 ; $i++) {
+-                    $binaryHost .= str_pad(decbin($tmp[$i]), 8, "0", STR_PAD_LEFT);
+-                }
+-
+-                $segmentData = array(
+-                    'network'   =&gt; (int)$this-&gt;_toIp(str_pad(substr($binaryHost, 0, $host[1]), 32, 0)),
+-                    'broadcast' =&gt; (int)$this-&gt;_toIp(str_pad(substr($binaryHost, 0, $host[1]), 32, 1))
+-                );
+-
+-                for ($j = $i; $j &lt; 4; $j++) {
+-                    if ((int)$octet[$j] &lt; $segmentData['network'][$j] ||
+-                        (int)$octet[$j] &gt; $segmentData['broadcast'][$j]) {
+-                        return false;
++            // loop over reserved IP addresses
++            foreach ($this-&gt;_reservedIps as $ranges) {
++                foreach ($ranges as $range) {
++                    if (($this-&gt;_ipToInt($range[0]) &lt;= $intIp)
++                            &amp;&amp; ($this-&gt;_ipToInt($range[1]) &gt;= $intIp)) {
++                        // the IP address falls in a reserved range
++                        return true;
+                     }
+                 }
+             }
+ 
+-            return true;
++            // the IP address did not fall in a reserved range
++            return false;
+         } else {
+             return false;
+         }
+     }
+ 
+     /**
+-     * Converts a binary string to an IP address
++     * Convert a dot-decimal IP address to it's decimal integer equivalent
+      *
+-     * @param string $binary
+-     * @return mixed
++     * @param string $ip
++     * @return integer
+      */
+-    private function _toIp($binary)
++    private function _ipToInt($ip)
+     {
+-        $ip  = array();
+-        $tmp = explode(".", chunk_split($binary, 8, "."));
+-        for ($i = 0; $i &lt; 4 ; $i++) {
+-            $ip[$i] = bindec($tmp[$i]);
++        $octets = explode('.', $ip);
++        foreach ($octets as $key =&gt; $octet) {
++            $octets[$key] = str_pad(decbin($octet), 8, '0', STR_PAD_LEFT);
+         }
+-
+-        return $ip;
++        $bin = implode('', $octets);
++        return bindec($bin);
+     }
+ 
+     /**
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

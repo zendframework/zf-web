@@ -1,0 +1,223 @@
+<h2>ZF-12411: Zend_Cache_Frontend_Page . Whitelist for Superglobals to be used when making the cacheid.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-09-08T19:52:31.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-04-05T16:07:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Frank Ruske (fruske)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+            <li>caching</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi,</p>
+
+<p>I had the following problem when working with Zend_Cache_Frontend_Page:</p>
+
+<p>We have a multilingual webseite. The user gets the webseite displayed based on a language cookie set on his client.
+For this reason we have to use the COOKIE values to generate the hash id else only one language version would be cached.</p>
+
+<p>When using the Fullpage Cache it was not enough for us to generate the Key based on the _COOKIE superglobal using this options:</p>
+
+<pre class="highlight"><code>
+frontend.options.regexps.1.make_id_with_cookie_variables = true
+frontend.options.default_options.cache_with_cookie_variables = true
+</code></pre>
+
+<p>The problem here is that there are also other COOKIES (or superglobals) which may change with every request but are totally irelevant for our full page cache.
+For example Google Analytics changes it COOKIE values every request. Thus there was 0% Cache hits.</p>
+
+<p>I have implemented a whitelist to use together with Zend_Cache_Frontend_Page.</p>
+
+<p>Find below my adjustments. Maybe you can consider using it, if not maybe anyone else will run into the same problem.</p>
+
+<p>In Zend_Cache_Frontend_Page:</p>
+
+<pre class="highlight"><code>
+    protected $_specificOptions = array(
+        'http_conditional' =&gt; false,
+        'debug_header' =&gt; false,
+        'content_type_memorization' =&gt; false,
+        'memorize_headers' =&gt; array(),
+        'default_options' =&gt; array(
+            'cache_with_get_variables' =&gt; false,
+            'cache_with_post_variables' =&gt; false,
+            'cache_with_session_variables' =&gt; false,
+            'cache_with_files_variables' =&gt; false,
+            'cache_with_cookie_variables' =&gt; false,
+            'make_id_with_get_variables' =&gt; true,
+            'make_id_with_get_whitelist' =&gt; false, //new option
+            'make_id_with_post_variables' =&gt; true,
+            'make_id_with_post_whitelist' =&gt; false, //new option
+            'make_id_with_session_variables' =&gt; true,
+            'make_id_with_session_whitelist' =&gt; false, //new option
+            'make_id_with_files_variables' =&gt; true,
+            'make_id_with_files_whitelist' =&gt; false,  //new option
+            'make_id_with_cookie_variables' =&gt; true,
+            'make_id_with_cookie_whitelist' =&gt; false, //new option
+            'cache' =&gt; true,
+            'specific_lifetime' =&gt; false,
+            'tags' =&gt; array(),
+            'priority' =&gt; null
+        ),
+        'regexps' =&gt; array()
+    );
+</code></pre>
+
+<p>Zend_Cache_Frontend_Page::_makePartialId() got a new parameter $whitelist</p>
+
+<pre class="highlight"><code>
+    /**
+     * Make a partial id depending on options
+     *
+     * @param  string $arrayName Superglobal array name
+     * @param  bool   $bool1     If true, cache is still on even if there are some variables in the superglobal array
+     * @param  bool   $bool2     If true, we have to use the content of the superglobal array to make a partial id
+     * @param  mixed  $whitelist  If an array with more then one index then only use the defined indexes to create cache
+     * @return string|false Partial id (string) or false if the cache should have not to be used
+     */
+    protected function _makePartialId($arrayName, $bool1, $bool2, $whitelist = false)
+    {
+        switch ($arrayName) {
+            case 'Get':
+                $var = $_GET;
+                break;
+            case 'Post':
+                $var = $_POST;
+                break;
+            case 'Session':
+                if (isset($_SESSION)) {
+                    $var = $_SESSION;
+                } else {
+                    $var = null;
+                }
+                break;
+            case 'Cookie':
+                if (isset($_COOKIE)) {
+                    $var = $_COOKIE;
+                } else {
+                    $var = null;
+                }
+                break;
+            case 'Files':
+                $var = $_FILES;
+                break;
+            default:
+                return false;
+        }
+        if ($bool1) {
+            if ($bool2) {
+                // We have a whitelist so only return the defined indexes.
+                if (true === is_array($whitelist) &amp;&amp; count($whitelist) &gt; 0) {
+                    $tmpArray = array();
+
+                    foreach ($whitelist as $index) {
+                        if (true === isset($var[$index])) {
+                            $tmpArray[$index] = $var[$index];
+                        }
+                    }
+
+                    if (count($tmpArray) &gt; 0) {
+                        return serialize($tmpArray);
+                    }
+                    return '';
+                }
+
+                return serialize($var);
+            }
+            return '';
+        }
+        if (count($var) &gt; 0) {
+            return false;
+        }
+        return '';
+    }
+</code></pre>
+
+<p>Zend_Cache_Frontend_Page::_makeId() calls self::_makePartialId() and thus has to be adjusted too</p>
+
+<pre class="highlight"><code>
+    protected function _makeId()
+    {
+        $tmp = $_SERVER['REQUEST_URI'];
+
+        $array = explode('?', $tmp, 2);
+        $tmp = $array[0];
+        foreach (array('Get', 'Post', 'Session', 'Files', 'Cookie') as $arrayName) {
+
+            $tmp2 = $this-&gt;_makePartialId(
+                        $arrayName,
+                        $this-&gt;_activeOptions['cache_with_' . strtolower($arrayName) . '_variables'],
+                        $this-&gt;_activeOptions['make_id_with_' . strtolower($arrayName) . '_variables'],
+                        $this-&gt;_activeOptions['make_id_with_' . strtolower($arrayName) . '_whitelist']
+                    );
+
+            if ($tmp2===false) {
+                return false;
+            }
+
+            $tmp = $tmp . $tmp2;
+        }
+
+        return md5($tmp);
+    }
+</code></pre>
+
+<p>Now you can easly define which GET, POST, COOKIE,SERVER or FILES indexes should be used to generate the Cache id.</p>
+
+<pre class="highlight"><code>
+   frontend.options.regexps.1.make_id_with_cookie_variables = true
+    frontend.options.default_options.cache_with_cookie_variables = true
+    frontend.options.regexps.1.make_id_with_cookie_whitelist[] = "languageCookie"
+    frontend.options.regexps.1.make_id_with_cookie_whitelist[] = "usernameCookie"
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2013-04-05T16:07:19.000+0000</p> 
+        <div class="body">
+            <p>This issue has been closed on Jira and moved to GitHub for issue tracking.  To continue following the resolution of this issues, please visit: <a href="https://github.com/zendframework/zf1/issues/14">https://github.com/zendframework/zf1/issues/14</a></p>
+
+        </div>
+    </div>
+    </div>
+

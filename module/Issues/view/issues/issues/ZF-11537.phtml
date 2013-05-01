@@ -1,0 +1,110 @@
+<h2>ZF-11537: MSSQL PDO: Schema name is optional but primary key detection fails quietly on non-dbo tables using sp_pkeys</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-07T13:45:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-13T08:49:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Matt Carter (matt_1)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Environment: Zend_Db_Adapter_Pdo_Mssql connecting to Microsoft SQL Server 2008</p>
+
+<p>To reproduce:</p>
+
+<p>Create a table in a schema other than dbo, e.g. a schema called "audit", table called e.g. "EventHistory".
+Invoke Zend_Db_Adapter_Pdo_Mssql::describeTable('EventHistory', null);</p>
+
+<p>Look at the PRIMARY field of the primary key column, which will be false. This is because sp_pkeys with a null argument for @table_owner (schema name) works for tables in the 'dbo' schema, but returns 0 primary keys for tables in non-dbo schemas.</p>
+
+<p>Use case:</p>
+
+<p>My application uses $db-&gt;listTables() to get a list of all tables, then uses Zend_Db_Table instances created from this list to operate on each table. A few tables in my database are in schemas other than 'dbo', e.g. schemas 'audit' and 'cache'.</p>
+
+<p>listTables() lists these tables, but as it doesn't include the schema name I cannot pass this to the Zend_Db_Table constructor. (Schema name is marked optional everywhere including on describeTable() so there should be no problem - unless the same table name appears twice.)</p>
+
+<p>Functions acting on tables not in the dbo schema that rely on the primary key, will fail with the message "A table must have a primary key, but none was found."</p>
+
+<p>As a workaround I am extending listTables() to qualify tables in non-dbo schemas with the schema name as follows:</p>
+
+<pre><code>/**
+ * Returns a list of the tables in the database.
+ * Overrides the Zend implementation to add schema prefix for tables not in the dbo schema.
+ * @return array
+ */
+public function listTables()
+{
+    // Shipped impl: $sql = "SELECT name FROM sysobjects WHERE type = 'U' ORDER BY name";
+    // New impl:
+    $sql = "SELECT case when s.name is null or s.name = 'dbo' then o.name else s.name+'.'+o.name end as name"
+    ." from sysobjects o left join sys.schemas s on o.[uid] = s.[schema_id]"
+    ." where o.type = 'U' order by name";
+    return $this-&gt;fetchCol($sql);
+}
+</code></pre>
+
+<p>I can then pass the schema name if present on to Zend_Db_Table, avoiding this issue.</p>
+
+<p>I could also hack Zend_Db_Adapter_Pdo_Mssql to query for the schema name if schema name is null before calling sp_pkeys so that the sp_pkeys call returns correct results. That is probably a better solution (one that doesn't change the contract of listTables()). I don't want to change Zend classes so I am reporting this bug and using the former workaround for now.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-07-12T19:13:27.000+0000</p> 
+        <div class="body">
+            <p>I would recommend using the sqlsrv adapter instead of pdo_mssql; the latter is very much out-dated at this time.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matt Carter (matt_1) on 2011-07-13T08:49:42.000+0000</p> 
+        <div class="body">
+            <p>sqlsrv doesn't support connecting to SQL Server from Linux, it is only an option for those running PHP on Windows.</p>
+
+<p>My ZF-based software system runs on Linux and it connects to heterogenous databases within the organisation (PostgreSQL, MSSQL, MySQL and Sybase).</p>
+
+<p>If I provide a patch or snippet will that help?</p>
+
+        </div>
+    </div>
+    </div>
+

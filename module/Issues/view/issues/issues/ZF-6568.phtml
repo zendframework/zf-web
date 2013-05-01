@@ -1,0 +1,163 @@
+<h2>ZF-6568: Defer initialization methods in module bootstrap until routeShutdown</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-07T05:22:57.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-08T04:02:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Mon Zafra (monzee)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>At the moment, all module bootstrap methods are executed in every request. This makes it impossible to define behavior that are specific to a module. For example, I have two modules and I want to have different layouts for each. If I define _initLayout() in the two module bootstraps which pulls the layout MVC instance and sets the layout path and template, one of them will be overridden by the other, or both of them overridden by the application bootstrap itself.</p>
+
+<p>There should be a way to specify module bootstrap methods that will be invoked only if the current request maps to that specific module. A possible way to do this is to register a controller plugin in the Modules resource plugin which pulls the active module from the request object and calls a bootstrap() analog that calls all module bootstrap methods that are named in a certain way:</p>
+
+<pre class="highlight"><code>
+    class Foo_Bootstrap extends Zend_Application_Module_Bootstrap
+    {
+        protected function _initRoutes() { /* this is always called */ }
+        protected function _setupLayout() { /* this is only called if the request maps to the foo module */ }
+        public function setup() { /* this should be defined in the parent class; it calls all _setup* methods */ }
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+    class Module_Setup_Plugin extends Zend_Controller_Plugin_Abstract
+    {
+        public function __construct(array $executedBootstraps)
+        {
+            $this-&gt;_bootstraps = $executedBootstraps;
+        }
+
+        public function routeShutdown($request)
+        {
+            $module = $request-&gt;getModuleName();
+            $bootstrap = $this-&gt;_bootstraps[$module];
+            $bootstrap-&gt;setup();
+        }
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+    // Zend/Application/Resource/Modules.php
+    ...
+    public function init()
+    {
+        ...
+        $plugin = new Module_Setup_Plugin($this-&gt;_bootstraps);
+        $this-&gt;getBootstrap()-&gt;getResource('frontcontroller')-&gt;registerPlugin($plugin);
+        return $this-&gt;_bootstraps;
+    }
+    ...
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-07T06:02:49.000+0000</p> 
+        <div class="body">
+            <p>The point of module bootstrapping is to provide the ability to bootstrap features that should be available on every request. Such actions include setting up module-specific autoloading (e.g., so that module-specific models may be resolved for use in sitewide layout), setting up plugin paths (e.g., so that module-specific view helpers and action helpers will be present), and providing common plugins.</p>
+
+<p>This latter directly addresses some of your concerns. If you have bootstrapping actions that you only need to load if the request maps to your module, you should be moving this logic to a routeShutdown() or dispatchLoopStartup() plugin <em>that your module bootstrap registers</em>.</p>
+
+<p>As an example, your bootstrap could do the following:</p>
+
+<pre class="highlight"><code>
+class Foo_Bootstrap extends Zend_Application_Module_Bootstrap
+{
+    protected function _initPlugins()
+    {
+        $bootstrap = $this-&gt;getApplication();
+        if ($bootstrap instanceof Zend_Application) {
+            $bootstrap = $this;
+        }
+        $bootstrap-&gt;bootstrap('FrontController');
+        $front = $bootstrap-&gt;getResource('FrontController');
+
+        $plugin = new Foo_Plugin_Layout();
+        $plugin-&gt;setBootstrap($this);
+        $front-&gt;registerPlugin($plugin);
+    }
+}
+</code></pre>
+
+<p>Foo_Plugin_Layout would then have a routeShutdown() or dispatchLoopStartup() method that checks to see if the current module is selected, and if so, does some initialization:</p>
+
+<pre class="highlight"><code>
+class Foo_Plugin_Layout extends Zend_Controller_Plugin_Abstract
+{
+    public function routeShutdown(Zend_Controller_Request_Abstract $request)
+    {
+        if ('foo' != $request-&gt;getModuleName()) {
+            return;
+        }
+
+        // do some work...
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-07T06:05:14.000+0000</p> 
+        <div class="body">
+            <p>Moving module bootstrapping until after routing directly contradicts one of the purposes of module bootstraps: the ability to affect the application lifecycle, <em>including</em> routing. If initialization needs to be deferred until after routing, the module bootstrap should register plugins for doing so.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mon Zafra (monzee) on 2009-05-07T19:25:21.000+0000</p> 
+        <div class="body">
+            <p>To be clear, I wasn't requesting that all bootstrap methods be deferred until routeShutdown. I was requesting that we have, in addition to _init* methods, another set of methods that will be invoked later by a controller plugin.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-08T04:02:50.000+0000</p> 
+        <div class="body">
+            <p>You can write any methods you want in a resource plugin, and invoke them selectively from your controller plugins. While I can see your need, it conflicts with the design. Bootstrapping is for initialization that needs to occur on every request; plugins are the appropriate place to put initialization that may be conditional based on the request environment.</p>
+
+        </div>
+    </div>
+    </div>
+

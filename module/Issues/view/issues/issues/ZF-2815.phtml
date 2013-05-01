@@ -1,0 +1,161 @@
+<h2>ZF-2815: Add table name into Zend_Db_Table::find() and Zend_Db_Table_Row::_getWhereQuery()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-06T16:10:29.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Max Gordon (mgordon)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I would like to see that the Zend_Db_Table::find() and Zend_Db_Table_Row::_getWhereQuery() functions have the table name added by default in the where-query. This would allow seemless joins where the table primary keys happen to be the same (like <code>id</code>) without any errors. Personally I'm using this function in my home-made ORM which actually works really nice without changing that much...</p>
+
+<p>I've right now subclassed the functions but I don't see any good reason why not add  {quote}$this-&gt;_db-&gt;quoteTableAs($this-&gt;_name) . "." {quote} by default. The functions look like following:</p>
+
+<pre class="highlight"><code>
+    public function find()
+    {
+        $args = func_get_args();
+        $keyNames = array_values((array) $this-&gt;_primary);
+
+        if (count($args) &lt; count($keyNames)) {
+            require_once 'Zend/Db/Table/Exception.php';
+            throw new Zend_Db_Table_Exception("Too few columns for the primary key");
+        }
+
+        if (count($args) &gt; count($keyNames)) {
+            require_once 'Zend/Db/Table/Exception.php';
+            throw new Zend_Db_Table_Exception("Too many columns for the primary key");
+        }
+
+        $whereList = array();
+        $numberTerms = 0;
+        
+        foreach ($args as $keyPosition =&gt; $keyValues) {
+            // Coerce the values to an array.
+            // Don't simply typecast to array, because the values
+            // might be Zend_Db_Expr objects.
+            if (!is_array($keyValues)) {
+                $keyValues = array($keyValues);
+            }
+            if ($numberTerms == 0) {
+                $numberTerms = count($keyValues);
+            } else if (count($keyValues) != $numberTerms) {
+                require_once 'Zend/Db/Table/Exception.php';
+                throw new Zend_Db_Table_Exception("Missing value(s) for the primary key");
+            }
+
+            for ($i = 0; $i &lt; count($keyValues); ++$i) {
+                if (!is_array($whereList[$i])){
+                    $whereList[$i] = array();
+                }
+                $whereList[$i][$keyPosition] = $keyValues[$i];
+            }
+        }
+
+        $whereClause = null;
+        if (count($whereList)) {
+            $whereOrTerms = array();
+            foreach ($whereList as $keyValueSets) {
+                $whereAndTerms = array();
+                foreach ($keyValueSets as $keyPosition =&gt; $keyValue) {
+                    $type = $this-&gt;_metadata[$keyNames[$keyPosition]]['DATA_TYPE'];
+                    $whereAndTerms[] = $this-&gt;_db-&gt;quoteInto(
+                        $this-&gt;_db-&gt;quoteTableAs($this-&gt;_name) . "." . $this-&gt;_db-&gt;quoteIdentifier($keyNames[$keyPosition], true) . ' = ?',
+                        $keyValue, $type);
+                }
+                $whereOrTerms[] = '(' . implode(' AND ', $whereAndTerms) . ')';
+            }
+            $whereClause = '(' . implode(' OR ', $whereOrTerms) . ')';
+        }
+
+        return $this-&gt;fetchAll($whereClause);
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+    protected function _getWhereQuery($useDirty = true)
+    {
+        $where = array();
+        $db = $this-&gt;_getTable()-&gt;getAdapter();
+        $primaryKey = $this-&gt;_getPrimaryKey($useDirty);
+        $info = $this-&gt;_getTable()-&gt;info();
+        $metadata = $info[Zend_Db_Table_Abstract::METADATA];
+
+        // retrieve recently updated row using primary keys
+        $where = array();
+        foreach ($primaryKey as $columnName =&gt; $value) {
+            $column = $db-&gt;quoteIdentifier($columnName, true);
+            $type = $metadata[$columnName]['DATA_TYPE'];
+            $where[] = $db-&gt;quoteIdentifier($info[Zend_Db_Table_Abstract::NAME]) . "." . $db-&gt;quoteInto("$column = ?", $value, $type);
+        }
+
+        return $where;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:52.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-06-19T00:22:41.000+0000</p> 
+        <div class="body">
+            <p>Resolved in trunk r9725</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:34.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

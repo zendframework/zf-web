@@ -1,0 +1,158 @@
+<h2>ZF-6088: Mixing 'find' and 'addDocument' with empty fields results in wrong indexes</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-03-22T08:01:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-23T12:20:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.6 (24/Nov/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Roland Tapken (roland)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you mix "find" and "addDocument" (e.g. if you want to update an existing document), and some of the documents are filled with empty strings, this may result in a wrong index. Here is an example:</p>
+
+<pre class="literal">
+// Start over with a fresh index
+passthru("rm -rf test.index");
+$index = Zend_Search_Lucene::create("text.index");
+
+// The list if entries we want to index
+$entries = array(
+  'asdf',
+  'abc',
+  'def',
+  'ghj',
+  'klm',
+  'nop',
+  'qrs',
+  'uvw',
+  'abc',
+  '', // If this field is not empty, everything is fine!
+  'hij',
+);
+
+foreach ($entries AS $key =&gt; $entry) {
+  // Find and delete existing documents
+  if ($old = $index-&gt;find("pk:$key")){
+    // Note that this code is never reached in this example
+    $index-&gt;delete($old-&gt;id);
+  }
+
+  // Add new document
+  $doc = new Zend_Search_Lucene_Document();
+  $doc-&gt;addField(Zend_Search_Lucene_Field::UnIndexed("pk", $pk));
+  $doc-&gt;addField(Zend_Search_Lucene_Field::Text("contents", $entry));
+  $index-&gt;addDocument($doc);
+}
+
+foreach ($index-&gt;find("asdf") AS $r) {
+  echo "{$r-&gt;contents} ($r-&gt;score}\n";
+}
+
+// Expected result: asdf (1)
+// Actual result: ghj (1)
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Roland Tapken (roland) on 2009-03-22T08:22:43.000+0000</p> 
+        <div class="body">
+            <p>This seems to have nothing to do with empty values. I'm having this problem on real-life-data even if I'm filtering empty fields. The only thing that seems to help is to set the following parameters:</p>
+
+<pre class="literal">
+      $index-&gt;setMaxBufferedDocs(PHP_INT_MAX);
+      $index-&gt;setMaxMergeDocs(1);
+      $index-&gt;setMergeFactor(100);
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roland Tapken (roland) on 2009-03-22T08:26:16.000+0000</p> 
+        <div class="body">
+            <p>Sorry, even that doesn't solved the problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roland Tapken (roland) on 2009-03-22T08:36:22.000+0000</p> 
+        <div class="body">
+            <p>I found out that this problem does occur if an field is empty or totally omitted. The only solutions seems to be to add dummy data if an field is empty:</p>
+
+<pre class="literal">
+    // Remove an existing entry
+    if ($index-&gt;find('pk:'.$this-&gt;id))
+    {
+      $index-&gt;delete($hit-&gt;id);
+    }
+
+    $doc = new Zend_Search_Lucene_Document();
+    $doc-&gt;addField(Zend_Search_Lucene_Field::UnIndexed('pk', $this-&gt;id));
+    $fields = array('first_name', 'last_name', 'company', 'address', 'city');
+    foreach ($fields AS $field)
+    {
+      if ("" != ($value = trim($this-&gt;$field)))
+      {
+        $doc-&gt;addField(Zend_Search_Lucene_Field::UnStored($field, $value, sfConfig::get('sf_charset')));
+      }else {
+        // Field is empty, add dummy data
+        $doc-&gt;addField(Zend_Search_Lucene_Field::UnStored($field, "null", sfConfig::get('sf_charset')));
+      }
+    }
+
+    $index-&gt;addDocument($doc);
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2009-11-23T12:20:16.000+0000</p> 
+        <div class="body">
+            <p>Fixed.</p>
+
+<p>Thenks for really helpful issue description!</p>
+
+        </div>
+    </div>
+    </div>
+

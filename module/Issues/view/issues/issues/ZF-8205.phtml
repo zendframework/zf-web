@@ -1,0 +1,265 @@
+<h2>ZF-8205: Zend_Loader_Autoloader_Resource Namespace Separator</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-02T08:24:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-08T08:25:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Keith Pope (mute)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9016">ZF-9016</a></li>
+            <li><a href="/issues/browse/ZF-7907">ZF-7907</a></li>
+            <li><a href="/issues/browse/ZF-9604">ZF-9604</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12848/Resource.diff">Resource.diff</a></li>
+            <li><a href="/issues/secure/attachment/12846/ResourceTest.diff">ResourceTest.diff</a></li>
+            <li><a href="/issues/secure/attachment/12847/ZendLoaderAutoloaderResourceNamespaceModelTest.php">ZendLoaderAutoloaderResourceNamespaceModelTest.php</a></li>
+            <li><a href="/issues/secure/attachment/12845/ZF-8205.diff">ZF-8205.diff</a></li>
+            <li><a href="/issues/secure/attachment/12533/ZF-8205.diff">ZF-8205.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Add getter / setter for the namespace separator in the Zend_Loader_Autoloader_Resource class, this then makes it easy to switch to loading 5.3 namespaced resources.</p>
+
+<p>This would help with Doctrine 2 integration as it loads 5.3 namespaced entities.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Keith Pope (mute) on 2009-12-22T09:30:12.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I am attaching a prototype patch for this, this is only a very quick first implementation so see what you think. I may need to expand the tests etc...</p>
+
+<p>Thx</p>
+
+<p>Keith</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrea Turso (trashofmasters) on 2010-03-06T19:17:10.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I tried to roll my own patch to Zend_Loader_Autoloader_Resource when I found this report and then applied the diff to avoid reinventing the <em>proverbial wheel</em>.</p>
+
+<p>With the files successfully patched, loading namespaced classes is working as expected, although the resource loader <em><em>doesn't seem to be able to load class files</em></em></p>
+
+<p>For instance, in a module bootstrap file:</p>
+
+<pre class="highlight"><code>
+$moduleLoader = new Zend_Application_Module_Autoloader(
+    array(
+        'namespace' =&gt; 'Forum',
+        'basePath' =&gt; __DIR__,
+    )
+);
+$moduleLoader-&gt;setNamespaceSeparator('\\');
+$moduleLoader-&gt;addResourceType('entity', 'models', 'Model');
+</code></pre>
+
+<pre class="highlight"><code>
+$autoloader = $this-&gt;getInvokeArg('bootstrap')
+                   -&gt;getResource('modules')
+                   -&gt;offsetGet('forums')
+                   -&gt;getResource('Autoloader');
+
+// tries to load \Forums_Model\Post, fail!
+$autoloader-&gt;getModel('Post');
+
+// tries to load \Forums\Model\Post, which is okay, however raises the error
+// Class '\Forums\Model\Post' not found in /usr/local/lib/php/Zend/Loader/Autoloader/Resource.php
+$autoloader-&gt;getEntity('Post');
+
+</code></pre>
+
+<p>We should find a way to make the two implementation to cooperate when PHP5.3 namespaced classes are requested together with classic namespaced classes.</p>
+
+<p>When I was brainstorming for the patch a solution that popped in my mind was:</p>
+
+<pre class="highlight"><code>
+// Explicitly tells the loader to use PHP5.3 namespace
+$moduleLoader-&gt;addResourceType('resorurceName', 'resourceFolder', '\Resource');
+
+// Triggers the classic loader. Which results in a #epic fail#
+$moduleLoader-&gt;addResourceTYpe('resourceName', 'resourceFolder', 'Resource');
+</code></pre>
+
+<p>The first call will load \Forums\Resource\ when the second will load Forums_Resource_.</p>
+
+<p>The patch could do something like this:</p>
+
+<p>In {{Zend_Loader_Autoloader_Resource#addResourceType}}
+* Check if the $namespace has the heading \
+** Remove the heading \ in order return to the classic $namespace
+** Mark the $resource as <em>namespaced</em></p>
+
+<pre class="highlight"><code>
++ if ('\\' == substr($namespace, 0, 1)) {
++     $this-&gt;_namespacedResources = ...
++ }
+</code></pre>
+
+<p>In {{Zend_Loader_Autoloader_Resource#load}}
+* Before instantiating the the resource check if it's namespaced
+** Alter the $class name to reflect the Fully Qualified Name.</p>
+
+<pre class="highlight"><code>
++ if () {
++    $klass = '\\' . str_replace('_', '\\', $class);
++    $this-&gt;_resources[$class] = new $klass;
++ } else {
+     $this-&gt;_resources[$class] = new $class;
++ }
+</code></pre>
+
+<p>With this trick the autoloader will autoload the file in the classical way because the class is underscored and the namespace is only "unveiled" when instantiating the resource.
+For instance:</p>
+
+<pre class="highlight"><code>
+$resourceLoader-&gt;setNamespace('MyApp_');
+$resourceLoader-&gt;addResourceType('entities', 'folder/entities', '\Entity');
+$resourceLoader-&gt;addResourceType('models', 'folder/models', 'Model');
+
+// Will autoload MyApp/folder/entities/User.php and instantiates MyApp\Entity\User class
+$resourceLoader-&gt;getEntity('User');
+
+// Will autoload MyApp/folder/models/Post.php and instantiates MyApp_Model_Post class
+$resourceLoader-&gt;getModel('Post');
+</code></pre>
+
+<p>What do you think about it?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrea Turso (trashofmasters) on 2010-03-07T07:58:25.000+0000</p> 
+        <div class="body">
+            <p>This is a naïve implementation of my solution, it does compose the namespace in the correct class path and does tell namespaced resources apart although it cannot autoload the file and therefore instantiate the Fully Qualified Name class.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrea Turso (trashofmasters) on 2010-03-07T08:14:18.000+0000</p> 
+        <div class="body">
+            <p>I had to <em>hardcode</em> a call to {{Zend_Loader_Autoloader_Resource#autoload($class)}} to load the required file and then instantiate the FQN class.</p>
+
+<p>I attached the file Resource.diff, it contains all the changes I made to the {{Zend_Loader_Autoloader_Resource}} class, the test is in the previous {{ResourceTest.diff}} file.
+The ResourceTest has just one more test method I'm no Test-Driven so if you find this solution appropriate I suggest you to write another bunch of tests, just to be sure that the patch works with a wide range of use-cases.</p>
+
+<p>Cya</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrea Turso (trashofmasters) on 2010-03-09T11:50:38.000+0000</p> 
+        <div class="body">
+            <p>As I said in my previous comments, my patch doesn't seem to be able to autoload classes when instantiated directly, for example:</p>
+
+<pre class="highlight"><code>
+// Autoload correcly the class contained in application/modules/forums/models/Post.php
+$myPost = new \Forums\Model\Post();
+</code></pre>
+
+<p>ended in <em>Fatal Error: class \Forums\Model\Post not found ...</em> while loading it with the load($resource, $class) worked.</p>
+
+<p>I hacked the <em>Zend_Loader_Autoloader</em> and found out that applying the following patch made the Autoloader autoload my classes flawlessly.</p>
+
+<pre class="highlight"><code>
+---   library/Zend/Loader/Autoloader.php    2010-01-06 03:05:09.000000000 +0100
++++   /usr/lib/php/Zend/Loader/Autoloader.php   2010-03-09 20:35:44.000000000 +0100
+@@ -115,6 +115,10 @@
+     {
+         $self = self::getInstance();
+ 
++   if (false !== strpos($class, '\\')) {
++       $class = str_replace('\\', '_', $class);
++   }
++
+         foreach ($self-&gt;getClassAutoloaders($class) as $autoloader) {
+             if ($autoloader instanceof Zend_Loader_Autoloader_Interface) {
+                 if ($autoloader-&gt;autoload($class)) {
+
+</code></pre>
+
+<p>I wouldn't rely on my previous patch to {{Zend/Loader/Autoloader/Resource.php}} as it was just a <em>proof of concept</em> to test resource loading.</p>
+
+<p>I'd like to hear your opinions and if I'm heading the right way.</p>
+
+<p>Bye</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dmitry (dv) on 2011-01-08T08:25:16.000+0000</p> 
+        <div class="body">
+            <p>I'm pretty sure there is no need to "hack" Zend_Loader_Autoloader.</p>
+
+<p>Just use your custom autoloader. 
+Also don't forget about resource autoloader for accessing classes with "Application_Model" into directory "applicatiom/models".</p>
+
+<pre class="highlight"><code>
+class Bootstrap extends Zend_Application_Bootstrap_Bootstrap
+{
+
+    protected function _initAutoload()
+    {
+        $applicationAutoloader = new Zend_Application_Module_Autoloader(array(
+            'namespace' =&gt; 'Application_',
+            'basePath'  =&gt; dirname(__FILE__),
+        ));
+
+        $autoloader = Zend_Loader_Autoloader::getInstance();
+        $autoloader-&gt;pushAutoloader(array('Bootstrap', 'modelsAutoload'), 'Application\\Model\\');
+    }
+
+    static public function modelsAutoload($className)
+    {
+        Zend_Loader_Autoloader::autoload(str_replace('\\', '_', $className));
+    }
+
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

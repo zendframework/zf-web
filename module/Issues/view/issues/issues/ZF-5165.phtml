@@ -1,0 +1,161 @@
+<h2>ZF-5165: joinUsing() does not join from the last joined table but instead takes the table used in from()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-05T07:50:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-20T15:08:25.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Colin Guthrie (coling)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3792">ZF-3792</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>While looking in to ZF-3309, I noticed that the code does not actually work in the normal flow joining.</p>
+
+<p>Rather than working with the last joined table (as per the SQL USING() clause), it always uses the table used in the from() clause.</p>
+
+<p>This is pretty bizarre as I though the syntax was designed to work in a similar way to the USING() SQL clause... perhaps this is an invalid assumption?</p>
+
+<p>Anyway here is some example code:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+/*
+ Create the tables:
+
+echo "
+ create table foo(foo_id int(10) unsigned auto_increment primary key);
+ create table bar(bar_id int(10) unsigned auto_increment primary key, foo_id int(10) unsigned);
+ create table oink(oink_id int(10) unsigned auto_increment primary key, bar_id int(10) unsigned);
+" | mysql -u root test
+
+*/
+
+ini_set('include_path', '/path/to/ZendFramewor/library/');
+
+require_once('Zend/Loader.php');
+Zend_Loader::registerAutoload();
+
+$params = array(
+  'host' =&gt; 'localhost',
+  'username' =&gt; 'root',
+  'password' =&gt; '',
+  'dbname' =&gt; 'test',
+);
+
+$db = Zend_Db::factory('Pdo_Mysql', $params);
+
+$select =
+  $db
+  -&gt;select()
+  -&gt;from(array('a' =&gt; 'foo'), array('foo_id'))
+  -&gt;joinUsing(array('b' =&gt; 'bar'), 'foo_id', array('bar_id'))
+  -&gt;joinUsing(array('c' =&gt; 'oink'), 'bar_id', array('oink_id'));
+
+echo (string)$select;
+echo "\n";
+
+try
+{
+  $db-&gt;fetchAll($select);
+}
+catch (Exception $e)
+{
+  echo 'Exception: '.$e-&gt;getMessage()."\n";
+}
+</code></pre>
+
+<p>If you run this (and ZF-3309 is fixed - see my patch there which may fix it sufficiently) you will get the following output:</p>
+
+<pre class="literal">
+[colin@jimmy zend]$ php bug.php
+SELECT `a`.`foo_id`, `b`.`bar_id`, `c`.`oink_id` FROM `foo` AS `a`
+ INNER JOIN `bar` AS `b` ON `b`.foo_id = `a`.foo_id
+ INNER JOIN `oink` AS `c` ON `c`.bar_id = `a`.bar_id
+Exception: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'a.bar_id' in 'on clause'
+</pre>
+
+<p>Now you can see that both joins refer back to the initial table. When joining on oink, I'd have expected that it would join bar to oink, not foo to oink.</p>
+
+<p>Changing this would obviously break anything implemented with the current behaviour... The docs do not explain this (as the examples only show joining on one table) so if this is the intended behaviour I think it would be wise to put up a big warning in the documentation.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Colin Guthrie (coling) on 2008-12-05T09:12:40.000+0000</p> 
+        <div class="body">
+            <p>Actually the "fix" for this is actually very simple.</p>
+
+<p>It seems that adding an element to an array does not advance the array pointer (certianly not in my version of PHP - the hot of the press 5.2.7)</p>
+
+<p>In _joinUsing of Zend_Db_Select simply changing:</p>
+
+<pre class="highlight"><code>
+        $join  = $this-&gt;_adapter-&gt;quoteIdentifier(key($this-&gt;_parts[self::FROM]), true);
+</code></pre>
+
+<p>to</p>
+
+<pre class="highlight"><code>
+        end($this-&gt;_parts[self::FROM]);
+        $join  = $this-&gt;_adapter-&gt;quoteIdentifier(key($this-&gt;_parts[self::FROM]), true);
+</code></pre>
+
+<p>seems to address things nicely in my case.</p>
+
+<p>This does however leave the array pointer of $this-&gt;_parts[self::FROM] in a different possition and I've not looked to see if this is a problem.</p>
+
+<p>The above quoted query does however work as as indended and there is no exception thrown.</p>
+
+<p>If someone can comment on what the intended behaviour is, I can look at testing more thoroughly if appropriate.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2008-12-05T09:16:52.000+0000</p> 
+        <div class="body">
+            <p>Duplicate of ZF-3792, which I reported 2008-07-29.</p>
+
+        </div>
+    </div>
+    </div>
+

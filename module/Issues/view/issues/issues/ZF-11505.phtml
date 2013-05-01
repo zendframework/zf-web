@@ -1,0 +1,131 @@
+<h2>ZF-11505: Zend_Queue and idle connections</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-06-23T18:46:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-09-01T05:49:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Tim Rupp (caphrim007)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Justin Plock (jplock)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Queue</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have the following in a delete method for an application I have</p>
+
+<pre class="highlight"><code>
+  $queue = $config-&gt;queue-&gt;get('rebuildProxyDb');
+  $queue = new Zend_Queue('Db', $queue-&gt;toArray());
+  $message = array(
+    'status' =&gt; true
+  );
+  $message = json_encode($message);
+  $queue-&gt;send($message);
+</code></pre>
+
+<p>And I find that if I run the above in a loop, the idle connections to my database rise and rise until ultimately it starts rejecting connections due to too many being open</p>
+
+<pre class="highlight"><code>
+postgres=# SELECT count(*) as cnt, usename, current_query FROM
+pg_stat_activity GROUP BY usename,current_query ORDER BY cnt DESC;
+ cnt | usename  |current_query
+-----+----------+--------------
+  50 | myuser   | </code></pre>
+
+<p>If I remove the queue code, the idle connection problem goes away.</p>
+
+<p>Can anyone provide any insight into what would be causing this? When the method returns, I would have thought the queue variable would be cleaned up and the database connections would be all closed.</p>
+
+<p>unset'ing the $queue variable does not help the problem, and I do not see a way to get the database adapter back from the queue to call a closeConnection() on it.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Warman (warmans) on 2011-07-25T19:41:17.000+0000</p> 
+        <div class="body">
+            <p>I'm not sure if this is really a bug - it's possibly a feature. Zend_Queue (possibly the database adapter rather than Zend_Queue itself) seems to try and keep connections open to reuse them later thus reducing the overall number of connections but if you put the instantiation of a new Zend_Queue object into a loop it generates a new connection every time and doesn't close it if the Zend_Queue object is destroyed. Arguably it shouldn't do this  - it should realise it's already got a connection and use that but if you simply move the object creation out of the loop it will probably solve your issues (I had the same issue and I solved it this way).</p>
+
+<p>I had the following code in my application which would max-out my ~150 available connections in about 5 seconds if used in a loop:</p>
+
+<pre><code>protected function _getApplicationQueue($appName){
+    return new Zend_Queue('Db', $this-&gt;_getQueueConfig($appName));
+}
+</code></pre>
+
+<p>I replaced it with this:</p>
+
+<pre><code>protected function _getApplicationQueue($appName){
+    if(!isset(self::$queue[$appName]) || !self::$queue[$appName]){
+        self::$queue[$appName] = new Zend_Queue('Db', $this-&gt;_getQueueConfig($appName));
+    }
+    return self::$queue[$appName];
+}
+</code></pre>
+
+<p>and now only get as many connections as I have unique queues (7 in my case) regardless of the number of iterations the loop runs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tim Rupp (caphrim007) on 2011-07-25T20:12:06.000+0000</p> 
+        <div class="body">
+            <p>I'll give that a try, although I thought I found myself experiencing the same results.</p>
+
+<p>In any event, I would expect a call to "new Zend_Queue" to literally give me a new Zend_Queue object and not carry anything over. If I were using a particular design pattern that carried stuff over, well then ok. But assignment, to me, means "step on the old and give me the new" and it doesn't appear to be working like that.</p>
+
+<p>Maybe this is expected behavior though. I would not know.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by FoodieBytes (foodiebytes) on 2011-09-01T05:49:19.000+0000</p> 
+        <div class="body">
+            <p>I ran into similar issues where sending a message in a loop was getting into a "too many open connections" error on MySQL. Suggestion to get the queue outside the loop is a valid one but required too much refactoring at my end, so I went in a different direction - supply the static default DB adapter or the adapter you are currently using. This will force Zend_Queue to use the existing connection.</p>
+
+<p>$db = new \Zend_Queue_Adapter_Db(array('dbAdapter'=&gt;\Zend_Db_Table::getDefaultAdapter()));
+        $queue = new \Zend_Queue($db, $options);
+        $queue-&gt;createQueue($queueName);
+        return $queue;</p>
+
+<p>Seems to work fine so far.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,342 @@
+<h2>ZF-5771: Wrong pointer position after unsetting data.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-13T02:59:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-03-14T14:39:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jan Pieper (jpieper)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11749/reduced_testcase.php">reduced_testcase.php</a></li>
+            <li><a href="/issues/secure/attachment/11753/reduced_testcase2.php">reduced_testcase2.php</a></li>
+            <li><a href="/issues/secure/attachment/11754/robinsk_testcase_and_patch.tar.gz">robinsk_testcase_and_patch.tar.gz</a></li>
+            <li><a href="/issues/secure/attachment/11750/unset_during_iteration_solution_1.php">unset_during_iteration_solution_1.php</a></li>
+            <li><a href="/issues/secure/attachment/11752/unset_during_iteration_solution_2.php">unset_during_iteration_solution_2.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>require_once 'Zend/Config.php';
+$config = new Zend_Config(array(
+    'first'  =&gt; array(1),
+    'second' =&gt; array(2),
+    'third'  =&gt; array(3)
+), true);
+
+foreach ($config as $key =&gt; $value)
+{
+    echo $key . PHP_EOL;
+    if ($key == 'first') {
+        unset($config-&gt;$key); // uses magic Zend_Config::__unset() method
+    }
+}</code></pre>
+
+<pre class="highlight"><code>first
+second
+third</code></pre>
+
+<pre class="highlight"><code>first
+third</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-02-14T05:16:41.000+0000</p> 
+        <div class="body">
+            <p>This is the most simple test code I could come up with to show the problem.</p>
+
+<p>I have no idea how to fix it!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-02-14T06:39:48.000+0000</p> 
+        <div class="body">
+            <p>Corrected file that shows reduced use-case</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-02-14T06:45:03.000+0000</p> 
+        <div class="body">
+            <p>Solution to the reduced test case - no optimisation. Created with help from Freeaqingme and Jon Whitcraft on #zftalk.dev.</p>
+
+<p>Obvious optimisation is to store the deleted keys in and _deleted array to save iterating over _data.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robin Skoglund (robinsk) on 2009-02-14T09:07:02.000+0000</p> 
+        <div class="body">
+            <p>This patch solves the problem as currently described in the issue, and all Zend/Config* unit tests run fine with this patch.</p>
+
+<p>However, I still think the patch needs more testing before applying it to the trunk.</p>
+
+<pre class="highlight"><code>
+--- library/Zend/Config.php (revision 14089)
++++ library/Zend/Config.php (working copy)
+@@ -56,6 +56,13 @@
+      */
+     protected $_data;
+ 
++    /**
++     * Flag to use when unsetting during config iteration
++     *
++     * @link <a href="http://framework.zend.com/issues/browse/ZF-5771">http://framework.zend.com/issues/browse/ZF-5771</a>
++     * @var boolean
++     */
++    protected $_iterationUnsetFlag;
+ 
+     /**
+      * Contains which config file sections were loaded. This is null
+@@ -223,6 +230,7 @@
+         if ($this-&gt;_allowModifications) {
+             unset($this-&gt;_data[$name]);
+             $this-&gt;_count = count($this-&gt;_data);
++            $this-&gt;_iterationUnsetFlag = true;
+         } else {
+             /** @see Zend_Config_Exception */
+             require_once 'Zend/Config/Exception.php';
+@@ -267,6 +275,10 @@
+      */
+     public function next()
+     {
++        if ($this-&gt;_iterationUnsetFlag) {
++            $this-&gt;_iterationUnsetFlag = false;
++            return;
++        }
+         next($this-&gt;_data);
+         $this-&gt;_index++;
+     }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-02-14T11:12:58.000+0000</p> 
+        <div class="body">
+            <p>Robin,</p>
+
+<p>Your patch fixes the described problem but introduces another one:</p>
+
+<pre class="highlight"><code>
+unset($config-&gt;first);
+foreach($config as $key=&gt;$item) {
+    echo $key . PHP_EOL;
+}
+</code></pre>
+
+<p>The first next() doesn't get called, so the output becomes:
+second
+second
+third</p>
+
+<p>rather than the expected
+second
+third</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jan Pieper (jpieper) on 2009-02-14T14:17:37.000+0000</p> 
+        <div class="body">
+            <p>I think I´ve found a solution.</p>
+
+<pre class="highlight"><code>Index: Config.php
+===================================================================
+--- Config.php  (revision 14089)
++++ Config.php  (working copy)
+@@ -84,6 +84,13 @@
+     protected $_loadFileErrorStr = null;
+
+     /**
++     * Contains the index keys of the configuration data array.
++     *
++     * @var array
++     */
++    protected $_indexes = array();
++
++    /**
+      * Zend_Config provides a property based interface to
+      * an array. The data are read-only unless $allowModifications
+      * is set to true on construction.
+@@ -100,6 +107,7 @@
+         $this-&gt;_allowModifications = (boolean) $allowModifications;
+         $this-&gt;_loadedSection = null;
+         $this-&gt;_index = 0;
++        $this-&gt;_indexes = array_keys($array);
+         $this-&gt;_data = array();
+         foreach ($array as $key =&gt; $value) {
+             if (is_array($value)) {
+@@ -155,6 +163,9 @@
+             } else {
+                 $this-&gt;_data[$name] = $value;
+             }
++            if (!in_array($name, $this-&gt;_indexes)) {
++                $this-&gt;_indexes[] = $name;
++            }
+             $this-&gt;_count = count($this-&gt;_data);
+         } else {
+             /** @see Zend_Config_Exception */
+@@ -222,7 +233,10 @@
+     {
+         if ($this-&gt;_allowModifications) {
+             unset($this-&gt;_data[$name]);
++            unset($this-&gt;_indexes[array_search($name, $this-&gt;_indexes)]);
++            $this-&gt;_indexes = array_values($this-&gt;_indexes);
+             $this-&gt;_count = count($this-&gt;_data);
++            --$this-&gt;_index;
+         } else {
+             /** @see Zend_Config_Exception */
+             require_once 'Zend/Config/Exception.php';
+@@ -248,7 +262,10 @@
+      */
+     public function current()
+     {
+-        return current($this-&gt;_data);
++        if (!array_key_exists($key = $this-&gt;key(), $this-&gt;_data)) {
++            return false;
++        }
++        return $this-&gt;_data[$key];
+     }
+
+     /**
+@@ -258,7 +275,7 @@
+      */
+     public function key()
+     {
+-        return key($this-&gt;_data);
++        return $this-&gt;_indexes[$this-&gt;_index];
+     }
+
+     /**
+@@ -267,8 +284,7 @@
+      */
+     public function next()
+     {
+-        next($this-&gt;_data);
+-        $this-&gt;_index++;
++        ++$this-&gt;_index;
+     }
+
+     /**
+@@ -277,7 +293,6 @@
+      */
+     public function rewind()
+     {
+-        reset($this-&gt;_data);
+         $this-&gt;_index = 0;
+     }
+</code></pre>
+
+<pre class="highlight"><code>foreach ($config as $key =&gt; $value)
+{
+    echo $key . PHP_EOL;
+    if ($key == 'first') {
+        unset($config-&gt;$key);
+    }
+}
+
+first
+second
+third</code></pre>
+
+<pre class="highlight"><code>unset($config-&gt;first);
+foreach($config as $key=&gt;$item) {
+    echo $key . PHP_EOL;
+}
+
+second
+third</code></pre>
+
+<pre class="highlight"><code>[jan@jason Zend]# phpunit ConfigTest.php
+PHPUnit 3.3.13 by Sebastian Bergmann.
+
+.......................
+
+Time: 0 seconds
+
+OK (23 tests, 58 assertions)</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-02-14T14:47:06.000+0000</p> 
+        <div class="body">
+            <p>Same basic solution, but more comprehensive exercising of the code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-02-14T14:54:20.000+0000</p> 
+        <div class="body">
+            <p>Updated the reduced testcase file to include the more robust set of exercises. File is reduced_testcase2.php.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robin Skoglund (robinsk) on 2009-02-14T15:55:03.000+0000</p> 
+        <div class="body">
+            <p>I attached a file 'robinsk_testcase_and_patch.tar.gz', which includes a modified version of Zend_Config with 6 runnable tests (not unit tests). The patch is also in the archive.</p>
+
+<p>Summary of patch:
+Set $this-&gt;_iterationUnsetFlag = true in the __unset() method. If the flag is true, next() will not advance the internal pointer, but just flip the flag to false. Other iterator methods will also set the flag to false, so the internal state of the pointer/flag is not corrupted. This is way more efficient than maintaining deleted keys or using string operations.</p>
+
+<p>To run tests:
+* Download robinsk_testcase_and_patch.tar.gz
+* $ tar -zxvf robinsk_testcase_and_patch.tar.gz
+* $ php test1.php
+* $ php test2.php
+* ...
+* $ php test6.php</p>
+
+<p>Each test outputs what it tests, and what the expected and actual results are.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-03-14T14:39:21.000+0000</p> 
+        <div class="body">
+            <p>Fixed on trunk - r14321.</p>
+
+        </div>
+    </div>
+    </div>
+

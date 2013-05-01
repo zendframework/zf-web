@@ -1,0 +1,169 @@
+<h2>ZF-10461: CLONE - Zend_Validate_File_MimeType overrides default PHP fileinfo behavior</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-09-16T01:14:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-12-22T20:47:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.2 (25/Feb/13)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Dmitry Barsukov (dm.barsukov@gmail.com)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+            <li>FixForZF1.12</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9635">ZF-9635</a></li>
+            <li><a href="/issues/browse/ZF-12367">ZF-12367</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Setting the option "magicfile" to false causes $this-&gt;_magicfile to be NULL, then during validation (isValid function), getMagicFile is called, and when $this-&gt;_magicfile is null, getMagicFile loops over the array $this-&gt;_magicFiles.
+So, now there is no way to use finfo_open without specify a magicfile (default behavior) that causes problems with validation of mime-type on some systems with outdated mime-magic files. Tested on CentOS 5.5 and causes mime-type is always octet-steam instead of right value.</p>
+
+<p>From php manual for function finfo_open
+<a href="http://ru2.php.net/manual/en/function.finfo-open.php">http://ru2.php.net/manual/en/…</a></p>
+
+<p>{quote}
+magic_file 
+Name of a magic database file, usually something like /path/to/magic.mime. If not specified, the MAGIC environment variable is used. If this variable is not set either, /usr/share/misc/magic is used by default. A .mime and/or .mgc suffix is added if needed.</p>
+
+<p>Passing NULL or an empty string will be equivalent to the default value. 
+{quote}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Tim Lieberman (timdev) on 2011-05-11T00:37:15.000+0000</p> 
+        <div class="body">
+            <p>I'd also like to see this fixed.</p>
+
+<p>According to iliaa@php.net:</p>
+
+<p>{quote}In PHP 5.3 the magic file is built-in into PHP and that is what should be used. the magic file found on the system may not always be what libmagic expects..."
+{quote}
+-- [<a href="http://bugs.php.net/bug.php?id=53452">http://bugs.php.net/bug.php?id=53452</a>]</p>
+
+<p>I run into this every so often, and then remember "Oh yeah, Zend_Validate_File_MimeType isn't guaranteed to work on a bunch of platforms"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jarek Nowisz (jarek) on 2011-06-05T22:52:06.000+0000</p> 
+        <div class="body">
+            <p>Added some simple changes: for PHP version 5.3 and higher, don't use external magic file, instead use built-in magic file.</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Validate/File/MimeType.php
+===================================================================
+--- library/Zend/Validate/File/MimeType.php (wersja 24121)
++++ library/Zend/Validate/File/MimeType.php (kopia robocza)
+@@ -148,7 +148,9 @@
+      */
+     public function getMagicFile()
+     {
+-        if (null === $this-&gt;_magicfile) {
++        if (defined('PHP_VERSION_ID') and PHP_VERSION_ID &gt;= 50300) {
++            $this-&gt;_magicfile = null;
++        } elseif (null === $this-&gt;_magicfile) {
+             if (!empty($_ENV['MAGIC'])) {
+                 $this-&gt;setMagicFile($_ENV['MAGIC']);
+             } elseif (!(@ini_get("safe_mode") == 'On' || @ini_get("safe_mode") === 1)) {
+@@ -176,6 +178,9 @@
+ 
+     /**
+      * Sets the magicfile to use
++     * for PHP versions 5.3 and higher it should be used only with null param,
++     * since finfo uses internal magic file
++     * for older versions:
+      * if null, the MAGIC constant from php is used
+      * if the MAGIC file is errorous, no file will be set
+      *
+@@ -185,8 +190,12 @@
+      */
+     public function setMagicFile($file)
+     {
+-        if (empty($file)) {
++        if (defined('PHP_VERSION_ID') and PHP_VERSION_ID &gt;= 50300 and !empty($file)) {
+             $this-&gt;_magicfile = null;
++            require_once 'Zend/Validate/Exception.php';
++            throw new Zend_Validate_Exception('Do not set Magicfile. Beginning with version 5.3.0, finfo is part of PHP and uses internal magic file');
++        } elseif (empty($file)) {
++            $this-&gt;_magicfile = null;
+         } else if (!(class_exists('finfo', false))) {
+             $this-&gt;_magicfile = null;
+             require_once 'Zend/Validate/Exception.php';
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-08-30T20:04:39.000+0000</p> 
+        <div class="body">
+            <p>Fixed in ZF2 with <a href="https://github.com/zendframework/zf2/pull/365">GH-365</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alex (retif) on 2011-09-07T11:03:55.000+0000</p> 
+        <div class="body">
+            <p>maybe this should be backported into Zend Framework 1.11.10? two hours spent to find this bugfix</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexey Novikov (hunter) on 2011-09-28T13:35:01.000+0000</p> 
+        <div class="body">
+            <p>Fully aggree with Jarek Nowisz and Alex. Could you please fix this issue in Zend Framework 1.11.10?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcin Gil (mgil) on 2012-08-13T11:42:16.000+0000</p> 
+        <div class="body">
+            <p>Please fix this in ZF 1.11 !!! We have a huge crysis after updating PHP because of this!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-12-22T20:47:22.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (25174) and release-1.12 (25175), so will be in ZF 1.12.2.</p>
+
+        </div>
+    </div>
+    </div>
+

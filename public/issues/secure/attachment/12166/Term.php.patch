@@ -1,0 +1,70 @@
+Index: Search/Lucene/Search/Query/Preprocessing/Term.php
+===================================================================
+--- Search/Lucene/Search/Query/Preprocessing/Term.php	(Revision 17866)
++++ Search/Lucene/Search/Query/Preprocessing/Term.php	(Arbeitskopie)
+@@ -169,27 +169,56 @@
+             // Wildcard query is recognized
+ 
+             $pattern = '';
++            $startid = 0;
++            $subqueries = array();
+ 
+             foreach ($subPatterns as $id => $subPattern) {
+                 // Append corresponding wildcard character to the pattern before each sub-pattern (except first)
+-                if ($id != 0) {
++                if ($id != $startid) {
+                     $pattern .= $word[ $subPattern[1] - 1 ];
+                 }
+ 
+                 // Check if each subputtern is a single word in terms of current analyzer
+                 $tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()->tokenize($subPattern[0], $subPatternsEncoding);
+-                if (count($tokens) > 1) {
+-                    require_once 'Zend/Search/Lucene/Search/QueryParserException.php';
+-                    throw new Zend_Search_Lucene_Search_QueryParserException('Wildcard search is supported only for non-multiple word terms');
+-                }
+-                foreach ($tokens as $token) {
++                
++                // Create a new wildcard query for each new token in the string
++                foreach ($tokens as $num => $token) {
++                    if ($num > 0) {
++                        $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
++                        $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                        $query->setBoost($this->getBoost());
++                        $startid = $id;
++                        $pattern = '';
++                        $subqueries[] = $query;
++                    }
+                     $pattern .= $token->getTermText();
+                 }
+             }
++            
++            // If we ended up with more than one (sub)query, we need to assemble a phrase request.
++            if (count($subqueries)) {
++                // The latest wildcard pattern has not been added to the array yet
++                $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
++                $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                $query->setBoost($this->getBoost());
++                $subqueries[] = $query;
++                // Create a new Phrase query
++                $query = new Zend_Search_Lucene_Search_Query_Phrase();
++                $query->setBoost($this->getBoost());
+ 
+-            $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
+-            $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
+-            $query->setBoost($this->getBoost());
++                foreach ($subqueries as $key=>$subquery) {
++                    // Add all found terms for each wildcard into the corresponding positions of the phrase query
++                    $terms = $subquery->rewrite($index)->getQueryTerms();
++                    foreach($terms as $term) {
++                        $query->addTerm($term, $key);
++                    }
++                }
++            } else {
++                // Single wildcard query. Behave as normal.
++                $term  = new Zend_Search_Lucene_Index_Term($pattern, $this->_field);
++                $query = new Zend_Search_Lucene_Search_Query_Wildcard($term);
++                $query->setBoost($this->getBoost());
++            }
+ 
+             // Get rewritten query. Important! It also fills terms matching container.
+             $rewrittenQuery = $query->rewrite($index);

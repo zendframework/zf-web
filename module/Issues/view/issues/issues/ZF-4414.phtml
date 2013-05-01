@@ -1,0 +1,150 @@
+<h2>ZF-4414: if there are more than one foreign keys corresponding to the same parent table in dependent table class, cascade delete doesn't work properly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-29T06:35:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-18T14:58:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ruxandra Taleanu (luciarux)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I happend to have a child table with 2 foreign keys corresponding to the same primary field in parent table.</p>
+
+<p>table recipes -&gt; primary key: r_id
+table recipe_relevance &gt; fields : rr_r_id (FK coresponding to recipes.r_id) and rr_relevant_recipe_id (FK corresponding to recipes.r_id) and other fields</p>
+
+<p>when I delete a row from recipes it only deletes from recipe_relevance where rr_r_id = r_id and NOT where rr_relevant_recipe_id, ALSO.</p>
+
+<pre class="highlight"><code>
+class Table_Recipes extends Zend_Db_Table {
+...
+$this-&gt;_dependentTables = array(..., 'Table_RecipeRelevance',...)
+}
+</code></pre>
+
+<p>neither of this implementations works:
+1.</p>
+
+<pre class="highlight"><code>
+class Table_RecipeRelevance extends Zend_Db_Table {
+    
+    protected $_primary;
+    private $_adapter;
+    private $_nameColumn;
+    
+    protected function _setupTableName() {
+        $this-&gt;_primary = 'rr_id';
+        $this-&gt;_name = 'recipe_relevance';
+        $this-&gt;_referenceMap = array ('Recipe' =&gt; 
+        array ('columns' =&gt; array ('rr_r_id', 'rr_relevant_recipe_id'),
+         'refTableClass' =&gt; 'Table_Recipes',
+         'refColumns' =&gt; array ('r_id', 'r_id'),
+         'onDelete' =&gt; self::CASCADE,
+         'onUpdate' =&gt; self::CASCADE ),
+        );
+        parent::_setupTableName ();
+    }
+//DOESN'T WORK BECAUSE IT BUILDS A WHERE ARRAY WHICH IS CONVERTED INTO SQL EXPR WITH "AND" BETWEEN CONDITIONS &lt;&lt; AND THIS IS NOT WHAT I WANT
+.....
+}
+</code></pre>
+
+<p>2.1.</p>
+
+<pre class="highlight"><code>
+class Table_RecipeRelevance extends Zend_Db_Table {
+    
+    protected $_primary;
+    private $_adapter;
+    private $_nameColumn;
+    
+    
+    
+    protected function _setupTableName() {
+        $this-&gt;_primary = 'rr_id';
+        $this-&gt;_name = 'recipe_relevance';
+        $this-&gt;_referenceMap = array ('Recipe' =&gt; 
+        array ('columns' =&gt; array ('rr_r_id'),
+         'refTableClass' =&gt; 'Table_Recipes',
+         'refColumns' =&gt; array ('r_id'),
+         'onDelete' =&gt; self::CASCADE,
+         'onUpdate' =&gt; self::CASCADE ),
+'RelevantRecipe' =&gt; 
+        array ('columns' =&gt; array ('rr_relevant_recipe_id'),
+         'refTableClass' =&gt; 'Table_Recipes',
+         'refColumns' =&gt; array ( 'r_id'),
+         'onDelete' =&gt; self::CASCADE,
+         'onUpdate' =&gt; self::CASCADE ),
+        );
+        parent::_setupTableName ();
+    }
+.....
+} // DOESN'T WORK BECAUSE OF REFERENCE MAP NORMALIZATION
+
+}
+</code></pre>
+
+<p>For the first implementation I found a solution by rewriting the zend_db_table_abstract class function _cascadeDelete()
+as follows:</p>
+
+<pre class="highlight"><code>
+public function _cascadeDelete($parentTableClassname, array $primaryKey)
+    {
+        $rowsAffected = 0;
+        foreach ($this-&gt;_getReferenceMapNormalized() as $map) {
+            if ($map[self::REF_TABLE_CLASS] == $parentTableClassname &amp;&amp; isset($map[self::ON_DELETE])) {
+                switch ($map[self::ON_DELETE]) {
+                    case self::CASCADE:
+                        for ($i = 0; $i &lt; count($map[self::COLUMNS]); ++$i) {
+                            $col = $this-&gt;_db-&gt;foldCase($map[self::COLUMNS][$i]);
+                            $refCol = $this-&gt;_db-&gt;foldCase($map[self::REF_COLUMNS][$i]);
+                            $type = $this-&gt;_metadata[$col]['DATA_TYPE'];
+                            $where[] = $this-&gt;_db-&gt;quoteInto(
+                                $this-&gt;_db-&gt;quoteIdentifier($col, true) . ' = ?',
+                                $primaryKey[$refCol], $type);
+                            $rowsAffected += $this-&gt;delete($where); //&lt;&lt;&lt;&lt;&lt;&lt;</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

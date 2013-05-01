@@ -1,0 +1,291 @@
+<h2>ZF-10197: Zend Http Client problem with Delicious Oauth signature</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-21T07:51:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-10-10T13:55:30.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.1 (30/Nov/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Nicolas Ruflin (ruflin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Oauth</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I implemented the yahoo Oauth login for delicious with Zend_Oauth. All is working as expected as long as there are no spaces in the description parameter. As soon as there is a space in the description a signature error is returned from yahoo.</p>
+
+<p>The problem is, that Zend_Oauth_Client (or Zend_Http_Client) uses http_build_query to create the query. http_build_query replaces all spaces with + instead of %20. So the signature created by the server is not the same as created by the client.</p>
+
+<p>The bug can be fixed by adding the following on line 959 (Zend_Http_Client).</p>
+
+<pre class="highlight"><code>
+$query .= http_build_query($this-&gt;paramsGet, null, '&amp;');
+$query = str_replace('+','%20',$query);
+</code></pre>
+
+<p>I'm not sure if this will break other requests or what could be a better way to implement it. At the moment I created a additional socket adapter the does the replacing because I'm able to inject the adapter into the client.</p>
+
+<p>More about the problem here in this thread on the bottom:
+<a href="http://support.delicious.com/forum/comments.php?DiscussionID=3726&amp;page=1#Comment_19454">http://support.delicious.com/forum/comments.php/…</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-07-25T10:01:50.000+0000</p> 
+        <div class="body">
+            <p>May need a more detailed description as to how the client is being used (i.e. request method, authorisation scheme (any option passed into Zend_Oauth). Note that Zend_Oauth has been used elsewhere with no reported problems of this specific nature. Changing the encoding may alter signatures for working services (can't be allowed to occur), so I need to see whether this is something in the way the component is used specifically for Delicious but not for other service APIs. If this is only impacting Delicious when similar use cases work elsewhere, then it will not be fixed except for specific use cases in something like Zend_Service_Delicious where it becomes necessary but limited in scope.</p>
+
+<p>Additionally, Zend_Oauth extends Zend_Http_Client which is responsible for URI encoding. This would require a fix to Zend_Http_Client if an incorrect behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicolas Ruflin (ruflin) on 2010-07-26T15:20:34.000+0000</p> 
+        <div class="body">
+            <p>I think the problem is only in the signature part of OAuth implementation. I use also OAuth with Twitter and here it works without a problem.</p>
+
+<p>But as far as I can see Twitter doesn't use the whole signature sing as Delicious (Yahoo) does in step 6: <a href="http://delicious.com/help/oauthapi">http://delicious.com/help/oauthapi</a></p>
+
+<p>Here is the code how I implemented it. The problem occurs in the third step (post) only if the variable $data['title'] has a space inside. Otherwise it works without a problem.</p>
+
+<pre class="highlight"><code>
+    public function authorize(array $data) {
+        
+        $config = array(
+            'siteUrl' =&gt; '<a href="https://api.login.yahoo.com/oauth/v2/get_request_token">https://api.login.yahoo.com/oauth/v2/…</a>',
+            'callbackUrl' =&gt; '/callback',
+            'consumerKey' =&gt; $key,
+            'consumerSecret' =&gt; $secret,
+        );
+                
+        $consumer = new Zend_Oauth_Consumer($config);
+        $token = $consumer-&gt;getRequestToken();
+        
+        $session = new Zend_Session_Namespace('delicious_oauth');
+        $session-&gt;token  = $token-&gt;getToken();
+        $session-&gt;secret = $token-&gt;getTokenSecret();
+                
+        $urlParams = $token-&gt;getResponse()-&gt;getBody();
+        $url = '<a href="https://api.login.yahoo.com/oauth/v2/request_auth">https://api.login.yahoo.com/oauth/v2/request_auth</a>?' . $urlParams;
+
+        // redirect to $url
+    }
+    
+
+    public function callback() {
+        
+        $config = array(
+            'siteUrl' =&gt; '<a href="https://api.login.yahoo.com/oauth/v2/get_token">https://api.login.yahoo.com/oauth/v2/get_token</a>',
+            'callbackUrl' =&gt; '/callback',
+            'consumerKey' =&gt; $key,
+            'consumerSecret' =&gt; $secret,
+        );
+
+        $session = new Zend_Session_Namespace('delicious_oauth');
+        
+        // build the token request based on the original token and secret
+        $request = new Zend_Oauth_Token_Request();
+        $request-&gt;setToken($session-&gt;token)
+            -&gt;setTokenSecret($session-&gt;secret);
+        
+        unset($session-&gt;token);
+        unset($session-&gt;secret);
+        
+        $consumer = new Zend_Oauth_Consumer($config);
+        $token = $consumer-&gt;getAccessToken($_GET, $request);
+        
+        $data = array('oauth_token' =&gt; $token-&gt;getToken(), 'oauth_token_secret' =&gt; $token-&gt;getTokenSecret());
+        // store $data
+        
+    }
+    
+    public function post(array $data) {
+        $config = array(
+            'siteUrl' =&gt; '<a href="https://api.login.yahoo.com/oauth/v2/get_token">https://api.login.yahoo.com/oauth/v2/get_token</a>',
+            'callbackUrl' =&gt; '/callback',
+            'consumerKey' =&gt; $key,
+            'consumerSecret' =&gt; $secret,
+        );
+        
+        $data = $this-&gt;getData();
+
+        $token2 = new Zend_Oauth_Token_Access();
+             $token2-&gt;setToken($data['oauth_token'])
+                -&gt;setTokenSecret($data['oauth_token_secret']);
+           
+        
+             $client = $token2-&gt;getHttpClient($config);
+        $client-&gt;resetParameters();
+        
+        $parameters = array(
+            'url' =&gt; $data['url'],
+            'description' =&gt; $data['title'],
+            'tags' =&gt; $data['tags'],
+            'extended' =&gt; $data['note'],
+        );
+        
+        $client-&gt;setUri('<a href="http://api.del.icio.us/v2/posts/add">http://api.del.icio.us/v2/posts/add</a>');
+        $client-&gt;setParameterGet($parameters);
+        
+        $client-&gt;setMethod(Zend_Http_Client::GET);
+        
+        $client-&gt;setAdapter(new useKit_Http_Client_Adapter_Socket());
+        $response = $client-&gt;request();
+        return true;
+    }
+</code></pre>
+
+<p>Here is also the code from my client. It only overloads the standard client and adds the str_replace function.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class useKit_Http_Client_Adapter_Socket extends Zend_Http_Client_Adapter_Socket
+{
+    /**
+     * Send request to the remote server
+     *
+     * @param string        $method
+     * @param Zend_Uri_Http $uri
+     * @param string        $http_ver
+     * @param array         $headers
+     * @param string        $body
+     * @return string Request as string
+     */
+    public function write($method, $uri, $http_ver = '1.1', $headers = array(), $body = '')
+    {
+        // Make sure we're properly connected
+        if (! $this-&gt;socket) {
+            require_once 'Zend/Http/Client/Adapter/Exception.php';
+            throw new Zend_Http_Client_Adapter_Exception('Trying to write but we are not connected');
+        }
+
+        $host = $uri-&gt;getHost();
+        $host = (strtolower($uri-&gt;getScheme()) == 'https' ? $this-&gt;config['ssltransport'] : 'tcp') . '://' . $host;
+        if ($this-&gt;connected_to[0] != $host || $this-&gt;connected_to[1] != $uri-&gt;getPort()) {
+            require_once 'Zend/Http/Client/Adapter/Exception.php';
+            throw new Zend_Http_Client_Adapter_Exception('Trying to write but we are connected to the wrong host');
+        }
+
+        // Save request method for later
+        $this-&gt;method = $method;
+
+        // Build request headers
+        $path = $uri-&gt;getPath();
+        
+        $query = str_replace('+', '%20', $uri-&gt;getQuery());
+                
+        if ($uri-&gt;getQuery()) $path .= '?' . $query;
+        $request = "{$method} {$path} HTTP/{$http_ver}\r\n";
+        foreach ($headers as $k =&gt; $v) {
+            if (is_string($k)) $v = ucfirst($k) . ": $v";
+            $request .= "$v\r\n";
+        }
+
+        if(is_resource($body)) {
+            $request .= "\r\n";
+        } else {
+            // Add the request body
+            $request .= "\r\n" . $body;
+        }
+        
+        // Send the request
+        if (! @fwrite($this-&gt;socket, $request)) {
+            require_once 'Zend/Http/Client/Adapter/Exception.php';
+            throw new Zend_Http_Client_Adapter_Exception('Error writing request to server');
+        }
+        
+        if(is_resource($body)) {
+            if(stream_copy_to_stream($body, $this-&gt;socket) == 0) {
+                require_once 'Zend/Http/Client/Adapter/Exception.php';
+                throw new Zend_Http_Client_Adapter_Exception('Error writing request to server');
+            }
+        }
+
+        return $request;
+    }
+}
+</code></pre>
+
+<p>On thing I discovered during searching for the bug is, that the Yahoo also implements one function a bit different (the PHP library can be found here: <a href="http://developer.yahoo.com/social/sdk/#php">http://developer.yahoo.com/social/sdk/#php</a> )</p>
+
+<p>The url encoding is done as following</p>
+
+<pre class="highlight"><code>
+static function urlencode_rfc3986($input) {
+  ...
+ str_replace('+', ' ',
+                           str_replace('%7E', '~', rawurlencode($input)));
+  ...
+  }
+</code></pre>
+
+<p>In the Zend_Oauth_Http_Utility it is:</p>
+
+<pre class="highlight"><code>
+    public static function urlEncode($value)
+    {
+        $encoded = rawurlencode($value);
+        $encoded = str_replace('%7E', '~', $encoded);
+        return $encoded;
+    }
+</code></pre>
+
+<p>As defined in the OAuth Protocol, every URL should be encode with rfc3986. I'm not sure, if the second implementation is also RFC 3986 <a href="http://tools.ietf.org/html/rfc3986">http://tools.ietf.org/html/rfc3986</a></p>
+
+<p>But like I described before, in the end it wasn't a problem of all the oauth functions, which are creating the right signature. The problem is, that inside the signature the url is encode with rfc3986 which means, it replaces spaces with %20. But then Zend_Http_Client uses <a href="http://ch2.php.net/manual/de/function.http-build-query.php">http://ch2.php.net/manual/de/…</a> to create the queries, and replaces spaces with +. So the reponse server creates a different signature.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-10-10T13:19:25.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk via a patch to Zend_Http_Client to allow for RFC 3986 strict encoding</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicolas Ruflin (ruflin) on 2010-10-10T13:55:30.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the fix.</p>
+
+        </div>
+    </div>
+    </div>
+

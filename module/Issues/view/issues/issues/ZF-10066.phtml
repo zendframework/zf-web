@@ -1,0 +1,333 @@
+<h2>ZF-10066: Double translations on Zend_Form_Decorator_Label and Zend_Form_Element-&gt;getLabel()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-28T09:46:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-11-11T19:02:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                René Kerner (johndoe)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9371">ZF-9371</a></li>
+            <li><a href="/issues/browse/ZF-8694">ZF-8694</a></li>
+            <li><a href="/issues/browse/ZF-9371">ZF-9371</a></li>
+            <li><a href="/issues/browse/ZF-10336">ZF-10336</a></li>
+            <li><a href="/issues/browse/ZF-11191">ZF-11191</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello!</p>
+
+<p>When translation is used in a ZF project and Zend_Form is used with the standard
+decorators (in that case Zend_Form_Decorator_Label), one label is translated twice.
+That leads to a not found translation id/key.</p>
+
+<p>For example:</p>
+
+<pre class="highlight"><code>
+$organization_data = new Zend_Form_SubForm(); // OR $organization_data = new Zend_Form(); or something else
+$organization_data-&gt;addElements(array(
+    new Zend_Form_Element_Text('organizationName', array(
+        'required'    =&gt; true,
+        'label'       =&gt; 'register::organization::name',
+        'filters'     =&gt; array('StringTrim'),
+        'validators'  =&gt; array(
+        'NotEmpty', 'Alnum',
+        )
+    )),
+...
+</code></pre>
+
+<p>Then on rendering-process by the Zend_Form-Label-Decorator my translation-identifier
+'register::organization::name' will first be translated to the value from the
+language file, let's say it is 'Name des Unternehmens' by the -&gt;getLabel()
+function of the Zend_Form_Element. Then that value is translated AGAIN a second
+time by the Zend_Form-Label-Decorator.
+Here is the code:</p>
+
+<pre class="highlight"><code>
+...
+    public function getLabel()   // this is line 247
+    {
+        if (null === ($element = $this-&gt;getElement())) {
+            return '';
+        }
+
+        $label = $element-&gt;getLabel();   // here getLabel() of the element is called, the ALREADY translated text is returned -- line 253
+        $label = trim($label);
+
+        if (empty($label)) {
+            return '';
+        }
+
+        if (null !== ($translator = $element-&gt;getTranslator())) {
+            $label = $translator-&gt;translate($label);   // here the translated value is translated AGAIN -- line 261
+    }
+...
+</code></pre>
+
+<p>there getLabel() of the element is called. And in that function of Zend_Form_Element,
+there is a translation done:</p>
+
+<pre class="highlight"><code>
+...
+    public function getLabel()   // this is line 621
+    {
+        $translator = $this-&gt;getTranslator();
+        if (null !== $translator) {
+            return $translator-&gt;translate($this-&gt;_label);
+        }
+
+        return $this-&gt;_label;
+    }
+...
+</code></pre>
+
+<p>The ALREADY TRANSLATED value goes to the variable $label in Zend/Form/Decorator/Label.php
+in line 253 and the ALREADY translated value (in my example: 'Name des Unternehmens') is
+tried to translate AGAIN on line 261 on Zend/Form/Decorator/Label.php (see above listing!).
+That's a little bug that blows up my (with missing identifiers auto-appended) language-/po-file
+and my missing-translations-logfile, because 'Name des Unternehmens' is not found in the
+translation-file.</p>
+
+<p>Best regards,
+René Kerner</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-28T09:49:09.000+0000</p> 
+        <div class="body">
+            <p>precised the last sentence, that 'Name des Unternehmens' is not found in the languagefile on the second translation-call.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-29T04:49:55.000+0000</p> 
+        <div class="body">
+            <p>issue tracker search don't displayed that entry while I searched for an already reported issue.
+now added...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-30T02:29:08.000+0000</p> 
+        <div class="body">
+            <p>Currently for me a solution was to comment the translation lines:</p>
+
+<pre class="highlight"><code>
+...
+    public function getLabel()   // this is line 621
+    {
+        // $translator = $this-&gt;getTranslator();
+        // if (null !== $translator) {
+        //    return $translator-&gt;translate($this-&gt;_label);
+        // }
+
+        return $this-&gt;_label;
+    }
+...
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eino Saarela Rossi (eino_rossi) on 2010-12-13T11:46:19.000+0000</p> 
+        <div class="body">
+            <p>I would say that for a better class abstraction the getTranslator() method should always return Zend_Translate_Adapter, and not depending if the translation is disabled or not. Then the getLabel() method would check if the translation is disabled and the decorator would always get ready translated string.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Przemys?aw Wróbel (wrobel) on 2011-01-20T00:46:51.000+0000</p> 
+        <div class="body">
+            <p>The problem seems serious. Consider this:
+1. $element-&gt;setLabel('bar');
+...
+2. $label = $element-&gt;getLabel();
+3. $label .= ' - foo';
+4. $element-&gt;setLabel($label);
+...
+5. (in a label decorator) $label = $element-&gt;getLabel();</p>
+
+<p>I know that perhaps it would be better to append something in a custom label decorator, but still it seems a wrong idea when the getter/setter operation is not consistent (after setting something in line 1 we get something different in line 2 - because it is translated in the background). It than turns to be even worse because in line 5 when the decorator gets the label it first half "bar" is already translated to language "x" with '-foo' appended (untranslated) and in the background the getLabel() method translates it for the second time which for sure will result in not finding the translation...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2011-03-22T10:32:53.000+0000</p> 
+        <div class="body">
+            <p>this critical issue still remains in the current version
+1.11.4.
+leading to many wrong entries in my PO-languagefile
+and in my translation.log logfile (redirected from gui
+error messages).
+very annoying.</p>
+
+<p>there would be an easy bugfix, but it is not accepted since
+a long time</p>
+
+<p>(I will repost the patch later)</p>
+
+<p>Best regards,
+René</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2011-03-22T10:44:27.000+0000</p> 
+        <div class="body">
+            <p>in my first post I showed a fix for that critical bug:</p>
+
+<pre class="highlight"><code>
+...
+    public function getLabel()   // this is line 621, line 624 in ZF-1.11.4
+    {
+        /*
+        $translator = $this-&gt;getTranslator();
+        if (null !== $translator) {
+            return $translator-&gt;translate($this-&gt;_label);
+        }
+        */
+
+        return $this-&gt;_label;
+    }
+...
+</code></pre>
+
+<p>commenting out this translator-calls in the Zend_Form_Element
+class stops the annoying double translation problems.
+it's a valueable solution. we're using that patch since June
+2009 with no new following issues.</p>
+
+<p>for ZF-2.0 the delegation to the view-helpers is on the
+<a href="http://framework.zend.com/wiki/display/ZFDEV2/Zend_Form+2.0#Zend_Form2.0-Translation">ZF-2.0 Translation Roadmap</a>
+but couldn't this be a fix for ZF-1.X branch...?</p>
+
+<p>Best regards,
+René</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-31T17:22:55.000+0000</p> 
+        <div class="body">
+            <p>This will fix the issue at hand, but will mean that element labels won't be translated when they are used standalone (ie: not part of a Zend_Form).  The {{Zend_Form_Element::getLabel}} method will return the translation key, and not the intended value.</p>
+
+<p>This all stems from the fact that forms, form elements and form decorators can all be used independently, and so each have the ability to translate their labels independently.  The difficulty arises when they are used together, as they don't coordinate between them who is going to do the translation.  The issue at hand here occurs when an element and a decorator are used together to render a form; the element translates the label in it's {{getLabel()}} method before returning, and the label decorator then pulls the label value via that method and translates it again in it's own {{getLabel()}} method.</p>
+
+<p>This unit test exposes the issue:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/ElementTest.php
+===================================================================
+--- tests/Zend/Form/ElementTest.php     (revision 24549)
++++ tests/Zend/Form/ElementTest.php     (working copy)
+@@ -844,6 +844,27 @@
+         $this-&gt;assertTrue($found, 'Not Digits message not found');
+         $this-&gt;assertEquals($translations['notDigits'], $message);
+     }
++
++    /**
++     * @group ZF-10066
++     */
++    public function testLabelIsNotTranslatedTwiceWhenRenderedAsPartOfAForm()
++    {
++        require_once 'Zend/Translate.php';
++        $translations = array('firstLabel' =&gt; 'secondLabel',
++                              'secondLabel' =&gt; 'thirdLabel');
++        $translate = new Zend_Translate('array', $translations);
++
++        $this-&gt;element-&gt;setLabel('firstLabel');
++        $this-&gt;element-&gt;setTranslator($translate);
++
++        $f = new Zend_Form();
++        $f-&gt;setTranslator($translate);
++        $f-&gt;addElement($this-&gt;element);
++        $html = $f-&gt;render(new Zend_View());
++
++        $this-&gt;assertRegExp('|]+&gt;secondLabel|i', $html);
++    }
+
+     /**#@+
+      * @group ZF-2988
+</code></pre>
+
+<p>This test fails against trunk, as the label value is actually {{thirdLabel}}.</p>
+
+<p>However, if we take the other avenue available - disable translation in {{Zend_Form_Decorator_Label}} - the above test (and the whole Form suite) passes:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Form/Decorator/Label.php
+===================================================================
+--- library/Zend/Form/Decorator/Label.php       (revision 24549)
++++ library/Zend/Form/Decorator/Label.php       (working copy)
+@@ -300,10 +300,6 @@
+             return '';
+         }
+
+-        if (null !== ($translator = $element-&gt;getTranslator())) {
+-            $label = $translator-&gt;translate($label);
+-        }
+-
+         $optPrefix = $this-&gt;getOptPrefix();
+         $optSuffix = $this-&gt;getOptSuffix();
+         $reqPrefix = $this-&gt;getReqPrefix();
+</code></pre>
+
+<p>I think that this patch can be safely applied without breaking backwards-compatiblity.  The default behavior of {{Zend_Form_Element::getLabel()}} is that if an element has a translator set then {{$element-&gt;getLabel()}} will always return a translated label, so there is no need to translate again if we're pulling the label directly from the element.  I only hiccup may come from those elements which redefine {{getLabel}} locally without calling parent::getLabel and don't do their own translation.  AFAIK, the only one which does this is {{Zend_Form_Element_Hash}}, for the purpose of not having a label at all, and so doesn't matter in a translation context.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-31T17:25:53.000+0000</p> 
+        <div class="body">
+            <p>I've just noticed that this is exactly the fix suggested in ZF-8694.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2011-11-11T19:02:45.000+0000</p> 
+        <div class="body">
+            <p>Duplicate of ZF-8694</p>
+
+        </div>
+    </div>
+    </div>
+

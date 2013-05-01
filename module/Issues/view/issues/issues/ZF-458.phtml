@@ -1,0 +1,339 @@
+<h2>ZF-458: Adding Authentication to Zend_Mail_Transport_Smtp?</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-10-24T13:20:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.8.0 (21/Feb/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Wes Smith (scubawes)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Granted I am sorta a php newbie... I need Authenication in the smtp transport. I played around with the smtp file and came up with this that I use now. 
+Is there any problem doing this?</p>
+
+<p>$tr = new Zend_Mail_Transport_Smtp('mail.host.com', 25, '127.0.0.1', 'username', 'passwd');</p>
+
+<p>then in the Zend/Mail/Transport/Smtp.php</p>
+
+<pre class="literal"> 
+    /**
+     * Constructor.
+     *
+     * @param string $host
+     * @param int $port
+     * @param string $myName  (for use with HELO)
+     * @param string $username
+     * @param string $passwd
+     */
+    public function __construct($host = '127.0.0.1', $port=25, $myName='127.0.0.1', $username=null, $passwd=null)
+    {
+        $this-&gt;_host = $host;
+        $this-&gt;_port = $port;
+        $this-&gt;_myName = $myName;
+        ////
+        $this-&gt;_username = $username;
+        $this-&gt;_passwd = $passwd;
+        ////
+    }
+
+
+    /**
+     * Connect to the server with the parameters given
+     * in the constructor and send "HELO". The connection
+     * is immediately closed if an error occurs.
+     *
+     * @throws Zend_Mail_Transport_Exception
+     */
+    public function connect()
+    {
+        $errno  = null;
+        $errstr = null;
+
+        // open connection
+        $fp = stream_socket_client('<a>tcp://'.$this</a>-&gt;_host.':'.$this-&gt;_port, $errno, $errstr, self::CONNECTION_TIMEOUT);
+
+        if ($fp===false) {
+            if ($errno==0) {
+                $msg = 'Could not open socket';
+            } else {
+                $msg = $errstr;
+            }
+            throw new Zend_Mail_Transport_Exception($msg);
+        }
+
+        $this-&gt;_con = $fp;
+
+        try {
+            $res = stream_set_timeout($this-&gt;_con, self::COMMUNICATION_TIMEOUT );
+            if ($res === false) {
+                throw new Zend_Mail_Transport_Exception('Could not set Stream Timeout');
+            }
+
+            /**
+             * Now the connection is open. Wait for the welcome message:
+             *   welcome message has error code 220
+             */
+            $this-&gt;_expect(220);
+            $this-&gt;helo($this-&gt;_myName);
+            
+            ///////
+            if (isset($this-&gt;_username)) $this-&gt;authenticate($this-&gt;_username, $this-&gt;_passwd);
+            ///////
+            
+        } catch (Zend_Mail_Transport_Exception $e) {
+            fclose($fp);
+            throw $e;
+        }
+    }
+
+    
+    
+    
+    /**
+     * Sends AUTH to the server and validates the response. If valid, username is sent to the
+     * server and validates the response. If valid, password is sent to the server and validates
+     * the response.
+     *
+     * @param string $username
+     * @param string $passwd
+     * @throws Zend_Mail_Transport_Exception
+     */
+    public function authenticate($username, $passwd)
+    {
+        $this-&gt;_send('AUTH LOGIN');
+        $this-&gt;_expect(334);
+        
+        
+        $this-&gt;_send(base64_encode($username));
+        $this-&gt;_expect(334);
+        
+        $this-&gt;_send(base64_encode($passwd));
+        $this-&gt;_expect(235);
+
+    }
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-28T17:51:45.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for 0.7.0 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justin Hendrickson (toxygene) on 2007-02-02T17:32:15.000+0000</p> 
+        <div class="body">
+            <p>I submitted this on the mailing list and they asked I put this over here. Here's my Smtp Auth library.</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Mail/Transport/Smtp.php';
+
+class Zend_Mail_Transport_Smtp_Auth extends Zend_Mail_Transport_Smtp {
+ 
+    /**#@+
+     * Authentication types
+     * @var string
+     */
+    const LOGIN = 'LOGIN';
+    const PLAIN = 'PLAIN';
+    /**#@-*/
+ 
+    /**
+     * @param string $username
+     * @param string $password
+     * @param string $method
+     */
+    protected function authenticate($username, $password, $method = self::PLAIN) {
+        switch($method) {
+            case self::LOGIN:
+                $this-&gt;authenticateLogin($username, $password);
+            break;
+ 
+            case self::PLAIN:
+                $this-&gt;authenticatePlain($username, $password);
+            break;
+        }
+    }
+ 
+    /**
+     * @param  string $username
+     * @param  string $password
+     * @throws Zend_Mail_Transport_Exception
+     */
+    protected function authenticateLogin($username, $password) {
+        $this-&gt;_send('AUTH LOGIN');
+ 
+        try {
+            $this-&gt;_expect(334);
+        } catch(Zend_Mail_Transport_Exception $e) {
+            if(substr($e-&gt;getMessage(), 0, 3) == 503) {
+                return;
+            }
+            throw $e;
+        }
+ 
+        $this-&gt;_send(base64_encode($username));
+        $this-&gt;_expect(334);
+        $this-&gt;_send(base64_encode($password));
+        $this-&gt;_expect(235);
+    }
+ 
+    /**
+     * @param  string $username
+     * @param  string $password
+     * @throws Zend_Mail_Transport_Exception
+     */
+    protected function authenticatePlain($username, $password) {
+        $this-&gt;_send('AUTH PLAIN');
+ 
+        try {
+            $this-&gt;_expect(334);
+        } catch(Zend_Mail_Transport_Exception $e) {
+            if(substr($e-&gt;getMessage(), 0, 3) == 503) {
+                return;
+            }
+            throw $e;
+        }
+ 
+        $this-&gt;_send(base64_encode(chr(0) . $username . chr(0) . $password));
+        $this-&gt;_expect(235);
+    }
+ 
+}
+</code></pre>
+
+<p>Use of the authentication methods is not directly tied into the connection process, but if it is so desired, you could also add this:</p>
+
+<pre class="highlight"><code>
+class Zend_Mail_Transport_Smtp_Auth extends Zend_Mail_Transport_Smtp {
+    private $_username;
+    private $_password;
+    private $_method;
+    public function __construct($host = '127.0.0.1', $port=25, $myName='127.0.0.1', $username=null, $password=null, $method=null) {
+        parent::__construct($host, $port, $myName);
+        $this-&gt;_username = $username;
+        $this-&gt;_password = $password;
+        $this-&gt;_method = $method;
+    }
+    public function connect() {
+        parent::connect();
+        if($username) {
+            $this-&gt;authenticate($this-&gt;_username, $this-&gt;_password, $this-&gt;_method);
+        }
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justin Hendrickson (toxygene) on 2007-02-02T17:33:05.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+        if($username) {
+            $this-&gt;authenticate($this-&gt;_username, $this-&gt;_password, $this-&gt;_method);
+        }
+</code></pre>
+
+<p>This should be:</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-02T20:18:52.000+0000</p> 
+        <div class="body">
+            <p>Thanks Justin :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-02-03T09:19:52.000+0000</p> 
+        <div class="body">
+            <p>Could you please try the latest checkout from trunk (r3168) and try the incubator version of Zend_Mail_Transport_Auth?</p>
+
+<p>An example usage of code would be:-</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Mail/Transport/Smtp.php';
+
+$config = array('auth' =&gt; 'plain', // defaults to FALSE,
+                'username' =&gt; 'myusername', // defaults to NULL,
+                'password' =&gt; 'mypass', // defaults to NULL,
+                'port' =&gt; 25, // defaults from php.ini,
+                'host' =&gt; 'localhost'); // for EHLO
+
+$tr = new Zend_Mail_Transport_Smtp('mail.someone.com', $config);
+
+require_once 'Zend/Mail.php';
+
+$mail = new Zend_Mail();
+$mail-&gt;setBodyText('This is the text of the mail.');
+$mail-&gt;setFrom('your.email@someone.com', 'Some Sender');
+$mail-&gt;addTo('their.email@someone.com', 'Some Recipient');
+$mail-&gt;setSubject('TestSubject');
+$mail-&gt;send($tr);
+</code></pre>
+
+<p>The new transport supports 'auth' and 'plain' as auth methods and Cram-md5 is scheduled for 0.9</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-02-07T19:05:35.000+0000</p> 
+        <div class="body">
+            <p>Post ZF 1.0, perhaps we can consider TLS/SASL support.
+However, probably less than 5% of all ZF users would use this, so don't let the idea distract anyone from more important work.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-02-16T05:46:29.000+0000</p> 
+        <div class="body">
+            <p>Moved to core for 0.8</p>
+
+        </div>
+    </div>
+    </div>
+

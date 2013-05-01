@@ -1,0 +1,131 @@
+<h2>ZF-6258: File upload with rename filter pseudo random failing</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-10T03:20:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-04-11T00:34:17.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Emil Ivanov (vladev)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Using trunk (via svn:externals).</p>
+
+<p>I noticed a while ago in the svn log that there has been an optimization added to Zend_File_Transfer to avoid moving a file twice when there is a rename filter in place.</p>
+
+<p>But in the rename filter there is a check:</p>
+
+<pre class="highlight"><code>
+if (!file_exists($file['source'])) {
+    return $value;
+}
+</code></pre>
+
+<p>What this basically does it that it bails out silently (?) if the file is not there, returning the original given filename. But the problem is that the file is actually NOT there since it hasn't been moved yet (the rename optimization I guess) - so the rename filter returns the original name, instead of the new name, and the file is not renamed.
+The second time I try to upload the same file it magically works since there is a stale copy of the previous attempt.</p>
+
+<p>Not sure I explained it the best way but I'm quite confused :)
+Ask, and I will try to provide more feedback, if necessary.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-04-10T04:42:50.000+0000</p> 
+        <div class="body">
+            <p>When "the file is not there", then is has not been transferred from the client to PHP.
+Because the file check is done on the file within the temporary directory.</p>
+
+<p>No temporary file, means no upload, which means, no new name...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Emil Ivanov (vladev) on 2009-04-10T05:03:04.000+0000</p> 
+        <div class="body">
+            <p>I knew that explanation would blew up. ;)</p>
+
+<p>The file got to the server - it's in the /tmp dir under the name PHP gave it (something like /tmp/adyU639A)
+As far as I understand the Zend_File_Transfer component will then move it to the destination (set via setDestination()).
+Then the rename filter would be applied, moving it yet again to it's last location.</p>
+
+<p>You've introduced a check for the rename filter in the adapter to skip one moving (which is a very good idea).</p>
+
+<p>Let's write the locations where the file ends up in the non-optimized case:</p>
+
+<pre class="highlight"><code>
+PHP               Zend_File_Transfer               Rename filter
+ /tmp/adyU639A -&gt; /home/me/myapp/upload/car.jpg -&gt; /home/me/myapp/cars/as5d675123
+</code></pre>
+
+<p>What the rename filter check (based on debuging I did) is for the existence of the second path (.../car.jpg) - which apparently does not exist since the file hasn't beed moved yet by the Zend_FIle_Transfer component.</p>
+
+<p>Here are the places I think the bug can be found:</p>
+
+<pre class="highlight"><code>
+if ($rename !== null) {
+    $filename = $rename-&gt;getNewName($directory . $content['name']);
+    $key = array_search('Rename', $this-&gt;_files[$file]['filters']);
+    unset($this-&gt;_files[$file]['filters'][$key]);
+}
+</code></pre>
+
+<p>The path passes to getNewName() is the path in the middle (the example above).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-04-10T08:38:24.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r14818
+Problem occured when not giving source</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Emil Ivanov (vladev) on 2009-04-11T00:34:04.000+0000</p> 
+        <div class="body">
+            <p>Awesome! Thank you very much. :)</p>
+
+        </div>
+    </div>
+    </div>
+

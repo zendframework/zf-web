@@ -1,0 +1,288 @@
+<h2>ZF-2084: escape values by default</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-10-17T17:03:01.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-12-15T21:46:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.3 (30/Nov/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                michael depetrillo (klassicd)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Rest_Server</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When I try to pass DB data with an &amp; ampersand in it back to a Zend_Rest_Server I receive a PHP warning about 'unterminated entity reference'.  This also also when throwing a Zend_Rest_Server_Exception with an &amp; in the error message.</p>
+
+<p>$server = new Zend_Rest_Server(); // initiate rest server
+$server-&gt;setClass('restbroke');
+$server-&gt;handle(array('method' =&gt; 'dbReturn'));</p>
+
+<p>class restbroke {
+public function dbReturn()
+{
+    return array('key' =&gt; '&amp;&amp;ERRRRR&lt;&gt;IWANTHTML');
+}
+}</p>
+
+<p>Here are the fixed methods using DOM createTextNode() by default for unknown strings.</p>
+
+<p>class Guild_Rest_Server extends Zend_Rest_Server implements Zend_Server_Interface
+{
+    /**
+    * Handle an array or object result
+    *
+    * @param array|object $struct Result Value
+    * @return string XML Response
+    */
+    protected function _handleStruct($struct)
+    {
+      $function = $this-&gt;_functions[$this-&gt;_method];
+      if ($function instanceof Zend_Server_Reflection_Method) {
+        $class = $function-&gt;getDeclaringClass()-&gt;getName();
+      } else {
+        $class = false;
+      }</p>
+
+<pre><code>  $method = $function-&gt;getName();
+
+  $dom    = new DOMDocument('1.0', 'UTF-8');
+  if ($class) {
+    $root   = $dom-&gt;createElement($class);
+    $method = $dom-&gt;createElement($method);
+    $root-&gt;appendChild($method);
+  } else {
+    $root   = $dom-&gt;createElement($method);
+    $method = $root;
+  }
+  $root-&gt;setAttribute('generator', 'zend');
+  $root-&gt;setAttribute('version', '1.0');
+  $dom-&gt;appendChild($root);
+
+  $this-&gt;_structValue($struct, $dom, $method);
+
+  $struct = (array) $struct;
+  if (!isset($struct['status'])) {
+    $status = $dom-&gt;createElement('status', 'success');
+    $method-&gt;appendChild($status);
+  }
+
+  return $dom-&gt;saveXML();
+}
+
+/**
+* Recursively iterate through a struct
+*
+* Recursively iterates through an associative array or object's properties
+* to build XML response.
+*
+* @param mixed $struct
+* @param DOMDocument $dom
+* @param DOMElement $parent
+* @return void
+*/
+protected function _structValue($struct, DOMDocument $dom, DOMElement $parent)
+{
+  $struct = (array) $struct;
+
+  foreach ($struct as $key =&gt; $value) {
+    if ($value === false) {
+      $value = 0;
+    } elseif ($value === true) {
+      $value = 1;
+    }
+
+    if (ctype_digit((string) $key)) {
+      $key = 'key_' . $key;
+    }
+
+    if (is_array($value) || is_object($value)) {
+      $element = $dom-&gt;createElement($key);
+      $this-&gt;_structValue($value, $dom, $element);
+    } else {
+      $element = $dom-&gt;createElement($key);
+      $element-&gt;appendChild($dom-&gt;createTextNode($value));
+    }
+
+    $parent-&gt;appendChild($element);
+  }
+}
+
+/**
+* Handle a single value
+*
+* @param string|int|boolean $value Result value
+* @return string XML Response
+*/
+protected function _handleScalar($value)
+{
+  $function = $this-&gt;_functions[$this-&gt;_method];
+  if ($function instanceof Zend_Server_Reflection_Method) {
+    $class = $function-&gt;getDeclaringClass()-&gt;getName();
+  } else {
+    $class = false;
+  }
+
+  $method = $function-&gt;getName();
+
+  $dom = new DOMDocument('1.0', 'UTF-8');
+  if ($class) {
+    $xml = $dom-&gt;createElement($class);
+    $methodNode = $dom-&gt;createElement($method);
+    $xml-&gt;appendChild($methodNode);
+  } else {
+    $xml = $dom-&gt;createElement($method);
+    $methodNode = $xml;
+  }
+  $xml-&gt;setAttribute('generator', 'zend');
+  $xml-&gt;setAttribute('version', '1.0');
+  $dom-&gt;appendChild($xml);
+
+  if ($value === false) {
+    $value = 0;
+  } elseif ($value === true) {
+    $value = 1;
+  }
+
+  if (isset($value)) {
+    $element = $dom-&gt;createElement('response');
+    $element-&gt;appendChild($dom-&gt;createTextNode($value));
+    $methodNode-&gt;appendChild($element);
+  } else {
+    $methodNode-&gt;appendChild($dom-&gt;createElement('response'));
+  }
+
+  $methodNode-&gt;appendChild($dom-&gt;createElement('status', 'success'));
+
+  return $dom-&gt;saveXML();
+}
+
+/**
+* Implement Zend_Server_Interface::fault()
+*
+* Creates XML error response, returning DOMDocument with response.
+*
+* @param string|Exception $fault Message
+* @param int $code Error Code
+* @return DOMDocument
+*/
+public function fault($exception = null, $code = null)
+{
+  if (isset($this-&gt;_functions[$this-&gt;_method])) {
+    $function = $this-&gt;_functions[$this-&gt;_method];
+  } elseif (isset($this-&gt;_method)) {
+    $function = $this-&gt;_method;
+  } else {
+    $function = 'rest';
+  }
+
+  if ($function instanceof Zend_Server_Reflection_Method) {
+    $class = $function-&gt;getDeclaringClass()-&gt;getName();
+  } else {
+    $class = false;
+  }
+
+  if ($function instanceof Zend_Server_Reflection_Function_Abstract) {
+    $method = $function-&gt;getName();
+  } else {
+    $method = $function;
+  }
+
+  $dom = new DOMDocument('1.0', 'UTF-8');
+  if ($class) {
+    $xml       = $dom-&gt;createElement($class);
+    $xmlMethod = $dom-&gt;createElement($method);
+    $xml-&gt;appendChild($xmlMethod);
+  } else {
+    $xml       = $dom-&gt;createElement($method);
+    $xmlMethod = $xml;
+  }
+  $xml-&gt;setAttribute('generator', 'zend');
+  $xml-&gt;setAttribute('version', '1.0');
+  $dom-&gt;appendChild($xml);
+
+  $xmlResponse = $dom-&gt;createElement('response');
+  $xmlMethod-&gt;appendChild($xmlResponse);
+
+  if ($exception instanceof Exception) {
+    $element = $dom-&gt;createElement('message');
+    $element-&gt;appendChild($dom-&gt;createTextNode($exception-&gt;getMessage()));
+    $xmlResponse-&gt;appendChild($element);
+    $code = $exception-&gt;getCode();
+  } elseif (!is_null($exception) || 'rest' == $function) {
+    $xmlResponse-&gt;appendChild($dom-&gt;createElement('message', 'An unknown error occured. Please try again.'));
+  } else {
+    $xmlResponse-&gt;appendChild($dom-&gt;createElement('message', 'Call to ' . $method . ' failed.'));
+  }
+
+  $xmlMethod-&gt;appendChild($xmlResponse);
+  $xmlMethod-&gt;appendChild($dom-&gt;createElement('status', 'failed'));
+
+    // Headers to send
+        if (is_null($code) || (404 != $code))
+    {
+      $this-&gt;_headers[] = 'HTTP/1.0 400 Bad Request';
+    } else {
+      $this-&gt;_headers[] = 'HTTP/1.0 404 File Not Found';
+    }
+
+    return $dom;
+}
+</code></pre>
+
+<p>}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-11-16T15:04:33.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for 1.0.3</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-11-26T16:29:56.000+0000</p> 
+        <div class="body">
+            <p>Merged to 1.0 release branch with r6944.</p>
+
+        </div>
+    </div>
+    </div>
+

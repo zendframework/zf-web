@@ -1,0 +1,197 @@
+<h2>ZF-10962: Zend_Translate_Adapter_* classes have useless private variable</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-18T09:47:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-07-28T19:44:12.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Strict Coding (strictcoding)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>All these adapters share a private variable:
+private $_data = array();</p>
+
+<p>If you look at the code, it is not used anywhere else than in the _loadTranslationData() method, which initializes it each time it is called:
+$this-&gt;_data = array();</p>
+
+<p>So it could be just a simple variable inside the method.
+And we can also see weird code like this one in Zend_Translate_Adapter_Ini:</p>
+
+<pre><code>    $this-&gt;_data = array();
+    if (!file_exists($data)) {
+        require_once 'Zend/Translate/Exception.php';
+        throw new Zend_Translate_Exception("Ini file '".$data."' not found");
+    }
+
+    $inidata = parse_ini_file($data, false);
+    if (!isset($this-&gt;_data[$locale])) {
+        $this-&gt;_data[$locale] = array();
+    }
+</code></pre>
+
+<p>why this last isset() test?
+$this-&gt;_data has just been initialized, so the condition will always be false, and the code inside will *always* be executed.</p>
+
+<p>The code for all the adapters could be simplified.
+Is there a specific reason for this?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-02-16T14:22:25.000+0000</p> 
+        <div class="body">
+            <p>And how should the xml parser return read informations when there is no variable within the object?
+Wouldn't it be useless when the adapter can not store the information anywhere?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-02-17T01:22:37.000+0000</p> 
+        <div class="body">
+            <p>I agree, so why reinitialize it at the beginning of each _loadTranslationData() call?</p>
+
+<pre class="highlight"><code>
+    protected function _loadTranslationData($filename, $locale, array $options = array())
+    {
+        $this-&gt;_data = array();
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-02-17T13:12:02.000+0000</p> 
+        <div class="body">
+            <p>Because otherwise it would add new data to existing probably broken data.
+When someone extends the class it can not be assumed that he calls this method only once at construction.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-02-18T01:22:03.000+0000</p> 
+        <div class="body">
+            <p>I understand your point, but it still doesn't explain the need for populating a private $_data variable, which is not used anywhere else in the class, and cannot be used anywhere else in the application.</p>
+
+<p>Take for example this function in Zend_Translate_Adapter_Ini:</p>
+
+<pre class="highlight"><code>
+    private $_data = array();
+
+    protected function _loadTranslationData($data, $locale, array $options = array())
+    {
+        $this-&gt;_data = array();
+        if (!file_exists($data)) {
+            require_once 'Zend/Translate/Exception.php';
+            throw new Zend_Translate_Exception("Ini file '".$data."' not found");
+        }
+
+        $inidata = parse_ini_file($data, false);
+        if (!isset($this-&gt;_data[$locale])) {
+            $this-&gt;_data[$locale] = array();
+        }
+
+        $this-&gt;_data[$locale] = array_merge($this-&gt;_data[$locale], $inidata);
+        return $this-&gt;_data;
+    }
+</code></pre>
+
+<p>It could be simplified to:</p>
+
+<pre class="highlight"><code>
+    protected function _loadTranslationData($data, $locale, array $options = array())
+    {
+        if (!file_exists($data)) {
+            require_once 'Zend/Translate/Exception.php';
+            throw new Zend_Translate_Exception("Ini file '".$data."' not found");
+        }
+
+        $inidata = parse_ini_file($data, false);
+        return array($locale =&gt; $inidata);
+    }
+</code></pre>
+
+<p>Which behaviour would be affected?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-02-18T06:27:58.000+0000</p> 
+        <div class="body">
+            <p>You said "All adapters should be simplified"... and then "The code for all the adapters could be simplified"... which implies according to what you've wrote "delete the private var $_data".
+As I said before $_data is used by all adapters which are calling a XML reader.</p>
+
+<p>Integrating your change would mean that half of the adapters are no longer working.</p>
+
+<p>The actual code allows to use the new adapters even in old ZF releases.
+We will break BC with ZF2 where such things are allowed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-02-18T08:22:50.000+0000</p> 
+        <div class="body">
+            <p>I'm sorry Thomas, I must be lost somewhere.
+Yes, the XmlTm adapter for example uses the private $_data in other methods, this justifies the need for it.
+But could you please point me out what behavior not using, or even removing this variable in the adapters that don't use it, would break?</p>
+
+<p>This variable, for most (not <em>all</em>, as you pointed out...) of the adapters is not required in the class, and is not required anywhere else.
+It seems more like a copy and paste from one adapter to the other than a choice made on purpose!</p>
+
+<p>And leads to extra, useless code:</p>
+
+<pre class="highlight"><code>
+$this-&gt;_data = array();
+if (!isset($this-&gt;_data[$locale])) {
+...
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-28T19:44:12.000+0000</p> 
+        <div class="body">
+            <p>Fixed with GH-131</p>
+
+        </div>
+    </div>
+    </div>
+

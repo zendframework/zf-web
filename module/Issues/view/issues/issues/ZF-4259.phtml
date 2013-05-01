@@ -1,0 +1,186 @@
+<h2>ZF-4259: zend http client with proxy</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-12T00:20:25.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-17T22:51:12.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                John Hopper (core.cure@gmail.com)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>not working when rediretion occurs on server. (will add more info later).
+same address works when Fireox or Explorer is used with proxy</p>
+
+<p>i made it works by changing 'write' method in Proxy.php:</p>
+
+<pre class="highlight"><code>
+if($this-&gt;negotiated){
+    $request = "{$method} {$uri-&gt;getPath()} HTTP/{$http_ver}\r\n";
+}
+else{
+    $request = "{$method} {$uri-&gt;__toString()} HTTP/{$http_ver}\r\n";
+}
+</code></pre>
+
+<p>tcpdump:</p>
+
+<p>CONNECT h1.host.com:443 HTTP/1.1
+Host: 10.10.0.1</p>
+
+<p>HTTP/1.0 200 Connection established</p>
+
+<p>CONNECT h5.host.comhttps:443 HTTP/1.1
+Host: 10.10.0.1</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2008-10-21T15:03:43.000+0000</p> 
+        <div class="body">
+            <p>Hi  -</p>
+
+<p>Can you provide a more clear scenario?</p>
+
+<p>I see you have HTTPS - does it also happen when you use regular HTTP proxy and not HTTPS ?</p>
+
+<p>Where does the redirection happen? On the proxy server or on the remote server? What is the redirection code?</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Hopper (core.cure@gmail.com) on 2008-12-09T03:29:34.000+0000</p> 
+        <div class="body">
+            <p>sorry for the delay.</p>
+
+<p>code + tcp dump follows:</p>
+
+<pre><code>require_once("Zend/Http/Client.php");
+
+$config = array(
+
+    'adapter'       =&gt; 'Zend_Http_Client_Adapter_Proxy',
+    'timeout'       =&gt; '15',
+    //'ssltransport'    =&gt; 'ssl',
+    'useragent'     =&gt; '',
+    'proxy_host'    =&gt; '10.3.0.24',
+    'proxy_port'    =&gt; '3128',
+    'proxy_user'    =&gt; '',
+    'proxy_pass'    =&gt; ''
+);
+
+$uri = "https://&lt;a rel="nofollow" href="www.sf.net/"&gt;www.sf.net/&lt;/a&gt;";
+
+    try{
+        $client = new Zend_Http_Client($uri, $config);
+        $response = $client-&gt;request();
+        $body = $response-&gt;getBody();
+        file_put_contents('proxyssl.dump', $body);
+    }
+    catch (Exception $ex){
+        echo $ex-&gt;getMessage();
+    }
+</code></pre>
+
+<p>CONNECT <a>www.sf.net:443</a> HTTP/1.1.
+Host: 10.3.0.24.
+User-agent:</p>
+
+<p>HTTP/1.0 200 Connection established.</p>
+
+<p>CONNECT sourceforge.nethttps:443 HTTP/1.1.
+Host: 10.3.0.24.
+User-agent:</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Hopper (core.cure@gmail.com) on 2008-12-09T03:39:29.000+0000</p> 
+        <div class="body">
+            <p>redirection for http works fine. tested using proxy and the same host (<a href="http://sf.net">http://sf.net</a> )</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2009-07-23T16:15:01.000+0000</p> 
+        <div class="body">
+            <p>Sorry for delaying with this - I <em>almost</em> used your patch to fix this. Please test with trunk after CS-17014.
+BTW this looks like some odd behavior of the sf.net servers because plain Apache works fine (I've been testing this for some time now).</p>
+
+<p>Actually the SF.net servers send a pretty malformed redirection header (this is a dump of the response from sf.net):</p>
+
+<pre class="highlight"><code>
+HTTP/1.0 302 Found
+Location: <a href="http://sourceforge.nethttps//www.sf.net:443/">http://sourceforge.nethttps://www.sf.net:443/</a>
+Server: BigIP
+Connection: close
+Content-Length: 0
+</code></pre>
+
+<p>As you can see something is buggy either in their code, or with their servers.. But since you say this doesn't happen with Firefox, I assumed this is something we can probably do better :)</p>
+
+<p>Thanks for reporting!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2009-07-24T06:44:31.000+0000</p> 
+        <div class="body">
+            <p>This is indeed the difference, and this problem was fixed in SVN trunk. You can test with the latest SVN checkout or wait for the next release which will probably include this fix.</p>
+
+<p>Thanks!</p>
+
+<p>Shahar.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-11-17T22:51:11.000+0000</p> 
+        <div class="body">
+            <p>I set fix version. I find this at SVN r17118 in 1.9 branch.</p>
+
+        </div>
+    </div>
+    </div>
+

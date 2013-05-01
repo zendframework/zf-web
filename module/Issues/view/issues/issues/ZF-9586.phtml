@@ -1,0 +1,486 @@
+<h2>ZF-9586: A NonArray Subform with equal Name like a chain segment from a previous attached SubForm overwrites data in getValidValues</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-01T08:24:00.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-16T12:42:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8078">ZF-8078</a></li>
+            <li><a href="/issues/browse/ZF-8097">ZF-8097</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>While fixing getErrors i had a closer look at [ZF-5222] again,
+as Vivek Chandran states there, mixing !isArray() SubForm with
+SubForms and interferencing Name and elementsBelongTo segments,
+data will be stripped because of array_merge or not merging at all.</p>
+
+<pre class="highlight"><code>
+$sub1-&gt;setElementsBelongTo('foo[bar]');
+$sub2-&gt;setIsArray(false);
+$form-&gt;addSubForm($sub1, 'bar')
+     -&gt;addSubForm($sub2, 'foo');
+...
+$values = array_merge($values, $this-&gt;_attachToArray($sub1-&gt;getValidValues(...), 'foo[bar]'));
+// $values === array('foo' =&gt; array('bar' =&gt; ... ))
+...
+// next cycle
+if (!$sub2-&gt;isArray()) {
+    $values['foo'] = $sub2-&gt;getValidValues(...);
+    // o.O
+}
+</code></pre>
+
+<pre class="highlight"><code>
+$sub1-&gt;setIsArray(false);
+$sub2-&gt;setElementsBelongTo('foo[bar]');
+$form-&gt;addSubForm($sub1, 'foo')
+     -&gt;addSubForm($sub2, 'bar');
+...
+if (!$sub1-&gt;isArray()) {
+    $values['foo'] = $sub1-&gt;getValidValues(...);
+    // $values === array('foo' =&gt; array('elem' =&gt; 'thisShouldBeKept'))
+}
+// next cycle
+$values = array_merge($values, $this-&gt;_attachToArray($sub2-&gt;getValidValues(...), 'foo[bar]'));
+// $values === array('foo' =&gt; array( 'elem' =&gt; 'thrownAway' ))
+...
+
+</code></pre>
+
+<p>To check against similar failures in this parents previous SubTasks
+i updated their tests to use the new Setup as well, however getValidValues
+is the only one to fail from the commited patches.</p>
+
+<p>before Patch</p>
+
+<pre class="highlight"><code>
+...
+        foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+            if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
+                $tmp = $form-&gt;getValidValues($data[$key]);
+                if (!empty($tmp)) {
+                    $values[$key] = $tmp;
+                }
+            } else {
+                $tmp = $form-&gt;getValidValues($data, true);
+                if (!empty($tmp)) {
+                    $fValues = $this-&gt;_attachToArray($tmp, $form-&gt;getElementsBelongTo());
+                    $values = array_merge($values, $fValues);
+                }
+            }
+        }
+...
+
+</code></pre>
+
+<p>after Patch</p>
+
+<pre class="highlight"><code>
+...
+        foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+            $merge = array();
+            if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
+                $tmp = $form-&gt;getValidValues($data[$key]);
+                if (!empty($tmp)) {
+                    $merge[$key] = $tmp;
+                }
+            } else {
+                $tmp = $form-&gt;getValidValues($data, true);
+                if (!empty($tmp)) {
+                    $merge = $this-&gt;_attachToArray($tmp, $form-&gt;getElementsBelongTo());
+                }
+            }
+            $values = array_merge_recursive($values, $merge);
+        }
+...
+
+</code></pre>
+
+<p>The New Test Setup</p>
+
+<pre class="highlight"><code>
+    public function _setup9350()
+    {
+        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')            // foo[foo]
+                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo') // foo[foo][foo]
+                        -&gt;foo-&gt;setIsArray(false)
+                             -&gt;addElement('text', 'foo')             // foo[foo][foo][foo]
+                             -&gt;foo-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('foo Value'));
+
+        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'baz') // foo[foo][baz]
+                   -&gt;baz-&gt;setIsArray(false)
+                        -&gt;addSubForm(new Zend_Form_SubForm(), 'baz')
+                        -&gt;baz-&gt;setElementsBelongTo('baz[baz]')       // foo[foo][baz][baz][baz]
+                             -&gt;addElement('text', 'baz')             // foo[foo][baz][baz][baz][baz]
+                             -&gt;baz-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('baz Value'));
+
+        // This is appending a different named SubForm and setting
+        // elementsBelongTo to a !isArray() Subform name from same level
+        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'quo')
+                        -&gt;quo-&gt;setElementsBelongTo('foo')            // foo[foo][foo] !!!!
+                             -&gt;addElement('text', 'quo')             // foo[foo][foo][quo]
+                             -&gt;quo-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('quo Value'));
+        
+        // This is setting elementsBelongTo point into the middle of 
+        // a chain of another SubForms elementsBelongTo
+        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'duh')
+                   -&gt;duh-&gt;setElementsBelongTo('foo[zoo]')            // foo[zoo] !!!!
+                        -&gt;addElement('text', 'zoo')                  // foo[zoo][zoo]
+                        -&gt;zoo-&gt;addValidator('Identical',
+                                            false,
+                                            array('zoo Value'));
+
+        // This is !isArray SubForms Name equal to the last segment
+        // of another SubForms elementsBelongTo
+        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'iek')
+                   -&gt;iek-&gt;setElementsBelongTo('foo')                 // foo !!!!
+                        -&gt;addSubForm(new Zend_Form_SubForm(), 'zoo') // foo[zoo] !!!!
+                        -&gt;zoo-&gt;setIsArray(false)
+                             -&gt;addElement('text', 'iek')             // foo[zoo][iek]
+                             -&gt;iek-&gt;addValidator('Identical',
+                                                 false,
+                                                 array('iek Value'));
+
+        $data = array('valid'   =&gt; array('foo' =&gt;
+                                         array('foo' =&gt;
+                                               array('foo' =&gt;
+                                                     array('foo' =&gt; 'foo Value',
+                                                           'quo' =&gt; 'quo Value'),
+                                                     'baz' =&gt; 
+                                                     array('baz' =&gt; 
+                                                           array('baz' =&gt;
+                                                                 array('baz' =&gt; 'baz Value')))),
+                                               'zoo' =&gt;
+                                               array('zoo' =&gt; 'zoo Value',
+                                                     'iek' =&gt; 'iek Value'))),
+                      'invalid' =&gt; array('foo' =&gt;
+                                         array('foo' =&gt;
+                                               array('foo' =&gt;
+                                                     array('foo' =&gt; 'foo Invalid',
+                                                           'quo' =&gt; 'quo Value'),
+                                                     'baz' =&gt; 
+                                                     array('baz' =&gt; 
+                                                           array('baz' =&gt;
+                                                                 array('baz' =&gt; 'baz Value')))),
+                                               'zoo' =&gt;
+                                               array('zoo' =&gt; 'zoo Value',
+                                                     'iek' =&gt; 'iek Invalid'))),
+                      'partial' =&gt; array('foo' =&gt;
+                                         array('foo' =&gt;
+                                               array('baz' =&gt; 
+                                                     array('baz' =&gt; 
+                                                           array('baz' =&gt;
+                                                                 array('baz' =&gt; 'baz Value'))),
+                                                    'foo' =&gt; 
+                                                     array('quo' =&gt; 'quo Value')),
+                                               'zoo' =&gt;
+                                               array('zoo' =&gt; 'zoo Value'))));
+        return $data;
+    }
+
+    public function testGetValidValuesWithElementsBelongTo()
+    {
+        $data = $this-&gt;_setup9350();
+        $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+    }
+</code></pre>
+
+<p>This patch fixes the issue and updates the Unit Tests of previous SubTasks
+within this group as well, to make sure they do not suffer from similar
+issues.</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php    (Revision 21732)
++++ tests/Zend/Form/FormTest.php    (Arbeitskopie)
+@@ -1473,106 +1473,118 @@
+         $this-&gt;assertTrue($this-&gt;form-&gt;isValid($data));
+     }
+ 
+-    public function testIsValidEqualSubFormAndElementName()
+-    {
+-        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+-                   -&gt;foo-&gt;addElement('text', 'foo')
+-                        -&gt;foo-&gt;setRequired(true)
+-                             -&gt;addValidator('Identical',
+-                                            false,
+-                                            array('Foo Value'));
+-        $foo = array('foo' =&gt;
+-                     array('foo' =&gt; 'Foo Value'));
+-
+-        $this-&gt;assertTrue($this-&gt;form-&gt;isValid($foo));
+-
+-        $this-&gt;form-&gt;foo-&gt;setIsArray(false);
+-
+-        $this-&gt;assertTrue($this-&gt;form-&gt;isValid($foo));
+-    } 
+-
+-    public function testIsValidPartialEqualSubFormAndElementName()
+-    {
+-        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+-                   -&gt;foo-&gt;addElement('text', 'foo')
+-                        -&gt;foo-&gt;setRequired(true)
+-                             -&gt;addValidator('Identical',
+-                                            false,
+-                                            array('Foo Value'));
+-        $foo = array('foo' =&gt;
+-                     array('foo' =&gt; 'Foo Value'));
+-
+-        $this-&gt;assertTrue($this-&gt;form-&gt;isValidPartial($foo));
+-
+-        $this-&gt;form-&gt;foo-&gt;setIsArray(false);
+-
+-        $this-&gt;assertTrue($this-&gt;form-&gt;isValidPartial($foo));
+-    } 
+-
+-    public function testPopulateWithElementsBelongTo()
+-    {
+-        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+-                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')
+-                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+-                        -&gt;foo-&gt;setIsArray(false)
+-                             -&gt;addElement('text', 'foo');
+-
+-        $foo = array('foo' =&gt;
+-                     array('foo' =&gt;
+-                           array('foo' =&gt;
+-                                 array('foo' =&gt; 'foo Value'))));
+-
+-        $this-&gt;form-&gt;setView($this-&gt;getView())
+-                   -&gt;populate($foo);
+-
+-        $this-&gt;assertRegexp('/value=.foo Value./', $this-&gt;form-&gt;render());
+-    }
+-
+     public function _setup9350()
+     {
+         $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
+-                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')
+-                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
++                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')            // foo[foo]
++                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo') // foo[foo][foo]
+                         -&gt;foo-&gt;setIsArray(false)
+-                             -&gt;addElement('text', 'foo')
++                             -&gt;addElement('text', 'foo')             // foo[foo][foo][foo]
+                              -&gt;foo-&gt;addValidator('Identical',
+                                                  false,
+                                                  array('foo Value'));
+ 
+-        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'baz')
++        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'baz') // foo[foo][baz]
+                    -&gt;baz-&gt;setIsArray(false)
+                         -&gt;addSubForm(new Zend_Form_SubForm(), 'baz')
+-                        -&gt;baz-&gt;setElementsBelongTo('baz[baz]')
+-                             -&gt;addElement('text', 'baz')
++                        -&gt;baz-&gt;setElementsBelongTo('baz[baz]')       // foo[foo][baz][baz][baz]
++                             -&gt;addElement('text', 'baz')             // foo[foo][baz][baz][baz][baz]
+                              -&gt;baz-&gt;addValidator('Identical',
+                                                  false,
+                                                  array('baz Value'));
+ 
+-        $data = array('valid' =&gt; array('foo' =&gt;
+-                                       array('foo' =&gt;
+-                                             array('foo' =&gt;
+-                                                   array('foo' =&gt; 'foo Value'),
+-                                                   'baz' =&gt; 
+-                                                   array('baz' =&gt; 
+-                                                         array('baz' =&gt;
+-                                                               array('baz' =&gt; 'baz Value')))))),
++        // This is appending a different named SubForm and setting
++        // elementsBelongTo to a !isArray() Subform name from same level
++        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'quo')
++                        -&gt;quo-&gt;setElementsBelongTo('foo')            // foo[foo][foo] !!!!
++                             -&gt;addElement('text', 'quo')             // foo[foo][foo][quo]
++                             -&gt;quo-&gt;addValidator('Identical',
++                                                 false,
++                                                 array('quo Value'));
++        
++        // This is setting elementsBelongTo point into the middle of 
++        // a chain of another SubForms elementsBelongTo
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'duh')
++                   -&gt;duh-&gt;setElementsBelongTo('foo[zoo]')            // foo[zoo] !!!!
++                        -&gt;addElement('text', 'zoo')                  // foo[zoo][zoo]
++                        -&gt;zoo-&gt;addValidator('Identical',
++                                            false,
++                                            array('zoo Value'));
++
++        // This is !isArray SubForms Name equal to the last segment
++        // of another SubForms elementsBelongTo
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'iek')
++                   -&gt;iek-&gt;setElementsBelongTo('foo')                 // foo !!!!
++                        -&gt;addSubForm(new Zend_Form_SubForm(), 'zoo') // foo[zoo] !!!!
++                        -&gt;zoo-&gt;setIsArray(false)
++                             -&gt;addElement('text', 'iek')             // foo[zoo][iek]
++                             -&gt;iek-&gt;addValidator('Identical',
++                                                 false,
++                                                 array('iek Value'));
++
++        $data = array('valid'   =&gt; array('foo' =&gt;
++                                         array('foo' =&gt;
++                                               array('foo' =&gt;
++                                                     array('foo' =&gt; 'foo Value',
++                                                           'quo' =&gt; 'quo Value'),
++                                                     'baz' =&gt; 
++                                                     array('baz' =&gt; 
++                                                           array('baz' =&gt;
++                                                                 array('baz' =&gt; 'baz Value')))),
++                                               'zoo' =&gt;
++                                               array('zoo' =&gt; 'zoo Value',
++                                                     'iek' =&gt; 'iek Value'))),
+                       'invalid' =&gt; array('foo' =&gt;
+                                          array('foo' =&gt;
+                                                array('foo' =&gt;
+-                                                     array('foo' =&gt; 'foo Invalid'),
++                                                     array('foo' =&gt; 'foo Invalid',
++                                                           'quo' =&gt; 'quo Value'),
+                                                      'baz' =&gt; 
+                                                      array('baz' =&gt; 
+                                                            array('baz' =&gt;
+-                                                                 array('baz' =&gt; 'baz Value')))))),
++                                                                 array('baz' =&gt; 'baz Value')))),
++                                               'zoo' =&gt;
++                                               array('zoo' =&gt; 'zoo Value',
++                                                     'iek' =&gt; 'iek Invalid'))),
+                       'partial' =&gt; array('foo' =&gt;
+-                                       array('foo' =&gt;
+-                                             array('baz' =&gt; 
+-                                                   array('baz' =&gt; 
+-                                                         array('baz' =&gt;
+-                                                               array('baz' =&gt; 'baz Value')))))));
++                                         array('foo' =&gt;
++                                               array('baz' =&gt; 
++                                                     array('baz' =&gt; 
++                                                           array('baz' =&gt;
++                                                                 array('baz' =&gt; 'baz Value'))),
++                                                    'foo' =&gt; 
++                                                     array('quo' =&gt; 'quo Value')),
++                                               'zoo' =&gt;
++                                               array('zoo' =&gt; 'zoo Value'))));
+         return $data;
+     }
+ 
++    public function testIsValidEqualSubFormAndElementName()
++    {
++        $data = $this-&gt;_setup9350();
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValid($data['valid']));
++    } 
++
++    public function testIsValidPartialEqualSubFormAndElementName()
++    {
++        $data = $this-&gt;_setup9350();
++        $this-&gt;assertTrue($this-&gt;form-&gt;isValidPartial($data['partial']));
++    } 
++
++    public function testPopulateWithElementsBelongTo()
++    {
++        $data = $this-&gt;_setup9350();
++
++        $this-&gt;form-&gt;setView($this-&gt;getView())-&gt;populate($data['valid']);
++        $html = $this-&gt;form-&gt;render();
++
++        $this-&gt;assertRegexp('/value=.foo Value./', $html);
++        $this-&gt;assertRegexp('/value=.baz Value./', $html);
++        $this-&gt;assertRegexp('/value=.quo Value./', $html);
++        $this-&gt;assertRegexp('/value=.zoo Value./', $html);
++        $this-&gt;assertRegexp('/value=.iek Value./', $html);
++    }
++
+     public function testGetValidValuesWithElementsBelongTo()
+     {
+         $data = $this-&gt;_setup9350();
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php   (Revision 21732)
++++ library/Zend/Form.php   (Arbeitskopie)
+@@ -1343,18 +1343,19 @@
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
++            $merge = array();
+             if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
+                 $tmp = $form-&gt;getValidValues($data[$key]);
+                 if (!empty($tmp)) {
+-                    $values[$key] = $tmp;
++                    $merge[$key] = $tmp;
+                 }
+             } else {
+                 $tmp = $form-&gt;getValidValues($data, true);
+                 if (!empty($tmp)) {
+-                    $fValues = $this-&gt;_attachToArray($tmp, $form-&gt;getElementsBelongTo());
+-                    $values = array_merge($values, $fValues);
++                    $merge = $this-&gt;_attachToArray($tmp, $form-&gt;getElementsBelongTo());
+                 }
+             }
++            $values = array_merge_recursive($values, $merge);
+         }
+         if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray() &amp;&amp; !empty($values)) {
+             $values = $this-&gt;_attachToArray($values, $this-&gt;getElementsBelongTo());
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-04-02T00:02:02.000+0000</p> 
+        <div class="body">
+            <p>Updated Unit Test</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-16T12:42:04.000+0000</p> 
+        <div class="body">
+            <p>Patch applied to trunk and 1.10 release branch.</p>
+
+        </div>
+    </div>
+    </div>
+

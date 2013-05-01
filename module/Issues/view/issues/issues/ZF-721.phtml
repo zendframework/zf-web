@@ -1,0 +1,177 @@
+<h2>ZF-721: RFC822 Dates are not localized or GMT, and GMT RFC 822 dates are rejected by setArpa()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-01-04T21:58:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.8.0 (21/Feb/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Gavin (gavin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When I try code like this:</p>
+
+<pre class="highlight"><code>
+$locale = new Zend_Locale('de_AT');
+$date = new Zend_Date(false,false,false,$locale);
+echo $date-&gt;get(Zend_Date::RFC_822);
+
+$locale = new Zend_Locale('en_US');
+$date = new Zend_Date(false,false,false,$locale);
+echo $date-&gt;get(Zend_Date::RFC_822);
+</code></pre>
+
+<p>I get exactly the same output, with the timezone localized to Europe (GMT +01:00).</p>
+
+<p>I see code like the following in the unit tests:</p>
+
+<pre class="highlight"><code>
+$result = $date-&gt;setArpa('Sat, 03 May 01 00:00:00 +0100');
+$this-&gt;assertSame($result-&gt;get(Zend_Date::RFC_822),'Thu, 03 May 01 01:00:00 +0200');
+</code></pre>
+
+<p>I don't understand the second line of code.  If we set a particular date, and then fetch it,
+shouldn't the result be identical to what was just previously set?</p>
+
+<p>I think we should either produce dates with a GMT zone, or at least with a zone offset
+corresponding to the local time() using something like _gmtDifference().</p>
+
+<p><a href="http://www.w3.org/Protocols/rfc822/#z28">http://www.w3.org/Protocols/rfc822/#z28</a> - BNF</p>
+
+<p>We are in a Web environment, so I would expect RFC 822 dates to resemble something like:</p>
+
+<pre class="highlight"><code>
+  HTTP/1.1 200 OK
+  Date: Fri, 05 Jan 2007 03:35:53 GMT
+</code></pre>
+
+<p>by default.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-01-05T12:48:57.000+0000</p> 
+        <div class="body">
+            <p>I am still undecided about the value of having RFC 822 dates with a zone component localized to the timezone identified by the _Locale property of an instance of Zend_Date.  Accurately determining a timezone for a particular locale seems nearly impossible, since many locales have multiple timezones.</p>
+
+<p>However, determining the time offset using:
+```</p>
+
+<p>seems reliable, although the server's local time might not be the timezone desired by the developer and might not be related to the _Locale property of any particular instance of Zend_Date.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-01-05T14:00:24.000+0000</p> 
+        <div class="body">
+            <p>Having a look at the specification
+<a href="http://www.ietf.org/rfc/rfc0822.txt">http://www.ietf.org/rfc/rfc0822.txt</a>
+at page 25 you see the specification of the RFC 822 date.</p>
+
+<p>And the timezone offset is explicitly specified... it's also returned by PHP when you use date(DATE_RFC822);
+Even some browsers return a timezone difference instead of GMT.</p>
+
+<p>The locale itself is not given for determinating the timezone offset... it's passed for the new date object to set the locale of this object. So you can extract a localized date of a RFC date for example.</p>
+
+<p>related to this code
+<code>
+$result = $date-&gt;setArpa('Sat, 03 May 01 00:00:00 +0100');
+$this-&gt;assertSame($result-&gt;get(Zend_Date::RFC_822),'Thu, 03 May 01 01:00:00 +0200');
+</code></p>
+
+<p>In general this date would be false... because the 03.May 2001 is a thursday and not a saturday...
+also the timezone offset of 1 hour is wrong, because we have summertime at this date... so +1 becomes +2.
+setArpa uses the timezone which is set for the script. You can set your timezone offset with
+php.ini, by using date_timezone_set or by using Zend_Date-&gt;setTimeZone.</p>
+
+<p>And the timezone for all tests is set to Europe/Paris.</p>
+
+<p>The input is only fixed, otherwise we would have to throw an exception because the date is illegal.</p>
+
+<p>Btw: 
+The timezone offset is sometimes usefull... so you can determinate where in the world a user is located... some will set a different language, but noone will set a different timezone for his client ;-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-01-06T04:46:48.000+0000</p> 
+        <div class="body">
+            <p>Also to mention:</p>
+
+<p>The RFC_822 parameter was included because of PHP's new date constant DATE_RFC822</p>
+
+<p>But PHP does also not produce RFC conform output.</p>
+
+<p>setting the timezone to Europe/Paris produces a timezone setting of CET for 
+date(DATE_RFC822);</p>
+
+<p>But CET is not supported by RFC 822...</p>
+
+<p>On the other side +0000 as Zend_Date produces it, is supported by RFC 822...
+The question now is how we should behave.</p>
+
+<p>Parsing input RFC conform, or behave like PHP ??</p>
+
+<p>I delay this issue to 0.8 because we need to clarify this with the PHP developer team.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-01-13T12:58:28.000+0000</p> 
+        <div class="body">
+            <p>Work has been stopped until response from PHP devteam related to PHP itself not RFC 822 conform</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-02-04T15:40:26.000+0000</p> 
+        <div class="body">
+            <p>Fixed with SVN 3190 for the I18N branch.</p>
+
+<p>Remember:</p>
+
+<p>PHP itself gives wrong otput for DATE_RFC822 until PHP 5.2.2. So PHP's and the frameworks outputs are not equal... the Framework outputs the correct RFC822 string.</p>
+
+        </div>
+    </div>
+    </div>
+

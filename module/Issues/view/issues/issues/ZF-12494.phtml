@@ -1,0 +1,113 @@
+<h2>ZF-12494: Zend_Session error handlers should test current error reporting level (for @-silenced-functions)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2013-01-03T02:22:03.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-04-05T16:07:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Claude Duvergier (cduv)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Somewhere in my code I'm storing a {{Zend_Ldap_Node}} into Session. I've just upgraded this application from ZF 1.10 to ZF 1.12 and since then I'm getting
+bq. Uncaught exception 'Zend_Session_Exception' with message 'session has already been started by session.auto-start or session_start()'"</p>
+
+<p>h3. Errors</p>
+
+<p>Call stack is complaining about an already started Session:
+||#||Time||Memory||Function||Location||
+|1|0.0061|343536|{main}( )|..\index.php:0|
+|2|0.2549|11626392|Zend_Application-&gt;run( )|..\index.php:38|
+|3|0.2549|11626392|Zend_Application_Bootstrap_Bootstrap-&gt;run( )|..\Application.php:366|
+|4|0.2552|11626448|Zend_Controller_Front-&gt;dispatch( ???, ??? )|..\Bootstrap.php:97|
+|5|0.4126|15116600|Zend_Controller_Plugin_Broker-&gt;preDispatch( ??? )|..\Front.php:941|
+|6|0.4162|15164720|Zend_Controller_Plugin_ErrorHandler-&gt;preDispatch( ??? )|..\Broker.php:309|
+|7|0.4163|15164720|Zend_Controller_Plugin_ErrorHandler-&gt;_handleError( ??? )|..\ErrorHandler.php:212|</p>
+
+<p>But variables in local scope (#7) (xDebug infos) shows a {{Zend_Session_Exception}} with a message related to {{unserialize()}} and {{Zend_Ldap_Converter::fromLdapUnserialize()}}:
+{quote}
+Zend_Session::start() - D:_ Libraries\Zend Framework 1.12.1\library\Zend\Ldap\Converter.php(Line:395): Error #8 unserialize() <a href="http://php.net/manual/language.operators.errorcontrol.php"></a><a href="function.unserialize">function.unserialize</a>]: Error at offset 0 of 174474 bytes
+D:_ Libraries\Zend Framework 1.12.1\library\Zend\Ldap\Converter.php(Line:395): Error #8 unserialize() [<a href="function.unserialize">function.unserialize</a>]: Error at offset 0 of 174474 bytes
+D:_ Libraries\Zend Framework 1.12.1\library\Z'...
+{quote}</p>
+
+<p>h3. Code analysis</p>
+
+<p>After some deep tests I've determined that the error handlers that {{Zend_Session::start()}} uses (namely {{Zend_Session_Exception::handleSessionStartError()}} are <em>fired</em> when {{Zend_Ldap_Converter::fromLdapUnserialize()}} tries to unserialize a value despite the whole unserialize-failure management in place (<em>id.</em> ignoring {{unserialize()}} error messages with the @ error control operator).
+Then a {{Zend_Session_Exception}} is thrown by {{Zend_Session::start()}} with the {{Zend_Session_Exception::$sessionStartError}} message that {{unserialize()}} sent.</p>
+
+<p>h3. Reproduction code</p>
+
+<p>With LDAP involved, I thought it would be hard to reproduce, but the problem would occurs anytime a <em>@-silenced</em> function/method called during {{Zend_Session}} is in error.
+I've set up a whole new ZF project with ZF CLI Tool and tried to reproduce the scenario as simply as possible using a model implementing {{__wakeup()}} and a {{Zend_Controller_Action}} to test it.
+See code on Gist: <a href="https://gist.github.com/4440257">https://gist.github.com/4440257</a></p>
+
+<p>h3. Fix proposal</p>
+
+<p>According to [<em>Error Control Operators</em> PHP documentation, custom error handlers are expected to be called in such cases, but <a href="http://php.net/manual/function.error-reporting.php">{{error_reporting()}}</a> can be used to test if the error was supposed to be ignored (was preceded by @).</p>
+
+<p>See patch proposal on Gist: <a href="https://gist.github.com/4440268">https://gist.github.com/4440268</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Claude Duvergier (cduv) on 2013-01-03T02:31:21.000+0000</p> 
+        <div class="body">
+            <p>Added gist link to reproduction code and fix proposal.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Claude Duvergier (cduv) on 2013-01-03T13:32:32.000+0000</p> 
+        <div class="body">
+            <p>As advised on IRC channel #zftalk.dev, a possible workaround is to silence the Zend_Session Exception itself by calling {{Zend_Session::setOptions(array('throw_startup_exceptions' =&gt; 0))}} prior to any {{Zend_Session::start()}}.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2013-04-05T16:07:04.000+0000</p> 
+        <div class="body">
+            <p>This issue has been closed on Jira and moved to GitHub for issue tracking.  To continue following the resolution of this issues, please visit: <a href="https://github.com/zendframework/zf1/issues/44">https://github.com/zendframework/zf1/issues/44</a></p>
+
+        </div>
+    </div>
+    </div>
+

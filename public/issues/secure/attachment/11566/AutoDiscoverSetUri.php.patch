@@ -1,0 +1,231 @@
+Index: .
+===================================================================
+--- .	(revision 11708)
++++ .	(working copy)
+@@ -28,7 +28,7 @@
+ 
+ /**
+  * Zend_Soap_AutoDiscover
+- * 
++ *
+  * @category   Zend
+  * @package    Zend_Soap
+  */
+@@ -52,18 +52,56 @@
+      * @var boolean
+      */
+     private $_extractComplexTypes;
+-    
++
++    /**
++     * Url where the WSDL file will be available at.
++     *
++     * @var WSDL Uri
++     */
++    private $_uri;
++
+     /**
+      * Constructor
+-     * 
+-     * @param boolean $extractComplexTypes
++     *
++     * @param boolean         $extractComplexTypes
++     * @param string|Zend_Uri $uri
+      */
+-    public function __construct($extractComplexTypes = true)
++    public function __construct($extractComplexTypes = true, $uri=null)
+     {
+         $this->_reflection = new Zend_Server_Reflection();
+         $this->_extractComplexTypes = $extractComplexTypes;
++
++        if($uri !== null) {
++            $this->setUri($uri);
++        }
++    }
++
++    /**
++     * Set the location at which the WSDL file will be availabe.
++     *
++     * @todo   This is a private method due to problems in communication with WSDL.
++     * @todo   setUri has to be called before setClass/setFunction
++     * @param  Zend_Uri|string $uri
++     * @return Zend_Soap_AutoDiscover
++     */
++    private function setUri($uri)
++    {
++        if(is_string($uri)) {
++            $uri = Zend_Uri::factory($uri);
++        } else if(!($uri instanceof Zend_Uri)) {
++            require_once "Zend/Soap/AutoDiscover/Exception.php";
++            throw new Zend_Soap_AutoDiscover_Exception("No uri given to Zend_Soap_AutoDiscover::setUri as string or Zend_Uri instance.");
++        }
++        $this->_uri = $uri;
++
++        // change uri in WSDL file also if existant
++        if($this->_wsdl instanceof Zend_Soap_Wsdl) {
++            $this->_wsdl->setUri($uri);
++        }
++
++        return $this;
+     }
+-    
++
+     /**
+      * Set the Class the SOAP server will use
+      *
+@@ -73,13 +111,17 @@
+      */
+     public function setClass($class, $namespace = '', $argv = null)
+     {
+-        $uri = Zend_Uri::factory('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME']);
++        if($this->_uri instanceof Zend_Uri) {
++            $uri = $this->_uri;
++        } else {
++            $uri = Zend_Uri::factory('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME']);
++        }
+ 
+         $wsdl = new Zend_Soap_Wsdl($class, $uri, $this->_extractComplexTypes);
+-        
++
+         $port = $wsdl->addPortType($class . 'Port');
+         $binding = $wsdl->addBinding($class . 'Binding', 'tns:' .$class. 'Port');
+-        
++
+         $wsdl->addSoapBinding($binding, 'rpc');
+         $wsdl->addService($class . 'Service', $class . 'Port', 'tns:' . $class . 'Binding', $uri);
+         foreach ($this->_reflection->reflectClass($class)->getMethods() as $method) {
+@@ -91,7 +133,7 @@
+                 //$wsdl->addDocumentation($portOperation, $desc);
+             }
+             /* </wsdl:portType>'s */
+-            
++
+             $this->_functions[] = $method->getName();
+ 
+             foreach ($method->getPrototypes() as $prototype) {
+@@ -115,7 +157,7 @@
+         }
+         $this->_wsdl = $wsdl;
+     }
+-    
++
+     /**
+      * Add a Single or Multiple Functions to the WSDL
+      *
+@@ -127,12 +169,16 @@
+         static $port;
+         static $operation;
+         static $binding;
+-        
++
+         if (!is_array($function)) {
+             $function = (array) $function;
+         }
+-        
+-        $uri = Zend_Uri::factory('http://'  .$_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME']);
++
++        if($this->_uri instanceof Zend_Uri) {
++            $uri = $this->_uri;
++        } else {
++            $uri = Zend_Uri::factory('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME']);
++        }
+ 
+         if (!($this->_wsdl instanceof Zend_Soap_Wsdl)) {
+             $parts = explode('.', basename($_SERVER['SCRIPT_NAME']));
+@@ -138,10 +184,10 @@
+             $parts = explode('.', basename($_SERVER['SCRIPT_NAME']));
+             $name = $parts[0];
+             $wsdl = new Zend_Soap_Wsdl($name, $uri, $this->_extractComplexTypes);
+-            
++
+             $port = $wsdl->addPortType($name . 'Port');
+             $binding = $wsdl->addBinding($name . 'Binding', 'tns:' .$name. 'Port');
+-            
++
+             $wsdl->addSoapBinding($binding, 'rpc');
+             $wsdl->addService($name . 'Service', $name . 'Port', 'tns:' . $name . 'Binding', $uri);
+         } else {
+@@ -147,7 +193,7 @@
+         } else {
+             $wsdl = $this->_wsdl;
+         }
+-        
++
+         foreach ($function as $func) {
+             $method = $this->_reflection->reflectFunction($func);
+             foreach ($method->getPrototypes() as $prototype) {
+@@ -169,7 +215,7 @@
+                     //$wsdl->addDocumentation($portOperation, $desc);
+                 }
+                    /* </wsdl:portType>'s */
+-            
++
+                 /* <wsdl:binding>'s */
+                 $operation = $wsdl->addBindingOperation($binding, $method->getName(),  array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"), array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"));
+                 $wsdl->addSoapOperation($binding, $uri->getUri() . '#' .$method->getName());
+@@ -174,9 +220,9 @@
+                 $operation = $wsdl->addBindingOperation($binding, $method->getName(),  array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"), array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"));
+                 $wsdl->addSoapOperation($binding, $uri->getUri() . '#' .$method->getName());
+                 /* </wsdl:binding>'s */
+-            
++
+                 $this->_functions[] = $method->getName();
+-                
++
+                 // We will only add one prototype
+                 break;
+             }
+@@ -183,7 +229,7 @@
+         }
+         $this->_wsdl = $wsdl;
+     }
+-    
++
+     /**
+      * Action to take when an error occurs
+      *
+@@ -193,9 +239,9 @@
+      */
+     public function fault($fault = null, $code = null)
+     {
+-        
++
+     }
+-    
++
+     /**
+      * Handle the Request
+      *
+@@ -208,7 +254,7 @@
+         }
+         $this->_wsdl->dump();
+     }
+-    
++
+     /**
+      * Return an array of functions in the WSDL
+      *
+@@ -216,9 +262,9 @@
+      */
+     public function getFunctions()
+     {
+-        return $this->_functions;    
++        return $this->_functions;
+     }
+-    
++
+     /**
+      * Load Functions
+      *
+@@ -227,9 +273,9 @@
+      */
+     public function loadFunctions($definition)
+     {
+-        
++
+     }
+-    
++
+     /**
+      * Set Persistance
+      *

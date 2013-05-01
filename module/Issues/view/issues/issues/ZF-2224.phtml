@@ -1,0 +1,202 @@
+<h2>ZF-2224: Behavior of Zend_Validate_Abstract::setMessage() and Zend_Validate_EmailAddress doesn't work as expected</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-11-21T10:08:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-16T14:05:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.1 (12/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ulrich Berkmüller (thetiger2k)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10690">ZF-10690</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In the following scenario, i want to check an email address for validity and show the user only a single message that the email address which was entered is invalid.
+(this validator was used in combination with Zend_Filter_Input where the 'messages' =&gt; '...' key in the array is ignored in that case)</p>
+
+<pre class="literal">
+        $emailToCheck = 'foo@bar.com)'; // note the ')'
+
+        $emailValidator = new Zend_Validate_EmailAddress();
+        $emailValidator-&gt;setMessage('Please enter a valid email address.');
+
+        $valid = $emailValidator-&gt;isValid($emailToCheck);
+        var_dump($valid);
+        if (!$valid) {
+            var_dump($emailValidator-&gt;getMessages());
+        }
+</pre>
+
+<p>I didn't set any key for the messages so I expected that all error messages are set to my specific error message but when I looked at the implementation of Zend_Validate_Abstract::setMessage(), only the first message key gets that message:</p>
+
+<pre class="literal">
+public function setMessage($messageString, $messageKey = null)
+{
+        if ($messageKey === null) {
+            $keys = array_keys($this-&gt;_messageTemplates);
+            $messageKey = current($keys);
+        }
+        [...]
+}
+</pre>
+
+<p>So I would expect that I can set all messages to my defined error message but neither setMessage() nor setMessages() has this implemented.</p>
+
+<p>The next problem is located in the Zend_Validate_EmailAddress validator, where the hostname validator passes all messages and errors to the  to Zend_Validate_EmailAddress validator:</p>
+
+<pre class="literal">
+        $hostnameResult = $this-&gt;hostnameValidator-&gt;isValid($this-&gt;_hostname);
+        if (!$hostnameResult) {
+            $this-&gt;_error(self::INVALID_HOSTNAME);
+
+            // Get messages and errors from hostnameValidator
+            foreach ($this-&gt;hostnameValidator-&gt;getMessages() as $message) {
+                $this-&gt;_messages[] = $message;
+            }
+            foreach ($this-&gt;hostnameValidator-&gt;getErrors() as $error) {
+                $this-&gt;_errors[] = $error;
+            }
+        }
+</pre>
+
+<p>There is no possibility to break the chain at any place to only get one single user defined error message when the hostname was invalid.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-29T09:28:00.000+0000</p> 
+        <div class="body">
+            <p>Each validation class can emit multiple messages, each of which corresponding to a cause for validation failure. A validation failure may indeed be caused by more than one reason, and this is why validation classes can emit multiple messages. There is no method in the public API to change all of the validation failure messages to a single message because this would obfuscate the reasons for validation failure. These reasons are not necessarily intended for display to users, however, and this is where the confusion seems to be.</p>
+
+<p>Of course, you may only want to show a single, consolidated validation failure message to your end users, and this is a common and perfectly valid use case.</p>
+
+<p>It should be simple to implement in at least one of the following ways:</p>
+
+<ul><li>If you use the validation class with composition, you can detect whether a validation failure has occurred and display whatever message you want to users.</li>
+<li>Extend the validation class and perform the message consolidation there.</li>
+<li>Try Zend_Form for consolidating validation failure messages for display to users.</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-29T09:29:14.000+0000</p> 
+        <div class="body">
+            <p>Reducing priority to minor, since an easy workaround should be present.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T16:55:03.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and categorize/assign as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andries Seutens (andries) on 2008-04-24T08:42:26.000+0000</p> 
+        <div class="body">
+            <p>The validation failure messages are <em>not really meant for user consumption</em>. However, I undestand that a lot of people are using them this way.</p>
+
+<p>I suggest that we create 2 new methods:</p>
+
+<pre class="highlight"><code>
+
+$validator = new Zend_Validate_StringLength(2);
+
+$validator-&gt;setUserMessage(
+    'Your firstname should be at least 2 characters long',
+    Zend_Validate_StringLength::TOO_SHORT);
+
+if (!$validator-&gt;isValid('A')) {
+    $messages = $validator-&gt;getUserMessages();
+    echo current($messages);
+
+    // echoes "Your firstname should be at least 2 characters long"
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andries Seutens (andries) on 2008-04-24T08:44:42.000+0000</p> 
+        <div class="body">
+            <p>I would also like to note that it would be nice if created a special constant that overrides <em>all</em> error messages. This is particulary usefull for the email validator:</p>
+
+<pre class="highlight"><code>
+$validator-&gt;setUserMessage(
+    'Your email address it not valid'
+    Zend_Validate::OVERRIDE_ALL);
+</code></pre>
+
+<p>this would override <em>all</em> error messages in the stack.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Travis Pew (travisp) on 2009-02-27T11:57:20.000+0000</p> 
+        <div class="body">
+            <p>It seems strange to state that the validation failure messages are "not really meant for user consumption" given that Zend_Form by default renders these messages in the form when validation fails and that Zend_Validate automatically will use Zend_Translate if set in the registry to translate its messages for the user.</p>
+
+<p>In particular, the inability to set a single error message breaks the ability to quickly and easily add a Text form element that uses the EmailAddress validator and have a single message such as "Invalid e-mail address" be provided by Zend_Translate.  For example, if one sets all of the error messages to "Invalid e-mail address", "Invalid e-mail address" will appear 3 times when a user enters the email address "test@!".</p>
+
+<p>The "easy" workaround for the developer is of course to extend Zend_Validate_EmailAddress (and every other validation class that can output multiple methods) to consolidate error messages after Zend_Validate_EmailAddress' isValid() function is called.  However, it seems to be a very common use case to want to display a single simple error message to the user (and there have been a number of questions about this exact problem).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-02-27T12:28:33.000+0000</p> 
+        <div class="body">
+            <p>When you want to display a single error from an failed validation use setError() on the form element.
+This has nothing to do with the bahaviour or the messages returned from the element itself and is only related to the form which is being displayed to the user.</p>
+
+<p>Another way is to define the messages option on the form element which does the same.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-04-25T09:51:05.000+0000</p> 
+        <div class="body">
+            <p>Closing issue as setErrorMessage does exactly what was described as problem in this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,246 @@
+<h2>ZF-8731: Zend_Paginator bug with caching</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-06T17:15:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-05-26T04:19:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.5 (26/May/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michal Korus (deallas)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marco Kaiser (bate)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6989">ZF-6989</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<p>I found a bug in Zend_Paginator. If we enable caching of queries to the database through Zend_Paginator:</p>
+
+<pre class="highlight"><code>
+$cache = Zend_Cache::factory('Core', 'File', $frontendOptions, $backendOptions);
+Zend_Paginator::setCache($cache);
+</code></pre>
+
+<p>....and then run the page with the following code:</p>
+
+<pre class="highlight"><code>
+$news = new Default_Model_DbTable_News();
+$select = $news-&gt;select();
+$paginator = Zend_Paginator::factory($select);
+
+$page = (int)$this-&gt;_getParam('page', 1);
+$paginator-&gt;setItemCountPerPage(1);
+$paginator-&gt;setCurrentPageNumber($page);
+$this-&gt;view-&gt;result = $paginator;
+</code></pre>
+
+<p>...it will execute 4 queries:</p>
+
+<p>0.00359    connect      NULL
+0.00019    SELECT COUNT(1) AS <code>zend_paginator_row_count</code> FROM <code>news</code>    NULL
+0.00067    connect    NULL
+0.0003     SELECT <code>news</code>.* FROM <code>news</code> LIMIT 1    NULL</p>
+
+<p>Also, it always creates a new cache with different name even though it performed the same query. I found function in code, which is responsible for generating name of cache</p>
+
+<p>return md5(serialize($this-&gt;getAdapter()) . $this-&gt;getItemCountPerPage());</p>
+
+<p>The problem is that the serialized object (Zend_Paginator_Adapter_DbSelect) when Zend_Db_Profiler is enable, has also included a unique time measurement queries. So we can be 100% sure that the result of function md5() will be different every time. Also, when we execute the function serialize() of adapter, Zend_Db disconnect from the database.</p>
+
+<p>I prepared an initial fix, which solves the problem with the cache and re-connecting to the database. Zend_Paginator_Adapter_DbSelect class should implement Serializable interface (although I think it should all implement adapters, not only DbSelect):</p>
+
+<pre class="highlight"><code>
+class Zend_Paginator_Adapter_DbSelect implements Zend_Paginator_Adapter_Interface, Serializable
+{
+...
+    public function serialize()
+    {
+        return serialize($this-&gt;_select-&gt;__toString());
+    }
+    public function unserialize($data) {}
+...
+}</code></pre>
+
+<p>I hope that this bug will be fixed soon.</p>
+
+<p>Regards
+deallas</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-01-06T17:19:40.000+0000</p> 
+        <div class="body">
+            <p>Added formatting</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chuck Reeves (creeves1982) on 2010-02-04T08:09:38.000+0000</p> 
+        <div class="body">
+            <p>Please note that:</p>
+
+<pre class="highlight"><code>
+public function serialize()
+    {
+        return serialize($this-&gt;_select-&gt;__toString);
+    }
+</code></pre>
+
+<p>Should be</p>
+
+<pre class="highlight"><code>
+public function serialize()
+    {
+        return serialize($this-&gt;_select-&gt;__toString());
+    }
+</code></pre>
+
+<p>__toString is a method call not a property.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chuck Reeves (creeves1982) on 2010-02-05T12:47:33.000+0000</p> 
+        <div class="body">
+            <p>There is still an issue with the above fix.  The limit clause for the select statement will not be set until after the cache is checked.  When the cache is checked initially the query might look like the following:</p>
+
+<p>SELECT <code>_table</code>.* FROM <code>_table</code> ORDER BY <code>id</code> ASC</p>
+
+<p>After the cache is checked a call to getItems() is made to the adapter which will add the limit clause making the select statement:</p>
+
+<p>SELECT <code>_table</code>.* FROM <code>_table</code> ORDER BY <code>id</code> ASC LIMIT 10</p>
+
+<p>That causes the generated md5 to change.  The fix would be to save the cache key to a class member and set that key on the 1st call to Zend_Paginator::_getCacheId() and unset on each call to Zend_Paginator::setItemCountPerPage() and Zend_Paginator::setCurrentPageNumber()</p>
+
+<p>Below is my suggestion to help fix this issue:
+Please note that _getCacheInternalId now accepts the page parameter</p>
+
+<pre class="highlight"><code>
+class Zend_Paginator implements Countable, IteratorAggregate
+{
+    //...snip
+    /**
+    * Saved the cache key to ensure that it will always be the same
+    * from checking cache to saving.
+    * @see <a href="http://framework.zend.com/issues/browse/ZF-8731">http://framework.zend.com/issues/browse/ZF-8731</a>
+    * @var unknown_type
+    */
+    protected $_cacheKey = null;
+
+    //...snip
+    public function setCurrentPageNumber($pageNumber)
+    {
+        $this-&gt;_currentPageNumber = (integer) $pageNumber;
+        $this-&gt;_currentItems      = null;
+        $this-&gt;_currentItemCount  = null;
+        $this-&gt;_cacheKey          = null;
+
+        return $this;
+    }
+
+        //...snip
+    public function setItemCountPerPage($itemCountPerPage)
+    {
+        $this-&gt;_itemCountPerPage = (integer) $itemCountPerPage;
+        if ($this-&gt;_itemCountPerPage &lt; 1) {
+            $this-&gt;_itemCountPerPage = $this-&gt;getItemCountPerPage();
+        }
+        $this-&gt;_pageCount        = $this-&gt;_calculatePageCount();
+        $this-&gt;_currentItems     = null;
+        $this-&gt;_currentItemCount = null;
+        $this-&gt;_cacheKey         = null;
+
+        return $this;
+    }
+    
+    //...snip
+    /**
+    * Makes an Id for the cache
+    * Depends on the adapter object and the page number
+    *
+    * Used to store item in cache from that Paginator instance
+    *  and that current page
+    *
+    * @param int $page
+    * @return string
+    */
+    protected function _getCacheId($page = null)
+    {
+        if ($page === null) {
+            $page = $this-&gt;getCurrentPageNumber();
+        }
+        return self::CACHE_TAG_PREFIX . $page . '_' . $this-&gt;_getCacheInternalId($page);
+    }
+
+    /**
+    * Get the internal cache id
+    * Depends on the adapter and the item count per page
+    *
+    * Used to tag that unique Paginator instance in cache
+    *
+    * @return string
+    */
+    protected function _getCacheInternalId($page = null)
+    {
+        if (null == $this-&gt;_cacheKey){
+            if ($page === null) {
+                $page = $this-&gt;getCurrentPageNumber();
+            }
+
+            $this-&gt;_cacheKey    = md5(serialize($this-&gt;getAdapter()) . $this-&gt;getItemCountPerPage() . $page); 
+        }
+
+        return $this-&gt;_cacheKey;
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-26T04:19:08.000+0000</p> 
+        <div class="body">
+            <p>fixed with r22302</p>
+
+        </div>
+    </div>
+    </div>
+

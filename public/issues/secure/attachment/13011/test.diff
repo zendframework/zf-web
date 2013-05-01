@@ -1,0 +1,71 @@
+Index: tests/Zend/Cache/TwoLevelsBackendTest.php
+===================================================================
+--- tests/Zend/Cache/TwoLevelsBackendTest.php	(revision 21942)
++++ tests/Zend/Cache/TwoLevelsBackendTest.php	(working copy)
+@@ -97,6 +97,33 @@
+         ));
+     }
+ 
++    public function testSaveOverwritesIfFastIsFull()
++    {
++        $slowBackend = 'File';
++        $fastBackend = $this->getMock('Zend_Cache_Backend_Apc', array('getFillingPercentage'));
++        $fastBackend->expects($this->at(0))
++            ->method('getFillingPercentage')
++            ->will($this->returnValue(0));
++        $fastBackend->expects($this->at(1))
++            ->method('getFillingPercentage')
++            ->will($this->returnValue(90));
++        $slowBackendOptions = array(
++            'cache_dir' => $this->_cache_dir
++        );
++        $cache = new Zend_Cache_Backend_TwoLevels(array(
++            'fast_backend' => $fastBackend,
++            'slow_backend' => $slowBackend,
++            'slow_backend_options' => $slowBackendOptions,
++            'stats_update_factor' => 1
++        ));
++
++        $id = 'test'.uniqid();
++        $cache->save(10, $id); //fast usage at 0%
++
++        $cache->save(100, $id); //fast usage at 90%
++        $this->assertEquals(100, $cache->load($id));
++    }
++
+ }
+ 
+ 
+Index: library/Zend/Cache/Backend/TwoLevels.php
+===================================================================
+--- library/Zend/Cache/Backend/TwoLevels.php	(revision 21942)
++++ library/Zend/Cache/Backend/TwoLevels.php	(working copy)
+@@ -123,12 +123,26 @@
+         parent::__construct($options);
+         if ($this->_options['slow_backend'] === null) {
+             Zend_Cache::throwException('slow_backend option has to set');
++        } else if (is_string($this->_options['slow_backend'])) {
++            $this->_slowBackend = Zend_Cache::_makeBackend($this->_options['slow_backend'], $this->_options['slow_backend_options'], $this->_options['slow_backend_custom_naming'], $this->_options['slow_backend_autoload']);
++        } else {
++            if ((is_object($this->_options['slow_backend'])) && (in_array('Zend_Cache_Backend_Interface', class_implements($this->_options['slow_backend'])))) {
++                $this->_slowBackend = $this->_options['slow_backend'];
++            } else {
++                Zend_Cache::throwException('slow_backend must be a backend name (string) or an object which implements Zend_Cache_Backend_ExtendedInterface');
++            }
+         }
+         if ($this->_options['fast_backend'] === null) {
+             Zend_Cache::throwException('fast_backend option has to set');
++        } else if (is_string($this->_options['fast_backend'])) {
++            $this->_fastBackend = Zend_Cache::_makeBackend($this->_options['fast_backend'], $this->_options['fast_backend_options'], $this->_options['fast_backend_custom_naming'], $this->_options['fast_backend_autoload']);
++        } else {
++            if ((is_object($this->_options['fast_backend'])) && (in_array('Zend_Cache_Backend_Interface', class_implements($this->_options['fast_backend'])))) {
++                $this->_fastBackend = $this->_options['fast_backend'];
++            } else {
++                Zend_Cache::throwException('fast_backend must be a backend name (string) or an object which implements Zend_Cache_Backend_ExtendedInterface');
++            }
+         }
+-        $this->_slowBackend = Zend_Cache::_makeBackend($this->_options['slow_backend'], $this->_options['slow_backend_options'], $this->_options['slow_backend_custom_naming'], $this->_options['slow_backend_autoload']);
+-        $this->_fastBackend = Zend_Cache::_makeBackend($this->_options['fast_backend'], $this->_options['fast_backend_options'], $this->_options['fast_backend_custom_naming'], $this->_options['fast_backend_autoload']);
+         if (!in_array('Zend_Cache_Backend_ExtendedInterface', class_implements($this->_slowBackend))) {
+             Zend_Cache::throwException('slow_backend must implement the Zend_Cache_Backend_ExtendedInterface interface');
+         }

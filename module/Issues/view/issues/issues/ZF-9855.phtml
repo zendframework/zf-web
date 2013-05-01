@@ -1,0 +1,117 @@
+<h2>ZF-9855: Notice &quot;Failed saving metadata to metadataCache&quot; appears when TwoLevels cache backend is used for DB metadata caching</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-05-18T08:37:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-07-30T09:32:54.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.8 (25/Aug/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Authenticus Nomen (cognomen)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Andy Fowler (andyfowler)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13082/Apc.php.patch">Apc.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm trying to use TwoLevels cache backend in cache for DB metadata. I'm using default slow and fast backends (File and Apc). Here is a sample of code:</p>
+
+<p>$cache = Zend_Cache::factory(
+    'Core',
+    'TwoLevels',
+    array(
+        'automatic_serialization' =&gt; true,
+        'lifetime' =&gt; 86400
+    ),
+    array(
+        'slow_backend_options' =&gt; array(
+            'cache_dir' =&gt; '/www/cludisc/tmp/tp_cache/dbmetadata'
+        )
+    ),
+    false,
+    true
+);
+$table = new TableClass(array(
+    'db' =&gt; $db,
+    'metadataCache' =&gt; $cache
+));
+echo $table-&gt;find(123456)-&gt;current()-&gt;ID;</p>
+
+<p>By first running when metadata isn't cached I get a notice "Failed saving metadata to metadataCache". I think a cause of this notice may be in Zend_Cache_Backend_TwoLevels-&gt;save() method. When usage of fast backend is too high and data is saved by a slow backend only there is a try to remove this data from fast backend (line 203 in Zend/Cache/Backend/TwoLevels.php). When Apc backend is used as fast one apc_delete() function is called in this case (line 127 in Zend/Cache/Backend/Apc.php). But there could be cases in which this data isn't in fast backend. In this case apc_delete() returns FALSE and save() method of metadata cache returns FALSE too as a result (line 825 in Zend/Db/Table/Abstract.php). It causes generating a notice at the next line. As a solution of this problem the following patch for Zend/Cache/Backend/Apc.php may be used:</p>
+
+<p>127c127,132</p>
+
+<h2>&lt;         return apc_delete($id);</h2>
+
+<blockquote>
+<pre><code>    $removableData = apc_fetch($id);
+    if ($removableData) {
+            return apc_delete($id);
+    } else {
+            return true;
+    }
+</code></pre>
+</blockquote>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Authenticus Nomen (cognomen) on 2010-05-18T22:42:11.000+0000</p> 
+        <div class="body">
+            <p>Patch that fixes this issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andy Fowler (andyfowler) on 2010-07-30T07:37:58.000+0000</p> 
+        <div class="body">
+            <p>I'm trying to decide if the patch is the proper solution, or if TwoLevels should just ignore the result of _fastBackend-&gt;remove(). The patch adds some overhead to delete() (which is probably not much of a choke point.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andy Fowler (andyfowler) on 2010-07-30T09:32:47.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r22736. Updated TwoLevels-&gt;save() to handle fast backends that return false for remove() operations that don't have existing keys (APC and File behave this way).</p>
+
+<p>Includes test.</p>
+
+        </div>
+    </div>
+    </div>
+

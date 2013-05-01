@@ -1,0 +1,241 @@
+<h2>ZF-421: Add in tag emulation to Zend_Cache_Backend_Memcached</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-10-04T11:09:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Lee Saferite (lsaferite)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Since Zend_Cache has the concept of a reserved set of keys (internal_*) it should be trivial to add the possibility of tag emulation for memcached.</p>
+
+<p>Forgive me if my code is not perfect. :)</p>
+
+<pre class="highlight"><code>
+    private $_options = array(
+        'servers' =&gt; array(array(
+            'host' =&gt; 'localhost',
+            'port' =&gt; 11211,
+            'persistent' =&gt; true
+        )),
+        'compression' =&gt; false,
+        'emulateTags' =&gt; false
+    );
+</code></pre>
+
+<pre class="highlight"><code>
+    const EMULATED_TAGS_KEY = 'internal_EmulatedTags';
+</code></pre>
+
+<pre class="highlight"><code>
+    public function save($data, $id, $tags = array())
+    {
+        if ($this-&gt;_options['compression']) {
+            $flag = MEMCACHE_COMPRESSED;
+        } else {
+            $flag = 0;
+        }
+        $result = $this-&gt;_memcache-&gt;set($id, $data, $flag, $this-&gt;_directives['lifeTime']);
+        if($result &amp;&amp; count($tags) &gt; 0)
+        {
+            if($this-&gt;_options['emulateTags'])
+            {
+                $tag_list = $this-&gt;_memcache-&gt;get(self::EMULATED_TAGS_KEY);
+                $tag_list = (is_array($tag_list) ? $tag_list : array());
+
+                $tag_keys = explode(',', self::EMULATED_TAGS_KEY . '_' . implode(',' . self::EMULATED_TAGS_KEY . '_', $tags));
+                $found_tags = $this-&gt;_memcache-&gt;get($tag_keys);
+                $tag_keys = array_merge(array_flip($tag_keys), $found_tags);
+                unset($found_tags);
+
+                foreach($tag_keys as $tag=&gt;$data)
+                {
+                    if(!is_array($data))
+                    {
+                        $data = array();
+                    }
+                    $data[] = $id;
+
+                    $this-&gt;_memcache-&gt;set($tag, array_unique($data), $flag, 0);
+                }
+
+                $new_tags = array_diff($tags, $tag_list);
+                if(count($new_tags) &gt; 0)
+                {
+                    $tag_list = array_merge($tag_list, array_keys($tags));
+                    $this-&gt;_memcache-&gt;set(self::EMULATED_TAGS_KEY, $tag_list, $flag, 0);
+                }
+            }
+            else
+            {
+                if ($this-&gt;_directives['logging']) {
+                    Zend_Log::log("Zend_Cache_Backend_Memcached::save() : tags are unsupported by the Memcached backend", Zend_Log::LEVEL_WARNING);
+                }
+            }
+        }
+        return $result;
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+    public function clean($mode = 'all', $tags = array())
+    {
+        if ($this-&gt;_options['compression']) {
+            $flag = MEMCACHE_COMPRESSED;
+        } else {
+            $flag = 0;
+        }
+
+        if ($mode==Zend_Cache::CLEANING_MODE_ALL) {
+            return $this-&gt;_memcache-&gt;flush();
+        }
+        if ($mode==Zend_Cache::CLEANING_MODE_OLD) {
+            if ($this-&gt;_directives['logging']) {
+                Zend_Log::log("Zend_Cache_Backend_Memcached::clean() : CLEANING_MODE_OLD is unsupported by the Memcached backend", Zend_Log::LEVEL_WARNING);
+            }
+        }
+        if ($mode==Zend_Cache::CLEANING_MODE_MATCHING_TAG) {
+            if(count($tags) &gt; 0 &amp;&amp; $this-&gt;_options['emulateTags'])
+            {
+                $tag_list = $this-&gt;_memcache-&gt;get(self::EMULATED_TAGS_KEY);
+                $tag_list = (is_array($tag_list) ? $tag_list : array());
+                $tags = array_intersect($tag_list, $tags);
+                $tag_keys = explode(',', self::EMULATED_TAGS_KEY . '_' . implode(',' . self::EMULATED_TAGS_KEY . '_', $tags));
+                $tag_keys = $this-&gt;_memcache-&gt;get($tag_keys);
+                foreach($tag_keys as $tag)
+                {
+                    if(is_array($tag))
+                    {
+                        foreach($tag as $key)
+                        {
+                            $this-&gt;_memcache-&gt;delete($key);
+                        }
+                    }
+                }
+                $tag_list = array_diff($tag_list, $tags);
+                $this-&gt;_memcache-&gt;set(self::EMULATED_TAGS_KEY, $tag_list, $flag, 0);
+            }
+            elseif ($this-&gt;_directives['logging']) {
+                Zend_Log::log("Zend_Cache_Backend_Memcached::clean() : tags are unsupported by the Memcached backend", Zend_Log::LEVEL_WARNING);
+            }
+        }
+        if ($mode==Zend_Cache::CLEANING_MODE_NOT_MATCHING_TAG) {
+            if($this-&gt;_options['emulateTags'])
+            {
+                $tag_list = $this-&gt;_memcache-&gt;get(self::EMULATED_TAGS_KEY);
+                $tag_list = (is_array($tag_list) ? $tag_list : array());
+                $tags = array_diff($tag_list, $tags);
+                $tag_keys = explode(',', self::EMULATED_TAGS_KEY . '_' . implode(',' . self::EMULATED_TAGS_KEY . '_', $tags));
+                $tag_keys = $this-&gt;_memcache-&gt;get($tag_keys);
+                foreach($tag_keys as $tag)
+                {
+                    if(is_array($tag))
+                    {
+                        foreach($tag as $key)
+                        {
+                            $this-&gt;_memcache-&gt;delete($key);
+                        }
+                    }
+                }
+                $tag_list = array_diff($tag_list, $tags);
+                $this-&gt;_memcache-&gt;set(self::EMULATED_TAGS_KEY, $tag_list, $flag, 0);
+            }
+            elseif ($this-&gt;_directives['logging']) {
+                Zend_Log::log("Zend_Cache_Backend_Memcached::clean() : tags are unsupported by the Memcached backend", Zend_Log::LEVEL_WARNING);
+            }
+        }
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Lee Saferite (lsaferite) on 2006-10-04T12:27:59.000+0000</p> 
+        <div class="body">
+            <p>Looking at my code and reading the interface specification some more, i realize that the CLEANING_MODE_NOT_MATCHING_TAG section currently is incorrect.  The changes to fix it shouldn't be very difficult and I can provide them if needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lee Saferite (lsaferite) on 2006-10-04T16:31:11.000+0000</p> 
+        <div class="body">
+            <p>Fixing typos</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2006-10-22T07:27:02.000+0000</p> 
+        <div class="body">
+            <p>sure but memcached can drop your "internal" records without any warning (to get space for newer cache records)...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lee Saferite (lsaferite) on 2006-10-22T19:18:33.000+0000</p> 
+        <div class="body">
+            <p>Good point.  I agree.  Emulating tags probably doesn't belong here.</p>
+
+<p>Since I originally posted this, I have written a Backend wrapper that emulates tags for any other backend.  It implements the interface fully so it can just be used as a wrapper for the default backends.</p>
+
+<p>The only change I had to make to Zend_Cache_Backedn_Interface was to add in support for per-item lifetimes on calls to save().  I have created an issue with the patch containing this change to the interface.  I hope someone likes it and intergrates it. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2006-10-23T17:02:53.000+0000</p> 
+        <div class="body">
+            <p>ok, I will see your patch in the corresponding task</p>
+
+<p>thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lee Saferite (lsaferite) on 2006-10-23T17:11:05.000+0000</p> 
+        <div class="body">
+            <p>The related issue is : ZF-457</p>
+
+        </div>
+    </div>
+    </div>
+

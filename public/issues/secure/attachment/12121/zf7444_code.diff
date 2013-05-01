@@ -1,0 +1,113 @@
+Index: Zend/Db/Select.php
+===================================================================
+--- Zend/Db/Select.php	(revision 17353)
++++ Zend/Db/Select.php	(working copy)
+@@ -156,6 +156,11 @@
+     protected $_tableCols = array();
+ 
+     /**
++     * @var int
++     */
++    protected $_conditionIncrement = 0;
++
++    /**
+      * Class constructor
+      *
+      * @param Zend_Db_Adapter_Abstract $adapter
+@@ -458,10 +463,14 @@
+      * @param constant $type  OPTIONAL The type of the given value
+      * @return Zend_Db_Select This Zend_Db_Select object.
+      */
+-    public function where($cond, $value = null, $type = null)
++    public function where($cond, $value = null, $type = null, $conditionName = null)
+     {
+-        $this->_parts[self::WHERE][] = $this->_where($cond, $value, $type, true);
++        if($conditionName == null) {
++            $conditionName = $this->_conditionIncrement++;
++        }
+ 
++        $this->_parts[self::WHERE][$conditionName] = $this->_where($cond, $value, $type, true);
++
+         return $this;
+     }
+ 
+@@ -479,12 +488,51 @@
+      */
+     public function orWhere($cond, $value = null, $type = null)
+     {
+-        $this->_parts[self::WHERE][] = $this->_where($cond, $value, $type, false);
++        $conditionName = $this->_conditionIncrement++;
+ 
++        if(count($this->_parts[self::WHERE]) > 1) {
++            $this->combine(array_keys($this->_parts[self::WHERE]), "AND");
++        }
++
++        $this->_parts[self::WHERE][$conditionName] = $this->_where($cond, $value, $type, false);
++
++        if(count($this->_parts[self::WHERE]) > 1) {
++            $this->combine(array_keys($this->_parts[self::WHERE]), "OR");
++        }
++
+         return $this;
+     }
+ 
+     /**
++     * Combine several named conditions into one condition with the given operation.
++     *
++     * @param  array $conditions
++     * @param  string $operation
++     * @param  string|null $combinedConditionName
++     * @return Zend_Db_Select
++     */
++    public function combine(array $conditions, $operation, $combinedConditionName = null)
++    {
++        if(!in_array(strtolower($operation), array("and", "or"))) {
++            require_once "Zend/Db/Exception.php";
++            throw new Zend_Db_Exception("Can only apply operations AND or OR in combine().");
++        }
++
++        if($combinedConditionName == null) {
++            $combinedConditionName = $this->_conditionIncrement++;
++        }
++
++        $parts = array();
++        foreach($conditions AS $conditionName) {
++            $parts[] = $this->_parts[self::WHERE][$conditionName];
++            unset($this->_parts[self::WHERE][$conditionName]);
++        }
++
++        $this->_parts[self::WHERE][$combinedConditionName] = "(".implode(" ".strtoupper($operation)." ", $parts).")";
++        return $this;
++    }
++
++    /**
+      * Adds grouping to the query.
+      *
+      * @param  array|string $spec The column(s) to group by.
+@@ -930,16 +978,7 @@
+             $condition = $this->_adapter->quoteInto($condition, $value, $type);
+         }
+ 
+-        $cond = "";
+-        if ($this->_parts[self::WHERE]) {
+-            if ($bool === true) {
+-                $cond = self::SQL_AND . ' ';
+-            } else {
+-                $cond = self::SQL_OR . ' ';
+-            }
+-        }
+-
+-        return $cond . "($condition)";
++        return "($condition)";
+     }
+ 
+     /**
+@@ -1104,7 +1143,7 @@
+     protected function _renderWhere($sql)
+     {
+         if ($this->_parts[self::FROM] && $this->_parts[self::WHERE]) {
+-            $sql .= ' ' . self::SQL_WHERE . ' ' .  implode(' ', $this->_parts[self::WHERE]);
++            $sql .= ' ' . self::SQL_WHERE . ' ' .  implode(' '.self::SQL_AND.' ', $this->_parts[self::WHERE]);
+         }
+ 
+         return $sql;

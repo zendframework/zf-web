@@ -1,0 +1,147 @@
+<h2>ZF-11271: Wrong calculation of OAuth signature when using arrays as parameter values</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-04-07T19:45:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-05-02T22:38:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Dominik Blunk (dblunk)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Oauth</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using arrays as parameter values (POST or GET, I guess PUT too) the calculated OAuth signature is wrong. This is due to the fact that the method Zend_Oauth_Signature_SignatureAbstract::_getBaseSignatureString() does not handle array values in a correct way - it simply executes
+$encodedParams[Zend_Oauth_Http_Utility::urlEncode($key)] = Zend_Oauth_Http_Utility::urlEncode($value) and this will throw the following warning: PHP Warning:  rawurlencode() expects parameter 1 to be string, array given in /var/www/easycuc/library/Zend/Oauth/Http/Utility.php on line 213.</p>
+
+<p>When passing a parameter "data" = array('main' =&gt; array('A', 'B', 'C')), the base uri looks like this:
+GET&amp;http%3A%2F%2Fdev.local.ch%2Fapi%2Frest%2FapiVersion%2F1.0%2FclientId%2F6%2Fressource%2Fcustomer%2F&amp;arg1%3DcreateCustomer%26data%3D%26method%3DcreateCustomer%26oauth_consumer_key%3DTest%26oauth_nonce%3D8667d4d243e96fa402137b801643026a%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D1302201787%26oauth_version%3D1.0%26rest%3D1
+(decoded: <a href="http://dev.local.ch/api/rest/apiVersion/1.0/clientId/6/ressource/customer/?method=createCustomer&amp;arg1=createCustomer&amp;data=&amp;rest=1">http://dev.local.ch/api/rest/…</a>)</p>
+
+<p>but should be:
+GET&amp;http%3A%2F%2Fdev.local.ch%2Fapi%2Frest%2FapiVersion%2F1.0%2FclientId%2F6%2Fressource%2Fcustomer%2F&amp;arg1%3DcreateCustomer%26data%255Bmain%255D%255B0%255D%3DA%26data%255Bmain%255D%255B1%255D%3DB%26data%255Bmain%255D%255B2%255D%3DC%26method%3DcreateCustomer%26oauth_consumer_key%3DTest%26oauth_nonce%3D8667d4d243e96fa402137b801643026a%26oauth_signature_method%3DHMAC-SHA1%26oauth_timestamp%3D1302201787%26oauth_version%3D1.0%26rest%3D1
+(decoded: <a href="http://dev.local.ch/api/rest/apiVersion/1.0/clientId/6/ressource/customer/?method=createCustomer&amp;arg1=createCustomer&amp;data%5Bmain%5D%5B0%5D=A&amp;data%5Bmain%5D%5B1%5D=B&amp;data%5Bmain%5D%5B2%5D=C&amp;rest=1">http://dev.local.ch/api/rest/…</a>)</p>
+
+<p>I fixed this by changing the function Zend_Oauth_Signature_SignatureAbstract::_getBaseSignatureString() in the following way:</p>
+
+<p>protected function _getBaseSignatureString(array $params, $method = null, $url = null)
+    {
+        $encodedParams = array();
+        foreach ($params as $key =&gt; $value) {
+            if (is_array($value)) {
+                $arr = Zend_Oauth_Http_Utility::flattenParametersArray($value, $key);
+                foreach ($arr as $arrParam) {
+                    $encodedParams[Zend_Oauth_Http_Utility::urlEncode($arrParam[0])] = 
+                        Zend_Oauth_Http_Utility::urlEncode($arrParam[1]);
+                }
+            }
+            else {
+                $encodedParams[Zend_Oauth_Http_Utility::urlEncode($key)] = 
+                    Zend_Oauth_Http_Utility::urlEncode($value);
+            }
+        }
+        $baseStrings = array();
+        if (isset($method)) {
+            $baseStrings[] = strtoupper($method);
+        }
+        if (isset($url)) {
+            // should normalise later
+            $baseStrings[] = Zend_Oauth_Http_Utility::urlEncode(
+                $this-&gt;normaliseBaseSignatureUrl($url)
+            );
+        }
+        if (isset($encodedParams['oauth_signature'])) {
+            unset($encodedParams['oauth_signature']);
+        }
+        $baseStrings[] = Zend_Oauth_Http_Utility::urlEncode(
+            $this-&gt;_toByteValueOrderedQueryString($encodedParams)
+        );
+        return implode('&amp;', $baseStrings);
+    }</p>
+
+<p>Additionally I added the function flattenParametersArray to Zend_Oauth_Http_Utility (which is almost a 1:1 copy of Zend_Http_Client::_flattenParametersArray()):</p>
+
+<p>/**
+     * Convert an array of parameters into a flat array of (key, value) pairs
+     *
+     * Will flatten a potentially multi-dimentional array of parameters (such
+     * as POST parameters) into a flat array of (key, value) paris. In case
+     * of multi-dimentional arrays, square brackets ([]) will be added to the
+     * key to indicate an array.
+     *
+     * @since  1.9
+     *
+     * @param  array  $parray
+     * @param  string $prefix
+     * @return array
+     */
+    public static function flattenParametersArray($parray, $prefix = null) {
+        if (! is_array($parray)) {
+            return $parray;
+        }</p>
+
+<pre><code>    $parameters = array();
+
+    foreach($parray as $name =&gt; $value) {
+
+        // Calculate array key
+        if ($prefix) {
+            $key = $prefix . "[$name]";
+        } else {
+            $key = $name;
+        }
+
+        if (is_array($value)) {
+            $parameters = array_merge($parameters, self::flattenParametersArray($value, $key));
+
+        } else {
+            $parameters[] = array($key, $value);
+        }
+    }
+    return $parameters;
+}
+</code></pre>
+
+<p>I look forward to your feedback :-)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

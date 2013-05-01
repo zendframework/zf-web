@@ -1,0 +1,520 @@
+<h2>ZF-9976: Zend_Translate_Adapter rerouting problem</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-10T09:59:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-12T13:49:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.6 (22/Jun/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                René Kerner (johndoe)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13127/TRANSLATE_DE.png">TRANSLATE_DE.png</a></li>
+            <li><a href="/issues/secure/attachment/13128/TRANSLATE_EN_no-translations.png">TRANSLATE_EN_no-translations.png</a></li>
+            <li><a href="/issues/secure/attachment/13130/TRANSLATE_EN_translated-ID-4-5-6-7.png">TRANSLATE_EN_translated-ID-4-5-6-7.png</a></li>
+            <li><a href="/issues/secure/attachment/13129/TRANSLATE_EN_translated-ID-4-5-6-7.png">TRANSLATE_EN_translated-ID-4-5-6-7.png</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello!</p>
+
+<p>When there are 2 (or more) untranslated MessageIDs (one directly after the other), I got only the first one translated in the "routed" "fallback" language.</p>
+
+<p>it's about these lines of code:
+"if (array_key_exists($locale, $this-&gt;_options['route']) &amp;&amp;
+                !array_key_exists($locale, $this-&gt;_routed)"
+and:
+"$this-&gt;_routed[$locale] = true;"
+in line 738 - 740 (and also 683 - 685) of Zend/Translate/Adapter.php</p>
+
+<p>Example:
+to translate:
+ID1 (available in user-language)
+ID2 (not available in user-language, routing to standard-language)
+ID3 (not available in user-language, routing to standard-language)</p>
+
+<p>ID1 is found in user-language-source and successfully returned - OK!</p>
+
+<p>ID2 is NOT found in user-language-source;
+setting "$this-&gt;_routed[USER_LANGUAGE] = true" and successfully return text from standard language - OK</p>
+
+<p>ID3 is NOT found in user-language-source;
+"$this-&gt;_routed[USER_LANGUAGE]" already is true
+in lines 738/739 we have:
+"if (array_key_exists($locale, $this-&gt;_options['route']) &amp;&amp;
+                !array_key_exists($locale, $this-&gt;_routed)"
+an because of "!array_key_exists($locale, $this-&gt;_routed)"
+we won't route, because we thougth, we already did...
+we don't return the translation from the standard language, so
+only the MessageID (ID3) will be returned...
+-ERROR!!!</p>
+
+<p>it's eroneous, that "$this-&gt;_routed" will be resetted AFTER:
+"return $this-&gt;translate($messageId, $this-&gt;_options['route'][$locale]);
+            }"
+by
+"$this-&gt;_routed = array();" in line 744
+but because of that "return $this-&gt;translate(..." we don't reach that point.</p>
+
+<p>Best regards,
+René Kerner.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-06-10T12:15:43.000+0000</p> 
+        <div class="body">
+            <p>The code works as expected. It would be nice if you give a real example instead of framework code.</p>
+
+<p>This is a simple recursive methodcall as used in many other components and projects. When you follow the workflow you would see that _route is resetted before the rerouted translation is returned.</p>
+
+<p>I can't see a failure wether in code nor within the testbed which tests the code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-10T13:56:09.000+0000</p> 
+        <div class="body">
+            <p>Ok, I'll explain a bit precisely.</p>
+
+<p>In my application german (de) is the standard-locale and the german language-file would always be the complete one. for test-reasons, i changed my firefox-language-option to "en", so Zend_Locale retrieves english as the actual locale. but it's not completly translated.
+so i wanted to reroute "en" to "de" if the identifiers aren't found in the "en"-languagefile.</p>
+
+<pre class="highlight"><code>
+
+...
+
+;----------------------------
+; Zend_Locale
+;----------------------------
+resources.locale.default = "de"
+
+;----------------------------
+; Zend_Translate
+;----------------------------
+resources.translate.adapter = "Tacticx_Translate_Adapter_Gettext"
+resources.translate.data = APPLICATION_PATH "/languages"
+resources.translate.default = "de"
+resources.translate.locale = "auto"
+resources.translate.route.en = "de"
+resources.translate.options.disableNotices = false
+resources.translate.options.logUntranslated = true
+resources.translate.options.scan = "directory"
+resources.translate.options.ignore[] = "."
+resources.translate.options.ignore.regex = "/\.po$/i"
+
+...
+
+</code></pre>
+
+<pre class="highlight"><code>
+    protected function _initTranslation()
+    {
+        $this-&gt;bootstrap('locale');
+        $this-&gt;bootstrap('translate');
+        $translate = Zend_Registry::get('Zend_Translate');
+        $writer = new Zend_Log_Writer_Stream(APPLICATION_ROOT_PATH
+                . '/data/logs/translation.log');
+        $log = new Zend_Log($writer);
+        // Diese der Übersetzungs-Instanz hinzufügen
+        $translate-&gt;setOptions(array('log' =&gt; $log));
+    }
+
+    protected function _initNavigationMenu()
+    {
+        $this-&gt;bootstrap('locale');
+        $this-&gt;bootstrap('translate');
+        $this-&gt;bootstrap('translation');
+        require_once(APPLICATION_ROOT_PATH . DIRECTORY_SEPARATOR . 'data'
+                    . DIRECTORY_SEPARATOR . 'menu' . DIRECTORY_SEPARATOR
+                    . 'menu.inc.php');
+        // only stores an navigation-menu array in variable $menu
+        Zend_Registry::set('Zend_Navigation', $menu);
+</code></pre>
+
+<pre class="highlight"><code>
+$menu = new Zend_Navigation(
+array(
+    array(
+        'label' =&gt; 'navigation::home',
+        'uri' =&gt; '/',
+        'pages' =&gt; array(
+                       array(
+                           'label' =&gt; 'navigation::login',
+                           'controller' =&gt; 'access',
+                       ),
+                       array(
+                           'label' =&gt; 'navigation::logout',
+                           'action' =&gt; 'logout',
+                           'controller' =&gt; 'access',
+                       )
+        ),
+    ),
+    array(
+        'label' =&gt; 'navigation::organization_editor',
+        'module' =&gt; 'mgr',
+        'action' =&gt; 'index',
+        'controller' =&gt; 'organization',
+    ),
+
+...
+
+</code></pre>
+
+<p>as you can see, the navigation labels are "identifiers", which should be translated by Zend_Translate.</p>
+
+<p>The Zend_View_Helper_SOMETHING (?) is used to create the menu-structure and there the labels got translated.</p>
+
+<p>In that example the View_Helper_???... (i'm @home at the moment and can't say, which is used. tomorrow i'll again debug that and add that information) gets the Translator (I expect Zend_Translate from Zend_Registry) and calls -&gt;translate("navigation::login");
+locale is null and gets the currently user-locale (line 656, Zend/Translate/Adapter.php).</p>
+
+<p>the next lines until line 707 are skipped, because the conditions don't match.
+after that, because of missing languagefile-entries in the english-language-file, the next lines are skipped (conditions don't match) until line 735/736:</p>
+
+<pre class="highlight"><code>
+        $this-&gt;_log($messageId, $locale);
+        // use rerouting when enabled
+</code></pre>
+
+<p>then we come to the routing-part (lines 737 - 745):</p>
+
+<pre class="highlight"><code>
+        if (!empty($this-&gt;_options['route'])) // isn't empty --&gt; true
+        {  // --&gt; go in that if
+            if (array_key_exists($locale, $this-&gt;_options['route']) &amp;&amp;  // exists --&gt; true 
+                !array_key_exists($locale, $this-&gt;_routed))         // doesn't exists --&gt; true
+            {   // --&gt; go in that if
+                $this-&gt;_routed[$locale] = true; // for that translator-object (let's call it: TO1) we set routed["en"] to true
+                return $this-&gt;translate($messageId, $this-&gt;_options['route'][$locale]); // we call -&gt;translate("...", "de") and it will return the right german languagefile-entry for that identifier
+            }
+
+            $this-&gt;_routed = array();  // is not called, because of "return $this-&gt;translate(...)" before
+        }
+</code></pre>
+
+<p>in that navigation-menu, the next identifier also isn't translated in the english-language-file.</p>
+
+<p>so we are in the same helper and have the same translator-object (TO1), which "$this-&gt;_routed[$locale]" value is still not resetted (I debugged that!!!). so: $this-&gt;_routed["en"] is true.</p>
+
+<p>the view helper now calls with that translator (TO1) -&gt;translate("the_next_identifier");
+as before no line matches one of the if-conditions and we come to lines 737 - 745:</p>
+
+<pre class="highlight"><code>
+        if (!empty($this-&gt;_options['route'])) // isn't empty --&gt; true
+        {  // --&gt; go in that if
+            if (array_key_exists($locale, $this-&gt;_options['route']) &amp;&amp;  // exists --&gt; true 
+                !array_key_exists($locale, $this-&gt;_routed))         // already EXISTS --&gt; false
+            {   // --&gt; NOT go in that if
+                $this-&gt;_routed[$locale] = true;
+                return $this-&gt;translate($messageId, $this-&gt;_options['route'][$locale]);
+            }
+
+            $this-&gt;_routed = array();  // now it's resetted, but we didn't translate that identifier. for that translator-object only the next identifier will be translated...
+        }
+</code></pre>
+
+<p>the reason is, that the reset:</p>
+
+<pre class="highlight"><code>
+$this-&gt;_routed = array();
+</code></pre>
+
+<p>is only resetted on three positions:
+line 53, on initialization: private $_routed = array();
+line 689, $this-&gt;_routed = array(); after Zend_Locale::isLocale-checks
+line 744, $this-&gt;_routed = array(); after rerouting</p>
+
+<p>more specific code-examples I can only support from work tomorrow.</p>
+
+<p>what code examples do you need?</p>
+
+<p>best regards,
+rené</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-11T00:48:36.000+0000</p> 
+        <div class="body">
+            <p>wrong translation example (application code follows!)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-11T01:37:39.000+0000</p> 
+        <div class="body">
+            <p>now some explanation for my screenshots:</p>
+
+<p>I hava a StartController with an index-action.</p>
+
+<pre class="highlight"><code>
+STARTSEITE<br />
+&lt;?php
+echo $this-&gt;translate('test1') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test2') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test3') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test4') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test5') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test6') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test7') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test8') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test9') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test10') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test11') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test12') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test13') . '<br />' . PHP_EOL;
+echo $this-&gt;translate('test14') . '<br />' . PHP_EOL;
+</code></pre>
+
+<p>In german PO/MO-files I translated identifiers test1 - test4 and test7 - test12. test5, test6, test13 and test14 aren't translated.
+This is correctly shown in picture one: "TRANSLATE_DE.png"
+!TRANSLATE_DE.png|thumbnail!</p>
+
+<p>Then I switched my browser LANGUAGE_ACCEPT to "English [en]" and Zend_Locale will give this to Zend_Translate.
+In the english languagefile nothing is translated at this time.
+!TRANSLATE_EN_no-translations.png|thumbnail!
+This should look like picture one and there should always be the german translation:
+ü1 - ü4
+test5, test6
+ü7 - ü12
+test13, test14
+BUT I got:
+ü1 - OK
+test2 - ERROR
+ü3 - OK
+test4 - ERROR
+test5 - OK
+test6 - OK
+ü7 - OK
+test8 - ERROR
+ü9 - OK
+test10 - ERROR
+ü11 - OK
+test12 - ERROR
+test13 - OK
+test14 - OK
+As you can see, only every second untranslated translation is correctly routed!</p>
+
+<p>Then I translated some identifiers in the english languagefile, but only identifiers test4 - test7.
+As you can see,
+!TRANSLATE_EN_translated-ID-4-5-6-7.png|thumbnail!
+I should get:
+ü1 - ü3
+en4 - en7
+ü8 - ü12
+test13, test14</p>
+
+<p>BUT I got:
+ü1 - OK
+test2 - ERROR
+ü3 - OK
+en4 - OK
+en5 - OK
+en6 - OK
+en7 - OK
+test8 - ERROR
+ü9 - OK
+test10 - ERROR
+ü11 - OK
+test12 - ERROR
+test13 - OK
+test14 - OK</p>
+
+<p>So you can see only every second translation in case of language-rerouting is correct.</p>
+
+<p>The reason is in the recursion.
+Because of the RETURN command in "return $this-&gt;translate($messageId, $route_language)" the reset of $this-&gt;_routed[$routed_language] will only be reseted in a later call of $this-&gt;translate() for the next identifier. The right solution would be to save the returned value of the $this-&gt;translate($messageId, $route_language) to a variable. Then after the recursion reset or in code "unset($this-&gt;_routed[$currently_routed_language])". So you can prevent endless recursion in cyclic routing definitions (like EN =&gt; DE =&gt; FR =&gt; EN) when the identifier is not found.</p>
+
+<p>And more precisly in german / Und auf Deutsch:
+Es liegt daran, wie ich bereits beschrieben habe, dass im beim re-routen der rekursive Abstieg direkt mit einem RETURN gemacht wird.
+Richtig wäre doch, das Ergebnis des rekursiven Abstiegs von $this-&gt;translate($messageId, $route_language) in eine variable zu speichern.
+Nach erfolgreichem rekursivem Aufstieg "unset($this-&gt;_routed[$geroutete_sprache])" zu machen. und dann erst das RETURN.
+So kann man verhindern, dass es eine endlose Rekursionschleife gibt, wenn der Bezeichner/Identifier bei einer zyklischen Routen-Definition (z.B. EN =&gt; DE =&gt; FR =&gt; EN) nicht gefunden wird.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-11T01:38:25.000+0000</p> 
+        <div class="body">
+            <p>wrong screenshot replaced</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by René Kerner (johndoe) on 2010-06-11T02:25:18.000+0000</p> 
+        <div class="body">
+            <p>In my project I'm using a self extended Zend_Translate_Adaper_Gettext. It's called Tacticx_Translate_Adaper_Gettext.
+It's not the right place because it should be in a Tacticx_Translate_Adaper class, but for me it's acceptable there atm.
+Here is an example for a corrected Zend/Translate/Adapter.php
+I only show the added function and the corrected translate(...)-function.</p>
+
+<pre class="highlight"><code>
+    private function _routeTranslate($_messageId, $_locale)
+    {
+        $this-&gt;_routed[$_locale] = true;
+        $foreign_lang = $this-&gt;translate($_messageId, $this-&gt;_options['route'][$_locale]);
+        unset($this-&gt;_routed[$_locale]);
+        if(!isset($this-&gt;_routed))
+            $this-&gt;_routed = array();
+        return $foreign_lang;
+    }
+
+    /**
+     * Translates the given string
+     * returns the translation
+     *
+     * @see Zend_Locale
+     * @param  string|array       $messageId Translation string, or Array for plural translations
+     * @param  string|Zend_Locale $locale    (optional) Locale/Language to use, identical with
+     *                                       locale identifier, @see Zend_Locale for more information
+     * @return string
+     */
+    public function translate($messageId, $locale = null)
+    {
+        if($locale === null)
+            $locale = $this-&gt;_options['locale'];
+        $plural = null;
+        if(is_array($messageId))
+        {
+            if(count($messageId) &gt; 2)
+            {
+                $number = array_pop($messageId);
+                if(!is_numeric($number))
+                {
+                    $plocale = $number;
+                    $number  = array_pop($messageId);
+                }
+                else
+                    $plocale = 'en';
+
+                $plural    = $messageId;
+                $messageId = $messageId[0];
+            }
+            else
+                $messageId = $messageId[0];
+        }
+
+        // check if chosen locale is a valid locale
+        if(!Zend_Locale::isLocale($locale, true, false))
+        {
+            if (!Zend_Locale::isLocale($locale, false, false))
+            {
+                // language does not exist, return original string
+                $this-&gt;_log($messageId, $locale);
+                // use rerouting when enabled
+                if(!empty($this-&gt;_options['route']))
+                {
+                    if(array_key_exists($locale, $this-&gt;_options['route']) &amp;&amp;
+                        !array_key_exists($locale, $this-&gt;_routed))
+                    {
+                        return $this-&gt;_routeTranslate($messageId, $locale);
+                    }
+                    $this-&gt;_routed = array();
+                }
+
+                if($plural === null)
+                    return $messageId;
+
+                $rule = Zend_Translate_Plural::getPlural($number, $plocale);
+                if(!isset($plural[$rule]))
+                    $rule = 0;
+                return $plural[$rule];
+            }
+            $locale = new Zend_Locale($locale);
+        }
+
+        $locale = (string) $locale;
+        if((is_string($messageId) || is_int($messageId)) &amp;&amp; isset($this-&gt;_translate[$locale][$messageId]))
+        {
+            // return original translation
+            if($plural === null)
+                return $this-&gt;_translate[$locale][$messageId];
+            $rule = Zend_Translate_Plural::getPlural($number, $locale);
+            if(isset($this-&gt;_translate[$locale][$plural[0]][$rule]))
+                return $this-&gt;_translate[$locale][$plural[0]][$rule];
+        }
+        else if(strlen($locale) != 2)
+        { // faster than creating a new locale and separate the leading part
+            $locale = substr($locale, 0, -strlen(strrchr($locale, '_')));
+
+            if((is_string($messageId) || is_int($messageId))
+                &amp;&amp; isset($this-&gt;_translate[$locale][$messageId]))
+            { // return regionless translation (en_US -&gt; en)
+                if($plural === null)
+                    return $this-&gt;_translate[$locale][$messageId];
+                $rule = Zend_Translate_Plural::getPlural($number, $locale);
+                if (isset($this-&gt;_translate[$locale][$plural[0]][$rule]))
+                    return $this-&gt;_translate[$locale][$plural[0]][$rule];
+            }
+        }
+
+        $this-&gt;_log($messageId, $locale);
+        // use rerouting when enabled
+        if (!empty($this-&gt;_options['route']))
+        {
+            if (array_key_exists($locale, $this-&gt;_options['route']) &amp;&amp;
+                !array_key_exists($locale, $this-&gt;_routed))
+            {
+                return $this-&gt;_routeTranslate($messageId, $locale);
+            }
+            $this-&gt;_routed = array();
+        }
+        if ($plural === null)
+            return $messageId;
+
+        $rule = Zend_Translate_Plural::getPlural($number, $plocale);
+        if (!isset($plural[$rule]))
+            $rule = 0;
+        return $plural[$rule];
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-06-12T13:49:05.000+0000</p> 
+        <div class="body">
+            <p>Please write your issues in english and not in other languages which people don't understand. Thnx.</p>
+
+<p>Fixed with r22425.</p>
+
+        </div>
+    </div>
+    </div>
+

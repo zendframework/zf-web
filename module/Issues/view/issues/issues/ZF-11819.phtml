@@ -1,0 +1,176 @@
+<h2>ZF-11819: Zend_Filter_Input raises PHP Notice when validator metacommand value is empty array</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-10-13T14:47:06.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-10-14T15:12:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.12 (22/Jun/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Arron Woods (idealarron)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter_Input</li>
+            <li>zf-caretaker-adamlundrigan</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9289">ZF-9289</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Upgrading from 1.11.10 to 1.11.11 I experienced some problems with Zend_Filter_Input. Seems to be a backwards compatibility issue.</p>
+
+<p>The following code:</p>
+
+<pre class="highlight"><code>
+$filters = array(
+    'html' =&gt; 'StringTrim',
+);
+
+$validators = array(
+    'html' =&gt; array('NotEmpty', 'presence' =&gt; 'required'),
+    'perms' =&gt; array('default' =&gt; array()),
+);
+
+$validate = new Zend_Filter_Input($filters, $validators, array('html' =&gt; '<br />'));
+$validate-&gt;isValid();
+</code></pre>
+
+<p>produces the following error in 1.11.11:</p>
+
+<p>{quote}
+PHP Notice:  Undefined index:
+Stack trace:</p>
+
+<h1>0 /usr/share/php/Zend/Filter/Input.php(854): My_Error_Catch-&gt;error(8, 'Undefined index...', '/usr/share/php/...', 854, Array)</h1>
+
+<h1>1 /usr/share/php/Zend/Filter/Input.php(786): Zend_Filter_Input-&gt;_validate()</h1>
+
+<h1>2 /usr/share/php/Zend/Filter/Input.php(442): Zend_Filter_Input-&gt;_process()</h1>
+
+<h1>3 .......(48): Zend_Filter_Input-&gt;isValid()</h1>
+
+<p>{quote}</p>
+
+<p>Seems like setting the default to "array()" is causing the notice, is there anything wrong with setting the default to an array?</p>
+
+<p>If ZF doesn't have to be backwards compatible I guess this is a non-issue?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-13T17:28:03.000+0000</p> 
+        <div class="body">
+            <p>It would appear that the fix for ZF-9289 (<a href="http://framework.zend.com/code/diff.php?repname=Zend+Framework&amp;path=%2Ftrunk%2Flibrary%2FZend%2FFilter%2FInput.php&amp;">this commit</a>) is the source of this notice.</p>
+
+<p>I've also noticed that the format you use to define {{$validators}} is not one of the approved formats from the manual (<a href="http://framework.zend.com/manual/en/zend.filter.input.html#zend.filter.input.declaring">see here</a>); in your example the 'perms' key is an array but the first element is not the name of a validator class.</p>
+
+<p>As 'perms' in your example doesn't represent a valid validator entry, it should be silently ignored as was the case pre-ZF-9289.  I suggest a fix like this, which short-circuits the code addition of ZF-9289 if $rule[$classkey] is undefined:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Filter/Input.php
+===================================================================
+--- library/Zend/Filter/Input.php       (revision 24503)
++++ library/Zend/Filter/Input.php       (working copy)
+@@ -851,11 +851,13 @@
+                     if (is_array($rule)) {
+                         $keys      = array_keys($rule);
+                         $classKey  = array_shift($keys);
+-                        $ruleClass = $rule[$classKey];
+-                        if ($ruleClass === 'NotEmpty') {
+-                            $foundNotEmptyValidator = true;
+-                            // field may not be empty, we are ready
+-                            break 1;
++                        if ( isset($rule[classKey]) ) {
++                            $ruleClass = $rule[$classKey];
++                            if ($ruleClass === 'NotEmpty') {
++                                $foundNotEmptyValidator = true;
++                                // field may not be empty, we are ready
++                                break 1;
++                            }
+                         }
+                     }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Arron Woods (idealarron) on 2011-10-13T17:49:29.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+As 'perms' in your example doesn't represent a valid validator entry, it should be silently ignored as was the case pre-ZF-9289. I suggest a fix like this, which short-circuits the code addition of ZF-9289 if $rule[$classkey] is undefined:
+{quote}</p>
+
+<p>Agreed, I checked the manual and it was definitely an incorrect definition for 'perms'. I've updated this in my app already.</p>
+
+<p>The notice is thrown even if I define a validator for perms though, for example:</p>
+
+<pre class="highlight"><code>
+$validators = array(
+    'html' =&gt; array('NotEmpty', 'presence' =&gt; 'required'),
+    'perms' =&gt; array('Int', 'default' =&gt; array()),
+);
+</code></pre>
+
+<p>Only if I set 'default' to a string/null/boolean does the notice disappear:</p>
+
+<pre class="highlight"><code>
+$validators = array(
+    'html' =&gt; array('NotEmpty', 'presence' =&gt; 'required'),
+    'perms' =&gt; array('Int', 'default' =&gt; 'foo'),
+);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-14T14:29:45.000+0000</p> 
+        <div class="body">
+            <p>That is due to fact that the code added in ZF-9289 (spec. Line 851) only operates when {{$rule}} (the value part of any key-value pair) is an array, but fails to check whether that array contains the requested key before trying to use it, so when passed an empty array it emits a notice.  The fix I suggested above should take care of that problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-14T14:57:08.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24504 r24506.
+Merged to release-1.11 in r24505 r24507.</p>
+
+<p>ZF2 pull request: <a href="https://github.com/zendframework/zf2/pull/500">https://github.com/zendframework/zf2/pull/500</a></p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,296 @@
+<h2>ZF-2220: Zend_Db::factory not working with Zend_Config_Xml nor with Zend_Config_Ini</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-11-20T08:33:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-06T11:38:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.5.0 (17/Mar/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alejandro Madrigal Leiva (alemadlei)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Darby Felton (darby)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have the following code.</p>
+
+<pre><code>        //$dbConfiguration = new Zend_Config_Xml(dirname(__FILE__) . '/dbConfiguration.xml', 'production', true);
+        $dbConfiguration = new Zend_Config_Ini(dirname(__FILE__) . '/dbConfiguration.ini', 'production', true);
+
+        // Decrypts encrpyted configuration values.
+        $dbConfiguration-&gt;database-&gt;host        = self::decryptData( $dbConfiguration-&gt;database-&gt;host );
+        $dbConfiguration-&gt;database-&gt;name        = self::decryptData( $dbConfiguration-&gt;database-&gt;name );
+        $dbConfiguration-&gt;database-&gt;username    = self::decryptData( $dbConfiguration-&gt;database-&gt;username );
+        $dbConfiguration-&gt;database-&gt;password    = self::decryptData( $dbConfiguration-&gt;database-&gt;password );
+
+        // Gets Adapter.
+        self::$_DataBaseSingleton = Zend_Db::factory($dbConfiguration);
+</code></pre>
+
+<p>But it does not seem to work.
+Looking at factory function, i see it has this:</p>
+
+<pre><code>    /*
+     * Convert Zend_Config argument to plain string
+     * adapter name and separate config object.
+     */
+    if ($adapter instanceof Zend_Config) {
+        if (isset($adapter-&gt;params)) {
+            $config = $adapter-&gt;toArray();
+        }elseif(isset($adapter-&gt;adapter)) {
+            $adapter = (string) $adapter-&gt;adapter;
+        } else {
+            $adapter = null;
+        }
+    }
+</code></pre>
+
+<p>Looking at Zend Config, both for XML and INI, I didn't found this params object.
+Am I doing something wrong or is this a bug?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jordan Ryan Moore (jordanryanmoore) on 2007-12-12T12:44:02.000+0000</p> 
+        <div class="body">
+            <p>Zend_Db::factory() allows you to use the following two formats for Zend_Config_*:</p>
+
+<pre class="highlight"><code>
+...-&gt;adapter  = 'pdo_mysql';
+...-&gt;host     = 'localhost';
+...-&gt;dbname   = 'db_name';
+...-&gt;username = 'someuser';
+...-&gt;password = 'somepass';
+</code></pre>
+
+<p>or</p>
+
+<pre class="highlight"><code>
+...-&gt;adapter          = 'pdo_mysql';
+...-&gt;params-&gt;host     = 'localhost';
+...-&gt;params-&gt;dbname   = 'db_name';
+...-&gt;params-&gt;username = 'someuser';
+...-&gt;params-&gt;password = 'somepass';
+</code></pre>
+
+<p>For one, it looks like you're not specifying an adapter.</p>
+
+<p>Let me know if this helps...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-12-12T13:29:36.000+0000</p> 
+        <div class="body">
+            <p>Jordan's comment illustrates how to supply configuration data as a Zend_Config object. Resolving as not an issue. Please feel free to reopen with additional information (e.g., the relevant parts of the configuration file, exception messages) if this does not work for you.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Olivier Doucet (ezameku) on 2008-01-02T18:27:04.000+0000</p> 
+        <div class="body">
+            <p>Bug confirmed !
+It can be reproduced very easily :</p>
+
+<pre class="highlight"><code>
+$configSQL = new Zend_Config_Ini('sql.ini', 'master');
+$db = Zend_Db::factory($configSQL );
+</code></pre>
+
+<pre class="highlight"><code>
+[master]
+adapter="pdo_mysql"
+host="localhost"
+username="me"
+password="myself"
+dbname="mydb"
+</code></pre>
+
+<p>Exception raised : 
+<em>Uncaught exception 'Zend_Db_Adapter_Exception' with message 'Configuration array must have a key for 'dbname' that names the database instance'  in D:\MyProject\Zend\Db\Adapter\Abstract.php:243</em></p>
+
+<p>a var_dump($config) in Zend\Db\Adapter\Abstract.php:242 gives us :</p>
+
+<pre class="highlight"><code>
+array(0) { } 
+</code></pre>
+
+<p>So, we have to find out why $config is empty. Solution is in Zend/Db.php:192</p>
+
+<pre class="highlight"><code>
+if ($adapter instanceof Zend_Config) {
+            if (isset($adapter-&gt;params)) {
+                $config = $adapter-&gt;params-&gt;toArray();
+            }
+...
+</code></pre>
+
+<p>$adapter-&gt;params is not set for Zend_Config_Ini objects. My advice is to add an else like this :</p>
+
+<pre class="highlight"><code>
+if ($adapter instanceof Zend_Config) {
+            if (isset($adapter-&gt;params)) {
+                $config = $adapter-&gt;params-&gt;toArray();
+            } else {
+               $config = $adapter-&gt;toArray();
+           }
+           [...]
+}
+</code></pre>
+
+<p>This patch is working for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-03T07:05:01.000+0000</p> 
+        <div class="body">
+            <p>Pasting the example from the documentation:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+require_once 'Zend/Config.php';
+require_once 'Zend/Db.php';
+
+$config = new Zend_Config(
+    array(
+        'database' =&gt; array(
+            'adapter' =&gt; 'Mysqli',
+            'params' =&gt; array(
+                'dbname' =&gt; 'test',
+                'username' =&gt; 'webuser',
+                'password' =&gt; 'secret',
+            )
+        )
+    )
+);
+
+$db = Zend_Db::factory($config-&gt;database);
+));
+</code></pre>
+
+<p>Translating this to ini format would result in:</p>
+
+<pre class="literal">
+[someSection]
+database.adapter = "Mysqli"
+database.params.dbname = "test"
+database.params.username = "webuser"
+database.params.password = "secret"
+</pre>
+
+<p>And you would pass {{$config-&gt;database}} to the {{Zend_Db::factory()}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alejandro Madrigal Leiva (alemadlei) on 2008-01-03T08:24:18.000+0000</p> 
+        <div class="body">
+            <p>Ok, so that would mean that docs for Zend_Config_Ini and Zend_Config_XML have errors.</p>
+
+<p>I created both the XML file and the INI file based on these examples:</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.config.adapters.xml.htm">http://framework.zend.com/manual/en/…</a></p>
+
+<p>&lt;?xml version="1.0"?&gt;
+<a href="www.example.com">www.example.com</a>pdo_mysqldb.example.comdbusersecretdbnamedev.example.comdevuserdevsecret</p>
+
+<p><a href="http://framework.zend.com/manual/en/zend.config.adapters.ini.html">http://framework.zend.com/manual/en/…</a></p>
+
+<p>[production]
+webhost           = <a href="www.example.com">www.example.com</a>
+database.type     = pdo_mysql
+database.host     = db.example.com
+database.username = dbuser
+database.password = secret
+database.name     = dbname</p>
+
+<p>; Staging site configuration data inherits from production and
+; overrides values as necessary
+[staging : production]
+database.host     = dev.example.com
+database.username = devuser
+database.password = devsecret</p>
+
+<p>And as you can see, they dont have the "params" attribute</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-01-03T08:43:14.000+0000</p> 
+        <div class="body">
+            <p>Well, I wouldn't say that these examples are errors, since they do not show interaction with Zend_Db, but I do think they are misleading. I'll update the docs shortly to avoid the confusion. :)</p>
+
+<p>Thanks for the report!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alejandro Madrigal Leiva (alemadlei) on 2008-01-03T09:06:21.000+0000</p> 
+        <div class="body">
+            <p>Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Bertucci (fozzyuw) on 2010-01-06T11:38:51.000+0000</p> 
+        <div class="body">
+            <p>{quote}Zend_Db::factory() allows you to use the following two formats for Zend_Config_*:
+...-&gt;adapter  = 'pdo_mysql';
+...-&gt;host     = 'localhost';
+...-&gt;dbname   = 'db_name';
+...-&gt;username = 'someuser';
+...-&gt;password = 'somepass';{quote}</p>
+
+<p>This comment is not true.  Having a similar issue and working through the source code for Zend/Db.php, it shows the only acceptable format is:</p>
+
+<p>{quote}adapter = '';
+params.host = '';
+params.dbname = '';
+params.username = '';
+params.password = '';{quote}
+Not including "params" for the other parameters (other than adapter) will have the entire array replaced by the name of the adapter.</p>
+
+<p>This can be seen in the source file:
+    Zend/Db.php line 209</p>
+
+        </div>
+    </div>
+    </div>
+

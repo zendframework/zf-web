@@ -1,0 +1,164 @@
+--- Consumer_old.php	2008-04-11 16:10:43.000000000 -0700
++++ Consumer_new.php	2008-04-17 21:38:26.000000000 -0700
+@@ -291,20 +291,6 @@
+             }
+             $params2['openid.mode'] = 'check_authentication';
+             $ret = $this->_httpRequest($server, 'POST', $params2);
+-            $r = array();
+-            if (is_string($ret)) {
+-                foreach(explode("\n", $ret) as $line) {
+-                    $line = trim($line);
+-                    if (!empty($line)) {
+-                        $x = explode(':', $line, 2);
+-                        if (is_array($x) && count($x) == 2) {
+-                            list($key, $value) = $x;
+-                            $r[trim($key)] = trim($value);
+-                        }
+-                    }
+-                }
+-            }
+-            $ret = $r;
+             if (!empty($ret['invalidate_handle'])) {
+                 if ($this->_storage->getAssociationByHandle(
+                     $ret['invalidate_handle'],
+@@ -419,9 +405,25 @@
+         } catch (Exception $e) {
+             return false;
+         }
+-        if ($response->getStatus() == 200) {
+-            return $response->getBody();
+-        }else{
++        if ($response->getStatus() == 200 || $response->getStatus() == 400) {
++            $r = array();
++            $result_body = $response->getBody();
++            foreach(explode("\n", $result_body) as $line) {
++                $line = trim($line);
++                if (!empty($line)) {
++                    $x = explode(':', $line, 2);
++                    if (is_array($x) && count($x) == 2) {
++                        list($key, $value) = $x;
++                        $r[trim($key)] = trim($value);
++                    }
++                }
++            }
++            $r['Zend_OpenId_Http_Status'] = $response->getStatus();
++            $r['Zend_OpenId_Http_Response_Body'] = $response->getBody();
++            return $r;
++        }
++		
++        else{
+             return false;
+         }
+     }
+@@ -488,18 +490,30 @@
+             return false;
+         }
+ 
+-        $r = array();
+-        foreach(explode("\n", $ret) as $line) {
+-            $line = trim($line);
+-            if (!empty($line)) {
+-                $x = explode(':', $line, 2);
+-                if (is_array($x) && count($x) == 2) {
+-                    list($key, $value) = $x;
+-                    $r[trim($key)] = trim($value);
+-                }
++        // Had to take out the Http_Status == 400 because beemba doesn't follow
++        // spec.  I imagine other people also don't follow this spec, so 
++        // it's out for right now.
++        if( /*$ret['Zend_OpenId_Http_Status'] == 400 &&*/
++           $params['openid.assoc_type'] == 'HMAC-SHA256' &&
++           $ret['error_code'] == 'unsupported-type')
++            {
++                //We got an error because they don't support SHA256, generate a new private key and try sha1
++                $params['openid.assoc_type'] = 'HMAC-SHA1';
++                $params['openid.session_type'] = 'DH-SHA1';
++                $dh = Zend_OpenId::createDhKey(pack('H*', Zend_OpenId::DH_P),
++                                               pack('H*', Zend_OpenId::DH_G),
++                                               $priv_key);
++                $dh_details = Zend_OpenId::getDhKeyDetails($dh);
++                
++                $params['openid.dh_modulus']         = base64_encode(Zend_OpenId::btwoc($dh_details['p']));
++                $params['openid.dh_gen']             = base64_encode(Zend_OpenId::btwoc($dh_details['g']));
++                $params['openid.dh_consumer_public'] = base64_encode(Zend_OpenId::btwoc($dh_details['pub_key']));
++                
++                $ret = $this->_httpRequest($url, 'POST', $params);
++                if($ret === false || $ret['Zend_OpenId_Http_Status'] != 200){
++                    return false;
+             }
+         }
+-        $ret = $r;
+ 
+         if ($version >= 2.0 &&
+             isset($ret['ns']) &&
+@@ -597,35 +611,35 @@
+             $id = $realId;
+             return true;
+         }
+-
+         /* TODO: OpenID 2.0 (7.3) XRI and Yadis discovery */
+ 
+         /* HTML-based discovery */
+         $response = $this->_httpRequest($id);
+-        if (!is_string($response)) {
++        if (!is_string($response['Zend_OpenId_Http_Response_Body']) || 
++            $response['Zend_OpenId_Http_Status'] != 200) {
+             return false;
+         }
+         if (preg_match(
+                 '/<link[^>]*rel=(["\'])openid2.provider\\1[^>]*href=(["\'])([^"\']+)\\2[^>]*\/?>/i',
+-                $response,
++                       $response['Zend_OpenId_Http_Response_Body'],
+                 $r)) {
+             $version = 2.0;
+             $server = $r[3];
+         } else if (preg_match(
+                 '/<link[^>]*href=(["\'])([^"\']+)\\1[^>]*rel=(["\'])openid2.provider\\3[^>]*\/?>/i',
+-                $response,
++                              $response['Zend_OpenId_Http_Response_Body'],
+                 $r)) {
+             $version = 2.0;
+             $server = $r[2];
+         } else if (preg_match(
+                 '/<link[^>]*rel=(["\'])openid.server\\1[^>]*href=(["\'])([^"\']+)\\2[^>]*\/?>/i',
+-                $response,
++                              $response['Zend_OpenId_Http_Response_Body'],
+                 $r)) {
+             $version = 1.1;
+             $server = $r[3];
+         } else if (preg_match(
+                 '/<link[^>]*href=(["\'])([^"\']+)\\1[^>]*rel=(["\'])openid.server\\3[^>]*\/?>/i',
+-                $response,
++                              $response['Zend_OpenId_Http_Response_Body'],
+                 $r)) {
+             $version = 1.1;
+             $server = $r[2];
+@@ -635,24 +649,24 @@
+         if ($version >= 2.0) {
+             if (preg_match(
+                     '/<link[^>]*rel=(["\'])openid2.local_id\\1[^>]*href=(["\'])([^"\']+)\\2[^>]*\/?>/i',
+-                    $response,
++                           $response['Zend_OpenId_Http_Response_Body'],
+                     $r)) {
+                 $realId = $r[3];
+             } else if (preg_match(
+                     '/<link[^>]*href=(["\'])([^"\']+)\\1[^>]*rel=(["\'])openid2.local_id\\3[^>]*\/?>/i',
+-                    $response,
++                                  $response['Zend_OpenId_Http_Response_Body'],
+                     $r)) {
+                 $realId = $r[2];
+             }
+         } else {
+             if (preg_match(
+                     '/<link[^>]*rel=(["\'])openid.delegate\\1[^>]*href=(["\'])([^"\']+)\\2[^>]*\/?>/i',
+-                    $response,
++                           $response['Zend_OpenId_Http_Response_Body'],
+                     $r)) {
+                 $realId = $r[3];
+             } else if (preg_match(
+                     '/<link[^>]*href=(["\'])([^"\']+)\\1[^>]*rel=(["\'])openid.delegate\\3[^>]*\/?>/i',
+-                    $response,
++                                  $response['Zend_OpenId_Http_Response_Body'],
+                     $r)) {
+                 $realId = $r[2];
+             }

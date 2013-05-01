@@ -1,0 +1,263 @@
+<h2>ZF-11832: Fatal error: Call to a member function getOrder() on a non-object in Zend/Form.php on line 3322</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-10-19T23:40:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-13T13:30:14.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Glen Solsberry (gms8994)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The following code causes the error above. It seems to be related to the fact that there is not a check to see if "$this-&gt;{$key}" is an object (line 3322) before trying to access the getOrder() method.</p>
+
+<pre class="highlight"><code>
+class My_Application_Forms_Filter extends Zend_Form {
+
+    protected $_undefined = array();
+
+    public function __set($n, $v) {
+        if (! $v) $v = '';
+        $this-&gt;_undefined[$n] = $v;
+    }
+
+    public function __get($n) {
+        if (property_exists($this, $n)) {
+            return $this-&gt;$n;
+        } elseif (isset($this-&gt;_undefined[$n])) {
+            return $this-&gt;_undefined[$n];
+        } else {
+            throw new Exception("__get without __set!");
+            exit;
+        }
+    }
+
+    public function init() {
+        $action = "/find/filter";
+        $name = "filterform";
+
+        $this-&gt;setMethod('get');
+        $this-&gt;setName($name);
+        $this-&gt;setAction($action);
+
+        $this-&gt;addElement('hidden', 'category_id', array());
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-20T12:16:08.000+0000</p> 
+        <div class="body">
+            <p>Code tags added.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-21T18:12:09.000+0000</p> 
+        <div class="body">
+            <p>Could you please provide a code sample illustrating how you trigger the error as well as the call stack trace?  This would help greatly in my attempt to create a unit test to reproduce your issue so the fix you suggested can be committed into ZF.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Glen Solsberry (gms8994) on 2011-10-24T16:46:16.000+0000</p> 
+        <div class="body">
+            <p>The simplest example is thus:</p>
+
+<p>controllers/IndexController.php</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class IndexController extends Zend_Controller_Action {
+    protected $request = null;
+
+    public function init() {
+        $filter_fields = array();
+        $this-&gt;request = $this-&gt;getRequest();
+
+        $filterForm = new Application_Form_Filter($filter_fields);
+        $this-&gt;view-&gt;filterForm = $filterForm;
+    }
+    public function indexAction() {
+    }
+}
+</code></pre>
+
+forms/Filter:
+<pre class="highlight"><code>
+&lt;?php
+class Application_Form_Filter extends Zend_Form {
+    protected $_undefined = array();
+    public function __set($n, $v) {
+        if (! $v) $v = '';
+        $this-&gt;_undefined[$n] = $v;
+    }
+    public function __get($n) {
+        if (property_exists($this, $n)) {
+            return $this-&gt;$n;
+        } elseif (isset($this-&gt;_undefined[$n])) {
+            return $this-&gt;_undefined[$n];
+        } else {
+            return ''; 
+            throw new Exception("__get without __set $n");
+            exit;
+        }
+    }
+        
+    public function __construct(array $params = array()) {
+        foreach (array('certifications', 'voc', 'acute_toxicity') as $key) {
+            if (isset($params[$key])) {
+                foreach ($params[$key] as $k =&gt; $v) {
+                    $this-&gt;$k = $v;
+                } 
+            }
+        }
+        parent::__construct($params);
+    }
+    
+    public function init() {
+        $action = "/find/filter";
+        $name = "filterform";
+
+        $this-&gt;setMethod('get');
+        $this-&gt;setName($name);
+        $this-&gt;setAction($action);
+
+        $this-&gt;addElement('hidden', 'category_id', array(
+            'value' =&gt; $this-&gt;category_id,
+        ));
+    }
+}
+</code></pre>
+
+views/scripts/index/index.phtml:
+<pre class="highlight"><code>
+&lt;?php echo $this-&gt;filterForm; ?&gt;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-24T19:02:16.000+0000</p> 
+        <div class="body">
+            <p>Do not use {{property_exists}}:</p>
+
+<pre class="highlight"><code>
+public function __set($name, $value) {
+    if ($value instanceof Zend_Form_Element || $value instanceof Zend_Form
+        || is_array($value)) {
+        parent::__set($name, $value);
+        return;
+    }
+    
+    if (!$value) {
+        $value = '';
+    }
+    $this-&gt;_undefined[$name] = $value;
+
+    return;
+}
+
+public function __get($name) {
+    if (null !== parent::__get($name)) {
+        return parent::__get($name);
+    } elseif (isset($this-&gt;_undefined[$name])) {
+        return $this-&gt;_undefined[$name];
+    } else {
+        return ''; 
+        throw new Exception("__get without __set $name");
+        exit;
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Victor (the_ghost) on 2012-01-03T14:26:12.000+0000</p> 
+        <div class="body">
+            <p>I found, that we can get such error if we create public variable inside form class with its name equal to some form element:</p>
+
+<pre class="highlight"><code>
+class Agent_Form_FormAdd extends Zend_Form
+{
+    public $agent_id; //&lt;&lt;&lt;&lt;&lt; 'agent_id'
+    function init(){
+
+        // hidden fields   
+        $agent_id = new Zend_Form_Element_Hidden('agent_id'); //&lt;&lt;&lt;&lt;&lt; 'agent_id'
+        $agent_id-&gt;setValue($this-&gt;agent_id);
+        $this-&gt;addElement($agent_id);
+    }
+...
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-01-03T15:34:51.000+0000</p> 
+        <div class="body">
+            <p>@Victor
+You do not need a public property for an element. Use the magic <a href="http://framework.zend.com/apidoc/core/db_Form.html#%5C%5CZend_Form::__get%28%29">method "__get()"</a> (Overloading: access to elements, form groups, and display groups).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-03-13T08:22:29.000+0000</p> 
+        <div class="body">
+            <p>I see no error in {{Zend_Form}}. I think we can close this issue.</p>
+
+<p>Adam, what do you mean?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-13T13:30:14.000+0000</p> 
+        <div class="body">
+            <p>Agreed.  This is not an issue with {{Zend_Form}}.</p>
+
+        </div>
+    </div>
+    </div>
+

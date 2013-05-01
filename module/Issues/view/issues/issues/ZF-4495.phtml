@@ -1,0 +1,165 @@
+<h2>ZF-4495: LDAP connection bug with special characters</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-06T04:48:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-20T12:31:53.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Holger Schäfer (hschaefer123)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stefan Gehrig (sgehrig)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Ldap</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>authentication against Microsoft ADS (LDAP) does not work with special characters inside username!</p>
+
+<p>The problem is inside:
+public function getCanonicalAccountName($acctname, $form = 0)
+  ...
+  $uname = strtolower($uname);
+ ..</p>
+
+<p>If using a DN Form of authentication ex. "schäfer@abc.de"
+the authentication needs DN: sch\303\244fer@abc.de</p>
+
+<p>The stringtolower conversion corrupts the uname data and the whole authentication
+does not work for usernames with special characters!</p>
+
+<p>Also strtolower can be critical in situations with different charsets!</p>
+
+<p>Maybe this transformation can be optional or must not be used at this place.</p>
+
+<p>Hope, that this fix will find his way in one of the next releases, because as a workaround
+i manually have to comment out this line of code.</p>
+
+<p>Best wishes,
+Holger Schäfer</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michael B Allen (miallen) on 2008-10-06T08:54:56.000+0000</p> 
+        <div class="body">
+            <p>Yeah, it looks like we need to use $username = mb_strtolower($username, 'UTF-8'). We might need to call it conditionally if it's not a core PHP function though.</p>
+
+<p>Commenting out that strtolower is an ok solution too.</p>
+
+<p>The reason the username is lower-cased is because, as the name of the method implies, getCanonicalAccountName should always return the same string for the same account such that an equality comparison with == should return true. If we don't normalize the case, that may result in subtle bugs in higher level logic where people assume a logical comparison will be sufficient (as opposed to a strcasecmp). But since database string comparisons are almost always case insensitive, it's probably ok to not normalize the username to lowercase. So perhaps we should make this optional.</p>
+
+<p>I'm about to do another pass at Zend_Ldap. I'll create an account with non-ASCII characters in the username and make sure that all the tests work correctly.</p>
+
+<p>Thanks for the feedback,
+Mike</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael B Allen (miallen) on 2008-10-08T19:09:56.000+0000</p> 
+        <div class="body">
+            <p>Holger,</p>
+
+<p>I was not able to reproduce this issue.</p>
+
+<p>Adding a user schäfer to AD worked perfectly with my standard Zend_Auth_Adapter_Ldap demo app. The user is correctly authenticated and the umlaut is represented correctly throughout.</p>
+
+<p>Perhaps your PHP multi-byte settings are causing an issue?</p>
+
+<p>Or perhaps the web server locale is not suitable?</p>
+
+<p>My interpretation of the strtolower documentation indicates that a UTF-8 locale or C local should work fine. UTF-8 characters should be converted correctly in a UTF-8 locale and characters are not converted at all in the C local.</p>
+
+<p>Note that if you are using a locale other than UTF-8, the LDAP client in general may not behave as expected as LDAP data is always UTF-8 regardless of what locale you run in.</p>
+
+<p>I will leave this issue open if you wish to pursue the issue futher however I have downgraded the issue to "minor".</p>
+
+<p>Mike</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Holger Schäfer (hschaefer123) on 2008-10-09T00:23:56.000+0000</p> 
+        <div class="body">
+            <p>Hi Allan,
+thanks for the quick answer.</p>
+
+<p>We are using Windows as a Devsystem and Linux as the prodsystem,
+to make sure that the code is running on both systems.</p>
+
+<p>Windows has it's own kind of implementation of the locale functionality.
+In the manual i found an entry:</p>
+
+<blockquote>
+  <p>Note about using UTF-8 locale charset on Windows systems:
+  According to MSDN, Windows setlocale()'s implementation does not support UTF-8 encoding. 
+  Citation from "MSDN setlocale, _wsetlocale" page (<a href="http://msdn.microsoft.com/en-us/library/x99tb11d.aspx">http://msdn.microsoft.com/en-us/library/…</a>):
+  The set of available languages, country/region codes, and code pages includes all those supported by the &gt;Win32 &gt;NLS API except code pages that require more than two bytes per character, such as UTF-7 and UTF-8. If &gt;you provide &gt;a code page like UTF-7 or UTF-8, setlocale will fail, returning NULL.</p>
+</blockquote>
+
+<p>That was the reason why we have to use different locales for Windows and Linux.</p>
+
+<p>I just tested it by myself, and all combinations of setlocale (only windows) like 
+setlocale(LC_ALL, 'deu_deu', 'germany_germany'); 
+does not work the expected way (things like "deu_deu.UTF8" does not work on windows).
+The locale is always "German_Germany.1252 "</p>
+
+<p>Concerning strtolower:
+In the manual, there is also an example function "strtolower_utf8($inputString)", that uses
+utf8_decoding -&gt; strtolower -&gt; utf_encode to make sure, that strtolower works well in utf8 case.</p>
+
+<p>So i think, i'm not able to use Zend_Ldap (on windows) without the strtolower line, cause the problems is in combination of codepage 1252 and using strtolower while the whole communikation is code in utf-8.</p>
+
+<p>If Zend_Framework supports the windows plattform, any solution inside the framework would be great, cause it is a little bit problematic on every update of the ZendFramework manually to comment the codeline.</p>
+
+<p>Any Ideas?</p>
+
+<p>Best wishes
+Holger</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-07-20T12:31:52.000+0000</p> 
+        <div class="body">
+            <p>fixed in trunk rev. 16890</p>
+
+        </div>
+    </div>
+    </div>
+

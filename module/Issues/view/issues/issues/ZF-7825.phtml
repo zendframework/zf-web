@@ -1,0 +1,230 @@
+<h2>ZF-7825: Zend_Rest_Controller postAction cannot access request data</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-10T19:26:06.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-21T08:07:57.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                AJ Coon (ajcoon)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Rest_Route</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I am extending Zend_Rest_Controller, and in my postAction method trying to access variables in the post request.  I am calling:</p>
+
+<p>$this-&gt;view-&gt;username = $this-&gt;getRequest()-&gt;getParam('username');</p>
+
+<p>The username value returned from getParam() is null.</p>
+
+<p>I am making this exact same call in my getAction and it finds the value fine in the request.  Is getParam() not the correct call for a post request?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-09-10T19:32:01.000+0000</p> 
+        <div class="body">
+            <p>Changed component and assignee.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-09-10T19:48:18.000+0000</p> 
+        <div class="body">
+            <p>What is the value of $this-&gt;getRequest()-&gt;getRawBody()?</p>
+
+<p>What I'm getting at is: what kind of payload is being sent to the action?</p>
+
+<p>I've used getParam() in my own code with all actions with success, so my suspicion is that the parameter is either not present, or is part of the raw body -- which you'll then need to parse.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by AJ Coon (ajcoon) on 2009-09-10T19:56:29.000+0000</p> 
+        <div class="body">
+            <p>Here is my modified postAction</p>
+
+<pre class="highlight"><code>
+public function postAction() {
+        error_log('this-&gt;getRequest()-&gt;getRawBody(): ' . print_r($this-&gt;getRequest()-&gt;getRawBody(),true));
+
+        $this-&gt;view-&gt;username = $this-&gt;getRequest()-&gt;getParam('username');
+        $this-&gt;view-&gt;requestid = $this-&gt;getRequest()-&gt;getParam('requestid');
+        //$this-&gt;_forward('index');
+    }
+</code></pre>
+
+<p>Here is the Apache error log output:</p>
+
+<pre class="literal">
+==&gt; /var/log/apache2/error.log &lt;==
+[Thu Sep 10 22:04:27 2009] [error] [client 127.0.1.1] this-&gt;getRequest()-&gt;getRawBody(): {"username":"ajcoon","password":"foobar","requestid":"4aa9be3b22fe98.65658205"}
+</pre>
+
+<p>So, the data <em>is</em> being passed in by the client....so then you're saying, I need to define parsing logic myself?  I guess that makes sense...</p>
+
+<p>Perhaps this could result in a feature request for a helper class to parse POST/PUT data based on content type?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-09-10T20:13:52.000+0000</p> 
+        <div class="body">
+            <p>So, yes, you've stumbled onto one of the pitfalls of the request object: it doesn't currently have a way to decode the raw request body based on the Content-Type passed in.</p>
+
+<p>I've built up an action helper for myself that checks the Content-Type request header for the string "application/json" , and, if found, pulls the data from there, passes it to Zend_Json::decode(), and then passes that data back into the request object. It's trivial to write currently, but we do need a standard solution for this.</p>
+
+<p>I'm closing the issue for now (as it's marked as a bug); when I get a proposal written for the new functionality, I'll link here to it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by AJ Coon (ajcoon) on 2009-09-10T20:16:33.000+0000</p> 
+        <div class="body">
+            <p>Great, thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Luke Crouch (lcrouch) on 2009-09-11T12:14:06.000+0000</p> 
+        <div class="body">
+            <p>That's a good point. I think there's some RESTful Zend_Controller enhancements we should wrap up into a proposal as a consequence of people using Zend_Rest.</p>
+
+<ol><li>Helper(s) to digest request bodies based on popular Content-Type values - xml, json, http-form-encoded</li>
+<li>Enhance ContextSwitch helper to be sensitive to Accept request headers for determining view modes so the format doesn't have to be in the URI</li>
+</ol><p>Others?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by AJ Coon (ajcoon) on 2009-09-11T12:35:47.000+0000</p> 
+        <div class="body">
+            <p>I would add:</p>
+
+<ol><li>Extending views to support the concept of one response, many formats, again based on the Accept header.  What I've done in my REST controllers is this:</li>
+</ol><pre class="literal">
+ll application/views/scripts/helloworld/
+total 24
+-r--r--r-- 1 root root  82 2009-09-10 08:41 get.json.phtml
+-r--r--r-- 1 root root 279 2009-09-09 16:40 _get_response.php
+-r--r--r-- 1 root root  62 2009-09-10 08:41 get.xml.phtml
+-r--r--r-- 1 root root  83 2009-09-10 23:16 post.json.phtml
+-r--r--r-- 1 root root 279 2009-09-10 16:53 _post_response.php
+-r--r--r-- 1 root root  63 2009-09-10 23:16 post.xml.phtml
+</pre>
+
+<p>I've defined a response structure in the _$action_response.php file.  I then include this in my "resolvable" views, and just output different formats.  For example:</p>
+
+<p>cat application/views/scripts/helloworld/_get_response.php</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$doc = new DOMDocument();
+$doc-&gt;formatOutput = true;
+
+$root_element = $doc-&gt;appendChild($doc-&gt;createElement("response"));
+$root_element-&gt;appendChild( new DOMElement("requestid", $this-&gt;requestid));
+$root_element-&gt;appendChild( new DOMElement("hello",$this-&gt;username) );
+
+?&gt;
+</code></pre>
+
+<p>cat application/views/scripts/helloworld/get.json.phtml</p>
+
+<pre class="highlight"><code>
+&lt;?php
+require('_get_response.php');
+print Zend_Json::fromXML($doc-&gt;saveXML());
+?&gt;
+</code></pre>
+
+<p>cat application/views/scripts/helloworld/get.xml.phtml</p>
+
+<pre class="highlight"><code>
+&lt;?php
+require('_get_response.php');
+print $doc-&gt;saveXML();
+?&gt;
+</code></pre>
+
+<p>What I'm envisioning is that the developer only has to implement the _$action_response.php file.  Then, depending on the Accept format (assuming there is an encoder that supports it), we provide the encoding auto-magically.  In my case, this would mean that by enabling json and xml in my ContextSwitch:</p>
+
+<pre class="highlight"><code>
+        $contextSwitch = $this-&gt;_helper-&gt;getHelper('contextSwitch');
+        $contextSwitch-&gt;setAutoJsonSerialization(false);
+        $contextSwitch-&gt;addActionContext('get', array('xml','json'))-&gt;initContext();\
+</code></pre>
+
+<p>...I've auto-magically made "get.json.phtml" and "get.xml.phtml" available as views.</p>
+
+<p>Does this make sense?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-09-11T12:54:09.000+0000</p> 
+        <div class="body">
+            <p>In the projects I've been working on, I look for the Content-Type and Accept header in the request; based on that, I will then add all the various REST actions to the appropriate context (currently, only json). So, in the end, I'm doing similarly to what you describe.</p>
+
+<p>As for the formatting -- I leave that entirely to my individual views. HTML, JSON, and XML all have very different needs, so I simply pass in the values, and then serialize them as necessary. One technique I'm using is to have my service layer always return Zend_Paginator objects for lists -- that way I know that I have the same general type of object, and there are particular serialization formats automatically available. (I've also built a view helper that will setup my "Content-Range" header based on the Paginator object, which is tremendously useful.)</p>
+
+<p>I think having either ContextSwitch or a new action helper setup the ContextSwitch mappings for REST controllers makes sense; developers may always selectively switch off actions they don't want responding in the given format. Additionally, as Luke suggests, some automated scaffolding for pulling in the POST/PUT data based on the Content-Type of the request would be useful.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Luke Crouch (lcrouch) on 2009-09-11T14:13:12.000+0000</p> 
+        <div class="body">
+            <p>Matthew,</p>
+
+<p>Do you want to write up a Zend_Rest proposal that incorporates all these? Or should we just make task tickets for them and get started? Or I can write a proposal if we want.</p>
+
+<p>-L</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by nike shox (nike shox) on 2012-11-21T08:07:57.000+0000</p> 
+        <div class="body">
+            <p>Kanten of vulkanisert Salé is betont <a href="http://www.nikeshoxsko.biz">http://www.nikeshoxsko.biz</a> with a fargerik 90'erne stil geometriske Mønster, which tar the already existing vintage Appell of this <a href="http://www.nikeshoxsko.biz">http://www.nikeshoxsko.biz</a> silhuetten løbet top.Stop at the endClothing å legge the recent <a href="http://www.nikeshoxsko.biz">http://www.nikeshoxsko.biz</a> Hardland from adidas Originals to the sneaker lineup today.</p>
+
+        </div>
+    </div>
+    </div>
+

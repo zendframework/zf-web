@@ -1,0 +1,193 @@
+<h2>ZF-12284: Zend_Http_UserAgent_Features_Adapter_WurflApi Sends Persistence Information using WURFL_Configuration_InMemoryConfig to WURFL_WURFLManagerFactory incorrectly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-06-12T14:35:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-10-24T15:49:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Henry Hayes (henryhayes)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_UserAgent</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10795">ZF-10795</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using the {{INI}} configuration method and using the {{Zend_Application_Resource_UserAgent}} resource loader to initialise {{Zend_Http_UserAgent}} to use {{Zend_Http_UserAgent_Features_Adapter_WurflApi}}; the persistence params are sent through incorrectly.</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_api_version = "1.1"
+resources.useragent.wurflapi.wurfl_lib_dir = APPLICATION_PATH "/../library/Wurfl/"
+resources.useragent.wurflapi.wurfl_config_array.wurfl.main-file = APPLICATION_PATH "/../data/wurfl/wurfl.zip"
+resources.useragent.wurflapi.wurfl_config_array.wurfl.patches = APPLICATION_PATH "/../data/wurfl/web_browsers_patch.xml"
+resources.useragent.wurflapi.wurfl_config_array.persistence.provider = "File"
+
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+
+resources.useragent.wurflapi.wurfl_config_array.cache.provider = "Null"
+resources.useragent.storage.adapter = "Zend_Http_UserAgent_Storage_NonPersistent"
+</code></pre>
+
+<p>The line of code above that causes the problem is:</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+// This is completely ignored:
+resources.useragent.wurflapi.wurfl_config_array.persistence.expiration  = 3600
+</code></pre>
+
+<p>This is sent through to line 85 of {{Zend_Http_UserAgent_Features_Adapter_WurflApi}} as {{$c['persistence']['dir']}} and is a string. When this is passed though to {{WURFL_Configuration_InMemoryConfig::persistence()}} it is of course a string. However {{WURFL_Configuration_InMemoryConfig::persistence()}} expects it to be an array with a key of {"dir"}, e.g. {{array('dir'=&gt;'/temp/my-dir/wurfl/cache/');}} Also, the "expiration" field is not taken into account at all, meaning that we cannot set an "expiration" time for an adaptor/provider.</p>
+
+<p>There is a workaround for this by defining the {{dir}} as follows, and some people have done as follows:</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir.expiration  = 3600
+</code></pre>
+
+<p>My patch below amends this to be in-keeping with what seems to be Zend Framework Config conventions in using a "params" array. This patch also takes into account those who have used the workaround above and so backward compatible and will not break people's code who have already used the workaround above.</p>
+
+<p>Patch is suggested as follows:</p>
+
+<p>INI File Contents:</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_config_array.persistence.params.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+resources.useragent.wurflapi.wurfl_config_array.persistence.params.expiration  = 3600
+</code></pre>
+
+<p>{{Zend_Http_UserAgent_Features_Adapter_WurflApi}} Patch (Line 80)</p>
+
+<p>Existing:</p>
+
+<pre class="highlight"><code>
+} elseif (!empty($config['wurfl_config_array'])) {
+    $c            = $config['wurfl_config_array'];
+    $wurflConfig  = new WURFL_Configuration_InMemoryConfig();
+    $wurflConfig-&gt;wurflFile($c['wurfl']['main-file'])
+                -&gt;wurflPatch($c['wurfl']['patches'])
+                -&gt;persistence($c['persistence']['provider'], $c['persistence']['dir']);
+}
+</code></pre>
+
+<p>Proposed:</p>
+
+<pre class="highlight"><code>
+} elseif (!empty($config['wurfl_config_array'])) {
+    $c            = $config['wurfl_config_array'];
+    $wurflConfig  = new WURFL_Configuration_InMemoryConfig();
+    $wurflConfig-&gt;wurflFile($c['wurfl']['main-file'])
+                -&gt;wurflPatch($c['wurfl']['patches']);
+    $persistence = array();
+    if (array_key_exists('dir', $c['persistence']) {
+        if (is_string($c['persistence']['dir']) {
+            $persistence['dir'] = $c['persistence']['dir'];
+        } elseif (is_array($c['persistence']['dir'])) {
+            $persistence = array_merge($persistence, $c['persistence']['dir']);
+        }
+    }
+    if (array_key_exists('params', $c['persistence']) {
+        $persistence = array_merge($persistence, $c['persistence']['params']);
+    }
+    $wurflConfig-&gt;persistence($c['persistence']['provider'], $persistence);
+}
+</code></pre>
+
+<p>This patch allows total backward compatibility, and fix the bug. And so any of the following combinations will work:</p>
+
+<p>"dir" as a string:</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+resources.useragent.wurflapi.wurfl_config_array.persistence.params.expiration  = 3600
+</code></pre>
+
+<p>Old workaround, "dir" array:</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+resources.useragent.wurflapi.wurfl_config_array.persistence.dir.expiration  = 3600
+</code></pre>
+
+<p>New "params" array:</p>
+
+<pre class="highlight"><code>
+resources.useragent.wurflapi.wurfl_config_array.persistence.params.dir  = APPLICATION_PATH "/../data/wurfl/cache/"
+resources.useragent.wurflapi.wurfl_config_array.persistence.params.expiration  = 3600
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Henry Hayes (henryhayes) on 2012-06-12T16:06:50.000+0000</p> 
+        <div class="body">
+            <p>I noticed, after I submitted this issue, that there is already a bug in place for this.</p>
+
+<p><a href="http://framework.zend.com/issues/browse/ZF-10795">http://framework.zend.com/issues/browse/ZF-10795</a></p>
+
+<p>However, as I mentioned above, the patch above is more comprehensive and is backward compatible for those who may have used the workaround mentioned.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-06-12T16:47:26.000+0000</p> 
+        <div class="body">
+            <p>Hi Henry,
+to accept your patch you must fill out the <a href="http://framework.zend.com/cla">CLA</a> and add a patch (as file) with unit tests to this issue.</p>
+
+<p>Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Henry Hayes (henryhayes) on 2012-10-24T07:35:18.000+0000</p> 
+        <div class="body">
+            <p>There's not really much point as Wurfl support has been removed from ZF as of version 1.12 - See this thread here:</p>
+
+<p><a href="http://www.websitefactors.co.uk/php/2012/06/zend-useragent-wurfl-explained/">http://websitefactors.co.uk/php/2012/…</a></p>
+
+<p>Also, I have written a comprehensive guide to getting the Browscap running using your application ini:</p>
+
+<p><a href="http://www.websitefactors.co.uk/zend-framework/2012/06/zend-framework-useragent-browscap-implementation/">http://websitefactors.co.uk/zend-framework/2012/…</a></p>
+
+<p>I'll request that this is now closed.</p>
+
+        </div>
+    </div>
+    </div>
+

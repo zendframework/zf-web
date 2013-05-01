@@ -1,0 +1,216 @@
+<h2>ZF-6995: Zend_config : toArray conflict with iterator implements.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-12T02:41:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-16T12:20:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.4 (23/Jun/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                CHOTIN Nicolas (nicochot)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                julien PAULI (doctorrock83)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Function "toArray()" is created with a foreach on "_data".
+Interface "iterator" is implemented with :  "next($this-&gt;_data)" and others functions of iterator directly on "_data".</p>
+
+<p>My problem is function "toArray()" which is in conflict with the iterator interface.
+For fix that , we must create a clone of object and after we can use "toArray()".</p>
+
+<p>But function "toArray()" should be NOT in conflict with iterator ?</p>
+
+<p>For me, the problem is not "toArray()" but the implement of "Iterator".
+And is just when we want used "toArray()"  AND iterator in same time on same object.</p>
+
+<p>This problem could be apply to all classes with iterator and "toArray()".
+But I don't know if it's a usage problem or a bug.</p>
+
+<p>Nicolas CHOTIN.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-06-12T06:59:39.000+0000</p> 
+        <div class="body">
+            <p>Would you mind providing the code you're using along with the results you're getting and the results you are expecting?</p>
+
+<p>Thanks,</p>
+
+<p>Rob...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-06-12T11:07:49.000+0000</p> 
+        <div class="body">
+            <p>Foreach() uses the array directly and thus, the <em>internal</em> array iterator and not Zend_Config's iterator.</p>
+
+<p>Could you provide a use case ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (noopable) on 2009-06-13T01:08:54.000+0000</p> 
+        <div class="body">
+            <p>Hi
+I was put in a similar situation.
+toArray breaks iteration.
+At between before and after toArray, a behavior of valid and current is amusing.</p>
+
+<p>Here is repro-code</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$config = new Zend_Config(array(1,2,3));
+
+$config-&gt;rewind();
+var_dump($config-&gt;valid());  // true
+var_dump($config-&gt;current()); // int(1)
+
+$config-&gt;rewind();
+$dummy = $config-&gt;toArray();
+var_dump($config-&gt;valid()); // true
+var_dump($config-&gt;current()); // false
+
+</code></pre>
+
+<p>2nd sample should be " not valid " or "valid? int(1)"</p>
+
+<p>One Solution is clone $this-&gt;_data before "foreach($this-&gt;_data" In Zend_Config::toArray() .</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by CHOTIN Nicolas (nicochot) on 2009-06-15T07:38:48.000+0000</p> 
+        <div class="body">
+            <p>In my case it's a controller for testing.
+I have create a config file with a "value" for config and a "value" for testing :</p>
+
+<p>test.c1.regexp = ^/index/test
+test.c1.test      = /index/test
+test.c2.regexp = ^/index/test1
+test.c2.test      = /index/test1</p>
+
+<p>The initialization of object is in loop of tests, because 
+this object is initialized only when used.
+But in real context we don't have a loop on same object "Zend_Config".</p>
+
+<p>So for me it's a usage problem but it's interesting to add a warning 
+in documentation mostly if Zend_Config it's not alone class in this case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-06-15T09:25:43.000+0000</p> 
+        <div class="body">
+            <p>Ok I see.</p>
+
+<p>toArray() works directly on the _data array, and so does the iterator.
+When calling toArray(), a foreach loop is used to iterate throught _data, that foreach loop first calls rewind() internaly , and then iterates. The problem is that the foreach loop leaves the array iterator at an undefinied position (that's why rewind() is called by foreach before the iteration).
+Then when you call current() on your object, it just says it doesn't have a current value.</p>
+
+<pre class="highlight"><code>
+$config = new Zend_Config(array(1,2,3));
+$config-&gt;rewind(); // rewound
+$config-&gt;toArray(); // the internal iterator is somewhere after the last position due to foreach loop
+assert($config-&gt;current() == false); // OK
+</code></pre>
+
+<p>To see that, create a getIndex() method in Zend_Config, which return $_index; and try this :</p>
+
+<pre class="highlight"><code>
+$config = new Zend_Config(array(1,2,3));
+$config-&gt;rewind(); // rewound
+$config-&gt;toArray(); // the internal iterator is somewhere after the last position due to foreach loop
+assert($config-&gt;key() == $config-&gt;getIndex()); // WRONG , $config-&gt;key() returns NULL while getIndex() has the right value
+</code></pre>
+
+<p>The patch is easy, trigger the internal PHP copy-on-write system to make foreach loop over a copy of the _data array, and not the real _data.
+Just add :</p>
+
+<pre class="highlight"><code>
+public function toArray()
+    {
+        $array = array();
++      $data = $this-&gt;_data;
+        foreach ($this-&gt;_data as $key =&gt; $value) {
+            if ($value instanceof Zend_Config) {
+                $array[$key] = $value-&gt;toArray();
+            } else {
+                $array[$key] = $value;
+            }
+        }
+        return $array;
+    }
+</code></pre>
+
+<p>Even not using the new $data variable created, it increments the internal refcount on the _data structure, making foreach use a copy of it ;-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2009-06-16T02:10:12.000+0000</p> 
+        <div class="body">
+            <p>julien,</p>
+
+<p>Fancy writing a unit test and then patching?</p>
+
+<p>Regards,</p>
+
+<p>Rob...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-06-16T04:07:50.000+0000</p> 
+        <div class="body">
+            <p>I'm on it</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-06-16T12:20:57.000+0000</p> 
+        <div class="body">
+            <p>Fixed in SVN r16090</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,203 @@
+<h2>ZF-5197: Decorator aliases are lost when Zend_Form_Element_Captcha adds its own decorators in 'render' method</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-10T03:23:13.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-19T10:43:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.6 (22/Jun/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Andrei Nikolov (viperx)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9168">ZF-9168</a></li>
+            <li><a href="/issues/browse/ZF-9338">ZF-9338</a></li>
+            <li><a href="/issues/browse/ZF-7552">ZF-7552</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12060/Element.diff">Element.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Reproduce code:</p>
+
+<pre><code>      $captcha = new Zend_Form_Element_Captcha('captcha', array(
+            'captcha' =&gt; array(
+                'captcha' =&gt; 'Image',
+                'wordLen' =&gt; 6,
+                'timeout' =&gt; 300,
+                'font' =&gt; Zend_Registry::get('siteRootDir') . '/application/sketchh.ttf',
+            )
+        ));
+
+        $captcha-&gt;setDecorators(array(
+            //captcha decorator are placed at the begining of the array by default by 'render' method
+            array('decorator' =&gt; array('foo' =&gt; 'HtmlTag'), 'options' =&gt; array('tag' =&gt; 'span')),                
+            array('decorator' =&gt; array('bar' =&gt; 'HtmlTag'), 'options' =&gt; array('tag' =&gt; 'div')),
+        ));
+</code></pre>
+
+<p>what we expect is to have something like this:</p>
+
+<div><span>CAPTCHA</span></div>
+
+<p>but the result is this:</p>
+
+<div>CAPTCHA</div>
+
+<p>The problem is that the aliases of the decorators (foo and bar) are lost while the 'render' method of Zend_Form_Element_Captcha adds its own decorators at the begining of the decorators array. This is done by "array_unshift" and then call to "setDecorators" but "setDecorators" in fact removes all current decorators and adds the new one with "addDecorators". There we have</p>
+
+<p>foreach ($decorators as $decoratorInfo)</p>
+
+<p>and here in fact the alias of the decorator is lost (in this case the alias is the index of the decorator in the array)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stanislav Malyshev (stas) on 2009-02-27T12:27:43.000+0000</p> 
+        <div class="body">
+            <p>Looks like defect in Zend_Form_Element::addDecorators not in Captcha. Matthew, could you take a look?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Heinrich (shurakai) on 2009-06-04T11:50:16.000+0000</p> 
+        <div class="body">
+            <p>Yes, as you correctly assumed, the problem is located in Zend_Form_Element, but in addDecorator() (without the s!)</p>
+
+<p>The problem is that all decorators are given as objects, therefore addDecorator() will determine the classname and save the decorators with this classname as the index.</p>
+
+<p>Therefore, if you use multiple decorators of the same kind, they will be overwritten.</p>
+
+<p>Version: 1.8</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-06-04T13:10:51.000+0000</p> 
+        <div class="body">
+            <p>You can add concrete instances using aliasing as well:</p>
+
+<pre class="highlight"><code>
+$form-&gt;addElement('text', 'foo', array(
+    'decorators' =&gt; array(
+        array(array('Foo' =&gt; new My_Decorator_Foo())),
+    ),
+));
+
+You can even do it with addDecorator():
+</code></pre>
+
+<p>$element-&gt;addDecorator(array('Foo' =&gt; new My_Decorator_Foo()));
+```</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jesus Ruiz-Ayucar Vazquez (chuso) on 2009-07-04T15:18:56.000+0000</p> 
+        <div class="body">
+            <p>I have attached a patch which works to me. It changes the way Zend_Form_Element_Captcha::render() adds its decorators.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Heinrich (shurakai) on 2009-08-24T06:03:40.000+0000</p> 
+        <div class="body">
+            <p>This issue still exists in 1.9.1</p>
+
+<p>Matthew, I use to add my decorators in a derived formclass like this:</p>
+
+<p>$this-&gt;setElementDecorators(array(
+             array(array('biglabelClose' =&gt; 'HtmlTag'), array('tag' =&gt; 'div', 'closeOnly' =&gt; true, 'placement' =&gt; Zend_Form_Decorator_Abstract::PREPEND )),
+             array('Label', array('placement' =&gt; Zend_Form_Decorator_Abstract::PREPEND)),
+             array(array('biglabelOpen' =&gt; 'HtmlTag'), array('tag' =&gt; 'div', 'openOnly' =&gt; true, 'class' =&gt; 'biglabel', 'placement' =&gt; Zend_Form_Decorator_Abstract::PREPEND))
+            )
+        );</p>
+
+<p>Doing it this way, the decorators with the aliases will be overwritten due to the way of saving in addDecorator.</p>
+
+<p>However, the patch from Jesus works for me but should be reviewed; there have been a lot of whitespace changings.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-08-24T07:26:53.000+0000</p> 
+        <div class="body">
+            <p>@Christian H.: Of course it still exists in 1.9.1 - the patch has not yet been reviewed or applied.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dominik Bulaj (webit) on 2009-12-03T03:11:37.000+0000</p> 
+        <div class="body">
+            <p>@Matthew - why so many <a href="http://devzone.zend.com/article/11421-Results-of-Novembers-ZF-Bug-Hunt-Days">bug hunt days</a> didn't resove that issue? It's quite old and annoying issue. Any plans to fix it in near future?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-12-03T04:59:13.000+0000</p> 
+        <div class="body">
+            <p>@Dominik -- Please be more polite when bumping issues. My own time during the bug hunt days is basically spent reviewing patch submissions and commits that occur <em>during</em> the bug hunt. The various participants in the bug hunt work on the issues that affect them personally typically. Additionally, if you look at the backlog of issues, the shear volume means that we simply will not get to them all on any given bug hunt.</p>
+
+<p>One problem with this particular patch is that it does not include unit tests, which means that whomever considers applying it will also need to create a reproduce case and capture it as a test -- which means it's a non-trivial amount of time to apply.</p>
+
+<p>If you want this issue resolved faster, help by submitting a unit test case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hendri Smit (hendri.smit) on 2010-01-25T05:49:42.000+0000</p> 
+        <div class="body">
+            <p>The patch provided is incorrect. It may work in some cases but the changes made simply add the captcha decorators on top of the decorator stack. They should be rendered first and need to be at the bottom of the stack as is currently the case. Imo the proposed fix for case ZF-7552 is the way to go for this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2010-06-06T08:01:09.000+0000</p> 
+        <div class="body">
+            <p>Change component</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-06-19T10:43:08.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r22464 and merged into 1.10 release branch</p>
+
+        </div>
+    </div>
+    </div>
+

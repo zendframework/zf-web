@@ -1,0 +1,214 @@
+<h2>ZF2-509: Zend\Di\DefinitionList with ClassDefinition collecting supertypes problem</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-08-30T06:43:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-09-13T01:22:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Mini Release (04/Oct/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Tomoaki Kosugi (kosugiatkips)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Di</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If DefinitionList has multiple classDefinition, 
+Zend\Di\DefinitionList::getClassSupertypes or Zend\Di\DefinitionList::getInstantiator call each classDefinition.
+A classDefinition instance is per-Class definition. And ClassDefinition::getClassSupertypes($class) returns simply its supertypes .
+In this flow, the class-name-parameter is meaningless.</p>
+
+<p><a href="https://github.com/zendframework/zf2/blob/master/library/Zend/Di/Definition/ClassDefinition.php#L134">https://github.com/zendframework/zf2/…</a></p>
+
+<p>DefinitionInterface expects getClassSupertypes to return array filtered with the classname parameter.</p>
+
+<pre><code>public function getClassSupertypes($class)
+{
+    if ($this-&gt;class !== $class) return array();
+    return $this-&gt;supertypes;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (kosugiatkips) on 2012-08-31T00:47:43.000+0000</p> 
+        <div class="body">
+            <p>I made up pull request about this.
+<a href="https://github.com/zendframework/zf2/pull/2265#issuecomment-8174727">https://github.com/zendframework/zf2/…</a>
+And this is reproductive codes.</p>
+
+<pre class="highlight"><code>
+&lt;?php 
+
+use Zend\Di\Definition\ClassDefinition;
+use Zend\Di\DefinitionList;
+
+$definitionClassA = new ClassDefinition("A");
+$definitionClassA-&gt;setSupertypes(array("superA"));
+$definitionClassB = new ClassDefinition("B");
+$definitionClassB-&gt;setSupertypes(array("superB"));
+$definitionList = new DefinitionList(array($definitionClassA, $definitionClassB));
+
+$resultA = $definitionList-&gt;getClassSuperTypes("A");
+var_dump($resultA);
+$resultB = $definitionList-&gt;getClassSuperTypes("B");
+var_dump($resultB);
+</code></pre>
+
+<p>Expected:</p>
+
+<p>A: array("superA")
+B: array("superB")</p>
+
+<p>Actual:
+A:
+array(2) {
+  [0]=&gt;
+  string(6) "superA"
+  [1]=&gt;
+  string(6) "superB"
+}
+B:
+array(2) {
+  [0]=&gt;
+  string(6) "superA"
+  [1]=&gt;
+  string(6) "superB"
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (kosugiatkips) on 2012-08-31T10:34:39.000+0000</p> 
+        <div class="body">
+            <p>And these cause wrong injection to new-instance.
+Zend\Di\Di::newInstance</p>
+
+<pre class="highlight"><code>
+        foreach ($definitions-&gt;getClassSupertypes($class) as $supertype) {
+            $injectionMethods[$supertype] = $definitions-&gt;getMethods($supertype);
+        }
+......snip....
+        $this-&gt;handleInjectDependencies($instance, $injectionMethods, $params, $class, $alias, $name);
+</code></pre>
+
+<p>it collects wrong injectionMethods from wrong supertypes.
+and so pass to handleInjectDependencies. In Zend\Di\Di::handleInjectDependencies, It uses wrong injection methods and wrong parameters.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alrik Zachert (az) on 2012-08-31T12:42:25.000+0000</p> 
+        <div class="body">
+            <p>I think it should be discussed whether the ClassDefinition in its current implementation should implement DefinitionInterface.
+As i understand the documentation of DefinitionInterface, it describes/is a collection of class definitions, whereas ClassDefinition is a single class definition...</p>
+
+<p>So, in my opinion, the above solution solves a bug that was caused by a deeper, conceptually problem.</p>
+
+<p>Shouldn't Array-, Builder-, Compiler- and RuntimeDefinitions hold a map of ClassDefinition instances?
+More abstract: Map DefinitionInterface</p>
+
+<p>pros:
+- operate with ClassDefinitionInterface instances within DefinitionInterfaces rather then with "plain" arrays
+- more intuitive API (avoid "if($this-&gt;class === $class) ..." - absurdity for a specific class definition)</p>
+
+<p>cons:
+- BC break</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (kosugiatkips) on 2012-08-31T15:18:58.000+0000</p> 
+        <div class="body">
+            <p>I agree with you about DefinitionInterface concepts.</p>
+
+<p>ArrayDefinition is "Class definitions based on a given array", so it is a Definition for multiple class.
+ClassDefinition's description is that "Class definitions for a single class". 
+I feel it should be abstractive signature representing the class structure.
+For example, Zend\Di\Config::configure makes an ArrayDefinition that it has a collection of ClassDefinition instances.</p>
+
+<p>On the other hand, we already have a Definition's collection ,the DefinitionList.
+I think the current implementation is not bad. A DefinitionInterface usually has multiple class, but specially it has only a single class.
+And so single is specially, it should have codes "if($this-&gt;class === $class) ..."</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Pivetta (ocramius) on 2012-09-05T08:30:28.000+0000</p> 
+        <div class="body">
+            <p>[~az] I think there's nothing wrong in having a ClassDefinition implement the DefinitionInterface. It is just a "map" with a single element in it. What is weird is that <code>$definition-&gt;getClassSupertypes($class)</code> seems to retrieve wrong data.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Pivetta (ocramius) on 2012-09-05T08:56:00.000+0000</p> 
+        <div class="body">
+            <p>As told on the mailing list, PR #2265 seems fine to me, but should also add checks on the rest of the <code>ClassDefinition</code></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (kosugiatkips) on 2012-09-05T14:07:35.000+0000</p> 
+        <div class="body">
+            <p>I closed the pull-requests #2265,#2277 .And I remade a commit squashed.
+<a href="https://github.com/zendframework/zf2/pull/2295">https://github.com/zendframework/zf2/pull/2295</a>
+Please review it.</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (kosugiatkips) on 2012-09-06T07:01:12.000+0000</p> 
+        <div class="body">
+            <p>I'm sorry. #2295 had several problems.
+I made an amendment in it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (kosugiatkips) on 2012-09-12T11:23:52.000+0000</p> 
+        <div class="body">
+            <p>fixed in 2.0.1 
+Thanks.</p>
+
+        </div>
+    </div>
+    </div>
+

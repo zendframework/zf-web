@@ -1,0 +1,93 @@
+--- tests/Zend/Service/Amazon/SimpleDb/OnlineTest.php	(revision 24461)
++++ tests/Zend/Service/Amazon/SimpleDb/OnlineTest.php	(working copy)
+@@ -492,6 +492,59 @@
+         }
+     }
+ 
++    /**
++     * @group testSelectSupportsMultiValueAttribute
++     * @group ZF-11169
++     */
++    public function testSelectSupportsMultiValueAttribute() {
++        $testSuffix = __FUNCTION__;
++        $domainName = "{$this->_testDomainNamePrefix}_{$testSuffix}";
++        $this->request('deleteDomain', array($domainName));
++        $this->request('createDomain', array($domainName));
++        try {
++            // Prepare a mixed single/multi-value attribute set
++            $itemName = "{$this->_testItemNamePrefix}_{$testSuffix}";
++            $attributeValueMap = array(
++                'value1',
++                array('value2', 'value3'),
++                array('value4', 'value5'),
++            );
++            $expectedAttributes = array();
++            foreach ($attributeValueMap as $pos => $attribute) {
++                $attributeName = "{$this->_testAttributeNamePrefix}_{$testSuffix}{$pos}";
++                $expectedAttributes[$attributeName] = new Zend_Service_Amazon_SimpleDb_Attribute($itemName, $attributeName, $attributeValueMap[$pos]);
++            }
++
++            // Write and read it back
++            $this->request('putAttributes', array($domainName, $itemName, $expectedAttributes));
++            $page = $this->request('select', array("SELECT * FROM {$domainName}"));
++
++            // Verify basic structure
++            $results = $page->getData();
++            $this->assertEquals(1, count($results));
++            $this->assertArrayHasKey($itemName, $results);
++
++            // Build an $expectedAttributes-compatible structure
++            // for a clean assertEquals() at the end
++            $actualAttributes = array();
++            foreach ($results[$itemName] as $attributeName => $attributeObj) {
++                $values = $attributeObj->getValues();
++
++                sort($values); // Value written order not guaranteed
++
++                $actualAttributes[$attributeName] = new Zend_Service_Amazon_SimpleDb_Attribute($itemName, $attributeName, $values);
++            }
++            ksort($actualAttributes); // Attribute written order not guaranteed
++
++            $this->assertEquals($expectedAttributes, $actualAttributes);
++
++            $this->request('deleteDomain', array($domainName));
++        } catch(Exception $e) {
++            $this->request('deleteDomain', array($domainName));
++            throw $e;
++        }
++    }
++
+     private function _wait() {
+         sleep($this->_testWaitPeriod);
+     }
+Index: library/Zend/Service/Amazon/SimpleDb.php
+===================================================================
+--- library/Zend/Service/Amazon/SimpleDb.php	(revision 24461)
++++ library/Zend/Service/Amazon/SimpleDb.php	(working copy)
+@@ -390,14 +390,21 @@
+         $attributes = array();
+         foreach ($xml->SelectResult->Item as $item) {
+             $itemName = (string)$item->Name;
++            if (!array_key_exists($itemName, $attributes)) {
++              $attributes[$itemName] = array();
++            }
+ 
++            // Collect one or more values for each attribute
+             foreach ($item->Attribute as $attribute) {
+-                $attributeName = (string)$attribute->Name;
++                $attributeName = (string) $attribute->Name;
++                if (!array_key_exists($attributeName, $attributes[$itemName])) {
++                  $attributes[$itemName][$attributeName] = array();
++                }
++                $attributes[$itemName][$attributeName][] = (string) $attribute->Value;
++            }
+ 
+-                $values = array();
+-                foreach ($attribute->Value as $value) {
+-                    $values[] = (string)$value;
+-                }
++            // Convert attributes arrays to standard attribute objects
++            foreach ($attributes[$itemName] as $attributeName => $values) {
+                 $attributes[$itemName][$attributeName] = new Zend_Service_Amazon_SimpleDb_Attribute($itemName, $attributeName, $values);
+             }
+         }

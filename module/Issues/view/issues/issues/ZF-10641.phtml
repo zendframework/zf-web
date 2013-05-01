@@ -1,0 +1,286 @@
+<h2>ZF-10641: Zend_View_Helper_Navigation_Menu::renderPartial() don't works with ACL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-04T04:34:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-31T09:03:47.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Fabio Baleani (fbale)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+            <li>View_Helper</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10459">ZF-10459</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi all,
+I've tried ACL working with Zend_Navigation using view partials. This is done using the navigation menu view helper and invoking the "setPartial()" method, passing my partial view path in.</p>
+
+<p>The problem is that when you tell it to use a partial, it skips the default rendering method (renderMenu()), which happens to also contain the logic for filtering out menu items based on ACL.</p>
+
+<p>I've temporarily fixed this by inserting a few lines into class Zend_View_Helper_Navigation_Menu, starting at row 596:</p>
+
+<pre class="highlight"><code>
+596
+597     $iterator = new RecursiveIteratorIterator(clone $container, RecursiveIteratorIterator::SELF_FIRST);
+598     foreach ($iterator as $page) {
+599         /* @var $page Zend_Navigation_Page_Mvc */
+600         if (!$this-&gt;accept($page)) {
+601             $container-&gt;removePage($page);
+602         }
+603     }
+604
+605     $model = array(
+606         'container' =&gt; $container
+607     );
+608
+</code></pre>
+
+<p>But this works only for items with depth=0...</p>
+
+<p>I hope this helps to find a solution...
+Regards, Fabio.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-11-08T11:50:03.000+0000</p> 
+        <div class="body">
+            <p>Can you provide a reproduce case (preferably as a unit test), please? It should provide:
+* Minimal code necessary to reproduce the issue
+* Expected results
+* Actual results</p>
+
+<p>We need this in order to better evaluate and diagnose the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabio Baleani (fbale) on 2010-11-08T22:10:06.000+0000</p> 
+        <div class="body">
+            <p>This is the code:</p>
+
+<p>CONTROLLER:</p>
+
+<pre class="highlight"><code>
+class TestmenuController extends Zend_Controller_Action {
+    public function indexAction() {
+        /**
+         * Setting up the menu
+         */ 
+        $menu = array (
+            array (
+                'label' =&gt; 'the first', 
+                'uri' =&gt; '#',
+                'pages' =&gt; array (
+                    array ('label' =&gt; 'child first one', 'uri' =&gt; '#' ), 
+                    array ('label' =&gt; 'child first two', 'uri' =&gt; '#' ) 
+                ) 
+            ), 
+            array (
+                'label' =&gt; 'the second', 
+                'uri' =&gt; '#', 
+                'resource' =&gt; 'secret',
+                'pages' =&gt; array (
+                    array ('label' =&gt; 'child one', 'uri' =&gt; '#' ), 
+                    array ('label' =&gt; 'child two', 'uri' =&gt; '#' ) 
+                ) 
+            ), 
+            array (
+                'label' =&gt; 'the third', 
+                'uri' =&gt; '#', 
+                'pages' =&gt; array (
+                  array ('label'=&gt;'another child', 'uri'=&gt;'#', 'resource'=&gt;'secret'),
+                  array ('label'=&gt;'another child', 'uri'=&gt;'#', 'resource'=&gt;'secret') 
+                ) 
+            ) 
+        );
+        
+        /**
+         * Setting up the ACL
+         */
+        $acl=new Zend_Acl();
+        $acl-&gt;addResource('secret');
+        $acl-&gt;addRole('user');
+        $acl-&gt;deny('user','secret');
+        
+        /**
+         * Setting up the Navigator
+         */ 
+        $navigator=new Zend_Navigation();
+        $navigator-&gt;addPages($menu);
+        $this-&gt;view-&gt;navigation($navigator)
+                    -&gt;setAcl($acl)
+                    -&gt;setRole('user');
+        
+    }
+}
+</code></pre>
+
+<p>VIEW:
+index.phtml</p>
+
+<pre class="highlight"><code>
+echo $this-&gt;navigation()-&gt;menu();
+echo "";
+echo $this-&gt;navigation()-&gt;menu()-&gt;setPartial('testmenu/_partial.phtml');
+</code></pre>
+
+<p>_partial.phtml</p>
+
+<pre class="highlight"><code>
+$iterator = new RecursiveIteratorIterator($this-&gt;container, RecursiveIteratorIterator::SELF_FIRST);
+foreach ($iterator as $page) {
+    echo $this-&gt;navigation()-&gt;menu()-&gt;htmlify($page) . "<br />";
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabio Baleani (fbale) on 2010-11-08T22:12:04.000+0000</p> 
+        <div class="body">
+            <p>Expected results:</p>
+
+<p>the first
+child first one
+child first two</p>
+
+<h2>the third</h2>
+
+<p>the first
+child first one
+child first two
+the third</p>
+
+<p>Actual results:</p>
+
+<p>the first
+child first one
+child first two</p>
+
+<h2>the third</h2>
+
+<p>the first
+child first one
+child first two
+the second
+child one
+child two
+the third
+another child
+another child</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-02-14T00:01:51.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+foreach ($iterator as $page) {
+    if ($this-&gt;navigation()-&gt;menu()-&gt;accept($page)) {
+        echo $this-&gt;navigation()-&gt;menu()-&gt;htmlify($page) . "<br />";
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-02-14T00:13:44.000+0000</p> 
+        <div class="body">
+            <p>My suggestion:</p>
+
+<pre class="highlight"><code>
+public function renderPartial(Zend_Navigation_Container $container = null,
+                              $partial = null)
+{
+    // ...
+    
+    if ($this-&gt;getUseAcl()) {
+        // ...
+        
+        foreach ($iterator as $page) {
+            if (!$this-&gt;accept($page)) {
+                $container-&gt;removePage($page);
+            }
+        }
+    }
+    
+    // ...
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kai Uwe (kaiuwe) on 2011-03-24T09:08:36.000+0000</p> 
+        <div class="body">
+            <p>Another idea:</p>
+
+<pre class="highlight"><code>
+// Create iterator
+$iterator = new RecursiveIteratorIterator($container,
+                    RecursiveIteratorIterator::SELF_FIRST);
+
+$maxDepth = $this-&gt;getMaxDepth();
+if (is_int($maxDepth)) {
+    $iterator-&gt;setMaxDepth($maxDepth);
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-09-08T08:02:54.000+0000</p> 
+        <div class="body">
+            <p>{quote}But this works only for items with depth=0...{quote}
+It's very ugly. I'm looking for a solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2011-10-11T21:48:23.000+0000</p> 
+        <div class="body">
+            <p>I have found a solution and I will write some unit tests.</p>
+
+        </div>
+    </div>
+    </div>
+

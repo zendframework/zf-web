@@ -1,0 +1,192 @@
+<h2>ZF-9598: $view-&gt;navigation()-&gt;setRole() must be called before must be called before any view helper settings</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-02T07:40:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-21T09:21:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Kirk Madera (aredamkrik)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Navigation</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>You must set the role in the navigation helper before calling any of the other helpers. I think this is a bug as the order should not matter.</p>
+
+<pre class="highlight"><code>
+// Acl resource
+class My_Zend_Application_Resource_Acl
+    extends Zend_Application_Resource_ResourceAbstract
+{
+    protected $_acl;
+       
+    public function init()
+    {
+        if (null === $this-&gt;_acl)
+        {
+            $this-&gt;_acl = new Zend_Acl();
+            
+            /**
+             * Roles
+             */
+            $this-&gt;_acl-&gt;addRole(new Zend_Acl_Role('Guest')); 
+            $this-&gt;_acl-&gt;addRole(new Zend_Acl_Role('User'));          
+
+            /**
+             * Resources
+             */
+            $this-&gt;_acl-&gt;add(new Zend_Acl_Resource('mvc:default/account'));
+            
+            /**
+             * Privileges
+             */            
+            // User
+            $this-&gt;_acl-&gt;allow('User', 'mvc:default/account');
+            
+            // Store ACL and role in the proxy helper:
+            Zend_View_Helper_Navigation_HelperAbstract::setDefaultAcl($this-&gt;_acl);
+            Zend_View_Helper_Navigation_HelperAbstract::setDefaultRole('Guest');
+        }
+        
+        return $this-&gt;_acl;
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+// Navigation config
+resources.navigation.pages.home.label = "Home"
+resources.navigation.pages.home.title = "Home"
+resources.navigation.pages.home.module = "default"
+resources.navigation.pages.home.controller = "index"
+resources.navigation.pages.home.action = "index"
+
+resources.navigation.pages.account.label = "My Account"
+resources.navigation.pages.account.title = "My Account""
+resources.navigation.pages.account.module = "default"
+resources.navigation.pages.account.controller = "account"
+resources.navigation.pages.account.action = "index"
+resources.navigation.pages.account.resource = "mvc:default/account"
+</code></pre>
+
+<pre class="highlight"><code>
+// Within an action controller
+// This works as expected
+$this-&gt;view-&gt;navigation()-&gt;setRole('User');
+$this-&gt;view-&gt;navigation()-&gt;menu();
+var_dump($this-&gt;view-&gt;navigation()-&gt;menu()-&gt;render());
+
+/*
+  output: string(x) "</code></pre><code>
+        <a title="Home" href="/">Home</a>
+    
+    
+        <a title="My Account" href="/account">My Account</a>
+    "
+*/
+</code>
+
+<pre class="highlight"><code>
+// Within an action controller
+// This does not work as expected
+$this-&gt;view-&gt;navigation()-&gt;menu();
+$this-&gt;view-&gt;navigation()-&gt;setRole('User');
+var_dump($this-&gt;view-&gt;navigation()-&gt;menu()-&gt;render());
+
+/*
+  output: string(0) ""
+*/
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kirk Madera (aredamkrik) on 2010-04-08T12:42:17.000+0000</p> 
+        <div class="body">
+            <p>The reason you would call one before the other is something like this:</p>
+
+<pre class="highlight"><code>
+// Within the view resource. This applies to the site no matter what role the user is.
+$this-&gt;view-&gt;navigation()-&gt;breadcrumbs()-&gt;setRenderInvisible(true);
+</code></pre>
+
+<pre class="highlight"><code>
+// Within the controller
+// Logic to determine user's role (very simplified)
+$role = $_SESSION['login']['role'];
+
+// Set the role in navigation
+$this-&gt;view-&gt;navigation()-&gt;setRole($role);
+</code></pre>
+
+<pre class="highlight"><code>
+// View script. This now echoes nothing because the role is not being applied
+&lt;?php echo $this-&gt;navigation(); ?&gt;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kirk Madera (aredamkrik) on 2010-04-08T12:44:24.000+0000</p> 
+        <div class="body">
+            <ul><li>Within the view resource it would be</li>
+</ul><pre class="highlight"><code>
+$this-&gt;_view-&gt;navigation()-&gt;breadcrumbs()-&gt;setRenderInvisible(true);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-06-21T09:21:00.000+0000</p> 
+        <div class="body">
+            <p>With {{$view-&gt;navigation()}} you call a <em>proxy</em> helper. This helper fetchs the concrete helpers (e.g. "menu") and save them in an array. If you call now {{$view-&gt;navigation-&gt;setRole()}} the saved helper, in the array, is not affected!
+But there is a simple solution:</p>
+
+<pre class="highlight"><code>$helper = $view-&gt;navigation()-&gt;menu();
+$helper-&gt;setRole('foo')</code></pre>
+
+<p>or</p>
+
+<pre class="highlight"><code>$view-&gt;navigation()-&gt;menu();
+$view-&gt;navigation-&gt;finderHelper('menu')-&gt;setRole('foo')</code></pre>
+
+        </div>
+    </div>
+    </div>
+

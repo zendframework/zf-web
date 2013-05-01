@@ -1,0 +1,175 @@
+<h2>ZF-1545: Allow setting of arbitrary Request/Response objects on ViewRenderer</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-11T11:51:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-11-16T12:42:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>At present ViewRenderer maintains a singular relationship with a specific Zend_Controller_Action instance, which it relies upon for the initial capture of Request/Response objects. It then uses the Request object for all subsequent ViewScriptSpec formatting. Likewise it always uses the same Response object for capturing output. The problem is that this makes dispatching additional Actions (e.g. nested) which require the ViewRenderer extremely difficult. It can be worked around to some extent within a Controller class action method - outside this it's not possible. This limits reuse of controllers since the extra View management logic needs to be tacked on later when/if needed.</p>
+
+<p>Adding setRequest()/setResponse() methods would help alleviate this problem, and allow programmers to temporarily override the initial objects with custom ones to enable more flexible rendering options.</p>
+
+<p>As an aside, this problem is the same one afflicting the Widget View Helper example on the issue tracker. The Widget cloned Request object is never utilised by the ViewRenderer (once the request is set it's not updated from the controller) so it keeps trying to render the exact same template over and over.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-12T17:54:44.000+0000</p> 
+        <div class="body">
+            <p>Assign to Matthew.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-06-12T22:19:38.000+0000</p> 
+        <div class="body">
+            <p>While I see this as a fringe case, adding the accessors is fairly trivial. My understanding is this:</p>
+
+<ul><li>If no request/response set, grab from action controller (always; don't cache)</li>
+<li>If set, use the one set (always)</li>
+</ul><p>Is this what you intend? The issue I see is that if you chain several actions, but set the request in the first, how can you be sure that it's updated properly? If you grab always from the action controller, you can be assured that it's been updated during each cycle of the dispatch loop. My main worry is that this will introduce a behaviour that's hard to detect and debug. Can you provide a concrete use case so I can better understand how you envision this working, as well as the rationale for needing the functionality?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2007-06-13T08:30:01.000+0000</p> 
+        <div class="body">
+            <p>It is a fringe issue. The suggested setters were for one specific use case (will add below).</p>
+
+<p>The root of the problem really is that HelperBroker keeps a static record of Helpers. So a nested Request never has an opportunity to use a fresh HelperBroker instance, and just ends up inheriting helpers instantiated for the parent request. Not suggesting this change.</p>
+
+<p>In any case, my use case is the Widget View Helper. It's still the only available method of dispatching a controller from within an unrelated class (e.g. Zend_View) and receiving back output. With the ViewRenderer now entering circulation it needed some updating to temporarily reset during a Widget dispatch so it could render a View specific for that Request. A non-cached action controller system would also work, but it seems the more complex solution since you'd still need to reinstate the original objects for the parent action controller being nested into.</p>
+
+<p>Less vague mumbling from me; more code...</p>
+
+<pre class="highlight"><code>
+/**
+ * Helper for returning the output from dispatching a new Request to the
+ * Controller using the provided Action name, and optional Controller/Module
+ * names and other parameters.
+ * 
+ * @package    Zend_View
+ * @subpackage Helpers
+ * @license    <a href="http://framework.zend.com/license/new-bsd">http://framework.zend.com/license/new-bsd</a>     New BSD License
+ */
+class Zend_View_Helper_Controller {
+
+    /**
+     * Dispatch a request via the Controller and fetch the resulting rendered
+     * View to return
+     *
+     * @param string $action
+     * @param string $controller
+     * @param string $module
+     * @param array $params
+     * @returns string
+     */
+    public function controller($action, $controller = null, $module = null, array $params = null)
+    {
+        $front = Zend_Controller_Front::getInstance();
+        if (!$front-&gt;getParam('noViewRenderer') &amp;&amp; Zend_Controller_Action_HelperBroker::hasHelper('viewRenderer')) {
+            $enableViewRendererReset = true;
+        }
+        $front = Zend_Controller_Front::getInstance();
+        $request = clone $front-&gt;getRequest();
+        $request-&gt;setActionName($action);
+        if (!is_null($controller)) {
+            $request-&gt;setControllerName($controller);
+        }
+        if (!is_null($module) &amp;&amp; !is_null($controller)) {
+            $request-&gt;setModuleName($module);
+        }
+        if (!is_null($params)) {
+            $request-&gt;setParams($params);
+        }
+        $response = new Zend_Controller_Response_Http();
+        if (isset($enableViewRendererReset)) {
+            $viewRenderer = Zend_Controller_Action_HelperBroker::getExistingHelper('viewRenderer');
+            $__originalRequest = $viewRenderer-&gt;getRequest();
+            $__originalResponse = $viewRenderer-&gt;getResponse();
+            $viewRenderer-&gt;setRequest($request);
+            $viewRenderer-&gt;setResponse($response);
+        }
+        $front-&gt;getDispatcher()-&gt;dispatch($request, $response);
+        // reset original objects back on ViewRenderer
+        if (isset($enableViewRendererReset)) {
+            $viewRenderer-&gt;setRequest($__originalRequest);
+            $viewRenderer-&gt;setResponse($__originalResponse);
+        }
+        return $response-&gt;getBody();
+    }
+
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-30T09:29:11.000+0000</p> 
+        <div class="body">
+            <p>Fix version after 1.0.1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-09-27T14:55:24.000+0000</p> 
+        <div class="body">
+            <p>First, please pardon me if I am misunderstanding some things; I don't mean to muddy the waters. :)</p>
+
+<p>It appears that this issue will be resolved by approval of the {{Zend_View_Helper_Controller}} portion of the Zend_View Enhanced proposal; is this correct?</p>
+
+<p>Sorry it is not clear to me, but to which class is it proposed that we add {{setRequest()}} and {{setResponse()}} methods, or would this be superseded by the above so as to avoid unnecessary complexity from potential pitfalls?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-11-16T12:42:39.000+0000</p> 
+        <div class="body">
+            <p>This was fixed some time ago with another bug. Helpers now fetch the request and response objects directly from the currently registered action controller, or the front controller if no action controller is registered. Thus, you can pass in request/response objects to an action controller, and these will be used directly by the ViewRenderer.</p>
+
+        </div>
+    </div>
+    </div>
+

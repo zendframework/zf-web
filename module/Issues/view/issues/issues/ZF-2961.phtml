@@ -1,0 +1,274 @@
+<h2>ZF-2961: Improving the memory footprint of zend framework</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-24T18:49:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-03-27T11:14:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Indrek Altpere (efbiaiinzinz)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2983">ZF-2983</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11193/results.html">results.html</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently when I have looked at the code and googled around and found a case where autoloading improved memory footprint of Zend framework by 800KB and 20% speedup and after reading the coding guidelines I have a suggestion.</p>
+
+<p>Why not use the (spl_)autoload for entire zend framework ?</p>
+
+<p>So that when you need to use some other class, you don't need to
+a) add require_once in top of the file
+or
+b) add require_once in code before using that class to make sure it is loaded for usage</p>
+
+<p>I know that this may improve zend framework readability if you use require_once at the top of the file or in code so it is visible that another class is being used, but shouldn't the framework be oriented on end-user/end-developer experience rather than framework-developer experience. And in case of memory footprint and cpu cycles, the lesser there are, the better it is, since more users can be served simultaneously.</p>
+
+<p>My suggestion would be to use spl_autoload (not to interfere with end-user's own autoloading logic) to automatically load needed classes when they are used but not yet loaded into memory.
+The function is already there, only thing needed to use it would be to add few lines before each class declaration (since central class Zend will become obsolete):
+require_once 'Zend/Loader.php';
+Zend_Loader::registerAutoload();</p>
+
+<p>Or to make inclusion of Zend_Loader necessary means to use zend framework and make it register itself as autoloader by default.</p>
+
+<p>When spl is not available, magic function __autoload() could be used and make it call ___autoload() function for non Zend classes, to give and user option to use own loading logic.
+Good idea would be to make the autoloader load only Zend classes by default perhaps to prevent auto requiring some user's php files.</p>
+
+<p>When autoloading is in place correctly, it would make memory usage significantly smaller and loading time also.
+In lots of cases, user wants to use only few functions from class B that uses functions from class B and C and D and most probably the usage will not cover all  classes (B, C and D) so including those files will just use excessive time and memory.</p>
+
+<p>Statically loading the files means that in cases all the files are not used, they just waste resources:
+reading in php code and translating it to opcodes/class representations in memory or passing a call to optimizer extension to load opcodes from cache, when that class is not actually used during execution, is just pure memory and cpu overhead.</p>
+
+<p>I found some threads where autoloading usage was said to be investigated but it seems that that investigation has not gone any deeper and stopped at someone quoting "Premature optimization is the root of all evil."
+In my optinion, when Zend framework is quite big already, consists of 1500 files (500 of them xml files, so 1000 php files) and is 12.4MB in size (6MB of xml files), this optimization is far from being premature, rather a long needed one.
+Using autoloading would strip away all ot those require_once calls in code (thus reducing the php/optimizer calls and lesser opcodes) and in top of the files, making the refactoring and name changes easier, since instead of changing all require_once calls and the usages, only things to change will be the usages.
+And the autoloading part won't make it slower as someone may think so, php should already be doing class existence checking on it's own when you do</p>
+
+<pre class="highlight"><code> If class is not loaded, autoloader existence is checked (if available, execute autoloader function and check class existence again), if class does not exist in memory, error is reported.
+And since autoloader function usage is actually based on require/include calls, the optimizers/bytecode cachers can do their work just as well.
+
+While googling I found were some statements made by Zend team/developers that some optimizers will not be able to optimize the classes/files since then the require_once call will not be made using hard coded string 'Zend/Db.php'; but rather using a filename stored in a variable which is derivated from class name 'Zend_Db' =&gt; </code></pre>
+
+<p>Isn't the main work of optimizers/accelerators storing the compiled bytecode of a php file and when an invocation of include(_once)/require(_once) is made, feed the compiled bytecodes directly to php instead of letting php parse the file and generate bytecodes again and again or am I mistaken somewhere ?</p>
+
+<p>I don't know exactly about zend optimizer, if such class loading will break some advanced optimization logic, but IMO hunting down few milliseconds and some bytes of memory compared to quite big speed and memory gains with autoload approach, the first one seems to be more af an premature optimization than the other.</p>
+
+<p>A good example of a generic framework end-user view:
+developer has a form, file upload form, to submit images to server
+dveloper knows he needs to process images, so he
+a) does require_once for the image processing class at the start of the file
+b) does require_once for the image processing class when file upload was successful
+c) lets the autoload function handle everything and just instantiates image processing class or uses it's static method</p>
+
+<p>a) wastes resources (even when optimizers are used) since image processing class is loaded even when it's not actually used.
+b) is almost ok, but requires user to enter a call to require_once with passing a string literal to it
+c) user just invokes class and/or uses it's static methods and does not have to worry about loading it in the right place or about cases when he actually does not need to use it.</p>
+
+<p>Right now ZF user can choose to enable the autoloader by including 'Zend/Loader.php'; and calling Zend_Loader::registerAutoload(); but still all the hard coded require_once calls remain in the framework, forcing user unwillingly to load some classes that he won't be using and thus impacting the performance of his application.</p>
+
+<p>And a note from me as an autoload functionality user: When you have a class that extends another class
+A.php</p>
+
+<pre class="highlight"><code>
+class A {
+}
+</code></pre>
+
+<p>B.php</p>
+
+<pre class="highlight"><code>
+class B extends A {
+}
+</code></pre>
+
+<p>When aoutoloader is in place, neither A nor B are loaded and you invoke following code</p>
+
+<pre class="highlight"><code>
+$b = new B();
+</code></pre>
+
+<p>When your code resolves class B to B.php, includes it, PHP finds that class A existence is needed but is not loaded yet, autoload is invoked again, so you can resolve A to A.php, include it and then execution proceeds at B.php and then execution return to original location: $b = new B();</p>
+
+<p>When of calling require_once 'B.php'; always before dealing with class B (to ensure B is loaded and then proceed with using class B), php does some overhead.
+Since PHP does not have official coding standards "filename = classname + '.php'  and one class per file ", it checks the class existence always when you invoke new B(); or do B::func(); ,even if you just did require_once few lines ago. Using autoloader will invoke require_once only one time per file to load the class from there.</p>
+
+<p>I'm sorry if the story got a little too big and may be partially repeating itself but if you are reading this line, I hope you understood the point that I'm trying to make and that I'm trying to make zend framework even better by making it faster and making it consume just as much memory as needed. :)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-25T11:38:03.000+0000</p> 
+        <div class="body">
+            <p>Regardless of your complete story just one thing to mention:</p>
+
+<p>You refer to the size of 12,6MB for the complete framework.
+Keep in mind that this includes the complete localization repository which is 6MB (the xml files you mentioned). You do not need to install the complete framework, but several components have references to each other.</p>
+
+<p>So there are ways to reduce the size. But as size nowadays does not matter (you get a free webaccess with 200MB size for 3$ a month, and USB sticks are also 2GB or more today) this should be no problem.</p>
+
+<p>To have these data available does not mean that it is loaded when you use the framework.</p>
+
+<p>Also the require_once is actually being reworked... classes have to be required when they are used... see exceptions for example... the exception class is loaded when the exception occurs.
+When you have a class required before the class itself it means that must be loaded because the class can not work with it. If you find any place where this is not true, you should open a seperate issue to have this fixed.</p>
+
+<p>Also to mention that there is a ZF coding standard where issues regarding change of code style and standard should be mentioned so they can be integrated. Actually I am reworking the API doc for example... so there are changes, but you will not see them as long as people are not aware of them.</p>
+
+<p>Btw: ZF Internal the usage of Zend_Loader is more or less depreciated... I tend not to use it, because otherwise the components can not be used without it... we force a loose coupling of components.</p>
+
+<p>Greetings
+Thomas, I18N Team Leader</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Indrek Altpere (efbiaiinzinz) on 2008-03-25T17:10:46.000+0000</p> 
+        <div class="body">
+            <p>My point was not the size of framework on disk, but rather the memory usage and cpu usage(speed) when using parts of it. The point may have gotten lost in the big flow of words though.</p>
+
+<p>A link to an issue related to zend framework using up too much memory.
+<a href="http://www.mail-archive.com/fw-general@lists.zend.com/msg08121.html">http://mail-archive.com/fw-general@lists.zend.com/…</a></p>
+
+<p>Even when just doing the require_once for a Zend class, without using any parts of loaded class, there tend to be too many require_once calls at the top of the file that call up other files that call up another files etc. All summed up, too much file loading just to include one single class in project. Worst cases, php runs out of memory when too much files loading is triggered.</p>
+
+<p>So I did some quick tests scripts, that measure up memory, and measure time it takes to load the Zend class file.
+With worst loading time was pdf class, next worst times were classes using Locale class and the Locale class itself.</p>
+
+<p>Since php allocates memory blocks of 256KB (at my win xp machine at least), I made a function that creates 1KB strings until php allocates new memory block, meaning that last block was totally filled with data and ~256KB of current total allocated memory is free (in this way, I can take my testing script memory usage out of equation and get the rough memory usage difference after loading zend class). So the result of zend class (and all other required classes) memory usage memory measurement accuracy should be add or take few KB.
+Taking two consequential timestamps, timestamps differ averagely 0.00002 seconds, so it does not play much role of affecting the results.</p>
+
+<p>I made two version of test script, on includes original zend classes downloaded from latest release, other includes Zend_Loader at start, initiates the autoloading and then includes zend file that has all require_once calls removed (and if that class is exenting another class, that aother class has also all require_once calls removed).
+In addition a third script, that passes classnems to both test scripts and compares the results.</p>
+
+<p>I will attach the result html file here also to be viewable for everyone.</p>
+
+<p>Add or take 1 to 2 % difference in memory can be disregarded since it depends on memory measuring function and current running processes on machine.</p>
+
+<p>So, after seeing how much loading times and memory usage does the autoloading improve, not to mention removing hundreds of require_once calls from the code, can I ask how come the internal usage of Zend_Loader is deprecated and not even some other internal classloader is used ????</p>
+
+<p>Making the framework include too many files, when actually for a given task only few functions are needed is a definite overkill (IMO).
+Using require_once approach, if you have 75% of functions in a class A that use another class B, adding require_once call for that required B class to all of those 75% of functions in class A is bit too verbose (IMO), not to mention each call to require_once takes additional time. Adding the require_once to the top of the file is overkill for the 25% of functions that do not use it. And if there are other classes that are used in some functions and not in others things get messy pretty fast. Either code is filled with require_once calls or all require_once calls are made forcefully at the top of the file.</p>
+
+<p>So, anyone care to comment on the tests and suggestion of using autoloader ?
+Does the idea of forcing loose coupling of components overweigh the massive performance gain by making the classes use some unified autoloader ?
+If not use Zend_Loader then perhaps some internal loader that loads only Zend files ?</p>
+
+<p>One more note about loose coupling: in java 1.4 times, it was thought good to use xml files to configure the code flow for jsp applications and thus creating loose coupling between different layers (business, client, database). But the actual result is still being described as xml-hell where developers need to maintain java files and a dozen or so xml files also. So my suggestion would be to switch to autoloading before something like require_once-hell appears :D Making it hard for developers to develop zend framework effectively: a) littering code with too many require_once calls or b) being forced to load all files at top of the class to escape from having to use require_once in every other function.</p>
+
+<p>Indrek</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Indrek Altpere (efbiaiinzinz) on 2008-03-25T17:12:26.000+0000</p> 
+        <div class="body">
+            <p>The results file describing very nicely the point I have been trying to make about autoloader usage :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Indrek Altpere (efbiaiinzinz) on 2008-03-25T17:24:29.000+0000</p> 
+        <div class="body">
+            <p>Note, the test were run on Windows XP SP2, 3GB ram, 2.4GHz, using PHP 5.2.4 without any accelerator (at least I could not find any accelereator related lines in php.ini, though the loading times imporved after first load) and Apache 2.2.4.
+First two execution of zend class loading were not measured to give php/apache opportunuty to load things into cache etc. Following 20 runs were summed up and averaged to get the seen results. Same goes for both test script being executed: 2 times dry run, after that 20 times measuring and averaging the results.
+for some smaller classes that extend some other small class/interface, execution/loading time grew a bit since instead of simple require_once call there was now a bit more checking done behind the scenes.
+Thats also why some internal Zend class pecific loader would be better to be used, to skip unneccesary checks etc, making the autoloading even faster, making small class loading take same time as the would with static require_once calls..</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-03-25T17:35:48.000+0000</p> 
+        <div class="body">
+            <p>I can only answer parts related to my work...</p>
+
+<p>Regarding size: You mentioned size in your first post, therefor my reply to this one.</p>
+
+<p>Related to your example with Locale:
+This is a bad example, because when you look at it's code you can see that there is NO OTHER CLASS REQUIRED before the class is initialised!! Classes are loaded when they are needed!! So this is a bad example for reducing the memory footprint.</p>
+
+<p>What I've seen through your comments is also that you are throwing together two different issues... memory footprint and speed improvement. Keep them seperated... this will simplify readability and acceptance for other users.</p>
+
+<p>For more details you should refer to the dev-team. Also this issue should not be discussed within here but more generic in the mailing list.</p>
+
+<p>Greetings
+Thomas, I18N Team Leader</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Indrek Altpere (efbiaiinzinz) on 2008-03-25T18:33:23.000+0000</p> 
+        <div class="body">
+            <p>Hard to keep the memory footprint and speed issues at loading time separate because they are directly related during the file/class loading.
+The more classes are being not loaded because not being used, the less time spent on parsing/loading them and the less memory consumed by class definitions.
+When looking at the results, the memory footprint improvement and loading speed improvement percentages are very stongly related thus backing up my story.</p>
+
+<p>As seen in the test results, the Locale class was indeed not affected by introducing autoloading, but over 50% of other classes loading were affected and some were affected very much.</p>
+
+<p>If you guide me how and where to post this issue/improvement suggestion  and where to discuss it further to get more comments and feedback, I'd be happy to do it there :)</p>
+
+<p>Indrek</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:55:36.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-03-27T11:14:39.000+0000</p> 
+        <div class="body">
+            <p>This is kind of a bigger issue, and since we have a larger performance issues linked, i am gonna close this as wont-fix.</p>
+
+<p>Lets continue this conversation on the wiki at this location:</p>
+
+<p><a href="http://framework.zend.com/wiki/display/ZFDEV/Performance+-+Requiring+the+Autoloader">http://framework.zend.com/wiki/display/…</a></p>
+
+<p>As you can see, this is a subpage of the larger Performance section of the Dev wiki, I hope to fill out this section over the next few months.</p>
+
+<p>I added your initial comment to that page.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+    </div>
+

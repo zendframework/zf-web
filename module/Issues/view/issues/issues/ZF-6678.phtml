@@ -1,0 +1,152 @@
+<h2>ZF-6678: Zend_Http_Client_Adapter_Curl returning HTTP headers in body</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-15T10:39:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-12T14:27:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.4 (23/Jun/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jordan Ryan Moore (jordanryanmoore)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11972/Curl.php.patch">Curl.php.patch</a></li>
+            <li><a href="/issues/secure/attachment/11932/Curl.php.patch">Curl.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When an HTTP server responds with "HTTP/1.1 100 Continue", it can also contain additional headers before the next "HTTP/1.1 ****". This isn't handled properly by Zend_Http_Client_Adapter_Curl::write(). Near the end of the method, it just strips "HTTP/1.1 100 Continue\r\n\r\n" from the response. Instead, the response should be removed until it finds the next "HTTP/1.1 ****" in the response.</p>
+
+<p>The problem this creates is that the response object contains the second set of headers in the body. I found this problem when trying to use the cURL adapter with UPS web services.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-15T10:59:11.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Benjamin Eberlei (who authored the curl adapter)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-05-15T12:03:16.000+0000</p> 
+        <div class="body">
+            <p>Hm, that is a hard one.</p>
+
+<p>The API of Zend Http makes it hard to work with Curl 100 states. I see what i can come up with :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jordan Ryan Moore (jordanryanmoore) on 2009-05-15T14:26:34.000+0000</p> 
+        <div class="body">
+            <p>The attached patch resolves the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-06-01T03:47:06.000+0000</p> 
+        <div class="body">
+            <p>Can you send me an example HTTP ping pong that executes parts of the patched code? I have applied the patch locally and it seems not to interfere with the tests (all still passing). The new code also executes for several tests, but all those worked before also. I need an example of how i get the old code to fail :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jordan Ryan Moore (jordanryanmoore) on 2009-06-01T08:13:42.000+0000</p> 
+        <div class="body">
+            <p>Here's the HTTP response that was causing the problem:</p>
+
+<p>HTTP/1.1 100 Continue
+Expires: Mon, 01 Jun 2009 15:10:45 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache</p>
+
+<p>HTTP/1.1 200 OK
+Server: Apache/2.0.52 (Red Hat) mod_ssl/2.0.52 OpenSSL/0.9.7a
+Content-Length: 9226
+Content-Type: text/xml
+Expires: Mon, 01 Jun 2009 15:10:46 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Mon, 01 Jun 2009 15:10:46 GMT
+Connection: keep-alive</p>
+
+<p>&lt;?xml version="1.0" ?&gt;
+The rest of the body goes here...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Derek Gallo (drock) on 2009-06-01T10:36:36.000+0000</p> 
+        <div class="body">
+            <p>This issue is more broad than just the HTTP/1.1 100 Continue case.  You can get similar problems when trying to use the curl adapter to perform HTTP Digest Authentication.  Curl will make a first request to the server to poll it for the appropriate nonce value to perform that hash.  After this it sends another request with the appropriate credentials.  Curl returns both sets of headers however, one for the 401 Authorization Required and then a second for the 220 OK response.</p>
+
+<p>Zend_Http_Client is including the second 200 OK response headers as part of the response body since they are after the first double newlines.  Additionally Zend_Http_Client is interpreting the first HTTP/1.1 401 as the response and falsely indicating that there was an error.</p>
+
+<p>Here is some code that can reproduce the problem:</p>
+
+<p>$curl_adapter = new Zend_Http_Client_Adapter_Curl();</p>
+
+<p>$curl_adapter-&gt;setCurlOption(CURLOPT_HTTPAUTH,CURLAUTH_ANY);
+$curl_adapter-&gt;setCurlOption(CURLOPT_USERPWD,"user:password");</p>
+
+<p>$http_client = new Zend_Http_Client('<a href="http://domain.com/digest/auth/url">http://domain.com/digest/auth/url</a>');
+$http_client-&gt;setAdapter($curl_adapter);</p>
+
+<p>$response = $http_client-&gt;request();</p>
+
+<p>The provided path will only fix the HTTP/1.1 100 Continue case since it specifically looks for the 100 code to remove.  A more general solution is required as it appears Curl returns the headers for every request it makes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jordan Ryan Moore (jordanryanmoore) on 2009-06-02T11:55:17.000+0000</p> 
+        <div class="body">
+            <p>Attached a more general solution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-06-12T14:27:51.000+0000</p> 
+        <div class="body">
+            <p>Applied Jordans patchs, fixed in r16035 and merged back into 1.8 release branch. Thank you!</p>
+
+        </div>
+    </div>
+    </div>
+

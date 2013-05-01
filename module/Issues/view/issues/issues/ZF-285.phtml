@@ -1,0 +1,217 @@
+<h2>ZF-285: PDO: Allow definition of attributes to pass to the PDO object, upon creation of Zend_DB object.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-07-25T11:46:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Richard Ingham (richard)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Darby Felton (darby)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1163">ZF-1163</a></li>
+            <li><a href="/issues/browse/ZF-423">ZF-423</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10096/Zend_Db_Adapter_Pdo_Abstract-driver-option.diff">Zend_Db_Adapter_Pdo_Abstract-driver-option.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The PDO object allows you to pass "driver_options" in its constructor. These include options like PDO::ATTR_EMULATE_PREPARES (See <a href="http://netevil.org/node.php?nid=795">http://netevil.org/node.php?nid=795</a>), which is currently required for some operations with the PDO mysql driver. Obviously there are other options which may be useful as well.</p>
+
+<p>It is possible set these options with code such as:</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('pdo_mysql', array(
+    'dbname' =&gt; 'dbname',
+    'username' =&gt; 'username',
+    'password' =&gt; 'password'
+));
+
+$db-&gt;quote(''); // Dummy thing to force a connection.
+$db-&gt;getConnection()-&gt;setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+</code></pre>
+
+<p>But this involves forcing a connection which defeats the object behind delaying the creation of a connection.</p>
+
+<p>It would be preferable to be able to do the following:</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory('pdo_mysql', array(
+    'dbname' =&gt; 'dbname',
+    'username' =&gt; 'username',
+    'password' =&gt; 'password',
+    'driver_options' =&gt; array(
+        PDO::ATTR_EMULATE_PREPARES =&gt; true
+    )
+));
+</code></pre>
+
+<p>and the driver options would be passed into PDO::__construct().
+(See <a href="http://uk.php.net/manual/en/function.pdo-construct.php">http://uk.php.net/manual/en/…</a>)</p>
+
+<p>This relates to ZF-147</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gregory Szorc (indygreg) on 2006-07-28T15:44:52.000+0000</p> 
+        <div class="body">
+            <p>This is also needed for setting the PDO::MYSQL_ATTR_MAX_BUFFER_SIZE attribute, which cannot be set using PDO::setAttribute().  See PHP bug 38015 (<a href="http://bugs.php.net/bug.php?id=38015">http://bugs.php.net/bug.php?id=38015</a>).  Although it is possible to sub-class the adapter to pass additional parameters, this is really hacky.  Unfortunately, until this issue is corrected, that will be the only solution for MySQL users to use queries larger than 1048576 bytes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-08-18T19:30:25.000+0000</p> 
+        <div class="body">
+            <p>-------- Original Message --------
+Subject:    Re: [fw-general] Zend_Db and SET NAMES utf8
+Date:   Mon, 24 Jul 2006 18:30:54 +0200
+From:   Gunar Scholz <a href="mailto:zf@felixdd.de">zf@felixdd.de</a></p>
+
+<p>Martin Vium schrieb:</p>
+
+<blockquote>
+  <p>I use utf8 in my mysql database and for this i need to use the SET
+  NAMES utf8 in my bootstrap. But by doing this i loose the advantage
+  of Zend_Db not starting a connection until needed, is there a generic
+  directive for this or do i need to extend the pdo adapter?</p>
+</blockquote>
+
+<p>Martin,</p>
+
+<p>As far as I know, there is currently no other way than to extend
+Zend_Db_Adapter_Pdo_Mysql.</p>
+
+<p>My solution looks like this:</p>
+
+<pre class="highlight"><code>
+class Fx_Db_Adapter_PdoMysql extends Zend_Db_Adapter_Pdo_Mysql {
+  protected function _connect() {
+    if ($this-&gt;_connection)
+      return;
+        
+    parent::_connect();
+        
+    // please do not touch names if I don't tell you to do so
+    $this-&gt;_connection-&gt;setAttribute(PDO::ATTR_CASE, PDO::CASE_NATURAL);
+        
+    $this-&gt;query('SET NAMES utf8');
+  }
+}
+</code></pre>
+
+<p>Next issue: If you don't want to name your class Zend_Db_Adapter_Pdo_...
+or Zend_Db_Adapter_..., because it's not a class provided by Zend, you
+can't use Zend_Db::factory(). Instead you have to instantiate your
+adapter, i.e.: $db = new Fx_Db_Adapter_PdoMysql($config);</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lars Strojny (lars) on 2006-08-28T11:08:51.000+0000</p> 
+        <div class="body">
+            <p>This is a fix for this issue. At least for the Pdo_Abstract. I'm not sure if I have to sign the legendary contribution-agreement for such a simple patch, but if it is needed I'm willing to do. Also I'm not sure if it is needed to test first with array_key_exists() if the property is given?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-08-31T16:03:58.000+0000</p> 
+        <div class="body">
+            <p>Hi Lars, yes a CLA would be most welcome, as would be additional help bug fixing the Db classes.   Whatever fix we apply, it should avoid causing "Notice: Undefined index:  driver_options", whenever the developer does not provide that array of driver options to the factory method.</p>
+
+<p>So now we need to test if a null value for this parameter or an empty array can be used, if the developer does not include "driver_options".  For example,</p>
+
+<pre class="highlight"><code>
+$this-&gt;_connection = new PDO(
+     $this-&gt;_dsn(),
+     $this-&gt;_config['username'],
+     $this-&gt;_config['password'],
+     (isset($this-&gt;_config['driver_options']) ? $this-&gt;_config['driver_options'] : array())
+);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-10-04T17:20:23.000+0000</p> 
+        <div class="body">
+            <p>This problem surfaces a more serious flaw in the design of the Zend_Db::factory() method.</p>
+
+<p>The entire process of configuring an adapter should not be compressed into an artificial PHP array, $options, passed to the factory constructor.  Instead, a normal, object-oriented factory with real methods should provide the necessary mechanisms to configure and initialize an adapter instance.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lars Strojny (lars) on 2006-10-31T04:08:25.000+0000</p> 
+        <div class="body">
+            <p>OK, signed the CLA. Are there any plans to commit the patch (please use the version of Gavin Vess)?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:22:37.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gregory Szorc (indygreg) on 2007-02-14T22:34:55.000+0000</p> 
+        <div class="body">
+            <p>What's the status of this issue?  I have signed the CLA and am willing to contribute a patch.</p>
+
+<p>It looks like Zend_Db_Adapter_Pdo_Abstract::_connect() needs modified to look in $_config for an array of parameters.  To me, it makes little sense for derived classes to be forced to override _connect().  PDO::__construct() takes 4 parameters.  ZF only supports 3.  It doesn't make sense for ZF, or any framework, to limit the options the end-user has.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-16T17:38:05.000+0000</p> 
+        <div class="body">
+            <p>Hi Gregory, yes this issue is on the schedule for implementation in Zend Framework 0.9.  We ran out of time to implement it in ZF 0.8.  Keep in mind that implementation includes writing unit tests and documentation, so it's not as simple as just adding a line of code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-05-15T16:06:39.000+0000</p> 
+        <div class="body">
+            <p>Resolved with <a href="http://framework.zend.com/fisheye/changelog/Zend_Framework/?cs=4808">SVN r4808</a>.</p>
+
+        </div>
+    </div>
+    </div>
+

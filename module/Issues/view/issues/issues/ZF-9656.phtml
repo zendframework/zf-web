@@ -1,0 +1,191 @@
+<h2>ZF-9656: Zend_Amf: unable to handle paranthesis in webroot path</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-12T03:13:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-02-14T15:40:03.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Anand Gaurav (angaurav)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12987/amf_config.ini">amf_config.ini</a></li>
+            <li><a href="/issues/secure/attachment/12986/gateway.php">gateway.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Amf framework is unable to handle parenthesis as path for webroot.
+Here is the error log that I got in my usecase:</p>
+
+<pre class="highlight"><code>
+Warning: parse error in amf_config.ini on line 5 in gateway.php on line 12
+
+Fatal error:
+Uncaught exception 'Zend_Config_Exception' with message 'parse error in amf_config.ini on line 5' in Zend\Config\Ini.php:181
+
+Stack trace:
+
+#0 Zend\Config\Ini.php(201): Zend_Config_Ini-&gt;_parseIniFile('C:\wamp\www\Fle...')
+#1 Zend\Config\Ini.php(125): Zend_Config_Ini-&gt;_loadIniFile('C:\wamp\www\Fle...')
+#2 gateway.php(31): Zend_Config_Ini-&gt;__construct('C:\wamp\www\Fle...', 'zendamf')
+#3 {main} thrown in Zend\Config\Ini.php on line 181
+</code></pre>
+
+<p>Steps to produce:</p>
+
+<ol><li>Have a webroot dir which contains paranthesis. eg. "C:/wamp/abc()"</li>
+<li>Two files have been attached: gateway.php and amf_config.ini. Put these files into the webroot folder</li>
+<li>open gateway.php in browser. (<a href="http://localhost/gateway.php">http://localhost/gateway.php</a>)</li>
+</ol><p>Note: the amf_config.ini has this entry in 5th line:</p>
+
+<p>```</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Josh Jensen (captaincode) on 2010-05-03T14:31:39.000+0000</p> 
+        <div class="body">
+            <p>This error makes it impossible to utilize Zend_Amf w/ Flash Builder and Zend Server CE on a 64 bit system as the server is installed in "Program Files (x86)".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Mera (danmera) on 2010-11-17T17:49:28.000+0000</p> 
+        <div class="body">
+            <p>How I got around this error....
+Well I uninstalled the Zend Community Server and did a new installation.. this time when I installed it and asked to install the apache server I installed it in a different folder, not the "Program Files (x86)", and it worked like a charm.. well had to direct the files from my flex project also.. but the zend server works</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Saulo Batista Borges (saulobborges) on 2013-02-14T14:52:58.000+0000</p> 
+        <div class="body">
+            <p>Resolution:</p>
+
+<p>&lt;?php
+ini_set("display_errors", 1);
+$dir = dirname(<strong>FILE</strong>);
+$webroot = $_SERVER['DOCUMENT_ROOT'];
+$configfile = "$dir\amf_config.ini";</p>
+
+<p>//default zend install directory
+$zenddir = $webroot. '/ZendFramework/library/';</p>
+
+<p>//Load ini file and locate zend directory
+if(file_exists($configfile)) {
+    $arr=parse_ini_file($configfile,true);
+    if(isset($arr['zend']['webroot'])){
+        $s1 = array('(', ')');
+        $s2 = array(chr(28), chr(29));
+        $webroot = str_replace($s1, $s2, $arr['zend']['webroot']);
+        $zenddir = $webroot. '/ZendFramework/library/';
+    }
+    if(isset($arr['zend']['zend_path'])){
+        $zenddir = $arr['zend']['zend_path'];
+    }
+}</p>
+
+<p>// Setup include path
+    //add zend directory to include path
+set_include_path(get_include_path().PATH_SEPARATOR.$zenddir);
+// Initialize Zend Framework loader
+require_once('Zend/Loader/Autoloader.php'); 
+Zend_Loader_Autoloader::getInstance()-&gt;setFallbackAutoloader(true);</p>
+
+<p>// Load configuration
+$default_config = new Zend_Config(array("production" =&gt; false), true);
+$default_config-&gt;merge(new Zend_Config_Ini($configfile, 'zendamf'));
+$default_config-&gt;setReadOnly();
+$amf = $default_config-&gt;amf;</p>
+
+<p>// Store configuration in the registry
+Zend_Registry::set("amf-config", $amf);
+// Initialize AMF Server
+$server = new Zend_Amf_Server();
+$server-&gt;setProduction($amf-&gt;production);
+if(isset($amf-&gt;directories)) {
+    $dirs = $amf-&gt;directories-&gt;toArray();
+    foreach($dirs as $dir) {
+        // get the first character of the path. 
+        // If it does not start with slash then it implies that the path is relative to webroot. Else it will be treated as absolute path
+        $length = strlen($dir);
+        $firstChar = $dir;
+        if($length &gt;= 1)
+            $firstChar = $dir[0];</p>
+
+<pre><code>    if($firstChar != "/"){
+        // if the directory is ./ path then we add the webroot only.
+        if($dir == "./"){               
+            $server-&gt;addDirectory($webroot);
+        }else{
+            $tempPath = $webroot . "/" . $dir;
+            $server-&gt;addDirectory($tempPath);
+        }       
+    }else{
+        $server-&gt;addDirectory($dir);            
+    }
+}
+</code></pre>
+
+<p>}
+// Initialize introspector for non-production
+if(!$amf-&gt;production) {
+    $server-&gt;setClass('Zend_Amf_Adobe_Introspector', '', array("config" =&gt; $default_config, "server" =&gt; $server));
+    $server-&gt;setClass('Zend_Amf_Adobe_DbInspector', '', array("config" =&gt; $default_config, "server" =&gt; $server));
+}
+// Handle request
+echo $server-&gt;handle();</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-02-14T15:37:24.000+0000</p> 
+        <div class="body">
+            <p>Hi Saulo,
+can you add the code tags to your comment:</p>
+
+<pre class="highlight"><code></code></pre>
+
+<p>`</p>
+
+<p>Thanks!</p>
+
+        </div>
+    </div>
+    </div>
+

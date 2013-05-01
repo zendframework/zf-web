@@ -1,0 +1,158 @@
+<h2>ZF-5012: Checks for SSL should include HTTP_X_FORWARDED_PROTO as well as HTTPS</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-20T16:16:44.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-13T15:41:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Kawsar Saiyeed (ksid)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>Zend_OpenId</li>
+            <li>Zend_Soap_Wsdl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11783">ZF-11783</a></li>
+            <li><a href="/issues/browse/ZF-11498">ZF-11498</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>EDIT: An update is at the bottom of this post following the comments by Benjamin and Kevin
+EDIT: Yet another update, it's a pain not being able to comment!</p>
+
+<p>Hi Guys,</p>
+
+<p>Currently ZF only checks for the 'HTTPS' server variable when attempting to detect SSL usage but on some setups that variable is not available while 'HTTP_X_FORWARDED_PROTO' is. In my case it happens to be because of Lighttpd proxying requests to Apache which deals with the ZF site.</p>
+
+<p>This results in situations where users are redirected to the http version of a site when using things like the redirector helper with a route.</p>
+
+<p>This occurs in the following locations:
+{quote}
+<em>{{Zend_Controller_Action_Helper_Redirector-&gt;_redirect()}}</em> [Line 192]
+{{$proto = (isset($_SERVER['HTTPS'])&amp;&amp;$_SERVER['HTTPS']!=="off") ? 'https' : 'http';}}</p>
+
+<p><em>{{Suggestion:}}</em>
+{{$proto = ((isset($_SERVER['HTTPS'])&amp;&amp;$_SERVER['HTTPS']!=="off") || (isset($_SERVER['HTTP_X_FORWARDED_PROTO'])&amp;&amp;$_SERVER['HTTP_X_FORWARDED_PROTO']=="https")) ? 'https' : 'http';}}
+{quote}</p>
+
+<p>{quote}
+<em>{{Zend_Controller_Request_Http-&gt;getScheme()}}</em> [Line 966]
+{{return ($this-&gt;getServer('HTTPS') == 'on') ? self::SCHEME_HTTPS : self::SCHEME_HTTP;}}</p>
+
+<p><em>{{Suggestion:}}</em>
+{{return ($this-&gt;getServer('HTTPS') == 'on' || $this-&gt;getServer('HTTP_X_FORWARDED_PROTO') == 'https') ? self::SCHEME_HTTPS : self::SCHEME_HTTP;}}
+{quote}</p>
+
+<p>{quote}
+<em>{{Zend_Soap_AutoDiscover-&gt;getSchema()}}</em> [Line 132]
+{{if (isset($_SERVER['HTTPS']) &amp;&amp; $_SERVER['HTTPS'] == 'on') {}}</p>
+
+<p><em>{{Suggestion:}}</em>
+{{if ((isset($_SERVER['HTTPS']) &amp;&amp; $_SERVER['HTTPS'] == 'on') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) &amp;&amp; $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https')) {}}
+{quote}</p>
+
+<p>{quote}
+<em>{{Zend_OpenId-&gt;selfUrl()}}</em> [Line 97]
+{{if (isset($_SERVER['HTTPS']) &amp;&amp; $_SERVER['HTTPS'] == 'on') {}}</p>
+
+<p><em>{{Suggestion:}}</em>
+{{if ((isset($_SERVER['HTTPS']) &amp;&amp; $_SERVER['HTTPS'] == 'on') || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) &amp;&amp; $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https')) {}}
+{quote}</p>
+
+<p>This may also affect versions earlier than 1.7.0 and other files but these are the few I've found and the 2 in Zend_Controller affect me directly. A few other things that I noticed is the difference in function names for the same purpose ({{Zend_Soap_AutoDiscover-&gt;getSchem<em>a</em>()}} and {{Zend_Controller_Request_Http-&gt;getSchem<em>e</em>()}}) and the difference in how the check is carried out for HTTPS ({{Zend_Controller_Action_Helper_Redirector}} checks against '{{!=="off"}}' while {{Zend_OpenId}} checks against '{{== 'on'}}'.</p>
+
+<p>Thanks</p>
+
+<h1>EDIT #1 (2008-12-11)</h1>
+
+<p>Kevin is correct, the HTTP_X_FORWARDED_PROTO can be set clientside (after a little reading I believe all HTTP_X headers can be set clientside). Unfortunately, this means there may be no easy way to identify whether or not a secure connection is being used by the client when a reverse proxy is in place. I think Benjamin's suggestion of having one central function (he suggests ::isHttpsRequest()) is nice because you won't have different components checking for it in different ways.</p>
+
+<p>Maybe the function could take a boolean that defaults to false on whether the user would like it to check the HTTP_X_FORWARDED_PROTO header. During my searching on the topic I came across this file:
+<a href="http://drupal.org/files/issues/bootstrap.inc_proxy_3.patch">http://drupal.org/files/issues/…</a>
+I'm not too sure which ticket/issue it relates to within drupal as I am not familiar with it but it touches on the concerns Kevin raised as well as make use of another Microsoft specific header when using their tech for reverse proxying. I have seen the HTTP_X_FORWARDED_SSL header used in some places too (the value is set to 'on' if SSL is used) but I'm pretty sure it can be set client side too.</p>
+
+<p>This is out of the scope of ZF but if using Apache (as I am) behind a reverse proxy, the only way around this may be to set up two vhosts operating on two different ports with Apache and two different document roots. In the secure document root place a file called 'secure' which the app can then check for. If it finds it then it is being accessed by SSL but if it doesn't (as only one document root has that file) it is not. Your reverse proxy can then proxy SSL queries to the secure port and standard queries to the other port. This means that you will need two copies of your files though so it is far less than ideal and it may not even work as this is just a guess at a possibility.</p>
+
+<h1>EDIT #2 (2008-12-11)</h1>
+
+<p>Benjamin, I didn't think about manually setting the HTTPS value so that may be something that we can do provided (as you mentioned) it is done right. To do it right might still mean configuring 2 document roots with the same files because the HTTP_X headers can be set clientside so shouldn't really be trusted unless your front server scrubs them out before setting them itself.</p>
+
+<p>I still think it would be nice to have one function that does the SSL checking so even if it doesn't check for the HTTP_X headers (which I now agree it shouldn't) it will mean you have one location where that logic is stored rather than the 4 at the moment.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-12-10T14:39:54.000+0000</p> 
+        <div class="body">
+            <p>Matthew,</p>
+
+<p>what do you think? Maybe we should implement a general purpose static function ::isHttpsRequest() somewhere for everyone to use since this problem (aswell as checking many other $_SERVER variables) occours frequently in many components.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2008-12-10T14:52:01.000+0000</p> 
+        <div class="body">
+            <p>This is likely a bad idea -- the HTTP_X_FORWARDED_PROTO header can be set by the end user as well as a forwarding webserver and could enable MITM and crypto-decrease attacks in some scenarios.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-12-11T08:40:26.000+0000</p> 
+        <div class="body">
+            <p>hm then this issue is a "won't fix" in my point of view.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-12-11T08:42:47.000+0000</p> 
+        <div class="body">
+            <p>Well you can still set $_SERVER['HTTPS'] in your bootstrap, if you are absolutly sure that you are doing it the right way. I suggest this, and leaving the core of the ZF unchanged.</p>
+
+<p>Additionally a function that has a boolean value true false for checking the protocol header would create additional non-needed overhead on all the apis for setter/getter methods.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2009-12-26T15:03:58.000+0000</p> 
+        <div class="body">
+            <p>Trivially fixed by end user - the suggested fix (presumably why this is still open) is insecure and will not be implemented.</p>
+
+        </div>
+    </div>
+    </div>
+

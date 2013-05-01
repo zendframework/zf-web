@@ -1,0 +1,336 @@
+<h2>ZF-2311: Zend_Locale_Data :  add a registry to store the retrieved data and make them available upon next call</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-12-14T09:15:57.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-01-15T16:15:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Laurent Melmoux (laurent melmoux)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10970/Zend_Locale_Data_Registry.patch">Zend_Locale_Data_Registry.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Add a few lines in Zend_Locale_Data:: getContent() to store the data from the cache in Zend_Registy, so on next call they are pull out from the registry and speed up thing.</p>
+
+<p>In the patch above this is done if the cache is enable but it is probably better to cach it even if the cache is not on.</p>
+
+<p>Here is a patch</p>
+
+<h1>Index: Data.php</h1>
+
+<p>--- Data.php    (revision 7119)
++++ Data.php    (working copy)</p>
+
+<p>@@ -263,9 +263,14 @@
+                 $val = implode('<em>' , $value);
+             }
+             $id = strtr('Zend_Locale</em>' . $locale . '<em>' . $path . '</em>' . $val, array('-' =&gt; '<em>', '/' =&gt; '</em>'));
+-            if ($result = self::$_cache-&gt;load($id)) {
+-                return unserialize($result);
++            if(Zend_Registry::isRegistered($id)){
++                return Zend_Registry::get($id);
+             }
++            elseif ($result = self::$_cache-&gt;load($id)) {
++                $result = unserialize($result);
++                Zend_Registry::set($id, $result);
++                return $result;
++            }
+         }</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-14T09:16:49.000+0000</p> 
+        <div class="body">
+            <p>the patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-17T16:47:19.000+0000</p> 
+        <div class="body">
+            <p>This depends on the used cache.</p>
+
+<p>I don't expect any difference if you are using memcached or registry for example.
+Maybe memcached is even faster than registry depending on how much registry settings you have within your session.</p>
+
+<p>If you use file-based on the other hand, you will get quite different results showing a measureable slowing depending on how fast files are read on your machine.</p>
+
+<p>Generally I think that having 2 different caching mechanism integrated is useless.
+Btw: You will of course only expect a speedup on the second request, when the setting already has been cached.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-18T13:25:57.000+0000</p> 
+        <div class="body">
+            <p>{quote}You will of course only expect a speedup on the second request, {quote}
+Yes that true. It's a request feature to find a way to seep up Zend_Date when you have to display several dates on the same script (mostly records listing with 20 to 100 records).</p>
+
+<p>I think something which could seep up thing is to provide a serialized version of CLDR instead of the xml one. Like that we don't need anymore cache file. If the user has setup a cache the class uses it, if not it use an internal registry cache. 
+Another advantage of the serialized version of CLDR is it is more little weight 1,7Mo instead of 8Mo.</p>
+
+<p>We also have a performance lost because for each part of the date you have a read the xlm file. I guess we could gain some speed by reading the full calendar data at once and store it in the registry for later call.</p>
+
+<p>What do you think about that ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-18T13:31:58.000+0000</p> 
+        <div class="body">
+            <p>Is there a way to use the new php DateTime class to speed thing for php version &gt;= 5.2.0</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-18T14:10:47.000+0000</p> 
+        <div class="body">
+            <p>No, this does not help.</p>
+
+<p>It all depends on your cache settings. If you set your cache to resist for 1 year, for example, it would also work.
+This would not work with the registry.</p>
+
+<p>Related to CLDR... it is not possible to change the CLDR files.
+This is not allowed from unicode and it would also produce problems with any new version (the next is coming in about 2-6 weeks). It would also import new problems,because the data is not avaiable in one language, it's linked from one language to another, sometimes even through 4 languages.</p>
+
+<p>Btw: The CLDR is already simplified before integration, original it has about 50% more content.</p>
+
+<p>The performance loss is solved with the cache, if you don't set it, you will also get no performance boost.
+And reading the complete calendar data is useless... there is much data which you will never use... f.e. the calendar data for the japanese will never be used, except you are a japanese :-)</p>
+
+<p>Related to DateTime... actually we have a minimum requirement of php5.1.4 which does not include the datetime class per default. Also to mention, the datetime class produced several other issues, because it can only handle dates from 0 to 9999, and it has some other disadvantages.
+But as long as the minimum requirements are not raised there is no way to use the new DateTime class.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-19T03:00:22.000+0000</p> 
+        <div class="body">
+            <p>{quote}Related to CLDR... it is not possible to change the CLDR files.{quote}
+I did not mean to change CLDR, but provide a serialized instance instead of plain xml.</p>
+
+<p>{quote}it would also produce problems with any new version{quote}
+We just need a script able to do the conversion each time a new realise of the CLDR is out</p>
+
+<p>{quote}The CLDR is already simplified before integration, original it has about 50% more content.{quote}
+So it is allowed to changed the CLDR :)</p>
+
+<p>{quote}And reading the complete calendar data is useless... there is much data which you will never use...{quote}
+I didn't mean to load the whole calendar with all languages, but a specific calendar (ex. Gregorian) in a specific locale (ex. fr)</p>
+
+<p>{quote}Related to DateTime... actually we have a minimum requirement of php5.1.4{quote}
+Yes, we can keep this requirement but have a test to see if a function like date_create exist and if so use specific code for php5.2.0</p>
+
+<p>{quote}it can only handle dates from 0 to 9999{quote}
+It's the 80% of the use cases</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-19T03:13:27.000+0000</p> 
+        <div class="body">
+            <p>Don't get me wrong, but I don't want to have legal problems because of unallowed changes of the CLDR data.
+We just stripped the additional comments, which is allowed.</p>
+
+<p>And related to DateTime... there is a absolute no-go as long as we have 5.1.4 supported.
+Btw: I found out that DateTime itself is not so fast when you do DateMath beyound 1901 or after 2037. I already did some research in the past.</p>
+
+<p>Zend_Date itself will be completly reworked as soon as ZF raises it's minimum requirements to 5.2... this was discussed in the past with the dev-team.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-19T06:06:50.000+0000</p> 
+        <div class="body">
+            <p>{quote}Don't get me wrong, but I don't want to have legal problems because of unallowed changes of the CLDR data.{quote}</p>
+
+<p>I'm just teasing you Thomas</p>
+
+<p>I understand that date calculation is not an easy task, the fact is I really like the Zend_Date API but the speed is a blocker for me.</p>
+
+<p>I'm probably going to wait until its rework for php 5.2.0. before using it. If I can get some time I'll try a few thing to see if I can improve speed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-19T07:23:51.000+0000</p> 
+        <div class="body">
+            <p>Wil forwarded me a new PECL component which would come very handy if it's finished...</p>
+
+<p><a href="http://docs.php.net/manual/en/book.intl.php">http://docs.php.net/manual/en/book.intl.php</a></p>
+
+<p>If will be integrated with PHP 5.3 and could completly solve our speed problem with the CLDR data.
+This could be possible because the time and amount of codelines for integrating it is not so big.</p>
+
+<p>Of course, if you find a good way to speed up the whole class I would be willing to do all my best to integrate it :-)
+I think there are actually two bottlenecks...
+One is the CLDR data and the time to parse multiple xml files... this is dramatically reduced by the cache (if set properly) but could be reduced more with this PECL component.
+Second is the date calculation itself.</p>
+
+<p>A possible way to speed to the class is related to it's size... it is about 4500 lines big, but from this 4500 lines are about 2500 only documentation lines.
+So a shortterm solution would be to strip all API docs for the production server. ;-)</p>
+
+<p>If wou are willing it would be great if you could look in details and make some profiling for the locale class and/or the date class for the actual trunk. Maybe I oversaw something or there is a bottleneck which could be fixed.
+As myself has really much work (Translation View Helper, Translationable Exception, Phone integration, German Documentation, Http_Upload, SQL Adapter, and and and) I am actually really not able to put big amount of time into profiling.
+But I will keep this issue opened so we won't forget about it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-19T08:16:58.000+0000</p> 
+        <div class="body">
+            <p>I don't know well the internal of Zend_Date so I don't know well what is possible or not.
+But as you said the 2 main bottlenecks are the CLDR and the date calculation. I have a few ideas than I need to explore if my time permit it.</p>
+
+<p><em>About CLDR</em></p>
+
+<p>For example if I do:</p>
+
+<pre class="highlight"><code>
+$zDate-&gt;set($dateString, 'YYYY-MM-dd HH:mm:ss');
+echo $zDate-&gt;get('dd/MM/YYYY'); 
+</code></pre>
+
+<p>I know how the date is formatted and I need an output which is not local sensible so for this use case we shouldn't access at all to the CLDR file.</p>
+
+<p>We could also had an Zend_Date::format() method which will not be local aware.</p>
+
+<p>I'm persisting to say that reading the CLDR file in bigger chuck could improve a bit performance, but I need to do some test to verify that assumption.</p>
+
+<p><em>Date calculation and class size</em></p>
+
+<p>The class could be split in 2 or more class.</p>
+
+<p>Fore example Zend_Date would deal with dates in a range of 0 - 9999 which is the 80% uses cases. If date_create() and date_parse()  functions exist make use of it (I persist :) )</p>
+
+<p>Than if you need a wider date rage you just use Zend_Date_Big</p>
+
+<p>May be move all date calculation could be move to Zend_Date_Calendar wich will need an instance of Zend_Date or Zend_Date_Big at construction time. But here we introduce a BC break. May be it is acceptable for ZF version 1.2?</p>
+
+<p>May be a call for volunteers to find solution for those bottleneck in the i18n mailing list? :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-19T08:32:15.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+Wil forwarded me a new PECL component which would come very handy if it's finished...
+<a href="http://docs.php.net/manual/en/book.intl.php">http://docs.php.net/manual/en/book.intl.php</a>
+If will be integrated with PHP 5.3 and could completly solve our speed problem with the CLDR data.
+{quote}</p>
+
+<p>Yep, the integration of ICU inside php is going to be a real win! But I though it was expect to php6. It would be nice to have it in php 5.3.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-19T08:45:24.000+0000</p> 
+        <div class="body">
+            <p>According to the url you provided it seams possible to have ICU integrated with php 5.1.3+ and 5.2.0+ :)</p>
+
+<p><a href="http://docs.php.net/manual/en/intl.setup.php">http://docs.php.net/manual/en/intl.setup.php</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-19T08:53:43.000+0000</p> 
+        <div class="body">
+            <p>You are throwing together two things.</p>
+
+<p>One is CLDR / Zend_Locale, the other is Zend_Date/DateTime.
+They have to be viewed completly seperated.</p>
+
+<p>In your example the CLDR is not accessed.
+You will only have the creation of a locale instance at creation of the date, and this is nothing where the CLDR is accessed.</p>
+
+<p>CLDR is only accessed when we normalize or localize a date.</p>
+
+<p>BC break is not acceptable.
+Actually no volunteers... for all works which had been done by "volunteers" I had to rework almost everything and do unit tests and docu... it took me more time that if I would have done it alone... therefor no volunteers.</p>
+
+<p>The API is so simple because it's not seperated into several classes like in other languages (one for date, one for time, one for datetime and so on...). There must be another way that having the customer be aware of what dates to want to use. I have enough ideas about how to seperate them, but still it's no easy task... the original date implementation took me about 4 months. And this amount of time will also the rewrite need.</p>
+
+<p>I think we should seperate the whole thing...
+This issue is for speeding up Zend_Locale. It has nothing to do with Zend_Date.
+Otherwise it would be unreadable, and I hate it when several independent things are thrown into one pot.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-12-19T08:54:59.000+0000</p> 
+        <div class="body">
+            <p>No, ICU is still a experimental extension.
+Not avaiable in PHP 5.2 for now at distribution.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2007-12-21T03:11:42.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+The API is so simple because it's not seperated into several classes like in other languages (one for date, one for time, one for datetime and so on...). There must be another way that having the customer be aware of what dates to want to use. I have enough ideas about how to seperate them, but still it's no easy task... the original date implementation took me about 4 months. And this amount of time will also the rewrite need.
+{quote}
+Yes I understand that a lot of time is involved, so it's probably best to leave it as it is, and throw ideas for a rewrite with ZF 2.0</p>
+
+<p>{quote}
+I think we should seperate the whole thing...
+This issue is for speeding up Zend_Locale. It has nothing to do with Zend_Date.
+Otherwise it would be unreadable, and I hate it when several independent things are thrown into one pot.
+{quote}
+Yes I do agree with that.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-01-15T16:15:38.000+0000</p> 
+        <div class="body">
+            <p>After comparison Zend_Cache with Zend_Registry we found out that there is no measurable difference between the two.</p>
+
+<p>It is useless to implement two caching mechanism. With Zend_Cache the user has the benefit to select which mechanism fit's best for him.</p>
+
+<p>Also CLDR and Zend_Locale has been reworked for 1.6 integration.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,184 @@
+<h2>ZF-9737: Zend_Applicaton_Resource_Cachemanager cannot create a Zend Server backend</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-23T08:03:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-07-17T12:40:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.7 (28/Jul/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Kevin Schroeder (kschroeder)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application_Resource</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13032/ZF-9737.patch">ZF-9737.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using the cache manager via a Zend_Application resource, the Zend Server backends are not able to be loaded.</p>
+
+<p>application.ini
+resources.cachemanager.youtube.frontend.name = Core
+resources.cachemanager.youtube.frontend.options.automatic_serialization = true
+resources.cachemanager.youtube.backend.name = ZendServer_Disk</p>
+
+<p>This causes the backend to be named ZendserverDisk, which does not exist.  Changing the application.ini file to</p>
+
+<p>resources.cachemanager.youtube.backend.name = Zend_Cache_Backend_ZendServer_Disk</p>
+
+<p>does not work either because the $customBackendNaming value is not available when calling Zend_Cache_Manager::getCache()</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Kevin Schroeder (kschroeder) on 2010-04-23T09:14:18.000+0000</p> 
+        <div class="body">
+            <p>I have created a fix for this issue.  It does not solve the naming problem, but it does allow for the custom naming and autoloading arguments to be passed to the Zend_Cache::factory call.  That way you can at least explicitly create that backend.</p>
+
+<h1>Index: tests/Zend/Application/Resource/CacheManagerTest.php</h1>
+
+<p>--- tests/Zend/Application/Resource/CacheManagerTest.php    (revision 21970)
++++ tests/Zend/Application/Resource/CacheManagerTest.php    (working copy)
+@@ -182,6 +182,31 @@
+         $cache = $manager-&gt;getCache('foo');
+         $this-&gt;assertTrue($cache instanceof Zend_Cache_Core);
+     }
++<br />
++    public function testNamespacedBackend()
++    {
++        $options = array(
++            'foo' =&gt; array(
++                'frontend' =&gt; array(
++                    'name' =&gt; 'Zend_Cache_Core',
++                    'options' =&gt; array(
++                        'lifetime' =&gt; 7200,
++                       'customFrontendNaming'  =&gt; true
++                    ),
++                ),
++                'backend' =&gt; array(
++                    'name'                     =&gt; 'Zend_Cache_Backend_ZendServer_Disk',
++                   'options' =&gt; array(
++                       'customBackendNaming'   =&gt; true
++                   )
++                ),
++            ),
++        );
++        $resource = new Zend_Application_Resource_Cachemanager($options);
++        $manager = $resource-&gt;init();
++        $cache = $manager-&gt;getCache('foo')-&gt;getBackend();
++        $this-&gt;assertTrue($cache instanceof Zend_Cache_Backend_ZendServer_Disk);<br />
++    }
+ }</p>
+
+<p>if (PHPUnit_MAIN_METHOD == 'Zend_Application_Resource_CacheManagerTest::main') {</p>
+
+<h1>Index: library/Zend/Cache/Manager.php</h1>
+
+<p>--- library/Zend/Cache/Manager.php  (revision 21970)
++++ library/Zend/Cache/Manager.php  (working copy)
+@@ -171,7 +171,10 @@
+                 $this-&gt;_optionTemplates[$name]['frontend']['name'],
+                 $this-&gt;_optionTemplates[$name]['backend']['name'],
+                 isset($this-&gt;_optionTemplates[$name]['frontend']['options']) ? $this-&gt;_optionTemplates[$name]['frontend']['options'] : array(),
+-                isset($this-&gt;_optionTemplates[$name]['backend']['options']) ? $this-&gt;_optionTemplates[$name]['backend']['options'] : array()
++                isset($this-&gt;_optionTemplates[$name]['backend']['options']) ? $this-&gt;_optionTemplates[$name]['backend']['options'] : array(),
++                isset($this-&gt;_optionTemplates[$name]['frontend']['options']['customFrontendNaming']) ? $this-&gt;_optionTemplates[$name]['frontend']['options']['customFrontendNaming'] : false,
++                isset($this-&gt;_optionTemplates[$name]['backend']['options']['customBackendNaming']) ? $this-&gt;_optionTemplates[$name]['backend']['options']['customBackendNaming'] : false,
++                isset($this-&gt;_optionTemplates[$name]['backend']['options']['autoload']) ? $this-&gt;_optionTemplates[$name]['backend']['options']['autoload'] : false
+             );
+             return $this-&gt;_caches[$name];
+         }</p>
+
+<h1>Index: library/Zend/Cache.php</h1>
+
+<p>--- library/Zend/Cache.php  (revision 21970)
++++ library/Zend/Cache.php  (working copy)
+@@ -143,6 +143,7 @@
+             }
+             if (!$autoload) {
+                 $file = str_replace('_', DIRECTORY_SEPARATOR, $backendClass) . '.php';
++<br />
+                 if (!(self::_isReadable($file))) {
+                     self::throwException("file $file not found in include_path");
+                 }</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2010-04-23T11:12:31.000+0000</p> 
+        <div class="body">
+            <p>unit test is already included added within [ZF-9738] fix, updated patch is attached.</p>
+
+<p>Patch looks good, but it's necessary to check if it's the best way to set additional parameters through backend/frontend option arrays</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2010-04-23T12:37:53.000+0000</p> 
+        <div class="body">
+            <p>Done.</p>
+
+<p>Provided patch is changed a bit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-04-23T12:41:20.000+0000</p> 
+        <div class="body">
+            <p>Thanks for fixing. Reopening however due to missing unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-04-23T13:08:35.000+0000</p> 
+        <div class="body">
+            <p>@Alexander 
+In your commit <a href="http://framework.zend.com/code/viewrep/Zend_Framework/standard/trunk/library/Zend/Cache/Manager.php?r1=21162&amp;r2=21977">Zend_Cache_Manager</a>, corrected ZF-9134 and ZF-9240.</p>
+
+<p>Thanks ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-07-17T12:40:46.000+0000</p> 
+        <div class="body">
+            <p>Test added in trunk r22617, applied to release 1.10 r22618.</p>
+
+        </div>
+    </div>
+    </div>
+

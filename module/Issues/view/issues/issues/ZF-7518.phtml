@@ -1,0 +1,382 @@
+<h2>ZF-7518: Range Query doesn't work anyway</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-07T07:41:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-09-21T04:14:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.1 (30/Nov/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Daniel Hartmann (danielmitd)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12324/mylyn-context.zip">mylyn-context.zip</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Query a lucene index using the range format does not work.</p>
+
+<p>&lt;</p>
+
+<p>pre class="highlight"&gt;<code>
+unlink($root."data/indexes/test/*");
+$index = Zend_Search_Lucene::create($root."data/indexes/test");
+$doc = new Zend_Search_Lucene_Document();
+$doc-&gt;addField(Zend_Search_Lucene_Field::Keyword('test', 9));
+$index-&gt;addDocument($doc);
+$index-&gt;commit();</code></p>
+
+<p>echo "</p>
+
+<pre>";
+$hits = $index-&gt;find('test:[1 TO 10]');
+echo count($hits)." hits\n"; 
+foreach($hits as $hit){
+  echo "  -&gt; $hit-&gt;score - $hit-&gt;id\n";
+}
+
+$hits = $index-&gt;find('test:9');
+echo count($hits)." hits\n"; 
+foreach($hits as $hit){
+  echo "  -&gt; $hit-&gt;score - $hit-&gt;id\n";
+}
+
+$hits = $index-&gt;find('test:11');
+echo count($hits)." hits\n"; 
+foreach($hits as $hit){
+  echo "  -&gt; $hit-&gt;score - $hit-&gt;id\n";
+}
+</pre>
+
+<pre class="highlight"><code>
+0 hits
+1 hits
+  -&gt; 0.30685281944005 - 0
+0 hits
+</code></pre>
+
+<pre class="highlight"><code>
+1 hits
+  -&gt; 1 - 0
+1 hits
+  -&gt; 1 - 0
+0 hits
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-09-02T03:30:06.000+0000</p> 
+        <div class="body">
+            <p>Out of interest:
+Your String is numeric.</p>
+
+<p>Did you try setting the default analyzer to a one supporting numbers? Does that change anything?
+(For example: Zend_Search_Lucene_Analysis_Analyzer_Common_Utf8Num )</p>
+
+<p>I haven't looked into the code of Range Query yet, but some other querys run a tokenizer over the search term under some circumstances
+A numeric term tokenized with the default analyzer (which is text only) could result in an empty string, henceforth the empty result.</p>
+
+<p>Only a guess.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Hartmann (danielmitd) on 2009-09-02T03:56:07.000+0000</p> 
+        <div class="body">
+            <p>{quote}Did you try setting the default analyzer to a one supporting numbers? Does that change anything?
+(For example: Zend_Search_Lucene_Analysis_Analyzer_Common_Utf8Num ){quote}</p>
+
+<p>The result is the same, even if I use the utf8num analyzer.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-09-02T04:30:57.000+0000</p> 
+        <div class="body">
+            <p>Confirmed: The problem seems to lay much deeper.
+It is indeed necessary to set a numeric tokenizer for this range query to work, HOWEVER it still leads to an empty result.
+Even more interesting: If using an In-memory index as of patch ZF-7736 the query works! That means the numbers get somehow lost when the index is written to disk or retrieved. Which means there seems to be quite a fundamental flaw deep down there.
+Hope that helps you guys pinpoint it faster...</p>
+
+<p>Here is the code I used:</p>
+
+<p>&lt;</p>
+
+<p>pre class="highlight"&gt;<code></code></p>
+
+<p>$root="/tmp/";</p>
+
+<p>// use a numeric tokenizer
+Zend_Search_Lucene_Analysis_Analyzer::setDefault(new Zend_Search_Lucene_Analysis_Analyzer_Common_Utf8Num_Caseinsensitive());</p>
+
+<p>unlink($root."data/indexes/test/*");</p>
+
+<p>//$index = Zend_Search_Lucene::create($root."data/indexes/test");
+// use a in-memory index (needs patch ZF-7736 )
+$index = new Zend_Search_Lucene_TempIndex();</p>
+
+<p>$doc = new Zend_Search_Lucene_Document();
+$doc-&gt;addField(Zend_Search_Lucene_Field::Keyword('test', 9));
+$index-&gt;addDocument($doc);
+$index-&gt;commit();
+$index-&gt;optimize();</p>
+
+<p>echo "</p>
+
+<pre>";
+$querystring = 'test:[1 TO 10]';
+$query = Zend_Search_Lucene_Search_QueryParser::parse($querystring);
+print_r($query);
+$hits = $index-&gt;find($query);
+//$hits = $index-&gt;find('test:[1 TO 10]');
+echo count($hits)." hits\n"; 
+foreach($hits as $hit){
+  echo "  -&gt; $hit-&gt;score - $hit-&gt;id\n";
+}
+
+$hits = $index-&gt;find('test:9');
+echo count($hits)." hits\n"; 
+foreach($hits as $hit){
+  echo "  -&gt; $hit-&gt;score - $hit-&gt;id\n";
+}
+
+$hits = $index-&gt;find('test:11');
+echo count($hits)." hits\n"; 
+foreach($hits as $hit){
+  echo "  -&gt; $hit-&gt;score - $hit-&gt;id\n";
+}
+
+
+exit(0);
+
+</pre>
+
+<p>result:</p>
+
+<pre class="literal"> 
+Zend_Search_Lucene_Search_Query_Boolean Object
+(
+    [_subqueries:private] =&gt; Array
+        (
+            [0] =&gt; Zend_Search_Lucene_Search_Query_Range Object
+                (
+                    [_lowerTerm:private] =&gt; Zend_Search_Lucene_Index_Term Object
+                        (
+                            [field] =&gt; test
+                            [text] =&gt; 1
+                        )
+
+                    [_upperTerm:private] =&gt; Zend_Search_Lucene_Index_Term Object
+                        (
+                            [field] =&gt; test
+                            [text] =&gt; 10
+                        )
+
+                    [_field:private] =&gt; test
+                    [_inclusive:private] =&gt; 1
+                    [_matches:private] =&gt; 
+                    [_boost:private] =&gt; 1
+                    [_weight:protected] =&gt; 
+                    [_currentColorIndex:private] =&gt; 0
+                )
+
+        )
+
+    [_signs:private] =&gt; Array
+        (
+            [0] =&gt; 
+        )
+
+    [_resVector:private] =&gt; 
+    [_coord:private] =&gt; 
+    [_boost:private] =&gt; 1
+    [_weight:protected] =&gt; 
+    [_currentColorIndex:private] =&gt; 0
+)
+1 hits
+  -&gt; 0.30685281944 - 0
+1 hits
+  -&gt; 0.30685281944 - 0
+0 hits
+
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-09-02T04:41:06.000+0000</p> 
+        <div class="body">
+            <p>Another juicy little detail: Setting the Storage Type to "Text" instead of  "Keyword", the range query still doesn't work.
+But as expected witha non numeric tokenizer used the search result gets</p>
+
+<pre class="literal">
+Zend_Search_Lucene_Search_Query_MultiTerm Object
+(
+    [_terms:private] =&gt; Array
+        (
+            [0] =&gt; Zend_Search_Lucene_Index_Term Object
+                (
+                    [field] =&gt; 
+                    [text] =&gt; test
+                )
+
+            [1] =&gt; Zend_Search_Lucene_Index_Term Object
+                (
+                    [field] =&gt; 
+                    [text] =&gt; to
+                )
+
+        )
+
+    [_signs:private] =&gt; Array
+        (
+            [0] =&gt; 
+            [1] =&gt; 
+        )
+
+    [_resVector:private] =&gt; 
+    [_termsFreqs:private] =&gt; Array
+        (
+        )
+
+    [_coord:private] =&gt; 
+    [_weights:private] =&gt; Array
+        (
+        )
+
+    [_boost:private] =&gt; 1
+    [_weight:protected] =&gt; 
+    [_currentColorIndex:private] =&gt; 0
+)
+0 hits
+0 hits
+0 hits
+</pre>
+
+<p>note that with a non numeric tokenizer, the numbers went missing - but the rest of the range query gets interpreted as a Multiterm query - which is at least interesting undocumented fallback behaviour ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Charles Sheinin (mausolos) on 2010-03-25T03:42:43.000+0000</p> 
+        <div class="body">
+            <p>I know at first that this doesn't seem related because I'm not using a range query, however, I was having similar luck with the range query.  I suspect the behavior has less to do with range and more to do with searching secondary text fields where the string perhaps either begins with an integer or contains only integers.  I began by working with essentially a date string.  To test my hypothesis, I programmatically prepended 'a', 'aa' and 'aaa' to the date string before submitting the Document to the indexer.  This gets a little weird, but I think these series of tests with crashes and successes is telling, and indicates this isn't just a problem with range:</p>
+
+<p>USING THIS TO START WITH (.....)
+php &gt; include('Zend/Search/Lucene.php');
+php &gt; $indexPath = '/data/lucindex';
+php &gt; $index = Zend_Search_Lucene::open($indexPath);</p>
+
+<p>CHECK THIS OUT:
+.....
+php &gt; $hits = $index-&gt;find( 'dateposted:20090308' );
+php &gt; echo count($hits);
+0
+php &gt; $hits = $index-&gt;find( '20090308' );
+php &gt; echo count($hits);
+0
+php &gt; $hits = $index-&gt;find( 'dateposted:200*' );</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Search_Lucene_Exception' with message 'At least 3 non-wildcard characters are required at the beginning of pattern.' in /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Wildcard.php:145
+Stack trace:</p>
+
+<h1>0 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Preprocessing/Term.php(190): Zend_Search_Lucene_Search_Query_Wildcard-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>1 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Boolean.php(143): Zend_Search_Lucene_Search_Query_Preprocessing_Term-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>2 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene.php(922): Zend_Search_Lucene_Search_Query_Boolean-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>3 [internal function]: Zend_Search_Lucene-&gt;find('dateposted:200*')</h1>
+
+<h1>4 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Proxy.php(346): call_user_func_array(Array, Array)</h1>
+
+<h1>5 p in /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Wildcard.php on line 145</h1>
+
+<p>......
+php &gt; $hits = $index-&gt;find('aaa20090308');
+php &gt; echo count($hits);
+26
+php &gt;</p>
+
+<p>FURTHERMORE:
+.....
+php &gt; $hits = $index-&gt;find('<em>a200</em>');</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Search_Lucene_Exception' with message 'At least 3 non-wildcard characters are required at the beginning of pattern.' in /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Wildcard.php:145
+Stack trace:</p>
+
+<h1>0 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Preprocessing/Term.php(190): Zend_Search_Lucene_Search_Query_Wildcard-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>1 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Preprocessing/Term.php(104): Zend_Search_Lucene_Search_Query_Preprocessing_Term-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>2 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Boolean.php(143): Zend_Search_Lucene_Search_Query_Preprocessing_Term-&gt;rewrite(Object(Zend_Search_Lucene))</h1>
+
+<h1>3 /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene.php(922): Zend_Search_Lucene_Search_Query_Boolean-&gt;rewrite(Object(Zend_Search_Lu in /usr/local/lib/php/ZendFramework-1.10.0-minimal/library/Zend/Search/Lucene/Search/Query/Wildcard.php on line 145</h1>
+
+<p>AND FINALLY:
+......
+php &gt; $hits = $index-&gt;find('dateposted:[aaa<em>20090201 TO aaa</em>20090401');
+php &gt; echo count($hits);
+56</p>
+
+<p>I hope this is found useful to someone who knows their way around the codebase.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by shopoto (shopoto) on 2010-09-14T08:03:19.000+0000</p> 
+        <div class="body">
+            <p>I'm facing the same pb...
+Does some someone have resolved / fixed this one?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2010-09-21T04:14:50.000+0000</p> 
+        <div class="body">
+            <p>Fixed.</p>
+
+<p>BTW The following thing has to be noted. 
+Range query uses lexicographical order instead of numeric order. In this order "9" is greater than "10". Pad numbers to the same length to provide correct range query work:
+'  1', '  7', '  9', ' 45', '346'</p>
+
+        </div>
+    </div>
+    </div>
+

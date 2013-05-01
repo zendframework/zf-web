@@ -1,0 +1,154 @@
+<h2>ZF-9566: Zend_Feed_Writer_Renderer_Entry_Atom: a (utf-8) non breaking space makes atom feed creation fail</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-29T08:00:49.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-29T07:44:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.5 (26/May/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Lasse Fister (lasse)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Feed_Writer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Warning: DOMDocument::loadXML() [domdocument.loadxml]: Entity 'nbsp' not defined in Entity, line: 1 in /home/commander/web/libraries/ZendFramework-1.10.2/library/Zend/Feed/Writer/Renderer/Entry/Atom.php on line 354</p>
+
+<p>That's because Zend_Feed_Writer_Renderer_Entry_Atom::_loadXhtml() attempts to create XML using tidy. Tidy itself substitutes utf-8 non breaking spaces width &amp;nbsp; entities which in turn are not XML (and not Atom IMHO).</p>
+
+<p>reproduce:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$this-&gt;layout()-&gt;disableLayout();
+$feed = new Zend_Feed_Writer_Feed();
+$feed-&gt;setTitle('test');
+$feed-&gt;setLink('<a href="http://www.testtest.org">http://www.testtest.org</a>');
+$feed-&gt;setFeedLink('<a href="http://www.testtest.org/feed">http://www.testtest.org/feed</a>', 'atom');
+$feed-&gt;setDescription('test articles');
+$feed-&gt;setId('<a href="http://www.testtest.org/feed/atom/">http://www.testtest.org/feed/atom/</a>');
+$feed-&gt;setEncoding('UTF-8');
+$feed-&gt;addAuthor(array(
+    'name'  =&gt; 'test',
+    'email' =&gt; 'test@testtest.org',
+    'uri'   =&gt; '<a href="http://www.testtest.org">http://www.testtest.org</a>',
+));
+$feed-&gt;setDateModified(new Zend_Date());
+$entry = $feed-&gt;createEntry();
+$entry-&gt;setTitle('test article');
+$entry-&gt;setId('<a href="http://www.testtest.org/feed/testarticle1id">http://www.testtest.org/feed/testarticle1id</a>');
+$entry-&gt;setDateCreated(new Zend_Date());
+$entry-&gt;setDateModified(new Zend_Date());
+
+//using html_entity_decode to get an utf-8 no breaking space
+$htmlSnippet = '</code></pre><h1><code>Test'.html_entity_decode(' ', ENT_COMPAT, 'UTF-8').'Content</code></h1><code>';
+$entry-&gt;setContent($htmlSnippet);
+
+$entry-&gt;setDescription('test Description');
+$feed-&gt;addEntry($entry);
+echo $feed-&gt;export('atom');
+</code>
+
+<p>adding
+'quote-nbsp' =&gt; false
+to the tidy configuration resolved my problem:</p>
+
+<pre class="highlight"><code>
+
+    /**
+     * Load a HTML string and attempt to normalise to XML
+     */
+    protected function _loadXhtml($content)
+    {
+        $xhtml = '';
+        if (FALSE &amp;&amp; class_exists('tidy', false)) {
+            $tidy = new tidy;
+            $config = array(
+                'output-xhtml' =&gt; true,
+                'show-body-only' =&gt; true,
+                'quote-nbsp' =&gt; false
+            );
+...
+</code></pre>
+
+<p>But a more robust implementation of _loadXhtml would propably be better. The concept of "attempt<a href="http://www.php.net/manual/en/domdocument.loadxml.php#69295">ing] to normalise to XML" seems not to fit in here. The Example above doesn't fail when tidy isn't installed (or used) at all. Let the user take care of passing something valid and throw an Exception on failure or [turn the DOM warning into an Exception</a> and try to handle that (possibly width tidy or a callback), instead of using tidy regardless of what the input is.</p>
+
+<p>Regards, Lasse</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Lasse Fister (lasse) on 2010-03-29T08:04:06.000+0000</p> 
+        <div class="body">
+            <p>removed a typo</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Munk (schmunk) on 2010-04-09T08:52:41.000+0000</p> 
+        <div class="body">
+            <p>I got exactly the same problem.</p>
+
+<p>My dev machine has no tidy and I created a valid XML string manually, while our production machine has tidy and the attempt to clean the string breaks it.</p>
+
+<p>I found a function for HTML to XML entity replacement here:<a href="http://inanimatt.com/php-convert-entities.php">http://inanimatt.com/php-convert-entities.php</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Munk (schmunk) on 2010-04-12T15:11:47.000+0000</p> 
+        <div class="body">
+            <blockquote>
+  <p>Let the user take care of passing something valid and throw an Exception on failure or turn the DOM warning into an Exception and try to handle that (possibly width tidy or a callback), instead of using tidy regardless of what the input is.
+  I second that.</p>
+</blockquote>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-04-29T07:44:36.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r22054.</p>
+
+<p>I'll investigate a more robust solution in time for ZF 2.0 and experiment with a better cleanup approach. I'll also build in options to disable the Tidy stage (or remove it completely unless warranted/can report on a fail with a consistently helpful message).</p>
+
+        </div>
+    </div>
+    </div>
+

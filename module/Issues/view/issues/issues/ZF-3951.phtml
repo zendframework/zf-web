@@ -1,0 +1,170 @@
+<h2>ZF-3951: ViewRenderer ignores &quot;prefixDefaultModule&quot; param if module name is 'default'  </h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-14T12:00:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-13T23:53:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Nathan Wright (natew)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>1.6.0-RC2 changes the behaviour with respect to the Dispatcher's "prefixDefaultModule" param and view helper &amp; filter prefixes.</p>
+
+<p>Before this release, it behaved as expected: with two modules, <em>'default'</em> and 'admin', the helper class prefixes would be <em>'Default_View_Helper'</em> and 'Admin_View_Helper' respectively. As of this release, the class prefixes are now <em>'Zend_View_Helper'</em> and 'Admin_View_Helper' respectively.</p>
+
+<p>To reproduce this issue, the default module name must be 'default'. Other module names work as expected.</p>
+
+<p>The code responsible for this BC break is found at Zend_Controller_Action_Helper_ViewRenderer::_generateDefaultPrefix().</p>
+
+<p>RC1:</p>
+
+<pre class="highlight"><code>    protected function _generateDefaultPrefix()
+    {
+        if ((null === $this-&gt;_actionController) || !strstr(get_class($this-&gt;_actionController), '_')) {
+            $prefix = 'Zend_View';
+        } else {
+            $class = get_class($this-&gt;_actionController);
+            $prefix = substr($class, 0, strpos($class, '_')) . '_View';
+        }
+
+        return $prefix;
+    }</code></pre>
+
+<p>RC2:</p>
+
+<pre class="highlight"><code>    protected function _generateDefaultPrefix()
+    {
+        $default = 'Zend_View';
+        if (null === $this-&gt;_actionController) {
+            return $default;
+        }
+
+        $class = get_class($this-&gt;_actionController);
+
+        if (!strstr($class, '_')) {
+            return $default;
+        }
+
+        $module = $this-&gt;getModule();
+        if ('default' == $module) {
+            return $default;
+        }
+
+        $prefix = substr($class, 0, strpos($class, '_')) . '_View';
+
+        return $prefix;
+    }</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-22T15:09:09.000+0000</p> 
+        <div class="body">
+            <p>The changed behavior better reflects the intended behavior. Any change at this point will break functionality for those relying on using Zend_View as the prefix in the default module.</p>
+
+<p>I'll see if I can address this for 1.6.1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-18T14:47:16.000+0000</p> 
+        <div class="body">
+            <p>Is this still an issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-08T22:49:36.000+0000</p> 
+        <div class="body">
+            <p>It is.  I ran this test against trunk:</p>
+
+<ol><li>Create application:</li>
+</ol><pre class="highlight"><code>
+[adam@zfdev zf]$ zf create project ZF-3951
+[adam@zfdev ZF-3951]$ zf create module default
+[adam@zfdev ZF-3951]$ zf create controller index index-action-included=1 default
+</code></pre>
+
+<ol><li><p>Relocate ErrorController and it's views to default module</p></li>
+<li><p>Create {{Default_View_Helper_Test}} in {{application/modules/default/views/helpers/Test.php}}</p></li>
+</ol><pre class="highlight"><code>
+class Default_View_Helper_Test extends Zend_View_Helper_Abstract
+{
+        public function test()
+        {
+        }
+}
+</code></pre>
+
+<ol><li>Update {{application/modules/default/views/scripts/index/index.phtml}} to add call to helper:</li>
+</ol><pre class="highlight"><code>
+&lt;?php echo $this-&gt;test(); ?&gt;
+</code></pre>
+
+<ol><li>Open up /default/index/index in web browser, and you get an exception:</li>
+</ol><pre class="highlight"><code>
+Exception information:
+
+Message: Plugin by name 'Test' was not found in the registry; used paths: Zend_View_Helper_: Zend/View/Helper/:/tmp/test/zf/ZF-3951/application/modules/default/views/helpers/ 
+</code></pre>
+
+<p>If you rename the view helper to Zend_View_Helper_Test, but leave it in the same location, it will work.</p>
+
+<p>As Matthew pointed out, this is a BC break, and so is now unlikely to be fixed in ZF1.</p>
+
+<p>In your collective experiences, how do people normally work around this issue?  I have put view helpers in application/views/helper and used Application_View_Helper_ and also put them in /library under an autoloader namespace and then registered the helper path in the app bootstrap.</p>
+
+<p>Is there a way we could add Default_View_Helper_ loading from within the default module without breaking the workarounds people already have in place for this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-13T23:53:01.000+0000</p> 
+        <div class="body">
+            <p>Marking as Won't Fix on account of any fix would introduce a BC problem and workarounds are likely in place for those really needing a solution.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,228 @@
+<h2>ZF-308: Encoding is wrong when language is not english</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-08-07T05:58:49.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-02-11T18:06:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Peter Valicek (eparser)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simone Carletti (weppos)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Feed</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello *,</p>
+
+<p>I have tried out the Zend Framework, in special the Feed functions.</p>
+
+<p>require_once 'Zend/Feed.php';
+$rssdata = Zend_Feed::import('<a href="http://www.computerpartner.de/rss/news.xml">http://www.computerpartner.de/rss/news.xml</a>');
+foreach ( $rssdata as $item ) {
+        print "Title: ".$item-&gt;title()."\n";
+}</p>
+
+<p>What you see the umlaute are crappy. Exp for an "ü" you see "Ã¼". and so on.
+I don't know where to dix it - maybe someone find the bug. ;-)</p>
+
+<p>Cheers</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Elisamuel Resto (user00265) on 2006-08-07T20:51:26.000+0000</p> 
+        <div class="body">
+            <p>This has to do with the framework not handling UTF-8 but mainly ASCII, it seems, this could be solved with use of one of the html* functions I think.</p>
+
+<p>There has been a discussion about the framework and UTF-8 in the framework triggered by the UTF-8 proposal. Read the relevant thread about <a href="">www.nabble.com/Zend_UTF8--t2034057.html</a>" rel="nofollow"&gt;Zend_UTF8 Proposal Discussion for more info.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2006-09-09T10:41:46.000+0000</p> 
+        <div class="body">
+            <p>Just change your page encoding from ISO8859-1 to UTF8 and you will get all displayed properly.</p>
+
+<p>This is the way my Zend_Locale displayes even Arabic or Indian characters without errors.
+The Zend_UTF8 class will only change the internal handling, but generated output should work properly as long as you will only output the string.</p>
+
+<p>Greetings
+Thomas</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Bezruchkin (visualimpakt) on 2006-10-13T18:38:44.000+0000</p> 
+        <div class="body">
+            <p>A good way is to convert the output from the DOM tree into Unicode Entities.</p>
+
+<p>Copy and past this function into your Zend/Feed/Element.php file inside the class:</p>
+
+<p>function utf8ToUnicodeEntities ($source) {
+        // array used to figure what number to decrement from character order value 
+        // according to number of characters used to map unicode to ascii by utf-8
+        $decrement[4] = 240;
+        $decrement[3] = 224;
+        $decrement[2] = 192;
+        $decrement[1] = 0;</p>
+
+<pre><code>    // the number of bits to shift each charNum by
+    $shift[1][0] = 0;
+    $shift[2][0] = 6;
+    $shift[2][1] = 0;
+    $shift[3][0] = 12;
+    $shift[3][1] = 6;
+    $shift[3][2] = 0;
+    $shift[4][0] = 18;
+    $shift[4][1] = 12;
+    $shift[4][2] = 6;
+    $shift[4][3] = 0;
+
+    $pos = 0;
+    $len = strlen ($source);
+    $encodedString = '';
+    while ($pos &lt; $len) {
+        $asciiPos = ord (substr ($source, $pos, 1));
+        if (($asciiPos &gt;= 240) &amp;&amp; ($asciiPos &lt;= 255)) {
+            // 4 chars representing one unicode character
+            $thisLetter = substr ($source, $pos, 4);
+            $pos += 4;
+        }
+        else if (($asciiPos &gt;= 224) &amp;&amp; ($asciiPos &lt;= 239)) {
+            // 3 chars representing one unicode character
+            $thisLetter = substr ($source, $pos, 3);
+            $pos += 3;
+        }
+        else if (($asciiPos &gt;= 192) &amp;&amp; ($asciiPos &lt;= 223)) {
+            // 2 chars representing one unicode character
+            $thisLetter = substr ($source, $pos, 2);
+            $pos += 2;
+        }
+        else {
+            // 1 char (lower ascii)
+            $thisLetter = substr ($source, $pos, 1);
+            $pos += 1;
+        }
+
+        $thisLen = strlen ($thisLetter);
+        if ($thisLen &gt; 1) {
+            // process the string representing the letter to a unicode entity
+            $thisPos = 0;
+            $decimalCode = 0;
+            while ($thisPos &lt; $thisLen) {
+                $thisCharOrd = ord (substr ($thisLetter, $thisPos, 1));
+                if ($thisPos == 0) {
+                    $charNum = intval ($thisCharOrd - $decrement[$thisLen]);
+                    $decimalCode += ($charNum &lt;&lt; $shift[$thisLen][$thisPos]);
+                }
+                else {
+                    $charNum = intval ($thisCharOrd - 128);
+                    $decimalCode += ($charNum &lt;&lt; $shift[$thisLen][$thisPos]);
+                }
+
+                $thisPos++;
+            }
+
+            if ($thisLen == 1)
+                $encodedLetter = "&amp;#". str_pad($decimalCode, 3, "0", STR_PAD_LEFT) . ';';
+            else
+                $encodedLetter = "&amp;#". str_pad($decimalCode, 5, "0", STR_PAD_LEFT) . ';';
+
+            $encodedString .= $encodedLetter;
+        }
+        else {
+            $encodedString .= $thisLetter;
+        }
+    }
+    return $encodedString;
+}
+</code></pre>
+
+<p>Then change the line in "public function __call($var, $unused)" that says "return $nodes[0]-&gt;nodeValue;" to:</p>
+
+<p>return self::utf8ToUnicodeEntities($nodes[0]-&gt;nodeValue);</p>
+
+<p>This worked well for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:26:52.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.6.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jan Pieper (jpieper) on 2007-04-11T02:46:37.000+0000</p> 
+        <div class="body">
+            <p>Tested it and there are no problems. Is it fixed?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Valicek (eparser) on 2007-04-13T02:26:14.000+0000</p> 
+        <div class="body">
+            <p>Tested it agian and works fine.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Turland (elazar) on 2008-02-03T09:47:57.000+0000</p> 
+        <div class="body">
+            <p>Can I get confirmation that the issue is fixed and this ticket can be closed?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Valicek (eparser) on 2008-02-03T10:58:17.000+0000</p> 
+        <div class="body">
+            <p>Confirmed.
+It works fine. -thx</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simone Carletti (weppos) on 2008-02-11T18:06:49.000+0000</p> 
+        <div class="body">
+            <p>Closing the ticket because we get confirmation it no longer exists or it has already been fixed before.</p>
+
+        </div>
+    </div>
+    </div>
+

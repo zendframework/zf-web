@@ -1,0 +1,660 @@
+--- tests/Zend/File/ClassFileLocatorTest.php	(Revision 25022)
++++ tests/Zend/File/ClassFileLocatorTest.php	(Arbeitskopie)
+@@ -83,14 +83,66 @@
+         $this->assertTrue($found, "Locator skipped an interface?");
+     }
+ 
++    public function testIterationShouldInjectNamespaceInFoundItems()
++    {
++        $locator = new Zend_File_ClassFileLocator(dirname(__FILE__));
++        $found = false;
++        foreach ($locator as $file) {
++            $classes = $file->getClasses();
++            foreach ($classes as $class) {
++                if (strpos($class, '\\', 1)) {
++                    $found = true;
++                }
++            }
++        }
++        $this->assertTrue($found);
++    }
++
+     public function testIterationShouldInjectClassInFoundItems()
+     {
+         $locator = new Zend_File_ClassFileLocator(dirname(__FILE__));
+         $found = false;
+         foreach ($locator as $file) {
+-            $this->assertTrue(isset($file->classname));
++            $classes = $file->getClasses();
++            foreach ($classes as $class) {
++                $found = true;
++                break;
++            }
+         }
++        $this->assertTrue($found);
+     }
++
++    public function testIterationShouldFindMultipleClassesInMultipleNamespacesInSinglePhpFile()
++    {
++        $locator = new Zend_File_ClassFileLocator(__DIR__);
++        $foundFirst = false;
++        $foundSecond = false;
++        $foundThird = false;
++        $foundFourth = false;
++        foreach ($locator as $file) {
++            if (preg_match('/MultipleClassesInMultipleNamespaces\.php$/', $file->getFilename())) {
++                $classes = $file->getClasses();
++                foreach ($classes as $class) {
++                    if ($class === 'ZendTest\File\TestAsset\LocatorShouldFindFirstClass') {
++                        $foundFirst = true;
++                    }
++                    if ($class === 'ZendTest\File\TestAsset\LocatorShouldFindSecondClass') {
++                        $foundSecond = true;
++                    }
++                    if ($class === 'ZendTest\File\TestAsset\SecondTestNamespace\LocatorShouldFindThirdClass') {
++                        $foundThird = true;
++                    }
++                    if ($class === 'ZendTest\File\TestAsset\SecondTestNamespace\LocatorShouldFindFourthClass') {
++                        $foundFourth = true;
++                    }
++                }
++            }
++        }
++        $this->assertTrue($foundFirst);
++        $this->assertTrue($foundSecond);
++        $this->assertTrue($foundThird);
++        $this->assertTrue($foundFourth);
++    }
+ }
+ 
+ if (PHPUnit_MAIN_METHOD == 'Zend_File_ClassFileLocatorTest::main') {
+Index: tests/Zend/File/TestAsset/MultipleClassesInMultipleNamespaces.php
+===================================================================
+--- tests/Zend/File/TestAsset/MultipleClassesInMultipleNamespaces.php	(Revision 0)
++++ tests/Zend/File/TestAsset/MultipleClassesInMultipleNamespaces.php	(Revision 0)
+@@ -0,0 +1,46 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   ZendTest
++ * @package    ZendTest_File
++ * @subpackage Exception
++ * @copyright  Copyright (c) 2005-2011 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++namespace ZendTest\File\TestAsset
++{
++
++    class LocatorShouldFindFirstClass
++    {
++    }
++
++    class LocatorShouldFindSecondClass
++    {
++    }
++
++}
++
++namespace ZendTest\File\TestAsset\SecondTestNamespace
++{
++
++    class LocatorShouldFindThirdClass
++    {
++    }
++
++    class LocatorShouldFindFourthClass
++    {
++    }
++
++}
+Index: library/Zend/File/ClassFileLocator.php
+===================================================================
+--- library/Zend/File/ClassFileLocator.php	(Revision 25022)
++++ library/Zend/File/ClassFileLocator.php	(Arbeitskopie)
+@@ -18,6 +18,9 @@
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+ 
++require_once 'Zend/File/Exception.php';
++require_once 'Zend/File/PhpClassFile.php';
++
+ /**
+  * Locate files containing PHP classes, interfaces, or abstracts
+  * 
+@@ -40,13 +43,13 @@
+     {
+         if (is_string($dirOrIterator)) {
+             if (!is_dir($dirOrIterator)) {
+-                throw new InvalidArgumentException('Expected a valid directory name');
++                throw new Zend_File_Exception('Expected a valid directory name');
+             }
+ 
+             $dirOrIterator = new RecursiveDirectoryIterator($dirOrIterator);
+         }
+         if (!$dirOrIterator instanceof DirectoryIterator) {
+-            throw new InvalidArgumentException('Expected a DirectoryIterator');
++            throw new Zend_File_Exception('Expected a DirectoryIterator');
+         }
+ 
+         if ($dirOrIterator instanceof RecursiveIterator) {
+@@ -56,6 +59,7 @@
+         }
+ 
+         parent::__construct($iterator);
++        $this->setInfoClass('Zend_File_PhpClassFile');
+ 
+         // Forward-compat with PHP 5.3
+         if (version_compare(PHP_VERSION, '5.3.0', '<')) {
+@@ -70,14 +74,13 @@
+ 
+     /**
+      * Filter for files containing PHP classes, interfaces, or abstracts
+-     * 
++     *
+      * @return bool
+      */
+     public function accept()
+     {
+         $file = $this->getInnerIterator()->current();
+-
+-        // If we somehow have something other than an SplFileInfo object, just 
++        // If we somehow have something other than an SplFileInfo object, just
+         // return false
+         if (!$file instanceof SplFileInfo) {
+             return false;
+@@ -96,30 +99,29 @@
+         $contents = file_get_contents($file->getRealPath());
+         $tokens   = token_get_all($contents);
+         $count    = count($tokens);
+-        $i        = 0;
+-        while ($i < $count) {
++        $t_trait  = defined('T_TRAIT') ? T_TRAIT : -1; // For preserve PHP 5.3 compatibility
++        for ($i = 0; $i < $count; $i++) {
+             $token = $tokens[$i];
+-
+             if (!is_array($token)) {
+                 // single character token found; skip
+                 $i++;
+                 continue;
+             }
+-
+-            list($id, $content, $line) = $token;
+-
+-            switch ($id) {
++            switch ($token[0]) {
+                 case T_NAMESPACE:
+                     // Namespace found; grab it for later
+                     $namespace = '';
+-                    $done      = false;
+-                    do {
+-                        ++$i;
++                    for ($i++; $i < $count; $i++) {
+                         $token = $tokens[$i];
+                         if (is_string($token)) {
+                             if (';' === $token) {
+-                                $done = true;
++                                $saveNamespace = false;
++                                break;
+                             }
++                            if ('{' === $token) {
++                                $saveNamespace = true;
++                                break;
++                            }
+                             continue;
+                         }
+                         list($type, $content, $line) = $token;
+@@ -129,44 +131,49 @@
+                                 $namespace .= $content;
+                                 break;
+                         }
+-                    } while (!$done && $i < $count);
+-
+-                    // Set the namespace of this file in the object
+-                    $file->namespace = $namespace;
++                    }
++                    if ($saveNamespace) {
++                        $savedNamespace = $namespace;
++                    }
+                     break;
++                case $t_trait:
+                 case T_CLASS:
+                 case T_INTERFACE:
+-                    // Abstract class, class, or interface found
++                    // Abstract class, class, interface or trait found
+ 
+                     // Get the classname
+-                    $class = '';
+-                    do {
+-                        ++$i;
++                    for ($i++; $i < $count; $i++) {
+                         $token = $tokens[$i];
+                         if (is_string($token)) {
+                             continue;
+                         }
+                         list($type, $content, $line) = $token;
+-                        switch ($type) {
+-                            case T_STRING:
+-                                $class = $content;
+-                                break;
++                        if (T_STRING == $type) {
++                            // If a classname was found, set it in the object, and
++                            // return boolean true (found)
++                            if (!isset($namespace) || null === $namespace) {
++                                if (isset($saveNamespace) && $saveNamespace) {
++                                    $namespace = $savedNamespace;
++                                } else {
++                                    $namespace = null;
++                                }
++
++                            }
++                            $class = (null === $namespace) ? $content : $namespace . '\\' . $content;
++                            $file->addClass($class);
++                            $namespace = null;
++                            break;
+                         }
+-                    } while (empty($class) && $i < $count);
+-
+-                    // If a classname was found, set it in the object, and 
+-                    // return boolean true (found)
+-                    if (!empty($class)) {
+-                        $file->classname = $class;
+-                        return true;
+                     }
+                     break;
+                 default:
+                     break;
+             }
+-            ++$i;
+         }
+-
++        $classes = $file->getClasses();
++        if (!empty($classes)) {
++            return true;
++        }
+         // No class-type tokens found; return false
+         return false;
+     }
+Index: library/Zend/File/PhpClassFile.php
+===================================================================
+--- library/Zend/File/PhpClassFile.php	(Revision 0)
++++ library/Zend/File/PhpClassFile.php	(Revision 0)
+@@ -0,0 +1,58 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category  Zend
++ * @package   Zend_File_Transfer
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license   http://framework.zend.com/license/new-bsd     New BSD License
++ * @version   $Id: Transfer.php 24593 2012-01-05 20:35:02Z matthew $
++ */
++
++/**
++ * Locate files containing PHP classes, interfaces, abstracts or traits
++ *
++ * @category  Zend
++ * @package   Zend_File
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license   http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_File_PhpClassFile extends SplFileInfo
++{
++    /**
++     * @var array
++     */
++    protected $classes;
++
++    /**
++     * Get classes
++     *
++     * @return array
++     */
++    public function getClasses()
++    {
++        return $this->classes;
++    }
++
++    /**
++     * Add class
++     *
++     * @param string $class
++     * @return Zend_File_PhpClassFile
++     */
++    public function addClass($class)
++    {
++        $this->classes[] = $class;
++        return $this;
++    }
++}
+Index: library/Zend/File/Exception.php
+===================================================================
+--- library/Zend/File/Exception.php	(Revision 0)
++++ library/Zend/File/Exception.php	(Revision 0)
+@@ -0,0 +1,37 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category  Zend
++ * @package   Zend_File
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license   http://framework.zend.com/license/new-bsd     New BSD License
++ * @version   $Id: Exception.php 24593 2012-01-05 20:35:02Z matthew $
++ */
++
++/**
++ * Zend_Exception
++ */
++require_once 'Zend/Exception.php';
++
++/**
++ * Exception class for Zend_File_Transfer
++ *
++ * @category   Zend
++ * @package    Zend_File
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_File_Exception extends Zend_Exception
++{
++}
+Index: bin/classmap_generator.php
+===================================================================
+--- bin/classmap_generator.php	(Revision 25022)
++++ bin/classmap_generator.php	(Arbeitskopie)
+@@ -13,8 +13,6 @@
+  * to license@zend.com so we can send you a copy immediately.
+  *
+  * @category   Zend
+- * @package    Zend_Loader
+- * @subpackage Exception
+  * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+@@ -24,39 +22,43 @@
+  *
+  * Usage:
+  * --help|-h                    Get usage message
+- * --library|-l [ <string> ]    Library to parse; if none provided, assumes 
++ * --library|-l [ <string> ]    Library to parse; if none provided, assumes
+  *                              current directory
+- * --output|-o [ <string> ]     Where to write autoload file; if not provided, 
++ * --output|-o [ <string> ]     Where to write autoload file; if not provided,
+  *                              assumes "autoload_classmap.php" in library directory
+- * --overwrite|-w               Whether or not to overwrite existing autoload 
++ * --append|-a                  Append to autoload file if it exists
++ * --overwrite|-w               Whether or not to overwrite existing autoload
+  *                              file
+  */
+ 
+-$libPath = dirname(__FILE__) . '/../library';
+-if (!is_dir($libPath)) {
+-    // Try to load StandardAutoloader from include_path
+-    if (false === include('Zend/Loader/StandardAutoloader.php')) {
+-        echo "Unable to locate autoloader via include_path; aborting" . PHP_EOL;
++$zfLibraryPath = getenv('LIB_PATH') ? getenv('LIB_PATH') : __DIR__ . '/../library';
++if (is_dir($zfLibraryPath)) {
++    // Try to load StandardAutoloader from library
++    if (false === include($zfLibraryPath . '/Zend/Loader/StandardAutoloader.php')) {
++        echo 'Unable to locate autoloader via library; aborting' . PHP_EOL;
+         exit(2);
+     }
++    set_include_path($zfLibraryPath);
+ } else {
+-    // Try to load StandardAutoloader from library
+-    if (false === include(dirname(__FILE__) . '/../library/Zend/Loader/StandardAutoloader.php')) {
+-        echo "Unable to locate autoloader via library; aborting" . PHP_EOL;
++    // Try to load StandardAutoloader from include_path
++    if (false === include('Zend/Loader/StandardAutoloader.php')) {
++        echo 'Unable to locate autoloader via include_path; aborting' . PHP_EOL;
+         exit(2);
+     }
+ }
+ 
++$libraryPath = getcwd();
++
+ // Setup autoloading
+-$loader = new Zend_Loader_StandardAutoloader();
+-$loader->setFallbackAutoloader(true);
++$loader = new Zend_Loader_StandardAutoloader(array('autoregister_zf' => true));
+ $loader->register();
+ 
+ $rules = array(
+-    'help|h'        => 'Get usage message',
+-    'library|l-s'   => 'Library to parse; if none provided, assumes current directory',
+-    'output|o-s'    => 'Where to write autoload file; if not provided, assumes "autoload_classmap.php" in library directory',
+-    'overwrite|w'   => 'Whether or not to overwrite existing autoload file',
++    'help|h'      => 'Get usage message',
++    'library|l-s' => 'Library to parse; if none provided, assumes current directory',
++    'output|o-s'  => 'Where to write autoload file; if not provided, assumes "autoload_classmap.php" in library directory',
++    'append|a'    => 'Append to autoload file if it exists',
++    'overwrite|w' => 'Whether or not to overwrite existing autoload file',
+ );
+ 
+ try {
+@@ -69,84 +71,151 @@
+ 
+ if ($opts->getOption('h')) {
+     echo $opts->getUsageMessage();
+-    exit();
++    exit(0);
+ }
+ 
+-$path = $libPath;
+-if (array_key_exists('PWD', $_SERVER)) {
+-    $path = $_SERVER['PWD'];
+-}
++$relativePathForClassmap = '';
+ if (isset($opts->l)) {
+-    $path = $opts->l;
+-    if (!is_dir($path)) {
+-        echo "Invalid library directory provided" . PHP_EOL . PHP_EOL;
++    if (!is_dir($opts->l)) {
++        echo 'Invalid library directory provided' . PHP_EOL
++            . PHP_EOL;
+         echo $opts->getUsageMessage();
+         exit(2);
+     }
+-    $path = realpath($path);
++    $libraryPath = $opts->l;
+ }
++$libraryPath = str_replace(DIRECTORY_SEPARATOR, '/', realpath($libraryPath));
+ 
+ $usingStdout = false;
+-$output = $path . DIRECTORY_SEPARATOR . 'autoload_classmap.php';
++$appending = $opts->getOption('a');
++$output = $libraryPath . '/autoload_classmap.php';
+ if (isset($opts->o)) {
+     $output = $opts->o;
+     if ('-' == $output) {
+         $output = STDOUT;
+         $usingStdout = true;
++    } elseif (is_dir($output)) {
++        echo 'Invalid output file provided' . PHP_EOL
++            . PHP_EOL;
++        echo $opts->getUsageMessage();
++        exit(2);
+     } elseif (!is_writeable(dirname($output))) {
+         echo "Cannot write to '$output'; aborting." . PHP_EOL
+             . PHP_EOL
+             . $opts->getUsageMessage();
+         exit(2);
+-    } elseif (file_exists($output)) {
+-        if (!$opts->getOption('w')) {
+-            echo "Autoload file already exists at '$output'," . PHP_EOL
+-                . "but 'overwrite' flag was not specified; aborting." . PHP_EOL 
+-                . PHP_EOL
+-                . $opts->getUsageMessage();
+-            exit(2);
++    } elseif (file_exists($output) && !$opts->getOption('w') && !$appending) {
++        echo "Autoload file already exists at '$output'," . PHP_EOL
++            . "but 'overwrite' or 'appending' flag was not specified; aborting." . PHP_EOL
++            . PHP_EOL
++            . $opts->getUsageMessage();
++        exit(2);
++    } else {
++        // We need to add the $libraryPath into the relative path that is created in the classmap file.
++        $classmapPath = str_replace(DIRECTORY_SEPARATOR, '/', realpath(dirname($output)));
++
++        // Simple case: $libraryPathCompare is in $classmapPathCompare
++        if (strpos($libraryPath, $classmapPath) === 0) {
++            $relativePathForClassmap = substr($libraryPath, strlen($classmapPath) + 1) . '/';
++        } else {
++            $libraryPathParts  = explode('/', $libraryPath);
++            $classmapPathParts = explode('/', $classmapPath);
++
++            // Find the common part
++            $count = count($classmapPathParts);
++            for ($i = 0; $i < $count; $i++) {
++                if (!isset($libraryPathParts[$i]) || $libraryPathParts[$i] != $classmapPathParts[$i]) {
++                    // Common part end
++                    break;
++                }
++            }
++
++            // Add parent dirs for the subdirs of classmap
++            $relativePathForClassmap = str_repeat('../', $count - $i);
++
++            // Add library subdirs
++            $count = count($libraryPathParts);
++            for (; $i < $count; $i++) {
++                $relativePathForClassmap .= $libraryPathParts[$i] . '/';
++            }
+         }
+     }
+ }
+ 
+-$strip     = $path;
+-
+ if (!$usingStdout) {
+-    echo "Creating class file map for library in '$path'..." . PHP_EOL;
++    if ($appending) {
++        echo "Appending to class file map '$output' for library in '$libraryPath'..." . PHP_EOL;
++    } else {
++        echo "Creating class file map for library in '$libraryPath'..." . PHP_EOL;
++    }
+ }
+ 
+ // Get the ClassFileLocator, and pass it the library path
+-$l = new Zend_File_ClassFileLocator($path);
++$l = new Zend_File_ClassFileLocator($libraryPath);
+ 
+ // Iterate over each element in the path, and create a map of 
+ // classname => filename, where the filename is relative to the library path
+-$map    = new stdClass;
+-$strip .= DIRECTORY_SEPARATOR;
+-function createMap(Iterator $i, $map, $strip) {
+-    $file      = $i->current();
+-    $namespace = empty($file->namespace) ? '' : $file->namespace . '\\';
+-    $filename  = str_replace($strip, '', $file->getRealpath());
++$map = new stdClass;
++foreach ($l as $file) {
++    $filename  = str_replace($libraryPath . '/', '', str_replace(DIRECTORY_SEPARATOR, '/', $file->getPath()) . '/' . $file->getFilename());
+ 
+-    // Windows portability
+-    $filename  = str_replace(array('/', '\\'), "' . DIRECTORY_SEPARATOR . '", $filename);
++    // Add in relative path to library
++    $filename  = $relativePathForClassmap . $filename;
+ 
+-    $map->{$namespace . $file->classname} = $filename;
++    foreach ($file->getClasses() as $class) {
++        $map->{$class} = $filename;
++    }
++}
+ 
+-    return true;
++if ($appending) {
++    $content = var_export((array) $map, true) . ';';
++
++    // Prefix with __DIR__; modify the generated content
++    $content = preg_replace("#(=> ')#", "=> __DIR__ . '/", $content);
++
++    // Fix \' strings from injected DIRECTORY_SEPARATOR usage in iterator_apply op
++    $content = str_replace("\\'", "'", $content);
++
++    // Convert to an array and remove the first "array("
++    $content = explode(PHP_EOL, $content);
++    array_shift($content);
++
++    // Load existing class map file and remove the closing "bracket ");" from it
++    $existing = file($output, FILE_IGNORE_NEW_LINES);
++    array_pop($existing);
++
++    // Merge
++    $content = implode(PHP_EOL, array_merge($existing, $content));
++} else {
++    // Create a file with the class/file map.
++    // Stupid syntax highlighters make separating < from PHP declaration necessary
++    $content = '<' . "?php\n"
++             . "// Generated by ZF's ./bin/classmap_generator.php\n"
++             . 'return ' . var_export((array) $map, true) . ';';
++
++    // Prefix with __DIR__; modify the generated content
++    $content = preg_replace("#(=> ')#", "=> dirname(__FILE__) . '/", $content);
++
++    // Fix \' strings from injected DIRECTORY_SEPARATOR usage in iterator_apply op
++    $content = str_replace("\\'", "'", $content);
+ }
+-iterator_apply($l, 'createMap', array($l, $map, $strip));
+ 
+-// Create a file with the class/file map.
+-// Stupid syntax highlighters make separating < from PHP declaration necessary
+-$dirStore = 'dirname_' . uniqid();
+-$content = '<' . "?php\n"
+-         . '$' . $dirStore . " = dirname(__FILE__);\n"
+-         . 'return ' . var_export((array) $map, true) . ';';
++// Remove unnecessary double-backslashes
++$content = str_replace('\\\\', '\\', $content);
+ 
+-// Prefix with dirname(__FILE__); modify the generated content
+-$content = preg_replace('#(=> )#', '$1$' . $dirStore . ' . DIRECTORY_SEPARATOR . ', $content);
+-$content = str_replace("\\'", "'", $content);
++// Exchange "array (" width "array("
++$content = str_replace('array (', 'array(', $content);
+ 
++// Align "=>" operators to match coding standard
++preg_match_all('(\n\s+([^=]+)=>)', $content, $matches, PREG_SET_ORDER);
++$maxWidth = 0;
++
++foreach ($matches as $match) {
++    $maxWidth = max($maxWidth, strlen($match[1]));
++}
++
++$content = preg_replace('(\n\s+([^=]+)=>)e', "'\n    \\1' . str_repeat(' ', " . $maxWidth . " - strlen('\\1')) . '=>'", $content);
++
+ // Write the contents to disk
+ file_put_contents($output, $content);
+ 

@@ -1,0 +1,1035 @@
+ library/Zend/Code/Scanner/ClassScanner.php       |  103 +++++----
+ library/Zend/Code/Scanner/ConstantScanner.php    |  251 ++++++++++++++++++++++
+ library/Zend/Code/Scanner/MethodScanner.php      |   12 +-
+ library/Zend/Code/Scanner/ParameterScanner.php   |  143 +++++++++---
+ tests/Zend/Code/Scanner/ClassScannerTest.php     |   22 ++
+ tests/Zend/Code/Scanner/ConstantScannerTest.php  |   75 +++++++
+ tests/Zend/Code/Scanner/FileScannerTest.php      |   11 +
+ tests/Zend/Code/Scanner/MethodScannerTest.php    |   15 ++
+ tests/Zend/Code/Scanner/ParameterScannerTest.php |   23 +-
+ tests/Zend/Code/TestAsset/AbstractClass.php      |  160 ++++++++++++++
+ 10 files changed, 747 insertions(+), 68 deletions(-)
+
+diff --git a/library/Zend/Code/Scanner/ClassScanner.php b/library/Zend/Code/Scanner/ClassScanner.php
+index 814b216..59ca6be 100644
+--- a/library/Zend/Code/Scanner/ClassScanner.php
++++ b/library/Zend/Code/Scanner/ClassScanner.php
+@@ -196,11 +196,49 @@ class ClassScanner implements Scanner
+             if ($info['type'] != 'constant') {
+                 continue;
+             }
+-            $return[] = $info['name'];
++            $return[$info['name']] = $this->getConstant($info['name']);
+         }
+         return $return;
+     }
+ 
++    /**
++     * @param string|int $constantNameOrInfoIndex
++     * @return value
++     */
++    public function getConstant($constantNameOrInfoIndex)
++    {
++        $this->scan();
++
++        if (is_int($constantNameOrInfoIndex)) {
++            $info = $this->infos[$constantNameOrInfoIndex];
++            if ($info['type'] != 'constant') {
++                throw new Exception\InvalidArgumentException('Index of info offset is not about a constant');
++            }
++        } elseif (is_string($constantNameOrInfoIndex)) {
++            $constantFound = false;
++            foreach ($this->infos as $info) {
++                if ($info['type'] === 'constant' && $info['name'] === $constantNameOrInfoIndex) {
++                    $constantFound = true;
++                    break;
++                }
++            }
++            if (!$constantFound) {
++                return false;
++            }
++        }
++        if (!isset($info)) {
++            // @todo find a way to test this
++            die('Massive Failure, test this');
++        }
++        $c = new ConstantScanner(
++            array_slice($this->tokens, $info['tokenStart'], $info['tokenEnd'] - $info['tokenStart'] + 1),
++            $this->nameInformation
++        );
++        $c->setClass($this->name);
++        $c->setScannerClass($this);
++        return $c;
++    }
++
+     public function getPropertyNames()
+     {
+         $this->scan();
+@@ -355,7 +393,6 @@ class ClassScanner implements Scanner
+          */
+ 
+         $MACRO_TOKEN_ADVANCE = function() use (&$tokens, &$tokenIndex, &$token, &$tokenType, &$tokenContent, &$tokenLine) {
+-            static $lastTokenArray = null;
+             $tokenIndex = ($tokenIndex === null) ? 0 : $tokenIndex+1;
+             if (!isset($tokens[$tokenIndex])) {
+                 $token        = false;
+@@ -368,7 +405,13 @@ class ClassScanner implements Scanner
+             if (is_string($token)) {
+                 $tokenType = null;
+                 $tokenContent = $token;
+-                $tokenLine = $tokenLine + substr_count($lastTokenArray[1], "\n"); // adjust token line by last known newline count
++                $lastToken = $tokens[$tokenIndex - 1];
++                if (is_array($lastToken)) {
++                    $lastContent = $lastToken[1];
++                } else {
++                    $lastContent = $lastToken;
++                }
++                $tokenLine += substr_count($lastContent, "\n"); // adjust token line by last known newline count
+             } else {
+                 $lastTokenArray = $token;
+                 list($tokenType, $tokenContent, $tokenLine) = $token;
+@@ -497,39 +540,6 @@ class ClassScanner implements Scanner
+                     switch ($tokenType) {
+ 
+                         case T_CONST:
+-
+-                            $infos[$infoIndex] = array(
+-                                'type'       => 'constant',
+-                                'tokenStart' => $tokenIndex,
+-                                'tokenEnd'   => null,
+-                                'lineStart'  => $tokenLine,
+-                                'lineEnd'    => null,
+-                                'name'       => null,
+-                                'value'	     => null,
+-                            );
+-
+-                            SCANNER_CLASS_BODY_CONST_TOP:
+-
+-                                if ($tokenContent === ';') {
+-                                    goto SCANNER_CLASS_BODY_CONST_END;
+-                                }
+-                                
+-                                if ($tokenType === T_STRING) {
+-                                    $infos[$infoIndex]['name'] = $tokenContent;
+-                                }
+-
+-                            SCANNER_CLASS_BODY_CONST_CONTINUE:
+-
+-                                if ($MACRO_TOKEN_ADVANCE() === false) {
+-                                    goto SCANNER_END;
+-                                }
+-                                goto SCANNER_CLASS_BODY_CONST_TOP;
+-
+-                            SCANNER_CLASS_BODY_CONST_END:
+-
+-                                $MACRO_INFO_ADVANCE();
+-                                goto SCANNER_CLASS_BODY_CONTINUE;
+-
+                         case T_DOC_COMMENT:
+                         case T_PUBLIC:
+                         case T_PROTECTED:
+@@ -568,14 +578,28 @@ class ClassScanner implements Scanner
+                                 if ($memberContext !== null) {
+                                     if (
+                                         ($memberContext === 'property' && $tokenContent === ';')
++                                        || ($memberContext === 'constant' && $tokenContent === ';')
+                                         || ($memberContext === 'method' && $methodBodyStarted && $braceCount === 1)
+-                                        || ($memberContext === 'method' && $this->isInterface && $tokenContent === ';')
++                                        || ($memberContext === 'method' && !$methodBodyStarted && $tokenContent === ';')
+                                     ) {
+                                         goto SCANNER_CLASS_BODY_MEMBER_END;
+                                     }
+                                 }
+ 
+                                 switch ($tokenType) {
++                                    case T_DOC_COMMENT:
++                                        if ($memberContext === null) {
++                                            $infos[$infoIndex]['tokenStart'] = $tokenIndex;
++                                            $infos[$infoIndex]['lineStart'] = $tokenLine;
++                                        }
++                                        goto SCANNER_CLASS_BODY_MEMBER_CONTINUE;
++
++                                    case T_CONST:
++                                        if ($memberContext === null) {
++                                            $memberContext = 'constant';
++                                            $infos[$infoIndex]['type'] = 'constant';
++                                        }
++                                        goto SCANNER_CLASS_BODY_MEMBER_CONTINUE;
+ 
+                                     case T_VARIABLE:
+                                         if ($memberContext === null) {
+@@ -591,7 +615,10 @@ class ClassScanner implements Scanner
+                                         goto SCANNER_CLASS_BODY_MEMBER_CONTINUE;
+ 
+                                     case T_STRING:
+-                                        if ($memberContext === 'method' && $infos[$infoIndex]['name'] === null) {
++                                        if (
++                                            ($memberContext === 'method' || $memberContext === 'constant')
++                                            && $infos[$infoIndex]['name'] === null
++                                        ) {
+                                             $infos[$infoIndex]['name'] = $tokenContent;
+                                         }
+                                         goto SCANNER_CLASS_BODY_MEMBER_CONTINUE;
+diff --git a/library/Zend/Code/Scanner/ConstantScanner.php b/library/Zend/Code/Scanner/ConstantScanner.php
+new file mode 100644
+index 0000000..be2e64f
+--- /dev/null
++++ b/library/Zend/Code/Scanner/ConstantScanner.php
+@@ -0,0 +1,251 @@
++<?php
++
++namespace Zend\Code\Scanner;
++
++use Zend\Code\Scanner,
++Zend\Code\NameInformation,
++Zend\Code\Exception,
++Zend\Code\Annotation;
++
++class ConstantScanner implements Scanner
++{
++    protected $isScanned    = false;
++
++    protected $docComment   = null;
++    protected $scannerClass = null;
++    protected $class        = null;
++    protected $name         = null;
++    protected $lineStart    = null;
++    protected $lineEnd      = null;
++
++    protected $value        = '';
++    protected $rawValue     = '';
++
++    protected $tokens       = array();
++    protected $nameInformation = null;
++    protected $infos        = array();
++
++    public function __construct(array $constantTokens, NameInformation $nameInformation = null)
++    {
++        $this->tokens = $constantTokens;
++        $this->nameInformation = $nameInformation;
++    }
++
++    public function getClass()
++    {
++        return $this->class;
++    }
++
++    public function setClass($class)
++    {
++        $this->class = $class;
++    }
++
++    public function setScannerClass(ClassScanner $scannerClass)
++    {
++        $this->scannerClass = $scannerClass;
++    }
++
++    public function getClassScanner()
++    {
++        return $this->scannerClass;
++    }
++
++    public function getName()
++    {
++        $this->scan();
++        return $this->name;
++    }
++
++    public function getLineStart()
++    {
++        $this->scan();
++        return $this->lineStart;
++    }
++
++    public function getLineEnd()
++    {
++        $this->scan();
++        return $this->lineEnd;
++    }
++
++    public function getDocComment()
++    {
++        $this->scan();
++        return $this->docComment;
++    }
++
++    /**
++     * @return AnnotationCollection
++     */
++    public function getAnnotations(Annotation\AnnotationManager $annotationManager)
++    {
++        if (($docComment = $this->getDocComment()) == '') {
++            return false;
++        }
++
++        return new AnnotationScanner($annotationManager, $docComment, $this->nameInformation);
++    }
++
++    public function getValue()
++    {
++        $this->scan();
++        return $this->value;
++    }
++
++    public static function export()
++    {
++        // @todo
++    }
++
++    public function __toString()
++    {
++        $this->scan();
++        return var_export($this, true);
++    }
++
++    protected function scan()
++    {
++        if ($this->isScanned) {
++            return;
++        }
++
++        if (!$this->tokens) {
++            throw new Exception\RuntimeException('No tokens were provided');
++        }
++
++        /**
++         * Variables & Setup
++         */
++
++        $tokens          = &$this->tokens; // localize
++        $tokenIndex      = null;
++        $token           = null;
++        $tokenType       = null;
++        $tokenContent    = null;
++        $tokenLine       = null;
++        $eval            = false;
++
++        /**
++         * MACRO creation
++         */
++
++        $MACRO_TOKEN_ADVANCE = function() use (&$tokens, &$tokenIndex, &$token, &$tokenType, &$tokenContent, &$tokenLine) {
++            $tokenIndex = ($tokenIndex === null) ? 0 : $tokenIndex+1;
++            if (!isset($tokens[$tokenIndex])) {
++                $token        = false;
++                $tokenContent = false;
++                $tokenType    = false;
++                $tokenLine    = false;
++                return false;
++            }
++            $token = $tokens[$tokenIndex];
++            if (is_string($token)) {
++                $tokenType = null;
++                $tokenContent = $token;
++                $lastToken = $tokens[$tokenIndex - 1];
++                if (is_array($lastToken)) {
++                    $lastContent = $lastToken[1];
++                } else {
++                    $lastContent = $lastToken;
++                }
++                $tokenLine += substr_count($lastContent, "\n"); // adjust token line by last known newline count
++            } else {
++                list($tokenType, $tokenContent, $tokenLine) = $token;
++            }
++            return $tokenIndex;
++        };
++
++        /**
++         * START FINITE STATE MACHINE FOR SCANNING TOKENS
++         */
++
++        // Initialize token
++        $MACRO_TOKEN_ADVANCE();
++
++        $this->lineStart = $tokenLine;
++
++        SCANNER_TOP:
++
++        switch ($tokenType) {
++            case T_DOC_COMMENT:
++                if ($this->docComment === null && $this->name === null) {
++                    $this->docComment = $tokenContent;
++                }
++                goto SCANNER_CONTINUE_SIGNATURE;
++
++            case T_CONST:
++                goto SCANNER_CONTINUE_SIGNATURE;
++
++            case T_STRING:
++                if ($this->name === null) {
++                    $this->name = $tokenContent;
++                    $this->lineStart = $tokenLine;
++                }
++                goto SCANNER_CONTINUE_SIGNATURE;
++
++            case null:
++                if ($tokenContent == '=') {
++                    goto SCANNER_CONTINUE_VALUE;
++                }
++                goto SCANNER_CONTINUE_SIGNATURE;
++        }
++
++        SCANNER_CONTINUE_SIGNATURE:
++
++        if ($MACRO_TOKEN_ADVANCE() === false) {
++            goto SCANNER_END;
++        }
++        goto SCANNER_TOP;
++
++        SCANNER_CONTINUE_VALUE:
++
++        while ($MACRO_TOKEN_ADVANCE() !== false) {
++            switch ($tokenType) {
++                case T_LNUMBER:
++                case T_DNUMBER:
++                case T_CONSTANT_ENCAPSED_STRING:
++                case T_STRING:
++                case T_DOUBLE_COLON:
++                case T_NS_SEPARATOR:
++                case T_START_HEREDOC:
++                case T_ENCAPSED_AND_WHITESPACE:
++                    $eval = true;
++                    $this->value .= $tokenContent;
++                    continue;
++
++                case T_END_HEREDOC:
++                    $this->value .= $tokenContent . "\n";
++                    continue;
++
++                case T_WHITESPACE:
++                case T_COMMENT:
++                case T_DOC_COMMENT:
++                    continue;
++
++                case null:
++                    if ($tokenContent == ';') {
++                        $this->lineEnd = $tokenLine;
++                    } else {
++                        $this->value .= $tokenContent;
++                    }
++                    continue;
++            }
++        }
++
++        SCANNER_END:
++
++        if ($eval) {
++            if (preg_match('/(.+)::(.+)/', $this->value, $matches)) {
++                if ($matches[1] == 'self' || $matches[1] == $this->getClass()) {
++                    $this->value = $this->getClassScanner()->getConstant($matches[2])->getValue();
++                }
++            } else {
++                $this->value = eval('return ' . $this->value . ';');
++            }
++        }
++
++        $this->isScanned = true;
++        return;
++    }
++}
+diff --git a/library/Zend/Code/Scanner/MethodScanner.php b/library/Zend/Code/Scanner/MethodScanner.php
+index 54bb93c..25cb28b 100644
+--- a/library/Zend/Code/Scanner/MethodScanner.php
++++ b/library/Zend/Code/Scanner/MethodScanner.php
+@@ -227,7 +227,6 @@ class MethodScanner implements Scanner
+          */
+ 
+         $MACRO_TOKEN_ADVANCE = function() use (&$tokens, &$tokenIndex, &$token, &$tokenType, &$tokenContent, &$tokenLine) {
+-            static $lastTokenArray = null;
+             $tokenIndex = ($tokenIndex === null) ? 0 : $tokenIndex+1;
+             if (!isset($tokens[$tokenIndex])) {
+                 $token        = false;
+@@ -240,7 +239,13 @@ class MethodScanner implements Scanner
+             if (is_string($token)) {
+                 $tokenType = null;
+                 $tokenContent = $token;
+-                $tokenLine = $tokenLine + substr_count($lastTokenArray[1], "\n"); // adjust token line by last known newline count
++                $lastToken = $tokens[$tokenIndex - 1];
++                if (is_array($lastToken)) {
++                    $lastContent = $lastToken[1];
++                } else {
++                    $lastContent = $lastToken;
++                }
++                $tokenLine += substr_count($lastContent, "\n"); // adjust token line by last known newline count
+             } else {
+                 list($tokenType, $tokenContent, $tokenLine) = $token;
+             }
+@@ -254,7 +259,7 @@ class MethodScanner implements Scanner
+                 'lineStart'   => $tokenLine,
+                 'lineEnd'     => $tokenLine,
+                 'name'        => null,
+-                'position'    => $infoIndex + 1, // position is +1 of infoIndex
++                'position'    => $infoIndex,
+             );
+         };
+         $MACRO_INFO_ADVANCE = function() use (&$infoIndex, &$infos, &$tokenIndex, &$tokenLine) {
+@@ -315,6 +320,7 @@ class MethodScanner implements Scanner
+ 
+                     if ($tokenType === T_STRING && $parenCount === 0) {
+                         $this->name = $tokenContent;
++                        $this->lineStart = $tokenLine;
+                     }
+                     
+                     if ($parenCount === 1) {
+diff --git a/library/Zend/Code/Scanner/ParameterScanner.php b/library/Zend/Code/Scanner/ParameterScanner.php
+index adb6225..fe7e1f9 100644
+--- a/library/Zend/Code/Scanner/ParameterScanner.php
++++ b/library/Zend/Code/Scanner/ParameterScanner.php
+@@ -61,51 +61,142 @@ class ParameterScanner
+             return;
+         }
+ 
+-        $tokens = &$this->tokens;
++        if (!$this->tokens) {
++            throw new Exception\RuntimeException('No tokens were provided');
++        }
+ 
+-        reset($tokens);
++        /**
++         * Variables & Setup
++         */
+ 
+-        SCANNER_TOP:
++        $tokens          = &$this->tokens; // localize
++        $tokenIndex      = null;
++        $token           = null;
++        $tokenType       = null;
++        $tokenContent    = null;
++        $tokenLine       = null;
++        $eval            = false;
+ 
+-            $token = current($tokens);
++        /**
++         * MACRO creation
++         */
+ 
++        $MACRO_TOKEN_ADVANCE = function() use (&$tokens, &$tokenIndex, &$token, &$tokenType, &$tokenContent, &$tokenLine) {
++            $tokenIndex = ($tokenIndex === null) ? 0 : $tokenIndex+1;
++            if (!isset($tokens[$tokenIndex])) {
++                $token        = false;
++                $tokenContent = false;
++                $tokenType    = false;
++                $tokenLine    = false;
++                return false;
++            }
++            $token = $tokens[$tokenIndex];
+             if (is_string($token)) {
++                $tokenType = null;
++                $tokenContent = $token;
++                if ($tokenIndex > 0) {
++                    $lastToken = $tokens[$tokenIndex - 1];
++                    if (is_array($lastToken)) {
++                        $lastContent = $lastToken[1];
++                    } else {
++                        $lastContent = $lastToken;
++                    }
++                    $tokenLine += substr_count($lastContent, "\n"); // adjust token line by last known newline count
++                }
++            } else {
++                list($tokenType, $tokenContent, $tokenLine) = $token;
++            }
++            return $tokenIndex;
++        };
++
++        /**
++         * START FINITE STATE MACHINE FOR SCANNING TOKENS
++         */
++
++        // Initialize token
++        $MACRO_TOKEN_ADVANCE();
++
++        SCANNER_TOP:
++
++        switch ($tokenType) {
++            case T_VARIABLE:
++                $this->name = ltrim($tokenContent, '$');
++                goto SCANNER_CONTINUE_SIGNATURE;
++
++            case T_STRING:
++            case T_NS_SEPARATOR:
++                if ($this->name === null) {
++                    $this->name = $tokenContent;
++                    $this->class .= $tokenContent;
++                    $this->lineStart = $tokenLine;
++                }
++                goto SCANNER_CONTINUE_SIGNATURE;
++
++            case null:
+                 // check pass by ref
+-                if ($token === '&') {
++                if ($tokenContent == '&') {
+                     $this->isPassedByReference = true;
+-                    goto SCANNER_CONTINUE;
+-                }
+-                if ($token === '=') {
++                    goto SCANNER_CONTINUE_SIGNATURE;
++                } elseif ($tokenContent == '=') {
+                     $this->isOptional = true;
+                     $this->isDefaultValueAvailable = true;
+-                    goto SCANNER_CONTINUE;
+-                }
+-            } else {
+-                if ($this->name === null && ($token[0] === T_STRING || $token[0] === T_NS_SEPARATOR)) {
+-                    $this->class .= $token[1];
+-                    goto SCANNER_CONTINUE;
+-                }
+-                if ($token[0] === T_VARIABLE) {
+-                    $this->name = ltrim($token[1], '$');
+-                    goto SCANNER_CONTINUE;
++                    goto SCANNER_CONTINUE_VALUE;
+                 }
++                goto SCANNER_CONTINUE_SIGNATURE;
++        }
+ 
+-            }
++        SCANNER_CONTINUE_SIGNATURE:
+ 
+-            if ($this->name !== null) {
+-                $this->defaultValue .= (is_string($token)) ? $token : $token[1];
+-            }
++        if ($MACRO_TOKEN_ADVANCE() === false) {
++            goto SCANNER_END;
++        }
++        goto SCANNER_TOP;
++
++        SCANNER_CONTINUE_VALUE:
+ 
++        while ($MACRO_TOKEN_ADVANCE() !== false) {
++            switch ($tokenType) {
++                case T_LNUMBER:
++                case T_DNUMBER:
++                case T_CONSTANT_ENCAPSED_STRING:
++                case T_STRING:
++                case T_DOUBLE_COLON:
++                case T_NS_SEPARATOR:
++                case T_START_HEREDOC:
++                case T_ENCAPSED_AND_WHITESPACE:
++                    $eval = true;
++                    $this->defaultValue .= $tokenContent;
++                    continue;
+ 
+-        SCANNER_CONTINUE:
++                case T_END_HEREDOC:
++                    $this->defaultValue .= $tokenContent . "\n";
++                    continue;
+ 
+-            if (next($this->tokens) === false) {
+-                goto SCANNER_END;
++                case T_WHITESPACE:
++                case T_COMMENT:
++                case T_DOC_COMMENT:
++                    continue;
++
++                case null:
++                    $this->defaultValue .= $tokenContent;
++                    continue;
+             }
+-            goto SCANNER_TOP;
++        }
+ 
+         SCANNER_END:
+ 
++        if ($eval) {
++            if (preg_match('/(.+)::(.+)/', $this->defaultValue, $matches)) {
++                if ($matches[1] == 'self' || $matches[1] == $this->declaringClass) {
++                    $this->defaultValue = $this->getDeclaringScannerClass()->getConstant($matches[2])->getValue();
++                } else {
++                    $this->defaultValue = eval('return ' . $this->defaultValue . ';');
++                }
++            } else {
++                $this->defaultValue = eval('return ' . $this->defaultValue . ';');
++            }
++        }
++
+         if ($this->class && $this->nameInformation) {
+             $this->class = $this->nameInformation->resolveName($this->class);
+         }
+diff --git a/tests/Zend/Code/Scanner/ClassScannerTest.php b/tests/Zend/Code/Scanner/ClassScannerTest.php
+index 963d15e..7fe7f11 100644
+--- a/tests/Zend/Code/Scanner/ClassScannerTest.php
++++ b/tests/Zend/Code/Scanner/ClassScannerTest.php
+@@ -3,6 +3,7 @@
+ namespace ZendTest\Code\Scanner;
+ 
+ use Zend\Code\Scanner\FileScanner,
++    Zend\Code\Reflection\ClassReflection,
+     PHPUnit_Framework_TestCase as TestCase;
+ 
+ class ClassScannerTest extends TestCase
+@@ -77,4 +78,25 @@ class ClassScannerTest extends TestCase
+         $this->assertEquals(34, $class->getLineEnd());
+     }
+ 
++    public function testClassScannerMatchsReflection()
++    {
++        $file    = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class   = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $reflectionClass = new ClassReflection('ZendTest\Code\TestAsset\AbstractClass');
++
++        $this->assertEquals($reflectionClass->getName(), $class->getName());
++        $this->assertEquals($reflectionClass->getStartLine(), $class->getLineStart());
++        $this->assertEquals($reflectionClass->getEndLine(), $class->getLineEnd());
++        $this->assertEquals($reflectionClass->getDocComment(), $class->getDocComment());
++
++        $this->assertEquals($reflectionClass->isAbstract(), $class->isAbstract());
++        $this->assertEquals($reflectionClass->isFinal(), $class->isFinal());
++        $this->assertEquals($reflectionClass->isInstantiable(), $class->isInstantiable());
++        $this->assertEquals($reflectionClass->isInterface(), $class->isInterface());
++
++        $this->assertEquals(count($reflectionClass->getMethods()), count($class->getMethods()));
++        $this->assertEquals(count($reflectionClass->getProperties()), count($class->getProperties()));
++        $this->assertEquals(count($reflectionClass->getConstants()), count($class->getConstants()));
++
++    }
+ }
+diff --git a/tests/Zend/Code/Scanner/ConstantScannerTest.php b/tests/Zend/Code/Scanner/ConstantScannerTest.php
+new file mode 100644
+index 0000000..e393560
+--- /dev/null
++++ b/tests/Zend/Code/Scanner/ConstantScannerTest.php
+@@ -0,0 +1,75 @@
++<?php
++
++namespace ZendTest\Code\Scanner;
++
++use Zend\Code\Scanner\FileScanner,
++    Zend\Code\Reflection\ClassReflection,
++    PHPUnit_Framework_TestCase as TestCase;
++
++class ConstantScannerTest extends TestCase
++{
++    public function testConstantScannerReturnsInteger()
++    {
++        $file      = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class     = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $constant  = $class->getConstant('INTEGER');
++
++        $this->assertEquals('ZendTest\Code\TestAsset\AbstractClass', $constant->getClass());
++        $this->assertEquals('INTEGER', $constant->getName());
++        $this->assertEquals(26, $constant->getLineStart());
++        $this->assertEquals(32, $constant->getLineEnd());
++        $this->assertSame(12345, $constant->getValue());
++    }
++
++    public function testConstantScannerReturnsFloat()
++    {
++        $file      = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class     = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $constant  = $class->getConstant('FLOAT');
++
++        $this->assertEquals('ZendTest\Code\TestAsset\AbstractClass', $constant->getClass());
++        $this->assertEquals('FLOAT', $constant->getName());
++        $this->assertEquals(39, $constant->getLineStart());
++        $this->assertEquals(47, $constant->getLineEnd());
++        $this->assertSame(-12.345, $constant->getValue());
++    }
++
++    public function testConstantScannerReturnsString()
++    {
++        $file      = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class     = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $constant  = $class->getConstant('STRING');
++
++        $this->assertEquals('ZendTest\Code\TestAsset\AbstractClass', $constant->getClass());
++        $this->assertEquals('STRING', $constant->getName());
++        $this->assertEquals(52, $constant->getLineStart());
++        $this->assertEquals(54, $constant->getLineEnd());
++        $this->assertSame("D'\n\n    E\"\\\\F", $constant->getValue());
++    }
++
++    public function testConstantScannerReturnsStringFromStaticData()
++    {
++        $file      = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class     = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $constant  = $class->getConstant('STATICSTRING');
++
++        $this->assertEquals('ZendTest\Code\TestAsset\AbstractClass', $constant->getClass());
++        $this->assertEquals('STATICSTRING', $constant->getName());
++        $this->assertEquals(59, $constant->getLineStart());
++        $this->assertEquals(63, $constant->getLineEnd());
++        $this->assertSame("\n'ab\"c\\\\\\\n", $constant->getValue());
++    }
++
++    public function testConstantScannerMatchReflection()
++    {
++        $file    = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class   = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $reflectionClass = new ClassReflection('ZendTest\Code\TestAsset\AbstractClass');
++
++        foreach ($reflectionClass->getConstants() as $name => $value) {
++            $constant = $class->getConstant($name);
++            $this->assertEquals($name, $constant->getName());
++            $this->assertSame($value, $constant->getValue());
++        }
++    }
++}
+diff --git a/tests/Zend/Code/Scanner/FileScannerTest.php b/tests/Zend/Code/Scanner/FileScannerTest.php
+index 9c26a5b..501fdab 100644
+--- a/tests/Zend/Code/Scanner/FileScannerTest.php
++++ b/tests/Zend/Code/Scanner/FileScannerTest.php
+@@ -3,6 +3,7 @@
+ namespace ZendTest\Code\Scanner;
+ 
+ use Zend\Code\Scanner\FileScanner,
++    Zend\Code\Reflection\FileReflection,
+     PHPUnit_Framework_TestCase as TestCase;
+ 
+ class FileScannerTest extends TestCase
+@@ -13,4 +14,14 @@ class FileScannerTest extends TestCase
+         $this->assertEquals('ZendTest\Code\TestAsset\Baz', $tokenScanner->getClass('ZendTest\Code\TestAsset\Baz')->getName());
+         $this->assertEquals('Foo', $tokenScanner->getClass('Foo')->getName());
+     }
++
++    public function testFileScannerMatchReflection()
++    {
++        $fileName = __DIR__ . '/../TestAsset/AbstractClass.php';
++        $file     = new FileScanner($fileName);
++        require_once($fileName);
++        $reflectionFile = new FileReflection($fileName);
++        $this->assertEquals(count($reflectionFile->getClasses()), count($file->getClasses()));
++        $this->assertEquals($reflectionFile->getDocComment(), $file->getDocComment());
++    }
+ }
+diff --git a/tests/Zend/Code/Scanner/MethodScannerTest.php b/tests/Zend/Code/Scanner/MethodScannerTest.php
+index 78ff3c6..e17c465 100644
+--- a/tests/Zend/Code/Scanner/MethodScannerTest.php
++++ b/tests/Zend/Code/Scanner/MethodScannerTest.php
+@@ -3,6 +3,7 @@
+ namespace ZendTest\Code\Scanner;
+ 
+ use Zend\Code\Scanner\FileScanner,
++    Zend\Code\Reflection\ClassReflection,
+     PHPUnit_Framework_TestCase as TestCase;
+ 
+ class MethodScannerTest extends TestCase
+@@ -67,4 +68,18 @@ class MethodScannerTest extends TestCase
+         $this->assertEquals($expected, $method->getBody());
+     }
+ 
++    public function testMethodScannerMatchReflection()
++    {
++        $file    = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class   = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $reflectionClass = new ClassReflection('ZendTest\Code\TestAsset\AbstractClass');
++
++        foreach ($reflectionClass->getMethods() as $reflectionMethod) {
++            $method = $class->getMethod($reflectionMethod->getName());
++            $this->assertEquals($reflectionMethod->getName(), $method->getName());
++            $this->assertEquals($reflectionMethod->getEndLine(), $method->getLineEnd());
++            $this->assertEquals($reflectionMethod->getStartLine(), $method->getLineStart());
++            $this->assertEquals($reflectionMethod->getDocComment(), $method->getDocComment());
++        }
++    }
+ }
+diff --git a/tests/Zend/Code/Scanner/ParameterScannerTest.php b/tests/Zend/Code/Scanner/ParameterScannerTest.php
+index d454333..ec9e804 100644
+--- a/tests/Zend/Code/Scanner/ParameterScannerTest.php
++++ b/tests/Zend/Code/Scanner/ParameterScannerTest.php
+@@ -3,6 +3,7 @@
+ namespace ZendTest\Code\Scanner;
+ 
+ use Zend\Code\Scanner\FileScanner,
++    Zend\Code\Reflection\ClassReflection,
+     PHPUnit_Framework_TestCase as TestCase;
+ 
+ class ParameterScannerTest extends TestCase
+@@ -16,11 +17,31 @@ class ParameterScannerTest extends TestCase
+         $this->assertEquals('ZendTest\Code\TestAsset\BarClass', $parameter->getDeclaringClass());
+         $this->assertEquals('three', $parameter->getDeclaringFunction());
+         $this->assertEquals('t', $parameter->getName());
+-        $this->assertEquals(2, $parameter->getPosition());
++        $this->assertEquals(1, $parameter->getPosition());
+         $this->assertEquals('2', $parameter->getDefaultValue());
+         $this->assertFalse($parameter->isArray());
+         $this->assertTrue($parameter->isDefaultValueAvailable());
+         $this->assertTrue($parameter->isOptional());
+         $this->assertTrue($parameter->isPassedByReference());
+     }
++
++    public function testConstantScannerMatchReflection()
++    {
++        $file    = new FileScanner(__DIR__ . '/../TestAsset/AbstractClass.php');
++        $class   = $file->getClass('ZendTest\Code\TestAsset\AbstractClass');
++        $method  = $class->getMethod('fAbstract');
++        $reflectionClass  = new ClassReflection('ZendTest\Code\TestAsset\AbstractClass');
++        $reflectionMethod = $reflectionClass->getMethod('fAbstract');
++
++        foreach ($reflectionMethod->getParameters() as $reflectionParameter) {
++            $parameter = $method->getParameter($reflectionParameter->getName());
++            $this->assertEquals($reflectionParameter->getName(), $parameter->getName());
++            $this->assertEquals($reflectionParameter->getPosition(), $parameter->getPosition());
++            $this->assertSame($reflectionParameter->getDefaultValue(), $parameter->getDefaultValue());
++            $this->assertEquals($reflectionParameter->isArray(), $parameter->isArray());
++            $this->assertEquals($reflectionParameter->isDefaultValueAvailable(), $parameter->isDefaultValueAvailable());
++            $this->assertEquals($reflectionParameter->isOptional(), $parameter->isOptional());
++            $this->assertEquals($reflectionParameter->isPassedByReference(), $parameter->isPassedByReference());
++        }
++    }
+ }
+diff --git a/tests/Zend/Code/TestAsset/AbstractClass.php b/tests/Zend/Code/TestAsset/AbstractClass.php
+new file mode 100644
+index 0000000..cac04ce
+--- /dev/null
++++ b/tests/Zend/Code/TestAsset/AbstractClass.php
+@@ -0,0 +1,160 @@
++<?php
++
++/**
++ * file doc comment
++ */
++
++/**
++ * not a file doc comment
++ */
++namespace ZendTest\Code\TestAsset;
++
++/**
++ * not a class comment
++ */
++
++/**
++ * Abstract test class
++ */
++abstract class AbstractClass
++{
++    /**
++     * Constant integer
++     */
++    const
++    // should be ignored
++    INTEGER
++    /* should be ignored */
++    =
++    // should be ignored
++    12345
++    /** should be ignored */
++    ; // should be ignored
++
++    /**
++     * Constant integer
++     */
++    const
++
++    FLOAT
++
++    =
++
++    -
++
++    12.345
++
++    ;
++
++    /**
++     * Constant string
++     */
++    const STRING = 'D\'
++
++    E"\\\F';
++
++    /**
++     * Constant static string
++     */
++    const STATICSTRING = <<< 'EOT'
++
++'ab"c\\\
++
++EOT;
++
++    /**
++     * Constant null
++     */
++    const NULL = null;
++
++    /**
++     * Constant reference
++     */
++    const REFERENCE = self::STATICSTRING;
++
++    /**
++     * not a method doc comment
++     */
++
++    /**
++     * abstract method
++     */
++    abstract
++    function
++    fAbstract
++    (
++        $integer
++        =
++        \ArrayObject
++        ::
++        STD_PROP_LIST
++
++        ,
++
++        &
++        $refString
++        =
++        self
++        ::
++        STRING
++        ,
++
++        ZendTest
++        \
++        Code
++        \
++        TestAsset
++        \
++        AbstractClass
++        $self
++        =
++        null)
++    ;
++
++    /**
++     * abstract public method
++     */
++    abstract public function fAbstractPublic();
++
++    /**
++     * public abstract method
++     */
++    public
++    abstract
++    function
++    fPublicAbstract
++    ()
++    ;
++
++    /**
++     * abstract protected method
++     */
++    abstract protected function fAbstractProtected();
++
++    /**
++     * public method
++     */
++    public
++    function
++    fPublic
++    ()
++    {
++        $public = true;
++    }
++
++    /**
++     * protected method
++     */
++    protected function fProtected()
++    {
++        $protected = true;
++    }
++
++    /**
++     * private method
++     */
++    private function fPrivate()
++    {
++        $private = true;
++    }
++}
+\ No newline at end of file

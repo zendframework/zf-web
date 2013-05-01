@@ -1,0 +1,108 @@
+<h2>ZF-1123: Zend_Db_Table_Abstract bug using information schema table to describe tables</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-23T15:45:29.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.1 (23/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                julien PAULI (doctorrock83)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There is a bug in Zend_Db_Table_Abstract in a vicious case, using pdo_mysql adapter.
+When you create a properly redefined Zend_Db_Table_Abstract object , it searches for the database column names to use them. To make this, it uses :</p>
+
+<p>(Zend/Db/Table/Abstract.php on line 352)</p>
+
+<pre class="highlight"><code>
+$desc = $this-&gt;_db-&gt;describeTable($this-&gt;_name);
+</code></pre>
+
+<p>==&gt; $this-&gt;_name represent the TABLE name, but Database name should be passed as second parameter to describeTable(). &lt;== ( but there doesn't seem to be a way to make this done as the DB name is not accessible from any property of any object)</p>
+
+<p>==&gt; If the PDO_Mysql driver is used to perform describeTable(), the database name is not passed to it :</p>
+
+<p>(Zend/Db/Table/Adapter/Pdo/Mysql.php line 96)</p>
+
+<pre class="highlight"><code>
+public function describeTable($tableName, $schemaName = null)
+    {
+// if the information_schema table available ( Mysql &gt;=5 ) , then it is used in the process :  
+return $this-&gt;_describeTableInformationSchema($tableName, $schemaName);
+</code></pre>
+
+<p>$schemaName is null ( not given previously).</p>
+
+<p>So, if the information_schema is used to look into the tables, then the abstract adapter calls _describeTableInformationSchema() without telling it the database name, and then generating an object cascading bug that makes Zend_Db_Table_Abstract unable to fetch columns names properly</p>
+
+<p>Zend/Db/Table/Adapter/Abstract.php line 594</p>
+
+<pre class="highlight"><code>
+// schemaName is null, not (cascading) given
+protected function _describeTableInformationSchema($tableName, $schemaName = null)
+    {
+        $sql = "SELECT c.table_schema, c.table_name, c.column_name,
+              c.ordinal_position as column_ordinal_position, (... getting $tableName information )
+          
+        if ($schemaName != null) {
+            $sql .= " AND c.table_schema = '$schemaName'"; // and NOT giving the Database name ( $schemaName still cascading null )
+        }
+</code></pre>
+
+<p>That way, IF AND ONLY IF you have SEVERAL databases, with SAME COLUMN NAMES ( my case ), then the _describeTableInformationSchema doesn't return the right result, mixing tables columns from differents databases ( that could lead to security issues, in some cases ).</p>
+
+<p>Note that the mysql user logged in must have acces to those databases for them to be described in INFORMATION_SCHEMA database.
+But it IS a possible use case, usually on developpement servers.</p>
+
+<p>Noticed on 0.9</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-17T19:07:46.000+0000</p> 
+        <div class="body">
+            <p>Resolved in revision 4202.  We no longer use INFORMATION_SCHEMA at all.</p>
+
+        </div>
+    </div>
+    </div>
+

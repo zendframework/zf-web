@@ -1,0 +1,193 @@
+--- library/Zend/Service/Rackspace/Files.php	(revision 25022)
++++ library/Zend/Service/Rackspace/Files.php	(working copy)
+@@ -66,6 +66,8 @@
+     const CONTAINER_OBJ_COUNT                  = "X-Container-Object-Count";
+     const CONTAINER_BYTES_USE                  = "X-Container-Bytes-Used";
+     const MANIFEST_OBJECT_HEADER               = "X-Object-Manifest";
++    const MAX_CONTAINER_LENGTH                 = 256;
++    const MAX_OBJECT_LENGTH                    = 1024;
+ 
+     /**
+      * Return the total count of containers
+@@ -160,7 +162,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_CONTAINER);
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container),'GET',null,$options);
++        $result= $this->httpCall($this->getUrl($container),'GET',null,$options);
+         if ($result->isSuccessful()) {
+             return new Zend_Service_Rackspace_Files_ObjectList($this,json_decode($result->getBody(),true),$container);
+         }
+@@ -185,7 +187,7 @@
+                 $headers[self::METADATA_CONTAINER_HEADER.rawurlencode(strtolower($key))]= rawurlencode($value);
+             }
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container),'PUT',$headers);
++        $result= $this->httpCall($this->getUrl($container),'PUT',$headers);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '201': // break intentionally omitted
+@@ -215,7 +217,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_CONTAINER);
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container),'DELETE');
++        $result= $this->httpCall($this->getUrl($container),'DELETE');
+         $status= $result->getStatus();
+         switch ($status) {
+             case '204': // break intentionally omitted
+@@ -245,7 +247,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_CONTAINER);
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container),'HEAD');
++        $result= $this->httpCall($this->getUrl($container),'HEAD');
+         $status= $result->getStatus();
+         switch ($status) {
+             case '204': // break intentionally omitted
+@@ -307,7 +309,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_OBJECT);
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container).'/'.rawurlencode($object),'GET',$headers);
++        $result= $this->httpCall($this->getUrl($container, $object),'GET',$headers);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '200': // break intentionally omitted
+@@ -331,6 +333,7 @@
+         $this->errorCode= $status;
+         return false;
+     }
++    
+     /**
+      * Store a file in a container 
+      *
+@@ -360,7 +363,7 @@
+         }
+         $headers[self::HEADER_HASH]= md5($content);
+         $headers[self::HEADER_CONTENT_LENGTH]= strlen($content);
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container).'/'.rawurlencode($object),'PUT',$headers,null,$content);
++        $result= $this->httpCall($this->getUrl($container, $object),'PUT',$headers,null,$content);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '201': // break intentionally omitted
+@@ -394,7 +397,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_OBJECT);
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container).'/'.rawurlencode($object),'DELETE');
++        $result= $this->httpCall($this->getUrl($container, $object),'DELETE');
+         $status= $result->getStatus();
+         switch ($status) {
+             case '204': // break intentionally omitted
+@@ -437,8 +440,9 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_DEST_OBJECT);
+         }
++        $sourceUrl = $this->getUrl($container_source, $obj_source);
+         $headers= array(
+-            self::HEADER_COPY_FROM => '/'.rawurlencode($container_source).'/'.rawurlencode($obj_source),
++            self::HEADER_COPY_FROM => parse_url($sourceUrl, PHP_URL_PATH),
+             self::HEADER_CONTENT_LENGTH => 0
+         );
+         if (!empty($content_type)) {
+@@ -449,7 +453,7 @@
+                 $headers[self::METADATA_OBJECT_HEADER.$key]= $value;
+             }
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container_dest).'/'.rawurlencode($obj_dest),'PUT',$headers);
++        $result= $this->httpCall($this->getUrl($container_dest,$obj_dest),'PUT',$headers);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '201': // break intentionally omitted
+@@ -477,7 +481,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_OBJECT);
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container).'/'.rawurlencode($object),'HEAD');
++        $result= $this->httpCall($this->getUrl($container, $object),'HEAD');
+         $status= $result->getStatus();
+         switch ($status) {
+             case '200': // break intentionally omitted
+@@ -538,7 +542,7 @@
+         foreach ($metadata as $key => $value) {
+             $headers[self::METADATA_OBJECT_HEADER.$key]= $value;
+         }
+-        $result= $this->httpCall($this->getStorageUrl().'/'.rawurlencode($container).'/'.rawurlencode($object),'POST',$headers);
++        $result= $this->httpCall($this->getUrl($container, $object),'POST',$headers);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '202': // break intentionally omitted
+@@ -572,7 +576,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_CDN_TTL_OUT_OF_RANGE);
+         }
+-        $result= $this->httpCall($this->getCdnUrl().'/'.rawurlencode($container),'PUT',$headers);
++        $result= $this->httpCall($this->getUrl($container, '', true),'PUT',$headers);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '201':
+@@ -634,7 +638,7 @@
+                 $headers[self::CDN_LOG_RETENTION]= 'false';
+             }
+         }
+-        $result= $this->httpCall($this->getCdnUrl().'/'.rawurlencode($container),'POST',$headers);
++        $result= $this->httpCall($this->getUrl($container, '', true),'POST',$headers);
+         $status= $result->getStatus();
+         switch ($status) {
+             case '200':
+@@ -661,7 +665,7 @@
+             require_once 'Zend/Service/Rackspace/Exception.php';
+             throw new Zend_Service_Rackspace_Exception(self::ERROR_PARAM_NO_NAME_CONTAINER);
+         }
+-        $result= $this->httpCall($this->getCdnUrl().'/'.rawurlencode($container),'HEAD');
++        $result= $this->httpCall($this->getUrl($container, '', true),'HEAD');
+         $status= $result->getStatus();
+         switch ($status) {
+             case '204': // break intentionally omitted
+@@ -683,4 +687,43 @@
+         $this->errorCode= $status;
+         return false;
+     }
+-}
+\ No newline at end of file
++ 
++    /**
++     * Returns URL for container and (if given) object
++     * 
++     * @param string  $container  Max 256 chars once urlencoded
++     * @param string  $object     Max 1024 chars once urlencoded
++     * @param boolean $cdn        Return CDN not storage URL
++     * @return string
++     * @throws Zend_Service_Rackspace_Files_Exception
++     */
++    protected function getUrl($container, $object = '', $cdn = false) {
++        if (!$container || strlen(rawurlencode($container)) > self::MAX_CONTAINER_LENGTH 
++                || strstr($container, '/')) {
++            /**
++             * @see Zend_Service_Rackspace_Files_Exception
++             */
++            require_once 'Zend/Service/Rackspace/Files/Exception.php';
++            throw new Zend_Service_Rackspace_Files_Exception("Invalid container name");
++        }
++        
++        if ($object) {
++            // strip leading '/' from object name
++            $path = explode('/', $object);
++            if (count($path) && empty($path[0])) unset($path[0]);
++            
++            $object = rawurlencode(join('/', $path));
++            if (strlen($object) > self::MAX_OBJECT_LENGTH) {
++                /**
++                 * @see Zend_Service_Rackspace_Files_Exception
++                 */
++                require_once 'Zend/Service/Rackspace/Files/Exception.php';
++                throw new Zend_Service_Rackspace_Files_Exception("Object name must not excede 1024 characters");
++            }
++            $object = '/' . $object;
++        }
++        
++        return ($cdn ? $this->getCdnUrl() : $this->getStorageUrl()) 
++            . '/' . rawurlencode($container) . $object;
++    }
++}

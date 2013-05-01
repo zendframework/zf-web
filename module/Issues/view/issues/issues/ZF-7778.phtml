@@ -1,0 +1,240 @@
+<h2>ZF-7778: getCookie doesn't utilize _matchDomain (CookieJar)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-05T09:58:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-18T02:44:28.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jason Brumwell (baxter)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_CookieJar</li>
+            <li>FixForZF1.12</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When trying to retrieve a cookie using the cookieJars getCookie function it is impossible currently to match the .domain.com key associated to the cookies array. The solution I came up with was to utilize the _matchDomain , _flattenCookiesArray and _matchPath function of the cookiejar.</p>
+
+<pre class="highlight"><code>
+public function getCookie($uri, $cookie_name, $ret_as = self::COOKIE_OBJECT)
+    {
+        if (is_string($uri)) {
+            $uri = Zend_Uri::factory($uri);
+        }
+        
+        if (! $uri instanceof Zend_Uri_Http) {
+            require_once 'Zend/Http/Exception.php';
+            throw new Zend_Http_Exception('Invalid URI specified');
+        }
+
+        // Get correct cookie path
+        $path = $uri-&gt;getPath();
+        $path = substr($path, 0, strrpos($path, '/'));
+        if (! $path) $path = '/';
+
+        $cookies = $this-&gt;_matchDomain($uri-&gt;getHost());
+        $cookies = $this-&gt;_matchPath($cookies, $path);
+        $cookies = $this-&gt;_flattenCookiesArray($cookies);
+
+        foreach ($cookies as $cookie)
+        {
+            if ($cookie-&gt;getName() == $cookie_name)
+            {
+                switch ($ret_as) {
+                    case self::COOKIE_OBJECT:
+                        return $cookie;
+                        break;
+
+                    case self::COOKIE_STRING_ARRAY:
+                    case self::COOKIE_STRING_CONCAT:
+                        return $cookie-&gt;__toString();
+                        break;
+
+                    default:
+                        require_once 'Zend/Http/Exception.php';
+                        throw new Zend_Http_Exception("Invalid value passed for \$ret_as: {$ret_as}");
+                        break;
+                }
+            }
+        }
+
+        return false;
+    }
+</code></pre>
+
+<p>Cheers,</p>
+
+<p>Jay</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jason Brumwell (baxter) on 2009-12-29T09:15:56.000+0000</p> 
+        <div class="body">
+            <p>Not fixed as of 1.9.6, makes using moneybookers session api unuseable as it doesn't recognize the cookie. Haven't checked 1.10 alpha yet.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-07T17:24:18.000+0000</p> 
+        <div class="body">
+            <p>Could you provide an example?</p>
+
+<p>The appropriateness of what you have suggested depends on what the intended purpose of {{getCookie}} is.  I assumed it was for retrieving specific cookies (ie: you have to specify the exact name and domain string as set in the Set-Cookie header), while {{getMatchingCookies()}} was intended for what you are trying to accomplish above.  Am I wrong in that assumption?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jason Brumwell (baxter) on 2011-11-07T17:50:09.000+0000</p> 
+        <div class="body">
+            <p>Hey Adam,</p>
+
+<p>The problem I ran into was when writing a class for processing Moneybookers.com payments, It was a couple of years ago now so I can't be absolutely positive, I believe the problem was that getHost returned moneybookers.com but the cookie was being stored as .moneybookers.com with a period at the begining.</p>
+
+<p>Looking at the getMatchingCookies(), it looks like it may work for this as well.</p>
+
+<p>Here is the resulting code that allows it to function properly:</p>
+
+<pre class="highlight"><code>
+public function getSessionUrl(array $data)
+    {
+        $client = new Zend_Http_Client(
+             '<a href="https://www.moneybookers.com/app/payment.pl">https://www.moneybookers.com/app/payment.pl</a>',
+             array(
+                 'maxredirects' =&gt; 0,
+                 'timeout'      =&gt; 30
+             )
+        );
+
+        $client-&gt;setParameterPost($data);
+
+        $client-&gt;setCookieJar(new Nexus_Http_CookieJar());
+
+        $response = $client-&gt;request(Zend_Http_Client::POST);
+
+        $cookie = $client-&gt;getCookieJar()-&gt;getCookie('<a>https://moneybookers.com','SESSION_ID</a>');
+
+        if (! $cookie instanceof Zend_Http_Cookie)
+        {
+            throw new Default_Exception_Application('Failed to get session ID from moneybookers');
+        }
+
+        $sessionId = $cookie-&gt;getValue();
+
+        return '<a href="https://www.moneybookers.com/app/payment.pl?sid='.$sessionId">https://moneybookers.com/app/payment.pl/…</a>;
+    }
+</code></pre>
+
+<p>Then the getCookie extension to the cookieJar:</p>
+
+<pre class="highlight"><code>
+public function getCookie($uri, $cookie_name, $ret_as = self::COOKIE_OBJECT)
+    {
+        if (is_string($uri)) {
+            $uri = Zend_Uri::factory($uri);
+        }
+
+        if (! $uri instanceof Zend_Uri_Http) {
+            require_once 'Zend/Http/Exception.php';
+            throw new Zend_Http_Exception('Invalid URI specified');
+        }
+
+        // Get correct cookie path
+        $path = $uri-&gt;getPath();
+        $path = substr($path, 0, strrpos($path, '/'));
+        if (! $path) $path = '/';
+
+        $cookies = $this-&gt;_matchDomain($uri-&gt;getHost());
+        $cookies = $this-&gt;_matchPath($cookies, $path);
+        $cookies = $this-&gt;_flattenCookiesArray($cookies);
+
+        foreach ($cookies as $cookie)
+        {
+            if ($cookie-&gt;getName() == $cookie_name)
+            {
+                switch ($ret_as) {
+                    case self::COOKIE_OBJECT:
+                        return $cookie;
+                        break;
+
+                    case self::COOKIE_STRING_ARRAY:
+                    case self::COOKIE_STRING_CONCAT:
+                        return $cookie-&gt;__toString();
+                        break;
+
+                    default:
+                        require_once 'Zend/Http/Exception.php';
+                        throw new Zend_Http_Exception("Invalid value passed for \$ret_as: {$ret_as}");
+                        break;
+                }
+            }
+        }
+
+        return false;
+    }
+</code></pre>
+
+<p>Cheers,</p>
+
+<p>Jay</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-07T20:17:58.000+0000</p> 
+        <div class="body">
+            <p>Jay,</p>
+
+<p>Thanks for your response.  I've looked at the documentation (<a href="http://framework.zend.com/manual/en/zend.http.cookies.html#zend.http.cookies.cookiejar.getting_cookies">here</a>), but it doesn't really spell out the exact purpose of the {{getCookie}} method.  I'll see if I can find out if the intent is to have it match literal URIs or to have it do a "fuzzy" URI match like {{getMatchingCookies}} does.</p>
+
+<p>From your example, it looks to me like using {{getMatchingCookies}} would work for you.  The only difference would be that it returns an array of matches, and so you'd just have to pop off the first one and assign that to {{$cookie}}.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-18T02:44:28.000+0000</p> 
+        <div class="body">
+            <p>Closing as Won't Fix.  It's unlikely this can be changed at this late stage in ZFv1's lifecycle, and a possible workaround (getMatchingCookies) exists.</p>
+
+        </div>
+    </div>
+    </div>
+

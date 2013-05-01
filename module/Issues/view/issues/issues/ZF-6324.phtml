@@ -1,0 +1,272 @@
+<h2>ZF-6324: Integrating Zend_Amf in MVC</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Docs:  Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-16T11:47:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:52:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Nikita Y Volkov (mojojojo)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>An example controller for integrating in MVC:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Amf/Server.php';
+require_once 'Zend/Controller/Action.php';
+class Services_AmfController extends Zend_Controller_Action
+{
+    /**
+     * @var Zend_Amf_Server
+     */
+    protected $_server;
+    
+    public function init ()
+    {
+        //  set the server up 
+        $this-&gt;_server = new Zend_Amf_Server();
+        $this-&gt;_server-&gt;addDirectory(dirname(dirname(__FILE__)) . '/services/');
+        
+        //  turn the renderer off
+        $this-&gt;_helper-&gt;viewRenderer-&gt;setNoRender();
+    }
+    
+    public function postDispatch ()
+    {
+        //  shut the layout off
+        $this-&gt;_helper-&gt;layout-&gt;disableLayout();
+        //  set the correct header if no error or forwarding occurred during dispatch  
+        $this-&gt;_response-&gt;setHeader('Content-Type', 'application/x-amf', true);
+    }
+
+    public function indexAction ()
+    {
+        //  process the request and set the response
+        $amfResponse = $this-&gt;_server-&gt;handle();
+        $this-&gt;_response-&gt;setBody($amfResponse);
+    }
+
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthias Steinböck (rocksocke) on 2009-05-28T10:34:03.000+0000</p> 
+        <div class="body">
+            <p>concerning the $amfResponse variable you are using: do you want to give it an AMF-Byte-String or the object that should be serialized?</p>
+
+<p>For integration in MVC you already have different possibilities:</p>
+
+<p><em>1. Register $this in the extended ActionController-Class (in your case "Services AmfController") as the handling class and let it call its methods:</em></p>
+
+<pre class="highlight"><code>
+// in your library-folder:
+class YourNS_Controller_Action_AMF extends Zend_Controller_Action
+{
+    protected $_server;
+
+    public function init() {
+        $this-&gt;_server = new Zend_Amf_Server();
+        $this-&gt;_server-&gt;setClass($this);
+        $this-&gt;_helper-&gt;viewRenderer-&gt;setNoRender(); 
+        echo $this-&gt;_server-&gt;handle();
+        exit;
+    }
+}
+
+// in your application/controllers folder
+class MyController extends YourNS_Controller_Action_AMF
+{
+    public function funcToBeCalledByFlash($a, $b) {
+        return $a+$b;
+    }
+}
+</code></pre>
+
+<p>this has the downside, that any public function Zend_Action_Controller has can be called by AMF.</p>
+
+<p><em>2. create the request yourself and change the target to handle this yourself (and allow only methods you want it to allow):</em></p>
+
+<pre class="highlight"><code>
+class YourNS_Controller_Action_AMF extends Zend_Controller_Action
+{
+    private $_server;
+    private $_forbiddenMethods = array();
+    private static $_originalTargetMethods = array();
+
+    public function init () {
+        $this-&gt;_server = new Zend_Amf_Server();
+        $this-&gt;_server-&gt;setClass($this);
+        // make a reflection of this class (YourNS_Controller_Action_AMF) and get all methods of it, so we can forbid them
+        $this-&gt;_forbiddenMethods = array(); // TODO
+
+        $this-&gt;_request = new Zend_AMF_Request_Http();
+
+        // iterate over the requests bodies
+        $responseBody = $this-&gt;_request-&gt;getAmfBodies();
+
+        foreach($responseBody as $body) {
+            // on each $body get its targetURI (dont forget about AMF0/AMF3-switching)
+            // with $body-&gt;getTargetURI()
+            $method = '...TODO:get the correct method out of target URI...';
+            if (in_array($method, $this-&gt;_forbiddenMethods))
+                throw new Zend_Amf_Server_Exception('Method "' . $method . '" must not be called');
+
+            self::$_originalTargetMethods[] = $method;
+
+            // now set the target URI to our own function
+            // also concern 0/3 switch here
+            $body-&gt;setTargetURI('TODO:getthecorrectleading'.'handlerFunction');
+        }
+
+        // now handle it
+        echo $this-&gt;_server-&gt;handle();
+        exit;
+    }
+
+    public function handlerFunction() {
+        $method = array_shift(self::$_originalTargetMethods);
+        // TODO: make a reflection of $this and call $method on it with this functions arguments
+        // TODO: now you can look inside the response created in your function
+        return $this-&gt;_response-&gt;getBody();
+    }
+}
+</code></pre>
+
+<p>Is this what you intended or did i understand you wrong?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikita Y Volkov (mojojojo) on 2009-05-28T11:23:18.000+0000</p> 
+        <div class="body">
+            <p>That was the solution what I posted, not an issue. The only purpose of it is to integrate Zend_Amf server into your MVC application instead of separating it to a different one, so that you could use your controller plugins and leave a single entry-point making the strucure of your application more understandable and stable.</p>
+
+<p>This is a single controller with single action which serves as an entry-point for amf server. And the only thing that could be changed in it throughout different applications is mapping of classes. That's it. All the rest is done by Zend_Amf calling services you make.</p>
+
+<p>On your proposal. I think this is an example of what is called over-programming. Looks like a solution of inexistent problem. As I understood all its intensions conclude in turning your controller into a service. This triggers a list of questions, but I'll skip to the main one: what in hell could make you need that?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthias Steinböck (rocksocke) on 2009-05-28T11:49:53.000+0000</p> 
+        <div class="body">
+            <p>sorry, i totally missed the point in your first post - thought you search for a solution -  should read things better before commenting on them..... sry again. i'm new on zf issues and didn't saw that you made this post a doc improvement.</p>
+
+<p>and yes - you're totally right - why the hell would i like to do so? in a current project i'm working on we use Zend_AMF exactly the way you described it - i posted the second solution only because i thought you're trying to do so - so once again: sorry.</p>
+
+<p>in our project we use the following code - i hope this corresponds with your proposal (what dou you think about that?):</p>
+
+<pre class="highlight"><code>
+    public function indexAction()
+    {
+        try {
+            Zend_Registry::get('logger')-&gt;log('creating amf server', Zend_Log::DEBUG);
+            $server = new Zend_Amf_Server();
+            $server-&gt;setProduction(false);
+            
+            $classes = glob(APPLICATION_PATH.'/models/*.php');
+            foreach ($classes as $class) {
+                $class = basename($class);
+                $class = substr($class, 0, strlen($class) - 4);
+                $server-&gt;setClassMap($class, $class);
+            }
+            
+            $fileName = basename(
+                $this-&gt;getRequest()-&gt;getParam('service', 'Default').
+                'Service.php'
+            );
+            
+            // check if service really exists
+            if (!file_exists(APPLICATION_PATH.'/services/OurNs/'.$fileName)) {
+                throw new Zend_Amf_Exception('Service '.
+                    $this-&gt;getRequest()-&gt;getParam('service', 'Default').
+                    ' not found!');
+            }
+            $server-&gt;setClass('OurNs_'.
+                $this-&gt;getRequest()-&gt;getParam('service', 'Default').
+                'Service');
+            
+            $response = $server-&gt;handle();
+            Zend_Registry::get('logger')-&gt;log('responding', Zend_Log::DEBUG);
+            echo $response;
+        } catch (Exception $e) {
+            Zend_Registry::get('logger')-&gt;log('Error handling AMF-Request: '.
+                $e-&gt;getMessage()."\n".$e-&gt;getTraceAsString(), Zend_Log::ERR);
+        }
+        exit;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikita Y Volkov (mojojojo) on 2009-05-28T12:21:28.000+0000</p> 
+        <div class="body">
+            <p>No problem.</p>
+
+<p>On your question. Yes it kinda does the same thing, but doesn't correctly realize Zend MVC, though in most general cases you won't feel the difference.</p>
+
+<p>You break two secret rules of Zend MVC:
+1. Never echo anything - you have a response object for that.
+2. Never exit or die the process - thus the postDispatch and other dispatch-cycles of the front controller get ignored.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthias Steinböck (rocksocke) on 2009-05-28T14:53:58.000+0000</p> 
+        <div class="body">
+            <p>Thanks a lot for your comments!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:52:34.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

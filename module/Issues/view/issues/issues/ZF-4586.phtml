@@ -1,0 +1,215 @@
+<h2>ZF-4586: Zend_Form_Element_File does not work without filters</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-13T09:07:17.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-11-13T14:10:26.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.0 (17/Nov/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Martin Hujer (mhujer)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Form_Element_File does not work without filters.</p>
+
+<p>It dies on 'Fatal error: Unsupported operand types in Zend\File\Transfer\Adapter\Abstract.php on line 796', when no filter is set. It is some kind of array merging problem.</p>
+
+<p>When I add a filter, -&gt;addFilter(new Zend_Filter_File_Rename('XXX', 'XXX')), it works OK</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-13T11:01:07.000+0000</p> 
+        <div class="body">
+            <p>Is works without filters.
+Most of the unittests are done without attached filters.</p>
+
+<p>Please give reproducable code so we can investigate the problem in the file element.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Hujer (mhujer) on 2008-10-13T11:09:48.000+0000</p> 
+        <div class="body">
+            <p>Problem is with $form-&gt;getValues()</p>
+
+<pre class="highlight"><code>
+        $form = new Zend_Form();
+        $form-&gt;setName('upload_form');
+        
+        $form-&gt;setMethod(Zend_Form::METHOD_POST);
+        $form-&gt;setEnctype('multipart/form-data');
+        
+        $element = new Zend_Form_Element_File('upload_file');
+        $element-&gt;setLabel('Upload:')
+            -&gt;setDestination('C:\Temp')
+            //-&gt;addFilter(new Zend_Filter_File_Rename('XXX', 'XXX')) //uncomment to get example working
+            ;
+        $form-&gt;addElement($element);
+        
+        $form-&gt;addElement(new Zend_Form_Element_Submit(array(
+            'name' =&gt; 'Submit',
+        )));
+        
+        $this-&gt;view-&gt;form = $form;
+        
+         if ($this-&gt;getRequest()-&gt;isPost()) {
+            if (!$form-&gt;isValid($_POST)) {
+                echo "Error";
+            } else {
+                Zend_Debug::dump($form-&gt;getValues()); //Problem is HERE!
+            }
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-13T11:54:30.000+0000</p> 
+        <div class="body">
+            <p>Probably fixed with r11936.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Hujer (mhujer) on 2008-10-13T11:59:53.000+0000</p> 
+        <div class="body">
+            <p>It shows "Warning: Invalid argument supplied for foreach() in Zend\Form\Element.php on line 524" now :-)</p>
+
+<pre class="highlight"><code>
+line 524:
+foreach ($this-&gt;getFilters() as $filter) {
+            $value = $filter-&gt;filter($value);
+        }
+</code></pre>
+
+<p>You should probably return some array.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-13T12:00:42.000+0000</p> 
+        <div class="body">
+            <p>What should getValues() be for a function ?
+File Elements do not have a value !!!</p>
+
+<p>Calling this method on file elements will return unexpected values.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Hujer (mhujer) on 2008-10-13T12:09:15.000+0000</p> 
+        <div class="body">
+            <p>patch:</p>
+
+<pre class="highlight"><code>
+Index: Zend/Form/Element/File.php
+===================================================================
+--- Zend/Form/Element/File.php  (revision 11936)
++++ Zend/Form/Element/File.php  (working copy)
+@@ -354,7 +354,10 @@
+     public function getFilters()
+     {
+         $adapter = $this-&gt;getTransferAdapter();
+-        return $adapter-&gt;getFilters($this-&gt;getName());
++        $filters = $adapter-&gt;getFilters($this-&gt;getName());
++       if (!is_array($filters)) {
++           return array();
++       }
+     }
+ 
+     /**
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Hujer (mhujer) on 2008-10-13T12:19:51.000+0000</p> 
+        <div class="body">
+            <p>Sorry, the right patch:</p>
+
+<pre class="highlight"><code>
+Index: Zend/Form/Element/File.php
+===================================================================
+--- Zend/Form/Element/File.php  (revision 11937)
++++ Zend/Form/Element/File.php  (working copy)
+@@ -354,7 +354,11 @@
+     public function getFilters()
+     {
+         $adapter = $this-&gt;getTransferAdapter();
+-        return $adapter-&gt;getFilters($this-&gt;getName());
++        $filters = $adapter-&gt;getFilters($this-&gt;getName());
++        if (!is_array($filters)) {
++            $filters = array();
++        }
++        return $filters;
+     }
+ 
+     /**
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-13T12:56:00.000+0000</p> 
+        <div class="body">
+            <p>Should now work with r11939</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Goran Juric (gog) on 2008-11-12T17:39:27.000+0000</p> 
+        <div class="body">
+            <p>I can confirm that this works for me now! Finally :)</p>
+
+<p>Thanks...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:10:26.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

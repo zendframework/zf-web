@@ -1,0 +1,224 @@
+<h2>ZF-10050: Translation is executed twice on form labels</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-24T23:51:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-10-26T00:48:56.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christian Riesen (christianriesen)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8694">ZF-8694</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I classified it as unknown component since I'm not sure exactly where it's at, just see the resulting 'mayhem'.</p>
+
+<p>Initializing translate this way:</p>
+
+<pre class="highlight"><code>
+    public function _initTranslate()
+    {
+        $this-&gt;bootstrap('logging');
+        $log = Zend_Registry::get('Zend_Log');
+        
+        $translate = new Zend_Translate('array', APPLICATION_PATH . '/../language/en.php', 'en');
+        $translate-&gt;setOptions(array(
+            'log' =&gt; $log,
+            'logUntranslated' =&gt; true
+        ));
+
+        Zend_Registry::set('Zend_Translate', $translate);
+        return $translate;
+    }
+</code></pre>
+
+<p>Then initializing and setting the form in controller, and echoing it in view. Here is the form class:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class User_Form_Login extends Zend_Form
+{
+    public function init()
+    {
+        $this-&gt;setMethod('post');
+
+        $this-&gt;addElement('text', 'username', array(
+            'label'      =&gt; 'Username',
+            'required'   =&gt; true,
+            'filters'    =&gt; array(
+                array('StringTrim'),
+            ),
+            'validators' =&gt; array(
+                array(
+                    'StringLength',
+                    false,
+                    array(
+                        3,
+                        60
+                    )
+                ),
+            ),
+        ));
+
+        $this-&gt;addElement('password', 'userpassword', array(
+            'label'      =&gt; 'Password',
+            'required'   =&gt; true,
+            'filters'    =&gt; array('StringTrim'),
+            'validators' =&gt; array(
+                array(
+                    'StringLength',
+                    false,
+                    array(
+                        6,
+                        100
+                    )
+                ),
+            )
+        ));
+        
+        $this-&gt;addElement('submit', 'submit', array(
+            'ignore'   =&gt; true,
+            'label'    =&gt; 'Login',
+        ));
+    }
+}
+</code></pre>
+
+<p>As you can see nothing really interesting or overly dramatic. Now using the firebug logger, it displayed to me that Username was not translated, twice. I added it and the message went away. Then I added a translation in german, "Benutzername". Now I received a message that "Benutzername" was not translated, although I did not change the form. So it tried to retranslate the already translated string IMHO.</p>
+
+<p>I cloned the array adapter for translate and overwrote the following function below:</p>
+
+<pre class="highlight"><code>
+    protected function _log($message, $locale) {
+        if ($this-&gt;_options['logUntranslated']) {
+            $message = str_replace('%message%', $message, $this-&gt;_options['logMessage']);
+            $message = str_replace('%locale%', $locale, $message);
+
+            $message .= PHP_EOL;
+
+            $trace = debug_backtrace();
+            foreach ($trace as $line) {
+                $message .= $line['file'] . ':' . $line['line'];
+                $message .= "\n";
+            }
+
+            if ($this-&gt;_options['log']) {
+                $this-&gt;_options['log']-&gt;notice($message);
+            } else {
+                trigger_error($message, E_USER_NOTICE);
+            }
+        }
+    }
+</code></pre>
+
+<p>This gave me the following output on just the English translation showing, with no Username translation added.</p>
+
+<p>Untranslated message within 'en': Username
+/www/ZendFramework-1.10.6/Zend/Translate/Adapter.php:748
+/www/ZendFramework-1.10.6/Zend/Form/Element.php:625
+/www/ZendFramework-1.10.6/Zend/Form/Decorator/Label.php:253
+/www/ZendFramework-1.10.6/Zend/Form/Decorator/Label.php:296
+/www/ZendFramework-1.10.6/Zend/Form/Element.php:2020
+/www/ZendFramework-1.10.6/Zend/Form/Decorator/FormElements.php:101
+/www/ZendFramework-1.10.6/Zend/Form.php:2887
+/www/ZendFramework-1.10.6/Zend/Form.php:2903
+/www/base/application/modules/user/views/scripts/login/index.phtml:9
+/www/ZendFramework-1.10.6/Zend/View.php:108
+/www/ZendFramework-1.10.6/Zend/View/Abstract.php:880
+/www/ZendFramework-1.10.6/Zend/Controller/Action/Helper/ViewRenderer.php:897
+/www/ZendFramework-1.10.6/Zend/Controller/Action/Helper/ViewRenderer.php:918
+/www/ZendFramework-1.10.6/Zend/Controller/Action/Helper/ViewRenderer.php:957
+/www/ZendFramework-1.10.6/Zend/Controller/Action/HelperBroker.php:277
+/www/ZendFramework-1.10.6/Zend/Controller/Action.php:523
+/www/ZendFramework-1.10.6/Zend/Controller/Dispatcher/Standard.php:295
+/www/ZendFramework-1.10.6/Zend/Controller/Front.php:954
+/www/ZendFramework-1.10.6/Zend/Application/Bootstrap/Bootstrap.php:97
+/www/ZendFramework-1.10.6/Zend/Application.php:366
+/www/base/public/index.php:27</p>
+
+<p>Untranslated message within 'en': Username
+/www/ZendFramework-1.10.6/Zend/Translate/Adapter.php:748
+/www/ZendFramework-1.10.6/Zend/Form/Decorator/Label.php:261
+/www/ZendFramework-1.10.6/Zend/Form/Decorator/Label.php:296
+/www/ZendFramework-1.10.6/Zend/Form/Element.php:2020
+/www/ZendFramework-1.10.6/Zend/Form/Decorator/FormElements.php:101
+/www/ZendFramework-1.10.6/Zend/Form.php:2887
+/www/ZendFramework-1.10.6/Zend/Form.php:2903
+/www/base/application/modules/user/views/scripts/login/index.phtml:9
+/www/ZendFramework-1.10.6/Zend/View.php:108
+/www/ZendFramework-1.10.6/Zend/View/Abstract.php:880
+/www/ZendFramework-1.10.6/Zend/Controller/Action/Helper/ViewRenderer.php:897
+/www/ZendFramework-1.10.6/Zend/Controller/Action/Helper/ViewRenderer.php:918
+/www/ZendFramework-1.10.6/Zend/Controller/Action/Helper/ViewRenderer.php:957
+/www/ZendFramework-1.10.6/Zend/Controller/Action/HelperBroker.php:277
+/www/ZendFramework-1.10.6/Zend/Controller/Action.php:523
+/www/ZendFramework-1.10.6/Zend/Controller/Dispatcher/Standard.php:295
+/www/ZendFramework-1.10.6/Zend/Controller/Front.php:954
+/www/ZendFramework-1.10.6/Zend/Application/Bootstrap/Bootstrap.php:97
+/www/ZendFramework-1.10.6/Zend/Application.php:366
+/www/base/public/index.php:27</p>
+
+<p>It looks like in the first round, it goes from Decorator Label to Form Element and then translates there. In the second round it just seems to call the translator from Decorator Label.</p>
+
+<p>This output is from a single call to a page, not two or more.</p>
+
+<p>It's not exactly a show stopper, but annoying as it fills up the log over time with unnecessary messages.</p>
+
+<p>I know about filtering and so on for logs, but think this still is a bug that should not happen.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Riesen (christianriesen) on 2010-06-25T04:51:20.000+0000</p> 
+        <div class="body">
+            <p>1.9.6 Issue still active in 1.10.6</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-10-26T00:48:50.000+0000</p> 
+        <div class="body">
+            <p>Closing as this is a duplicate of ZF-8694.  Better to direct all efforts to a single ticket as this same issue is open many times in the tracker.</p>
+
+        </div>
+    </div>
+    </div>
+

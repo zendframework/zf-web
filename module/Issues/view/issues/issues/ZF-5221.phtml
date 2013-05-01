@@ -1,0 +1,164 @@
+<h2>ZF-5221: Zend_Http_CookieJar::_matchDomain() does not match domains with a dot prepended</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-11T18:16:25.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-17T22:56:44.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Eric Yao (sourceboy)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_CookieJar</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4213">ZF-4213</a></li>
+            <li><a href="/issues/browse/ZF-4226">ZF-4226</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+// This is /1.php
+// Suppose a cookie is set with:
+setcookie('foo', 'bar', time() + 86400, '/', '.zend.com');
+// With a dot prepended to zend.com, the cookie is also made available to all subdomains.
+</code></pre>
+
+<pre class="highlight"><code>
+// This is /2.php
+var_dump($_COOKIE);
+</code></pre>
+
+<pre class="highlight"><code>
+// test.php
+$request = new Zend_Http_Client();
+$request-&gt;setCookieJar();
+
+$request-&gt;setUri('<a href="http://zend.com/1.php">http://zend.com/1.php</a>');
+$request-&gt;request();
+
+$request-&gt;setUri('<a href="http://zend.com/2.php">http://zend.com/2.php</a>');
+$response = $request-&gt;request();
+
+echo $response-&gt;getBody();
+// Output from the var_dump() in /2.php:
+// array(0) {
+// }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2008-12-11T19:01:47.000+0000</p> 
+        <div class="body">
+            <p>Set component  and auto reassign</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eric Yao (sourceboy) on 2008-12-11T20:37:29.000+0000</p> 
+        <div class="body">
+            <p>Zend_Http_Cookie::match() also doesn't match due to the same cause.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eric Yao (sourceboy) on 2008-12-11T20:40:04.000+0000</p> 
+        <div class="body">
+            <p>These modifications seem to have fixed them:</p>
+
+<pre class="highlight"><code>
+Zend/Http/Cookie.php:
+
+@@ -232,9 +232,16 @@
+         if ($this-&gt;isSessionCookie() &amp;&amp; ! $matchSessionCookies) return false;
+ 
+         // Validate domain and path
+-        // Domain is validated using tail match, while path is validated using head match
+-        $domain_preg = preg_quote($this-&gt;getDomain(), "/");
+-        if (! preg_match("/{$domain_preg}$/", $uri-&gt;getHost())) return false;
++        // Domain is validated using exact or tail match, while path is validated using head match
++        $domain = $this-&gt;getDomain();
++        $host = $uri-&gt;getHost();
++        $domain_preg = preg_quote($domain, '/');
++        if (
++            !preg_match("/{$domain_preg}$/", $host) &amp;&amp;
++            (($domain[0] === '.') &amp;&amp; (strcasecmp(substr($domain, 1), $host) !== 0))
++        ) {
++            return false;
++        }
+         $path_preg = preg_quote($this-&gt;getPath(), "/");
+         if (! preg_match("/^{$path_preg}/", $uri-&gt;getPath())) return false;
+</code></pre>
+
+<pre class="highlight"><code>
+Zend/Http/CookieJar.php:
+
+@@ -297,8 +297,12 @@
+         $ret = array();
+ 
+         foreach (array_keys($this-&gt;cookies) as $cdom) {
+-            $regex = "/" . preg_quote($cdom, "/") . "$/i";
+-            if (preg_match($regex, $domain)) $ret[$cdom] = &amp;$this-&gt;cookies[$cdom];
++                   if (($cdom[0] === '.') &amp;&amp; (strcasecmp(substr($cdom, 1), $domain) === 0)) {
++                $ret[$cdom] = &amp;$this-&gt;cookies[$cdom];
++                   } else {
++                $regex = "/" . preg_quote($cdom, "/") . "$/i";
++                if (preg_match($regex, $domain)) $ret[$cdom] = &amp;$this-&gt;cookies[$cdom];
++            }
+         }
+ 
+         return $ret;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2009-07-25T14:11:21.000+0000</p> 
+        <div class="body">
+            <p>Congrats, fixed in rev. 17079 - thanks for reporting and for the patience :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-11-17T22:56:44.000+0000</p> 
+        <div class="body">
+            <p>I set fix version. I find this at SVN r17118 in 1.9 branch.</p>
+
+        </div>
+    </div>
+    </div>
+

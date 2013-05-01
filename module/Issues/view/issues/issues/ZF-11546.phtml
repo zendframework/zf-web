@@ -1,0 +1,213 @@
+<h2>ZF-11546: Zend_Translate_Adapter throws E_FATAL if under a SVN repository</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-08T21:22:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-02-26T07:01:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.9 (14/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Guilherme Blanco (guilhermeblanco)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Guilherme Blanco (guilhermeblanco)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11593">ZF-11593</a></li>
+            <li><a href="/issues/browse/ZF-11567">ZF-11567</a></li>
+            <li><a href="/issues/browse/ZF-11568">ZF-11568</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14537/ZF-11546-RII-flags.diff">ZF-11546-RII-flags.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Translate inside a SVN repository, depending how big it is, you may fall into a situation where the amount of opened files is bigger than environment is allowed, even though you may only have 2 translation files.</p>
+
+<pre class="highlight"><code>
+UnexpectedValueException: RecursiveDirectoryIterator::__construct(/path/to/my_project/application/languages/en/.svn/tmp/prop-base): failed to open dir: Too many open files
+</code></pre>
+
+<p>To fix this, it is required to strip the .svn files before RecursiveIteratorIterator, because internally it uses a FilterIterator which holds the file pointers until the end of scope.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Guilherme Blanco (guilhermeblanco) on 2011-07-08T21:32:09.000+0000</p> 
+        <div class="body">
+            <p>Fixed by r24215</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-16T07:01:42.000+0000</p> 
+        <div class="body">
+            <p>This change introduces new bugs which breaks existing functionalities.
+It makes Zend_Translate unusable for directory scanning.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-07-17T19:32:08.000+0000</p> 
+        <div class="body">
+            <p>I think that can be used the option 'ignore' with values default.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guilherme Blanco (guilhermeblanco) on 2011-07-18T00:44:52.000+0000</p> 
+        <div class="body">
+            <p>@thomas
+In which cases does it break? I think it's possible to fix it.
+Problem is that E_FATAL happens during RecursiveIteratorIterator, so it's not possible to simply add it to ignore.</p>
+
+<p>@ramon 
+No way. The E_FATAL does not happen during RecursiveDirectoryIterator, but inside RecursiveIteratorIterator. The problem blows up internally, because it uses the FilterIterator, which is where it explodes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-07-23T18:59:38.000+0000</p> 
+        <div class="body">
+            <p>@guilherme 
+See a example of bc break <a href="http://pastebin.com/VzpkZXk0">http://pastebin.com/VzpkZXk0</a>.
+The problem is with the option scan = directory, because after r24215 was deleted the second argument(the mode) of <a href="http://www.php.net/manual/en/recursiveiteratoriterator.construct.php">RecursiveIteratorIterator::__construct()</a> that was the following RecursiveIteratorIterator::SELF_FIRST.
+Is need return the parents too(dir) to that meets the condition (Zend_Translate_Adapter in line 276).</p>
+
+<p>Greetings,
+Ramon</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-24T19:44:12.000+0000</p> 
+        <div class="body">
+            <p>As said directory scanning does not work anymore within the latest released version.
+The language is not set which is caused by the BC you integrated within my component.</p>
+
+<p>See the two linked issues for details on reproduction.
+See pull request 259 for the fix within ZF2.</p>
+
+<p>Please backport this fix within ZF1 to make this component work properly again.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2011-07-25T13:47:41.000+0000</p> 
+        <div class="body">
+            <p>@Ramon
+by reintroducing the RecursiveIteratorIterator flag it got Zend_Translate_Adapter_ArrayTest::testOptionLocaleDirectory() and all other Tests running again :)</p>
+
+<p>@Thomas
+I didn't quite understand that ZF2 pull request, so for simplicity may just apply this patch to the library.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guilherme Blanco (guilhermeblanco) on 2011-07-25T14:44:50.000+0000</p> 
+        <div class="body">
+            <p>@Thomas Your patch only fixes a small part of the problem.
+There're some specific folders (like .cvs, .svn) that are not related to user customized ignore list. Your patch sounds valid to fix user issues, but not this one. We'd have to always include the ignore for these folders, that's why your PR is not useless. It can be used, for sure.</p>
+
+<p>I'm fixing the issue myself by applying the proposed patch of @Christoph.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guilherme Blanco (guilhermeblanco) on 2011-07-25T14:52:01.000+0000</p> 
+        <div class="body">
+            <p>Fixed the issue in r24267 and merged to ZF 1.11 branch in r24268.</p>
+
+<p>@Thomas your proposal is still valid here, but since it does not refer to actual issue, but rather an enhancement to "ignore" support, I'm marking this ticket as resolved by now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-25T18:38:29.000+0000</p> 
+        <div class="body">
+            <p>@Guilherme:
+You seem not to understand what my change does and how it works nor how the component itself works in detail.</p>
+
+<p>The ignore option has been added in past to prevent all "." directories from being scanned.
+This includes per default also all other "." directories like ".hudson" or the hidden "." directories from windows.
+On the other hand a user can change the ignore option in a way that it still scans a ".svn" or any other wished directory.
+The "ignore" option prevents scanning for all directories BEGINNING with the given string. This includes ".svn" and ".cvs".</p>
+
+<p>Your change makes it impossible for a user to scan the directories he whishes to use. This is a potentional BC as it erases existing functionallities.</p>
+
+<p>Only because I work on ZF2 and try to add additional benefits as component author does not mean that I don't know what I do.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guilherme Blanco (guilhermeblanco) on 2011-07-25T19:04:44.000+0000</p> 
+        <div class="body">
+            <p>@Thomas
+It was never my intention on my words to sound like you don't know what you do. Quite the opposite.</p>
+
+<p>The point I referred previously is that "ignore" option never worked well, mostly because the possible script break have already happened.
+To be useful, the "ignore" option must be added between the RecursiveDirectoryIterator and RecursiveIteratorIterator, because it's in the latter that script breaks.</p>
+
+<p>I already saw your patch, and I agree with your proposal. The option to be part of RegExIterator is extremely valid, simplifying the operation of FilterIterator used internally by RecursiveIteratorIterator. Then again, that's why I mentioned to your your patch is still valid, because it fixes the "ignore" problem. But then again, "ignore" must still have default values and not only user values.</p>
+
+<p>But getting stick to the bug, the reported issue is the missing flag on RecursiveIteratorIterator. For a simple solution, adding it is enough to have my issue fixed and recently opened ones fixed too. The enhancements related to "ignore" can be surely merged, but that is a bigger patch, which may take more time to me merged/fixed.</p>
+
+<p>Sorry, but it was never my intention to make you angry. I just want to have a patch that fixes my problem and also do not break existent functionality. I just don't wanted to have my issue reverted because it would solve some reported issues, but would make mine active again.</p>
+
+<p>Cheers,</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-25T19:45:18.000+0000</p> 
+        <div class="body">
+            <p>I'm not angry.</p>
+
+<p>The point is that the default value for the ignore option is "." since this feature has been added. This includes ".svn" and ".cvs" directories as those begin with ".".</p>
+
+<p>But default values must be overwriteable. This functionallity has been deleted by your change. That's what I wrote you about and what I was aware of for ZF2.</p>
+
+<p>Additionally I would ask you not to take over issues which have been marked as in progress as this means that someone is already working on them.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-26T07:01:32.000+0000</p> 
+        <div class="body">
+            <p>Is there still an issue with the code introduced here?
+If so, is it something that should be reverted for 1.12?</p>
+
+        </div>
+    </div>
+    </div>
+

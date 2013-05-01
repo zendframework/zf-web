@@ -1,0 +1,233 @@
+<h2>ZF-8584: Add format to rest routes</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-18T11:52:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:38:06.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Doug P (doug316)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Rest_Route</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The goal is to be able to request a specific content type in a REST URL:</p>
+
+<p>/controller.json or /controller/index.json
+  /controller/22.json</p>
+
+<p>This patch will remove the extension after the period and place it in params['format'].</p>
+
+<p>Code assumes that actions don't use periods (i.e. index.xml mapping to indexXmlAction).</p>
+
+<pre class="literal"> 
+--- Route.php   2009-11-19 16:36:49.000000000 -0800
++++ Route2.php  2009-12-18 11:50:26.000000000 -0800
+@@ -67,6 +67,12 @@ class Zend_Rest_Route extends Zend_Contr
+     protected $_front;
+ 
+     /**
++     * Array keys to use for format. Should be taken out of request.
++     * @var string
++     */
++    protected $_formatKey = 'format';
++   
++    /**
+      * Constructor
+      *
+      * @param Zend_Controller_Front $front Front Controller object
+@@ -129,10 +135,14 @@ class Zend_Rest_Route extends Zend_Contr
+             // Determine Controller
+             $controllerName = $this-&gt;_defaults[$this-&gt;_controllerKey];
+             if (count($path) &amp;&amp; !empty($path[0])) {
+-                if ($this-&gt;_checkRestfulController($moduleName, $path[0])) {
+-                    $controllerName = $path[0];
+-                    $values[$this-&gt;_controllerKey] = array_shift($path);
++               preg_match('/([^\.]+)(\.(.+))?/', $path[0], $matches);
++                if ($this-&gt;_checkRestfulController($moduleName, $matches[1])) {
++                    $controllerName = $matches[1];
++                    $values[$this-&gt;_controllerKey] = $matches[1];
++                   if (!empty($matches[3]))
++                       $values[$this-&gt;_formatKey] = $matches[3];
+                     $values[$this-&gt;_actionKey] = 'get';
++                   array_shift($path);
+                 } else {
+                     // If Controller in URI is not found to be a RESTful
+                     // Controller, return false to fall back to other routes
+@@ -145,13 +155,23 @@ class Zend_Rest_Route extends Zend_Contr
+ 
+             // Check for leading "special get" URI's
+             $specialGetTarget = false;
+-            if ($pathElementCount &amp;&amp; array_search($path[0], array('index', 'new')) &gt; -1) {
+-                $specialGetTarget = array_shift($path);
++           preg_match('/([^\.]+)(\.(.+))?/', $path[0], $matches);
++            if ($pathElementCount &amp;&amp; array_search($matches[1], array('index', 'new')) &gt; -1) {
++                $specialGetTarget = $matches[1];
++               if (!empty($matches[3]))
++                   $values[$this-&gt;_formatKey] = $matches[3];
++                array_shift($path);
+             } elseif ($pathElementCount &amp;&amp; $path[$pathElementCount-1] == 'edit') {
+                 $specialGetTarget = 'edit';
+-                $params['id'] = $path[$pathElementCount-2];
++                preg_match('/([^\.]+)(\.(.+))?/', $path[$pathElementCount-2], $matches);
++                $params['id'] = $matches[1];
++               if (!empty($matches[3]))
++                   $values[$this-&gt;_formatKey] = $matches[3];
+             } elseif ($pathElementCount == 1) {
+-                $params['id'] = array_shift($path);
++                preg_match('/([^\.]+)(\.(.+))?/', array_shift($path), $matches);
++                $params['id'] = $matches[1];
++               if (!empty($matches[3]))
++                   $values[$this-&gt;_formatKey] = $matches[3];
+             } elseif ($pathElementCount == 0 || $pathElementCount &gt; 1) {
+                 $specialGetTarget = 'index';
+             }
+@@ -199,13 +219,14 @@ class Zend_Rest_Route extends Zend_Contr
+         $this-&gt;_values = $values + $params;
+ 
+         $result = $this-&gt;_values + $this-&gt;_defaults;
+-        
++
+         if ($partial &amp;&amp; $result)
+            $this-&gt;setMatchedPath($request-&gt;getPathInfo());
+-           
++
+         return $result;
+     }
+ 
++
+     /**
+      * Assembles user submitted parameters forming a URL path defined by this route
+      *
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-12-18T12:04:22.000+0000</p> 
+        <div class="body">
+            <p>Hmm... typically, this sort of thing should be specified in the Accept header, not as part of the URI. As such, you can determine the format dynamically, and dispatch to the appropriate view. This also can be done on-demand in plugins, without further complicating the route logic.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Doug P (doug316) on 2009-12-18T12:40:51.000+0000</p> 
+        <div class="body">
+            <p>Accept headers are nice but so is a tidy URI with a format specifier which simplifies API usage and eases debug. Rails routes support this by default.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Luke Crouch (lcrouch) on 2009-12-18T12:52:34.000+0000</p> 
+        <div class="body">
+            <p>This can already be easily done with ContextSwitch in the controller and a format parameter on the URI:</p>
+
+<pre class="highlight"><code>
+class NewsController
+{
+    public function init()
+    {
+        parent::init();
+        $this-&gt;_contextSwitch-&gt;addActionContexts(array('index' =&gt; array('json', 'xml')));
+        $this-&gt;_contextSwitch-&gt;initContext();
+    }
+}
+</code></pre>
+
+<p>/news/index/format/xml
+/news/index/?format=xml
+/news/index/format/json
+/news/index/?format=json</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Doug P (doug316) on 2009-12-22T12:39:58.000+0000</p> 
+        <div class="body">
+            <p>The suggested workaround ideas are appreciated, but are not quite the same. There are good reasons for mapping URI's using file type extensions.</p>
+
+<p>Not sure but it appears there might be a general resistance to extend the framework. The rest route appears to not yet have many important features which I suppose we'll implement in our own proprietary libraries. Nested resources, implicit controller specification, file type extensions, and overall the general ability to control what URI's look like are important.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Luke Crouch (lcrouch) on 2009-12-22T13:58:50.000+0000</p> 
+        <div class="body">
+            <p>"There are good reasons for mapping URI's using file type extensions."</p>
+
+<p>Without knowing what these "good reasons" are, yes - I am still resisting this change. It has to do with the whole "URI opacity" axiom - <a href="http://www.w3.org/DesignIssues/Axioms.html#opaque">http://www.w3.org/DesignIssues/Axioms.html#opaque</a> I.e., according to REST architectural principles, there's no difference between /news/index.json and /news/index/?format=json</p>
+
+<p>Furthermore, this route is just one method of implementing RESTful architecture in ZF - specifically, it's a method that leverages Zend_Controller_Router_Rewrite. We can easily use static or regexp routing to implement more URI control like RoR or django.</p>
+
+<p>To implement features like nested resources, implicit controllers, etc. we should use the proposal process and not a single JIRA ticket. I've been working on a proposal to enhance the 'Resource' part of Zend_Rest here:</p>
+
+<p><a href="http://framework.zend.com/wiki/display/ZFPROP/Zend_Rest_Resource">http://framework.zend.com/wiki/display/…</a></p>
+
+<p>Finally, RESTful implementation could be going thru a renovation as we work on ZF 2.0 so we may want to make a new 'Zend_Rest_2.0' proposal.</p>
+
+<p>In either case, the feature request of this ticket is more appropriate for a proposal I think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Moritz Mertinkat (maurice) on 2010-02-26T03:12:14.000+0000</p> 
+        <div class="body">
+            <p>I really appreciate Doug's enhancement, although I've not yet screened the patch.</p>
+
+<p>Currently we're using the Accept-header approach but when working with people that are not really familiar with HTTP headers it sometimes gets a bit confusing. For example, {{file_get_contents}} does not send any {{Accept}} headers (without defining a context).</p>
+
+<p>@Luke: You're right that "there's no difference between /news/index.json and /news/index/?format=json" but I myself would prefer the former so that REST API users won't have to mess with additional parameters. It's just convenience and the way Rails is doing it.</p>
+
+<p>+1 for this issue/enhancement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Doug P (doug316) on 2010-03-03T10:30:05.000+0000</p> 
+        <div class="body">
+            <p>@Luke: No objections over standards such as URI opacity. However I haven't convinced myself there's no place for what I'm doing here, at least in development mode.</p>
+
+<p>As I use Rails as my model for best practices, I'll have to research their justification for this with respect to the same.</p>
+
+<p>@Moritz: thanks for the support.</p>
+
+        </div>
+    </div>
+    </div>
+

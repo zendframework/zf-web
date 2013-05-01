@@ -1,0 +1,195 @@
+<h2>ZF-2579: _forward breaks postDispatch behaviour</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-02-05T16:00:52.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-02-15T09:34:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Wim Godden (wimgzd)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using an action helper with a postDispatch, using _forward in a controller breaks the postDispatch behaviour.</p>
+
+<p>// Zend_Controller_Plugin_Base.php
+class Zend_Controller_Plugin_Base extends Zend_Controller_Plugin_Abstract
+{
+   public function preDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        print "Predispatch of : ".$request-&gt;getActionName()."\n";
+    }
+    public function postDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        print "Postdispatch of : ".$request-&gt;getActionName()."\n";
+    }
+}</p>
+
+<p>// IndexController.php
+class IndexController extends Zend_Controller_Action
+{
+    public function indexAction()
+    {
+       print "Just some code";
+    }
+    public function fooAction()
+    {
+        $this-&gt;_forward('index','index');
+    }
+}</p>
+
+<p>// Bootstrap contains :
+$controller = Zend_Controller_Front::getInstance();
+require_once 'Zend_Controller_Plugin_Base.php';
+$controller-&gt;registerPlugin(new Zend_Controller_Plugin_Base());</p>
+
+<p>// The output when going to /index/index
+Predispatch of : index
+Postdispatch of : index</p>
+
+<p>// The output when going to /index/foo
+Predispatch of : foo
+Postdispatch of : index
+Predispatch of : index
+Postdispatch of : index</p>
+
+<p>Clearly, the output should be 2 x foo and 2 x index.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-02-14T11:02:00.000+0000</p> 
+        <div class="body">
+            <p>This is actually how it is expected to work. _forward() writes to the request object, modifying it. Since postDispatch() occurs after the request object has been modified, it's simply picking up on those changes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wim Godden (wimgzd) on 2008-02-14T12:12:41.000+0000</p> 
+        <div class="body">
+            <p>Basically, this means that if you have a controller plugin like this :</p>
+
+<p>public function preDispatch(Zend_Controller_Request_Abstract $request)
+{
+    $moduleSession = new Zend_Session_Namespace($request-&gt;getModuleName());
+    $moduleSession-&gt;unlock();
+}</p>
+
+<p>public function postDispatch(Zend_Controller_Request_Abstract $request)
+{
+    $moduleSession = new Zend_Session_Namespace($request-&gt;getModuleName());
+    $moduleSession-&gt;lock();
+}</p>
+
+<p>This will never work, since the $request-&gt;getModuleName() has been modified by _forward()</p>
+
+<p>I believe _forward() shouldn't modify these until after the postDispatch of the current dispatched action. Currently, the postDispatch is not the postDispatch of the dispatched action, but of the forwarded action, which is inconsistent.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wim Godden (wimgzd) on 2008-02-15T08:44:29.000+0000</p> 
+        <div class="body">
+            <p>Basically, this means that if you have a controller plugin like this :</p>
+
+<p>public function preDispatch(Zend_Controller_Request_Abstract $request)
+{ 
+  $moduleSession = new Zend_Session_Namespace($request-&gt;getModuleName()); $moduleSession-&gt;unlock(); 
+}</p>
+
+<p>public function postDispatch(Zend_Controller_Request_Abstract $request)
+{ 
+  $moduleSession = new Zend_Session_Namespace($request-&gt;getModuleName()); $moduleSession-&gt;lock(); 
+}</p>
+
+<p>This will never work, since the $request-&gt;getModuleName() has been modified by _forward()</p>
+
+<p>I believe _forward() shouldn't modify the module, controller and action names until after the postDispatch of the current dispatched action.
+Currently, the postDispatch is not the postDispatch of the dispatched action, but of the forwarded action, which is inconsistent and will lead to issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-02-15T09:34:08.000+0000</p> 
+        <div class="body">
+            <p>There is a flaw in your assumptions: the request is not the <em>action's</em> request -- it is the <em>current</em> request <em>environment</em>. postDispatch() is merely operating on the current request environment -- which may have changed since the time preDispatch() was called. It's action agnostic. Plugins <em>should</em> be action agnostic, as they are supposed to operate regardless of the modules, controllers, or actions dispatched.</p>
+
+<p>One solution to the example you pose above is to store the module in a local property of the plugin during preDispatch(), and then refer to it during postDispatch():</p>
+
+<pre class="highlight"><code>
+class My_Plugin
+{
+    public function preDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        $this-&gt;module = $request-&gt;getModuleName();
+        $moduleSession = new Zend_Session_Namespace($this-&gt;module);
+        $moduleSession-&gt;unlock();
+    }
+
+    public function postDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        if (isset($this-&gt;module) &amp;&amp; !empty($this-&gt;module)) {
+            $moduleSession = new Zend_Session_Namespace($this-&gt;module);
+            $moduleSession-&gt;lock();
+        }
+    }
+}
+</code></pre>
+
+<p>In the above, $this-&gt;module will be reset at the beginning of each request, making the value ever-present for the postDispatch() hook. It's a short and simple solution to the issue you present, and requires no modification to the framework to accomplish.</p>
+
+<p>While I do see your point about the fact that the request object seen in Zend_Controller_Action::postDispatch() not being the same as the one seen in preDispatch(), I also don't see this as being an issue.; I actually see it as a feature. There are very few cases where you need to know what the module, controller, and action were <em>after</em> the action has already executed, and there are almost always ways to store that information at the beginning of the dispatch cycle if you do need to do so (as shown in the example above). There are a number of situations, however, where you need to know that a <em>new</em> action <em>has</em> been requested (for instance, the ViewRenderer will <em>not</em> autorender a view in such a situation), which creates a large argument for keeping the status quo.</p>
+
+<p>That said, one solution to your solution already exists in the repository: use the ActionStack helper/plugin. This allows you to push items to the stack similar to _forward(), but without affecting the current request object. The downside is that some integration points -- such as the ViewRenderer example above -- will require extra coding on your part to ensure they continue to work:</p>
+
+<pre class="highlight"><code>
+$this-&gt;_helper-&gt;actionStack('foobar');
+return $this-&gt;_helper-&gt;viewRenderer-&gt;setNoRender();
+
+// vs:
+return $this-&gt;_forward('foobar');
+</code></pre>
+
+<p>I'm closing this issue again, as changing this behaviour now would result in widespread breakage of existing functionality <em>within</em> the framework, much less that existing in userland applications. Additionally, as I have illustrated in these examples, there are already ways you can get at the information you need with some pretty simple coding.</p>
+
+        </div>
+    </div>
+    </div>
+

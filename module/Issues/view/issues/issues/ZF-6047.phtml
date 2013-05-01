@@ -1,0 +1,249 @@
+<h2>ZF-6047: 'Unable to create SHM segments for process communications' in long running script</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-03-17T04:47:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Adam Charnock (adamcharnock)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>ZendX_Console_Process_Unix</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5575">ZF-5575</a></li>
+            <li><a href="/issues/browse/ZF-7775">ZF-7775</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11810/test.php">test.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><em>Background:</em>
+ZendX_Console_Process_Unix is being used to dispatch tasks from within a long running parent script. The parent script dispatches tasks based on new records in a database.</p>
+
+<p><em>Problem:</em>
+The this bug seems to happen when either:</p>
+
+<p>1) The script has been running for a while (30mins to a few hours)
+2) The script has been stopped and started a few times (as well as having been run for a while)</p>
+
+<p>Once the problem occurs, it will keep occurring until the server is restarted.</p>
+
+<p>The output is as follows:</p>
+
+<pre class="literal"> 
+PHP Warning:  shmop_open(): unable to attach or create shared memory segment in /www/libs/ZendFramework-1.7.6/extras/library/ZendX/Console/Process/Unix.php on line 501
+
+Warning: shmop_open(): unable to attach or create shared memory segment in /www/libs/ZendFramework-1.7.6/extras/library/ZendX/Console/Process/Unix.php on line 501
+PHP Fatal error:  Uncaught exception 'ZendX_Console_Process_Exception' with message 'Unable to create SHM segments for process communications' in /www/libs/ZendFramework-1.7.6/extras/library/ZendX/Console/Process/Unix.php:191
+Stack trace:
+#0 /www/omniwiki/sitesmoke/library/Ss/Dispatcher.php(83): ZendX_Console_Process_Unix-&gt;start()
+#1 /www/omniwiki/sitesmoke/library/Ss/Dispatcher.php(58): Ss_Dispatcher-&gt;dispatchSiteMonitor(Array)
+#2 /www/omniwiki/sitesmoke/application/monitor/scripts/run.php(35): Ss_Dispatcher-&gt;dispatch()
+#3 {main}
+  thrown in /www/libs/ZendFramework-1.7.6/extras/library/ZendX/Console/Process/Unix.php on line 191
+</pre>
+
+<p><em>Workaround:</em>
+I don't have a real work around for this apart from:</p>
+
+<p>1) Restart the server
+2) Use exec() (or similar) rather than ZendX_Console_Process_Unix</p>
+
+<p><em>Other notes:</em></p>
+
+<p>I am not sure, but this bug sounds like it may relate to bug ZF-5575</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-03-17T06:28:28.000+0000</p> 
+        <div class="body">
+            <p>That bug somewhat sounds to me like that comment on the php.net manual:
+<a href="http://de2.php.net/manual/en/function.shmop-open.php#35361">http://de2.php.net/manual/en/…</a></p>
+
+<p>But ftok should never return zero, and failures (-1) is always checked. Do you have any other information about that problem?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2009-03-18T02:25:54.000+0000</p> 
+        <div class="body">
+            <p>I think a code-block that can reproduce this error would be really helpful. 
+I have created a long running script in the past which did not use shared memory at all, yet required a restart of the machine to free memory purely because I had not unset vars as it went along.
+So it is quite possible that there could be other factors involved in this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Charnock (adamcharnock) on 2009-03-18T07:14:08.000+0000</p> 
+        <div class="body">
+            <p>Ok, I am going to set the script running on an EC2 instance and just leave it there until it (potentially) dies.</p>
+
+<p>However, I have put in place a change that I suspect/hope will address this...</p>
+
+<p>In some cases an exception could be thrown within the _run() method. These exceptions were not being caught, so I chance the _run() method to be as follows:</p>
+
+<pre class="literal">
+protected function _run() {
+        try {
+            $responses = $this-&gt;runMonitor(); //it is runMonitor() that may throw exceptions
+        } catch(Exception $e) {
+            $this-&gt;stop(); //force memory to be cleaned up
+            throw $e;
+        }
+        $this-&gt;save($responses);
+    }
+</pre>
+
+<p>If an exception is thrown I call stop(). This in turn calls _cleanProcessContext(), which cleans up the various memory segments (so we don't end up collecting unused shared memory, ultimately causing the errors seen in the initial bug report).</p>
+
+<p>If this does end up helping, a solution could be for ZendX_Console_Process_Unix to wrap the call to _run() in a try/catch blog as shown above.</p>
+
+<p>I'll let you know how it gets on.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2009-03-18T12:57:44.000+0000</p> 
+        <div class="body">
+            <p>I have attached a test which should reproduce this behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Dempster (letssurf) on 2009-03-18T14:26:05.000+0000</p> 
+        <div class="body">
+            <p>The problem is caused because the shared memory segments are never deleted. They end up filling the servers memory up. Which you see solved by restarting the server.</p>
+
+<p>To see the shared memory blocks run.
+user@server:~$ ipcs -m</p>
+
+<p>You can remove the old memory segments by doing run this, replacing owner with the owner of the shared memory block.
+user@server:~$ ipcs -m | awk '$3 == "" {print $2}' | while read i; do ipcrm -m $i; done</p>
+
+<p>To fix the problem it's possible to to use shmop_delete after both processes have successfully connected to the shared memory segment. The shared memory stays active until both processes disconnect, then the memory segment is deleted.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Dempster (letssurf) on 2009-03-18T14:32:37.000+0000</p> 
+        <div class="body">
+            <p>P.S</p>
+
+<p>I have a heavily modified version of this class which solves the memory problems plus some others regarding child processes that fail (e.g atm if a child process was to fatal you never know about it due to problems with the way it does it's signal handling)</p>
+
+<p>There where also some other issues I found.</p>
+
+<p>I can post more info here regarding these problems. I couldn't find the component when I found the problems, I don't think it had been released then.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-03-18T14:42:26.000+0000</p> 
+        <div class="body">
+            <p>James, I have comitted the latest version to the extras trunk. It is actually released yet, just pretty well hidden by Zend ;). You can find it there:
+<a href="http://framework.zend.com/svn/framework/extras/trunk/library/ZendX/Console/Process/Unix.php">http://framework.zend.com/svn/framework/…</a></p>
+
+<p>When you have any solutions, It would be kind of you to attach a patch or if possible directly commit to the trunk.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Charnock (adamcharnock) on 2009-03-18T15:03:41.000+0000</p> 
+        <div class="body">
+            <p>Ryan/James/Ben, thank you for the very fast response - it is much appreciated!</p>
+
+<p>May it be worth mentioning this in the docs as exceptions thrown in the process will now vanish (whereas before they could be seen on the console).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Charnock (adamcharnock) on 2009-03-22T17:38:42.000+0000</p> 
+        <div class="body">
+            <p>I just thought I would update this issue to say that catching exceptions does indeed solve this issue for me.</p>
+
+<p>However, I am still a little concerned that this solution causes uncaught exceptions to be ignored. Would it be better (or even possible?) to do the cleanup in a __destruct() method instead? Or is the view that developers should be catching their exceptions anyway?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-03-22T18:34:21.000+0000</p> 
+        <div class="body">
+            <p>Well it only solves it half the way. When you see the testcase, you will notice that the bug still appears after creating about 700 processes (because they are not cleaned up at the end). I yet have the cleanup in the destructor, but i is pretty certain that the instance stays alive for a very long time.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Nielsen (polothy) on 2009-04-27T16:32:40.000+0000</p> 
+        <div class="body">
+            <p>I'm running into this same problem but under different conditions:
+* First time was when I called setVariable() before the process had been started.  Not sure how else to set variables to a child process before starting it.
+* Second time was my script caused a fetal error while a process was still being executed.</p>
+
+<p>For both scenarios, I had to restart my computer before I could get the code to start working again.  Without restarting my computer I get the following error:</p>
+
+<pre class="literal">
+Warning: shmop_open(): unable to attach or create shared memory segment in /path/to/ZendX/Console/Process/Unix.php on line 501
+
+Fatal error: Uncaught exception 'ZendX_Console_Process_Exception' with message 'Unable to create SHM segments for process communications' in/path/to/ZendX/Console/Process/Unix.php:191
+Stack trace:
+#0 /path/to/a/file.php(15): ZendX_Console_Process_Unix-&gt;start()
+#1 {main}
+  thrown in /path/to/ZendX/Console/Process/Unix.php on line 191
+</pre>
+
+<p>Further, the system directory is being loaded full of .sem and .shm files.  Seems like the class is missing a cleanup routine to make sure everything shuts down OK.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-04-27T16:40:08.000+0000</p> 
+        <div class="body">
+            <p>As already mentioned, Process_Unix has currently major flaws, which require some internal refactoring. Will going to fix them between 1.8 and 1.9.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:20.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

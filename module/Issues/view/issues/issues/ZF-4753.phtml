@@ -1,0 +1,227 @@
+<h2>ZF-4753: Zend_Session_Namespace::setExpirationSeconds does not expire data in files if session abandoned.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-30T15:03:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-05T02:43:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Kevin McArthur (kevin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using persistent cookies and multiple session namespaces, setExpirationSeconds does not expire data unless the session is resumed. Abandoned sessions will leave data in the sess_ files well beyond their expire time.</p>
+
+<p>Requested fix is to modify the garbage collection handler to search through sessions and delete expired data.</p>
+
+<ul><li>This bug may result in a security vulnerability where session data may be stored on the server for longer than acceptable intervals.</li>
+</ul>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-20T10:05:42.000+0000</p> 
+        <div class="body">
+            <p>The behaviour described is simply how sessions work in PHP (see <a href="http://php.net/manual/en/ref.session.php">http://php.net/manual/en/ref.session.php</a>).</p>
+
+<p>Sessions are expired at runtime based on the gc_* family of configuration options. If PHP is not active, garbage collection will not run and the sessions will remain indefinitely.</p>
+
+<p>If I have misunderstood the issue, please provide code to reproduce.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2009-11-20T10:18:14.000+0000</p> 
+        <div class="body">
+            <p>This does not have to do with gc_ probability. It has to do with expiration seconds (a ZFW feature).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-20T10:38:37.000+0000</p> 
+        <div class="body">
+            <p>Please provide code to reproduce.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2009-11-20T11:43:51.000+0000</p> 
+        <div class="body">
+            <p>Don't have any offhand -- but this has to do with the mechanism by which data is expired in Zend_Session's setExpirationSeconds call. Note that this bug was filed over a year ago.</p>
+
+<p>Basically, and if i remember what was going wrong last year..... setExpirationSeconds is used so that zend_session will delete the data after x seconds... and it will, if that SAME session is reopened. If not, that data will exist until general garbage collection on the server. (Delete on session resume) as such, session data that doesn't get resumed doesn't get deleted on the right schedule.</p>
+
+<p>This problem is amplified by long-lived gc expiry cycles, like when using pesistent cookies to pickup sessions potentially weeks later.</p>
+
+<p>The fix is to have the resumption of <em>any</em> session to fire into the zfw-specific gc (based on the probability) and to search for data within the sessions that should be expired/removed with the setExpirationSeconds mechanism.</p>
+
+<p>This came up when I was trying to make a dual-zone session... with a data area for shopping cart entries (long lived) and a data area for checkout data (short lived)... with this bug, there's no way to get rid of the short lived data while retaining the long lived data, if that same session is not renewed. As a result, secure data was ending up in the session storage for far longer than was acceptable to the setExpirationSeconds policy.</p>
+
+<p>Hope that clears it up.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-20T12:30:38.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the additional explanation.</p>
+
+<p>The problem is that garbage collection is, by default and unless otherwise a different save handler is specified, carried out by PHP's default session handler and not by ZF. So in actual fact there is no ZF specific GC... if a save handler is not specified, it's left up to PHP to perform read/write/gc etc. Only when a session is accessed and analysed by ZF can it see and act upon an 'expired' (as defined by setExpirationSeconds) session.</p>
+
+<p>The reverse of the issue raised is when the gc_maxlifetime is shorter than setExpirationSeconds. In that situation, sessions will likely be expired before the value in setExpirationSeconds is reached, thus rendering it useless.</p>
+
+<p>The primary role of Zend_Session is to provide a convenient wrapper and namespace functionality to PHP sessions, not replace or alter the core functionality of ext/session. Perhaps this could be made clearer in the documentation - session problems are notoriously difficult to pin down and the lack of clarity here possibly muddies the water unnecessarily.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2009-11-20T12:47:00.000+0000</p> 
+        <div class="body">
+            <p>The ZFW gc is actually part of the constructor, and has nothing to do with php's GC... this handles the expiration seconds and the hop stuff. It is there where this patch needs to be added, and it needs to look beyond its own sesion namespace.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-20T15:23:43.000+0000</p> 
+        <div class="body">
+            <p>Only available constructor in Zend_Session_* is Zend_Session_Namespace (as you'd expect):</p>
+
+<pre class="highlight"><code>
+public function __construct($namespace = 'Default', $singleInstance = false)
+</code></pre>
+
+<p>I understand that, on the surface, if feels like setExpirationSeconds <em>should</em> do what you're suggesting, but for the reasons explained above, it simply can't and a patch won't help.</p>
+
+<p>The only thing that could incorporate this kind of logic is a default save handler that overrides PHP's default. Since ZF's policy is to not reproduce functionality that already exists in PHP, this seems unlikely to happen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2009-11-20T16:07:03.000+0000</p> 
+        <div class="body">
+            <p>You're incorrect on this issue.</p>
+
+<p>If you trace how setExpriationSeconds works you'll notice that from the namespace constructor theres a call into Zend_Session::start... which then eventually calls the _process private methods in Zend_Session...</p>
+
+<p>specifically    private static function <em>processStartupMetadataGlobal()    is responsible for processing the time limit. To _fix</em> this bug... no save handler needs to be added, just this metadata function expanded to look for other sessions as well as the one currently being operated on. In essence a garbage collector -- which should probably be entered into on a probability.</p>
+
+<p>The expiration seconds mechanism has NOTHING to do with the session lifetime from a php perspective.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-21T01:01:53.000+0000</p> 
+        <div class="body">
+            <p>Indeed, the expiration seconds mechanism has nothing to do with the session lifetime, but since they do effectively the same thing it's important to understand how they work and why.</p>
+
+<p>Put simply, there is no way to operate on a session other than the current one from within a PHP script. <em>That is the job of the save handler</em>. If you feel that statement is incorrect, please provide a code snippet which illustrates how you think it could be achieved.</p>
+
+<p>As the loop in Zend_Session::_processStartupMetadataGlobal() shows, the setExpirationSeconds value is set in a session namespace's metadata and specific to a namespace ("setExpirationSeconds() - expire the namespace, or specific variables after a specified"). Even if it were possible/desirable/correct to examine other sessions here, the performance hit would be potentially huge, since every session would need to be read and each namespace examined for an expired value. On busy production websites this could be tens or hundreds of thousands of sessions.</p>
+
+<p>If you really wanted to do this, you could write a custom save handler whose gc method read all available sessions and checked each namespace individually for expiry. Alternatively, as a potentially more sensible approach, perhaps you could modify the DbTable savehandler to contain a column with the soonest namespace expiry value.</p>
+
+<p>Either way, despite being a bit confusing, this is not a bug.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-14T18:35:37.000+0000</p> 
+        <div class="body">
+            <p>Global session expiration and setExpirationSeconds() are independent processes. Global GC is the responsibility of PHP and/or save handlers.</p>
+
+<p>The distinction should be better documented probably since confusing the two can certainly lead to valid security problems which the Zend Framework should do its utmost to avoid. I'll pick it up for ZF2 docs and do something with ZF1 in the near future.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2011-08-14T19:15:29.000+0000</p> 
+        <div class="body">
+            <p>Can we not close bugs until there is a fix in code. I still consider this a valid bug, it results in a security scenario where data can live on the server beyond the expiration seconds. Its not a communication issue. Its a problem with the code. If ZFW is going to implement an expiration method then it needs a probability based garbage collector to ensure that sessions are actually expired on disk near the 'expiration seconds' demarcation. This has nothing to do with PHP session lifetime which has its own, independent settings, controlls and garbage collection.</p>
+
+<p>This remains an open bug with security implications.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2011-08-14T19:23:06.000+0000</p> 
+        <div class="body">
+            <p>"Put simply, there is no way to operate on a session other than the current one from within a PHP script. That is the job of the save handler. If you feel that statement is incorrect, please provide a code snippet which illustrates how you think it could be achieved."</p>
+
+<p>This statement is incorrect, the ZFW session is distinct from the PHP session. The sessions can be looked at on disk or via session_id()/session_start() and session_write_close().</p>
+
+<p>The Zend-Specific GC should be entered via a probability. It should register a shutdown handler, (such that the page request is not delayed) and it should loop through the list of active sessions using setExpirationSeconds which, with minor modifications, could be tracked in a separate zend-specific hash table.</p>
+
+<p>One day I'll get around to fixing this bug, but until then, please leave it open and or correct it properly in code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-14T20:40:25.000+0000</p> 
+        <div class="body">
+            <p>I'll make you a deal. I won't close it, again, if you report it to the zf-security email address for resolution within a timeframe you deem acceptable. If it is a valid security concern, it should not be left on the issue tracker for years at a time to be taken advantage of.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin McArthur (kevin) on 2011-08-14T20:43:30.000+0000</p> 
+        <div class="body">
+            <p>Fair enough, i'll post a note there to review ZF-4753.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-17T19:25:42.000+0000</p> 
+        <div class="body">
+            <p>Has there been any progress/decision on this issue from zf-security?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-13T19:20:34.000+0000</p> 
+        <div class="body">
+            <p>I'm going to take that as a no. IMHO, this may not necessarily need a fix this late in ZFv1's lifecycle, but there should at least be a "here be dragons" cautionary tale added to the manual so at least devs can make an informed decision and take any mitigating actions they feel are necessary.</p>
+
+        </div>
+    </div>
+    </div>
+

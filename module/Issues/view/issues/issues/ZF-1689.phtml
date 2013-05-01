@@ -1,0 +1,211 @@
+<h2>ZF-1689: Forcing Header Fields into Lowercase</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-07-09T11:41:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-18T04:18:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Hakan Ensari (livrenoir)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Shahar Evron (shahar)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm not sure if this issue is a bug per se, but it does render the component incompatible with certain web services.</p>
+
+<p>Put briefly, I cannot use Zend_Http_Client in its present state to interact with the Amazon Inventory Management (AIM) service.</p>
+
+<p>For instance, to upload a batch refund file, I append the following line to the header:</p>
+
+<p>ReportName: BatchRefund</p>
+
+<p>Zend_Http_Client ends up putting the name into lowercase, resulting in a header field that is not recognizable by AIM's case-sensitive parsing:</p>
+
+<p>reportname: BatchRefund</p>
+
+<p>My hack to make this work, instead of going back to my old curl classes, was to remove the line that lowercases field names from the code:</p>
+
+<pre class="highlight"><code>
+--- library/Zend/Http/Client.php        (revision 5616)
++++ library/Zend/Http/Client.php        (working copy)
+@@ -326,10 +326,10 @@
+             if ($value === null &amp;&amp; (strpos($name, ':') &gt; 0))
+                 list($name, $value) = explode(':', $name, 2);
+ 
+-            $name = strtolower($name);
++            //$name = strtolower($name);
+             
+             // Make sure the name is valid
+-            if (! preg_match('/^[a-z0-9-]+$/', $name)) {
++            if (! preg_match('/^[a-z0-9-]+$/i', $name)) {
+                 throw new Zend_Http_Client_Exception("{$name} is not a valid HTTP header name");
+             }
+</code></pre>
+
+<p>I'd appreciate it if you consider dropping the strtolower in future releases to make the component compatible in scenarios similar to the above.</p>
+
+<p>Hakan</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-07-09T12:03:57.000+0000</p> 
+        <div class="body">
+            <p>The strtolower() is needed to keep header storing consistent, that is for the client to understand that 'Cookie' and 'cookie' are the same. In fact, by treating 'ReportName' different from 'reportname' Amazon are breaking the HTTP specs. With that said, obviously there is an issue that we need to address (as I don't expect Amazon to do that).</p>
+
+<p>I will consider possible solutions for this as soon as I find the time. One possibility would be to use the lower-case version of the header name as an array key as we do now, but store the key + value combination in the array value, as in
+$headers = array(
+  'cookie' =&gt; 'Cookie: bla',
+  'reportname' =&gt; 'ReportName: BatchRefund'
+);</p>
+
+<p>But I haven't really considered the effect of such change deeply.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hakan Ensari (livrenoir) on 2007-07-11T23:53:58.000+0000</p> 
+        <div class="body">
+            <p>Thanks for the quick response, Shahar.</p>
+
+<p>Honestly, I don't expect Amazon to change their code, either. Following your lead, I've hacked a tad more into the Client.php code to get what it appears to be a working solution for now.</p>
+
+<p>Cheers,
+Hakan</p>
+
+<pre class="highlight"><code>
+--- Client.php  (revision 5616)
++++ Client.php  (working copy)
+@@ -325,11 +325,12 @@
+             // Check if $name needs to be split
+             if ($value === null &amp;&amp; (strpos($name, ':') &gt; 0))
+                 list($name, $value) = explode(':', $name, 2);
+-
+-            $name = strtolower($name);
+             
++            
++            //$name = strtolower($name);
++            
+             // Make sure the name is valid
+-            if (! preg_match('/^[a-z0-9-]+$/', $name)) {
++            if (! preg_match('/^[a-z0-9-]+$/i', $name)) {
+                 throw new Zend_Http_Client_Exception("{$name} is not a valid HTTP header name");
+             }
+ 
+@@ -339,9 +340,10 @@
+ 
+             // Else, set the header
+             } else {
+-                // Header names are storred lowercase internally.
+                 if (is_string($value)) $value = trim($value);
+-                $this-&gt;headers[$name] = $value;
++                if (is_array($value)) $value = implode(', ', $value);
++                // Header names are stored lowercase internally.
++                $this-&gt;headers[strtolower($name)] = ucfirst($name) . ": {$value}";
+             }
+         }
+ 
+@@ -361,7 +363,9 @@
+     {
+         $key = strtolower($key);
+         if (isset($this-&gt;headers[$key])) {
+-            return $this-&gt;headers[$key];
++            $value = preg_replace('/^([a-z0-9-]+:)/i', '', $this-&gt;headers[$key]);
++            if (strpos($value, ',') &gt; 0) $value = explode(',', $value);
++            return $value;
+         } else {
+             return null;
+         }
+@@ -569,7 +573,7 @@
+ 
+             $value = addslashes($value);
+ 
+-            if (! isset($this-&gt;headers['cookie'])) $this-&gt;headers['cookie'] = '';
++            if (! isset($this-&gt;headers['cookie'])) $this-&gt;headers['cookie'] = 'Cookie: ';
+             $this-&gt;headers['cookie'] .= $cookie . '=' . $value . '; ';
+         }
+ 
+@@ -881,7 +885,8 @@
+             if (is_array($value))
+                 $value = implode(', ', $value);
+ 
+-            $headers[] = ucfirst($name) . ": {$value}";
++            //$headers[] = ucfirst($name) . ": {$value}";
++            $headers[] = $value;
+         }
+ 
+         return $headers;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hakan Ensari (livrenoir) on 2007-07-12T00:03:14.000+0000</p> 
+        <div class="body">
+            <p>Also, for the sake of accuracy, my initial example was is phrased somewhat incorrectly. prepare_headers() eventually normalizes the lowercase reportname to Reportname.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-07-16T07:23:17.000+0000</p> 
+        <div class="body">
+            <p>Hi Hakan,</p>
+
+<p>I used a slightly different approach (keeping original header as array of (key, value) instead of a single string as it seemed easier to handle. Please test your code with the latest SVN HEAD if you can (revision 5713) and let me know if it works any better.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Hakan Ensari (livrenoir) on 2007-07-18T02:12:14.000+0000</p> 
+        <div class="body">
+            <p>Just wanted to let you know that the SVN trunk worked like a charm :-)</p>
+
+<p>Hakan</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shahar Evron (shahar) on 2007-07-18T04:18:41.000+0000</p> 
+        <div class="body">
+            <p>cool, thanks ;)</p>
+
+        </div>
+    </div>
+    </div>
+

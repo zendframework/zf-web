@@ -1,0 +1,396 @@
+Index: library/Zend/Db/Table/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Abstract.php	(revision 24822)
++++ library/Zend/Db/Table/Abstract.php	(working copy)
+@@ -70,6 +70,7 @@
+     const ON_UPDATE        = 'onUpdate';
+ 
+     const CASCADE          = 'cascade';
++    const CASCADE_RECURSE  = 'cascadeRecurse';
+     const RESTRICT         = 'restrict';
+     const SET_NULL         = 'setNull';
+ 
+@@ -1193,27 +1194,56 @@
+      */
+     public function _cascadeDelete($parentTableClassname, array $primaryKey)
+     {
++        // setup metadata
+         $this->_setupMetadata();
++        
++        // get this class name
++        $thisClass = get_class($this);
++        if ($thisClass === 'Zend_Db_Table') {
++            $thisClass = $this->_definitionConfigName;
++        }
++        
+         $rowsAffected = 0;
++        
+         foreach ($this->_getReferenceMapNormalized() as $map) {
+             if ($map[self::REF_TABLE_CLASS] == $parentTableClassname && isset($map[self::ON_DELETE])) {
+-                switch ($map[self::ON_DELETE]) {
+-                    case self::CASCADE:
+-                        $where = array();
+-                        for ($i = 0; $i < count($map[self::COLUMNS]); ++$i) {
+-                            $col = $this->_db->foldCase($map[self::COLUMNS][$i]);
+-                            $refCol = $this->_db->foldCase($map[self::REF_COLUMNS][$i]);
+-                            $type = $this->_metadata[$col]['DATA_TYPE'];
+-                            $where[] = $this->_db->quoteInto(
+-                                $this->_db->quoteIdentifier($col, true) . ' = ?',
+-                                $primaryKey[$refCol], $type);
++                
++                $where = array();
++                
++                // CASCADE or CASCADE_RECURSE
++                if (in_array($map[self::ON_DELETE], array(self::CASCADE, self::CASCADE_RECURSE))) {
++                    for ($i = 0; $i < count($map[self::COLUMNS]); ++$i) {
++                        $col = $this->_db->foldCase($map[self::COLUMNS][$i]);
++                        $refCol = $this->_db->foldCase($map[self::REF_COLUMNS][$i]);
++                        $type = $this->_metadata[$col]['DATA_TYPE'];
++                        $where[] = $this->_db->quoteInto(
++                            $this->_db->quoteIdentifier($col, true) . ' = ?',
++                            $primaryKey[$refCol], $type);
++                    }
++                }
++                
++                // CASCADE_RECURSE
++                if ($map[self::ON_DELETE] == self::CASCADE_RECURSE) {
++                    
++                    /**
++                     * Execute cascading deletes against dependent tables
++                     */
++                    $depTables = $this->getDependentTables();
++                    if (!empty($depTables)) {
++                        foreach ($depTables as $tableClass) {
++                            $t = self::getTableFromString($tableClass, $this);
++                            foreach ($this->fetchAll($where) as $depRow) {
++                                $rowsAffected += $t->_cascadeDelete($thisClass, $depRow->getPrimaryKey());
++                            }
+                         }
+-                        $rowsAffected += $this->delete($where);
+-                        break;
+-                    default:
+-                        // no action
+-                        break;
++                    }
+                 }
++
++                // CASCADE or CASCADE_RECURSE
++                if (in_array($map[self::ON_DELETE], array(self::CASCADE, self::CASCADE_RECURSE))) {
++                    $rowsAffected += $this->delete($where);
++                }
++                
+             }
+         }
+         return $rowsAffected;
+@@ -1531,4 +1561,38 @@
+         return $data;
+     }
+ 
++    public static function getTableFromString($tableName, Zend_Db_Table_Abstract $referenceTable = null)
++    {
++        if ($referenceTable instanceof Zend_Db_Table_Abstract) {
++            $tableDefinition = $referenceTable->getDefinition();
++
++            if ($tableDefinition !== null && $tableDefinition->hasTableConfig($tableName)) {
++                return new Zend_Db_Table($tableName, $tableDefinition);
++            }
++        }
++
++        // assume the tableName is the class name
++        if (!class_exists($tableName)) {
++            try {
++                require_once 'Zend/Loader.php';
++                Zend_Loader::loadClass($tableName);
++            } catch (Zend_Exception $e) {
++                require_once 'Zend/Db/Table/Row/Exception.php';
++                throw new Zend_Db_Table_Row_Exception($e->getMessage(), $e->getCode(), $e);
++            }
++        }
++
++        $options = array();
++
++        if ($referenceTable instanceof Zend_Db_Table_Abstract) {
++            $options['db'] = $referenceTable->getAdapter();
++        }
++
++        if (isset($tableDefinition) && $tableDefinition !== null) {
++            $options[Zend_Db_Table_Abstract::DEFINITION] = $tableDefinition;
++        }
++
++        return new $tableName($options);
++    }
++    
+ }
+Index: library/Zend/Db/Table/Row/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Row/Abstract.php	(revision 24822)
++++ library/Zend/Db/Table/Row/Abstract.php	(working copy)
+@@ -725,6 +725,17 @@
+     }
+ 
+     /**
++     * Retrieves an associative array of primary keys.
++     *
++     * @param bool $useDirty
++     * @return array
++     */
++    public function getPrimaryKey($useDirty = true)
++    {
++        return $this->_getPrimaryKey($useDirty);
++    }
++
++    /**
+      * Constructs where statement for retrieving row(s).
+      *
+      * @param bool $useDirty
+@@ -1167,37 +1178,7 @@
+      */
+     protected function _getTableFromString($tableName)
+     {
+-
+-        if ($this->_table instanceof Zend_Db_Table_Abstract) {
+-            $tableDefinition = $this->_table->getDefinition();
+-
+-            if ($tableDefinition !== null && $tableDefinition->hasTableConfig($tableName)) {
+-                return new Zend_Db_Table($tableName, $tableDefinition);
+-            }
+-        }
+-
+-        // assume the tableName is the class name
+-        if (!class_exists($tableName)) {
+-            try {
+-                require_once 'Zend/Loader.php';
+-                Zend_Loader::loadClass($tableName);
+-            } catch (Zend_Exception $e) {
+-                require_once 'Zend/Db/Table/Row/Exception.php';
+-                throw new Zend_Db_Table_Row_Exception($e->getMessage(), $e->getCode(), $e);
+-            }
+-        }
+-
+-        $options = array();
+-
+-        if (($table = $this->_getTable())) {
+-            $options['db'] = $table->getAdapter();
+-        }
+-
+-        if (isset($tableDefinition) && $tableDefinition !== null) {
+-            $options[Zend_Db_Table_Abstract::DEFINITION] = $tableDefinition;
+-        }
+-
+-        return new $tableName($options);
++        return Zend_Db_Table_Abstract::getTableFromString($tableName, $this->_table);
+     }
+ 
+ }
+Index: tests/Zend/Db/Table/TestCommon.php
+===================================================================
+--- tests/Zend/Db/Table/TestCommon.php	(revision 24822)
++++ tests/Zend/Db/Table/TestCommon.php	(working copy)
+@@ -1613,6 +1613,39 @@
+         $this->assertEquals(0, count($rows));
+     }
+ 
++    /**
++     * @group ZF-1103
++     */
++    public function testTableCascadeRecurseDelete()
++    {
++        $tblRecursive = $this->_getTable('My_ZendDbTable_TableCascadeRecursive');
++
++        // Enforce initial table structure
++        $parentRow = $tblRecursive->find(1)->current();
++        $this->assertType('Zend_Db_Table_Row', $parentRow);
++        $childRows = $parentRow->findDependentRowset('My_ZendDbTable_TableCascadeRecursive', 'Children');
++        $this->assertType('Zend_Db_Table_Rowset', $childRows);
++        $this->assertEquals(2, count($childRows));
++        foreach ( $childRows as $childRow ) {
++            $this->assertType('Zend_Db_Table_Row', $childRow);
++            $subChildRows = $childRow->findDependentRowset('My_ZendDbTable_TableCascadeRecursive', 'Children');
++            $this->assertType('Zend_Db_Table_Rowset', $subChildRows);
++            $this->assertEquals( $childRow['item_id'] == 3 ? 2 : 0 , count($subChildRows));
++        }
++
++        // Perform the delete
++        $parentRow->delete();
++
++        // Assert that all children of #1 (2,3,4,5) are removed recursively
++        $this->assertNull($tblRecursive->find(1)->current());
++        $this->assertNull($tblRecursive->find(2)->current());
++        $this->assertNull($tblRecursive->find(3)->current());
++        $this->assertNull($tblRecursive->find(4)->current());
++        $this->assertNull($tblRecursive->find(5)->current());
++        //... but #6 remains
++        $this->assertType('Zend_Db_Table_Row', $tblRecursive->find(6)->current());
++    }
++
+     public function testSerialiseTable()
+     {
+         $table = $this->_table['products'];
+@@ -1793,3 +1826,4 @@
+         Zend_Db_Table_Abstract::setDefaultMetadataCache(null);
+     }
+ }
++
+Index: tests/Zend/Db/TestUtil/Common.php
+===================================================================
+--- tests/Zend/Db/TestUtil/Common.php	(revision 24822)
++++ tests/Zend/Db/TestUtil/Common.php	(working copy)
+@@ -217,7 +217,8 @@
+         'noprimarykey'  => 'zfnoprimarykey',
+         'Documents'     => 'zfdocuments',
+         'Price'         => 'zfprice',
+-        'AltBugsProducts' => 'zfalt_bugs_products'
++        'AltBugsProducts' => 'zfalt_bugs_products',
++        'CascadeRecursive' => 'zfalt_cascade_recursive'
+     );
+ 
+     public function getTableName($tableId)
+@@ -291,6 +292,16 @@
+             );
+     }
+ 
++    protected function _getColumnsCascadeRecursive()
++    {
++        return array(
++            'item_id'       => 'INTEGER NOT NULL',
++            'item_parent'   => 'INTEGER NULL',
++            'item_data'     => 'VARCHAR(100)',
++            'PRIMARY KEY'   => 'item_id'
++        );
++    }
++
+     protected function _getDataAccounts()
+     {
+         return array(
+@@ -407,6 +418,18 @@
+         );
+     }
+ 
++    protected function _getDataCascadeRecursive()
++    {
++        return array(
++            array('item_id' => '1', 'item_parent' => NULL, 'item_data' => '1'),
++            array('item_id' => '2', 'item_parent' => '1', 'item_data' => '1.2'),
++            array('item_id' => '3', 'item_parent' => '1', 'item_data' => '1.3'),
++            array('item_id' => '4', 'item_parent' => '3', 'item_data' => '1.3.4'),
++            array('item_id' => '5', 'item_parent' => '3', 'item_data' => '1.3.5'),
++            array('item_id' => '6', 'item_parent' => NULL, 'item_data' => '6')
++        );
++    }
++
+     public function populateTable($tableId)
+     {
+         $tableName = $this->getTableName($tableId);
+@@ -487,6 +510,9 @@
+         $this->createTable('Price');
+         $this->populateTable('Price');
+ 
++        $this->createTable('CascadeRecursive');
++        $this->populateTable('CascadeRecursive');
++
+         $this->createView();
+     }
+ 
+Index: tests/Zend/Db/Table/_files/My/ZendDbTable/TableCascadeRecursive.php
+===================================================================
+--- tests/Zend/Db/Table/_files/My/ZendDbTable/TableCascadeRecursive.php	(revision 0)
++++ tests/Zend/Db/Table/_files/My/ZendDbTable/TableCascadeRecursive.php	(revision 0)
+@@ -0,0 +1,53 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Db
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id: TableBugs.php 24593 2012-01-05 20:35:02Z matthew $
++ */
++
++
++/**
++ * @see Zend_Db_Table_Abstract
++ */
++require_once 'Zend/Db/Table/Abstract.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Db
++ * @subpackage UnitTests
++ * @copyright  Copyright (c) 2005-2012 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class My_ZendDbTable_TableCascadeRecursive extends Zend_Db_Table_Abstract
++{
++
++    protected $_name = 'zfalt_cascade_recursive';
++    protected $_primary = 'item_id'; // Deliberate non-array value
++
++    protected $_dependentTables = array('My_ZendDbTable_TableCascadeRecursive');
++
++    protected $_referenceMap    = array(
++        'Children' => array(
++            'columns'           => array('item_parent'),
++            'refTableClass'     => 'My_ZendDbTable_TableCascadeRecursive',
++            'refColumns'        => array('item_id'),
++            'onDelete'          => self::CASCADE_RECURSE
++        )
++    );
++
++}
+Index: documentation/manual/en/module_specs/Zend_Db_Table-Relationships.xml
+===================================================================
+--- documentation/manual/en/module_specs/Zend_Db_Table-Relationships.xml	(revision 24822)
++++ documentation/manual/en/module_specs/Zend_Db_Table-Relationships.xml	(working copy)
+@@ -752,12 +752,36 @@
+         <para>
+             To declare a cascading relationship in the <classname>Zend_Db_Table</classname>, edit
+             the rules in the <varname>$_referenceMap</varname>. Set the associative array keys
+-            <command>'onDelete'</command> and <command>'onUpdate'</command> to the string 'cascade'
+-            (or the constant <constant>self::CASCADE</constant>). Before a row is deleted from the
+-            parent table, or its primary key values updated, any rows in the dependent table that
+-            refer to the parent's row are deleted or updated first.
++            <command>'onDelete'</command> and <command>'onUpdate'</command> to one of these options:
+         </para>
+ 
++        <itemizedlist>
++
++            <listitem>
++                <para>
++                    Cascade:  This option configures a single-level cascade (parent table plus all
++                    directly-dependent tables).  To enable this option set the appropriate key in
++                    <varname>$_referenceMap</varname> to string 'cascade' or use the constant 
++                    <constant>self::CASCADE</constant>. 
++                </para>
++            </listitem>
++
++            <listitem>
++                <para>
++                    Recursive Cascade:  This option configures a full recursive cascade starting
++                    with the parent table.  To enable this option set the appropriate key in
++                    <varname>$_referenceMap</varname> to string 'cascadeRecurse' or use the constant 
++                    <constant>self::CASCADE_RECURSE</constant>. 
++                </para>
++            </listitem>
++
++        </itemizedlist>
++
++        <para>
++            Before a row is deleted from the parent table, or its primary key values updated, any 
++            rows in the dependent table that refer to the parent's row are deleted or updated first.
++        </para>
++
+         <example id="zend.db.table.relationships.cascading.example-declaration">
+             <title>Example Declaration of Cascading Operations</title>
+ 

@@ -1,0 +1,155 @@
+<h2>ZF-6591: class_exists call causing autoload in bootstrapabstract</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-09T10:35:36.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-12T05:35:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.1 (12/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jason Eisenmenger (jasoneisen)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11923/BootstrapAbstract.diff">BootstrapAbstract.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>the class_exists() method in BootstrapAbstract::registerPluginResource is launching the autoloader, and tries to include resources without the proper paths.  The second parameter in this method should be false so that it doesn't launch the autoload.</p>
+
+<p>Note, you need to do this to get the errors:</p>
+
+<p>$autoloader-&gt;suppressNotFoundWarnings(false);</p>
+
+<p>as they are <em>not</em> on by default (another bug)</p>
+
+<p>This was created by the fix for:
+<a href="http://framework.zend.com/issues/browse/ZF-6543">http://framework.zend.com/issues/browse/ZF-6543</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-09T12:30:46.000+0000</p> 
+        <div class="body">
+            <p>Removing autoloading would break some functionality that was corrected, however. What is the exact problem?</p>
+
+<p>The idea here is that if the class exists -- i.e., has been or can be autoloaded -- we need to treat it differently so as to ensure that it registers with the bootstrap correctly (which prevents naming collisions). If we do not allow class_exists() to attempt to autoload the class, then we lose this ability.</p>
+
+<p>Is there an actual <em>problem</em> that occurs if autoloading fails to find the class? Or are you simply getting logged notices? You've marked the issue as "critical", but not really indicated what the issue is exactly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jason Eisenmenger (jasoneisen) on 2009-05-09T12:51:08.000+0000</p> 
+        <div class="body">
+            <p>Sorry, yes.  When resources come through as stings, say 'frontController', the autoloader tries to load that class, which is not namespaced.  If you have $autoloader-&gt;setFallbackAutoloader(true);, then it won't find it, obviously, and cause a fatality.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-09T17:22:13.000+0000</p> 
+        <div class="body">
+            <p>Aha -- so, what I'm hearing is that because the default internal autoloader does not do any exception handling, you're observing fatal errors due to uncaught exceptions. I think I know how to proceed from here -- but the solution is not to stop checking for classes, but to make a slight change to the autoloader so as to check for exceptions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-09T17:24:22.000+0000</p> 
+        <div class="body">
+            <p>I've reviewed Zend_Loader_Autoloader, and I see why it behaves differently with suppressNotFoundWarnings enabled versus disabled: in the former case, it runs the try/catch block, while in the latter it does not. This is trivial to correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ben Scholzen (dasprid) on 2009-05-09T17:30:10.000+0000</p> 
+        <div class="body">
+            <p>Matthew, the actual issue was caused by this revision:
+<a href="http://framework.zend.com/code/changelog/Zend_Framework?cs=15439">http://framework.zend.com/code/changelog/…</a></p>
+
+<p>There's actually no bug in 1.8.0 but in the next mini release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-09T17:44:29.000+0000</p> 
+        <div class="body">
+            <p>Loading resource plugins should no longer raise an exception on trunk or 1.8 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jason Eisenmenger (jasoneisen) on 2009-05-11T08:44:01.000+0000</p> 
+        <div class="body">
+            <p>Now it crashes right out of the gate:</p>
+
+<p>Warning: Zend_Loader::include(Bootstrap.php) [zend-loader.include]: failed to open stream: No such file or directory in /Users/Jason/Sites/quadrant/library/Zend/Loader.php on line 83</p>
+
+<p>Warning: Zend_Loader::include() [function.include]: Failed opening 'Bootstrap.php' for inclusion (include_path='/Users/Jason/Sites/quadrant/application/../library:/Users/Jason/Sites/quadrant/application/../library/Doctrine:/Users/Jason/Sites/quadrant/application/library:/Users/Jason/Sites/quadrant/application/models:/Users/Jason/Sites/quadrant/application/models/generated:/Users/Jason/Sites/quadrant/library') in /Users/Jason/Sites/quadrant/library/Zend/Loader.php on line 83</p>
+
+<p>string(925) "#0 [internal function]: Zend_Loader::loadClass('Bootstrap')</p>
+
+<h1>1 /Users/Jason/Sites/quadrant/library/Zend/Loader/Autoloader.php(443): call_user_func(Array, 'Bootstrap')</h1>
+
+<h1>2 [internal function]: Zend_Loader_Autoloader-&gt;_autoload('Bootstrap')</h1>
+
+<h1>3 /Users/Jason/Sites/quadrant/library/Zend/Loader/Autoloader.php(125): call_user_func(Array, 'Bootstrap')</h1>
+
+<h1>4 [internal function]: Zend_Loader_Autoloader::autoload('Bootstrap')</h1>
+
+<h1>5 [internal function]: spl_autoload_call('Bootstrap')</h1>
+
+<h1>6 /Users/Jason/Sites/quadrant/library/Zend/Application.php(266): class_exists('Bootstrap')</h1>
+
+<h1>7 /Users/Jason/Sites/quadrant/library/Zend/Application.php(156): Zend_Application-&gt;setBootstrap('/Users/Jason/Si...', 'Bootstrap')</h1>
+
+<h1>8 /Users/Jason/Sites/quadrant/library/Zend/Application.php(85): Zend_Application-&gt;setOptions(Array)</h1>
+
+<h1>9 /Users/Jason/Sites/quadrant/htdocs/index.php(45): Zend_Application-&gt;__construct('development', '/Users/Jason/Si...')</h1>
+
+<h1>10 {main}"</h1>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-12T05:35:24.000+0000</p> 
+        <div class="body">
+            <p>This should now be resolved in trunk and the 1.8 release branch. <em>whew</em>!</p>
+
+        </div>
+    </div>
+    </div>
+

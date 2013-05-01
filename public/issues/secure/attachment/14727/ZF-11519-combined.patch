@@ -1,0 +1,331 @@
+Index: library/Zend/Dojo/View/Helper/Dojo/Container.php
+===================================================================
+--- library/Zend/Dojo/View/Helper/Dojo/Container.php	(revision 24554)
++++ library/Zend/Dojo/View/Helper/Dojo/Container.php	(working copy)
+@@ -52,6 +52,12 @@
+     protected $_captureObj;
+ 
+     /**
++     * Scheme (https or http)
++     * @var string
++     */
++    protected $_scheme = null;
++
++    /**
+      * Base CDN url to utilize
+      * @var string
+      */
+@@ -118,12 +124,6 @@
+     protected $_localPath = null;
+ 
+     /**
+-     * Root of dojo where all dojo files are installed
+-     * @var string
+-     */
+-    protected $_localRelativePath = null;
+-
+-    /**
+      * Modules to require
+      * @var array
+      */
+@@ -237,6 +237,9 @@
+                         $this->addLayer($layer);
+                     }
+                     break;
++                case 'secure':
++                    $this->setSecure($value);
++                    break;
+                 case 'cdnbase':
+                     $this->setCdnBase($value);
+                     break;
+@@ -400,6 +403,49 @@
+     }
+ 
+     /**
++     * Return scheme (http or https)
++     *
++     * @return string
++     */
++    protected function _getScheme()
++    {
++        if (null === $this->_scheme) {
++            if (isset($_SERVER['HTTPS']) &&  $_SERVER['HTTPS'] === 'on') {
++                $this->_scheme = 'https';
++            } else {
++                $this->_scheme = 'http';
++            }
++        }
++        return $this->_scheme;
++    }
++
++    /**
++     * Public method for setting scheme (http or https)
++     *
++     * @param  bool $value
++     * @return Zend_Dojo_View_Helper_Dojo_Container
++     */
++    public function setSecure($value)
++    {
++        $value = (bool) $value;
++        $this->_scheme = ($value) ? 'https' : 'http';
++        return $this;
++    }
++
++    /**
++     * Correct scheme of provided path (http or https)
++     *
++     * @param  string $path
++     * @return string
++     */
++    protected function _prepareScheme($path)
++    {
++        $path = (string) $path;
++        $scheme = $this->_getScheme();
++        return preg_replace('#^(http://|https://)#i', $scheme . '://', $path);
++    }
++
++    /**
+      * Set CDN base path
+      *
+      * @param  string $url
+@@ -512,6 +558,37 @@
+     }
+ 
+     /**
++     * Determine and return basepath (cdn or local)
++     *
++     * @return string
++     */
++    public function getBasePath()
++    {
++        if ($this->useCdn()) {
++            $path = $this->getCdnBase() . $this->getCdnVersion();
++        } else {
++            $expr = '|[/\\\\]dojo[/\\\\]dojo.js[^/\\\\]*$|i';
++            $path = preg_replace($expr, '', $this->getLocalPath());
++        }
++        return $path;
++    }
++
++    /**
++     * Determine and return sourcepath (cdn or local)
++     *
++     * @return string
++     */
++    public function getSourcePath()
++    {
++        if ($this->useCdn()) {
++            $path = $this->getBasePath() . $this->getCdnDojoPath();
++        } else {
++            $path = $this->getLocalPath();
++        }
++        return $path;
++    }
++
++    /**
+      * Set Dojo configuration
+      *
+      * @param  string $option
+@@ -979,33 +1056,13 @@
+     }
+ 
+     /**
+-     * Retrieve local path to dojo resources for building relative paths
+-     *
+-     * @return string
+-     */
+-    protected function _getLocalRelativePath()
+-    {
+-        if (null === $this->_localRelativePath) {
+-            $localPath = $this->getLocalPath();
+-            $localPath = preg_replace('|[/\\\\]dojo[/\\\\]dojo.js[^/\\\\]*$|i', '', $localPath);
+-            $this->_localRelativePath = $localPath;
+-        }
+-        return $this->_localRelativePath;
+-    }
+-
+-    /**
+      * Render dojo stylesheets
+      *
+      * @return string
+      */
+     protected function _renderStylesheets()
+     {
+-        if ($this->useCdn()) {
+-            $base = $this->getCdnBase()
+-                  . $this->getCdnVersion();
+-        } else {
+-            $base = $this->_getLocalRelativePath();
+-        }
++        $base = $this->_prepareScheme($this->getBasePath());
+ 
+         $registeredStylesheets = $this->getStylesheetModules();
+         foreach ($registeredStylesheets as $stylesheet) {
+@@ -1015,7 +1072,7 @@
+         }
+ 
+         foreach ($this->getStylesheets() as $stylesheet) {
+-            $stylesheets[] = $stylesheet;
++            $stylesheets[] = $this->_prepareScheme($stylesheet);
+         }
+ 
+         if ($this->_registerDojoStylesheet) {
+@@ -1071,16 +1128,9 @@
+      */
+     protected function _renderDojoScriptTag()
+     {
+-        if ($this->useCdn()) {
+-            $source = $this->getCdnBase()
+-                    . $this->getCdnVersion()
+-                    . $this->getCdnDojoPath();
+-        } else {
+-            $source = $this->getLocalPath();
+-        }
+-
+-        $scriptTag = '<script type="text/javascript" src="' . $source . '"></script>';
+-        return $scriptTag;
++        $source = $this->_prepareScheme($this->getSourcePath());
++        $tag = '<script type="text/javascript" src="' . $source . '"></script>';
++        return $tag;
+     }
+ 
+     /**
+@@ -1104,6 +1154,7 @@
+ 
+         $html = array();
+         foreach ($layers as $path) {
++            $path = $this->_prepareScheme($path);
+             $html[] = sprintf(
+                 '<script type="text/javascript" src="%s"></script>',
+                 htmlspecialchars($path, ENT_QUOTES, $enc)
+@@ -1121,9 +1172,16 @@
+     protected function _renderExtras()
+     {
+         $js = array();
++
++        $base = $this->getBasePath();
++        $this->registerModulePath('dojo',  $base . '/dojo');
++        $this->registerModulePath('dijit', $base . '/dijit');
++        $this->registerModulePath('dojox', $base . '/dojox');
++
+         $modulePaths = $this->getModulePaths();
+         if (!empty($modulePaths)) {
+             foreach ($modulePaths as $module => $path) {
++                $path = $this->_prepareScheme($path);
+                 $js[] =  'dojo.registerModulePath("' . $this->view->escape($module) . '", "' . $this->view->escape($path) . '");';
+             }
+         }
+@@ -1202,4 +1260,4 @@
+     {
+         return $this->_zendLoadActions;
+     }
+-}
++}
+\ No newline at end of file
+Index: tests/Zend/Dojo/View/Helper/DojoTest.php
+===================================================================
+--- tests/Zend/Dojo/View/Helper/DojoTest.php	(revision 24554)
++++ tests/Zend/Dojo/View/Helper/DojoTest.php	(working copy)
+@@ -199,6 +199,102 @@
+         $this->helper->setLocalPath('/js/dojo/dojo.js');
+         $this->assertTrue($this->helper->isEnabled());
+     }
++    
++    /**
++     * @group ZF-11519
++     */
++    public function testShouldSetSchemeToHttpWhenServerHttpsIsDisabled()
++    {
++        $this->helper->enable();
++        $this->helper->registerDojoStylesheet(true);
++        $this->helper->addStylesheetModule('dijit.themes.claro');
++        $this->helper->addStylesheet('http://example.org/css/style.css');
++        $this->helper->addLayer('http://example.org/js/layer.js');
++        $this->helper->registerModulePath('module', 'http://example.org/js/module');
++        $html = $this->helper->__toString();
++        $this->assertRegexp('#@import "http://.+/dojo/[0-9.]+/dojo/resources/dojo.css"#', $html);
++        $this->assertRegexp('#@import "http://.+/dojo/[0-9.]+/dijit/themes/claro/claro.css"#', $html);
++        $this->assertContains('@import "http://example.org/css/style.css"', $html);
++        $this->assertRegexp('#src="http://.+/dojo/[0-9.]+/dojo/dojo.xd.js"#', $html);
++        $this->assertContains('src="http://example.org/js/layer.js', $html);
++        $this->assertContains('dojo.registerModulePath("module", "http://example.org/js/module")', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojo", "http://.+/dojo/[0-9.]+/dojo"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dijit", "http://.+/dojo/[0-9.]+/dijit"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojox", "http://.+/dojo/[0-9.]+/dojox"\)#', $html);
++    }
++    
++    /**
++     * @group ZF-11519
++     */
++    public function testShouldSetSchemeToHttpsWhenServerHttpsIsEnabled()
++    {
++        $_SERVER['HTTPS'] = 'on';
++        $this->helper->enable();
++        $this->helper->registerDojoStylesheet(true);
++        $this->helper->addStylesheetModule('dijit.themes.claro');
++        $this->helper->addStylesheet('http://example.org/css/style.css');
++        $this->helper->addLayer('http://example.org/js/layer.js');
++        $this->helper->registerModulePath('module', 'http://example.org/js/module');
++        $html = $this->helper->__toString();
++        $this->assertRegexp('#@import "https://.+/dojo/[0-9.]+/dojo/resources/dojo.css"#', $html);
++        $this->assertRegexp('#@import "https://.+/dojo/[0-9.]+/dijit/themes/claro/claro.css"#', $html);
++        $this->assertContains('@import "https://example.org/css/style.css"', $html);
++        $this->assertRegexp('#src="https://.+/dojo/[0-9.]+/dojo/dojo.xd.js"#', $html);
++        $this->assertContains('src="https://example.org/js/layer.js', $html);
++        $this->assertContains('dojo.registerModulePath("module", "https://example.org/js/module")', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojo", "https://.+/dojo/[0-9.]+/dojo"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dijit", "https://.+/dojo/[0-9.]+/dijit"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojox", "https://.+/dojo/[0-9.]+/dojox"\)#', $html);
++    }
++    
++    /**
++     * @group ZF-11519
++     */
++    public function testShouldSetSchemeToHttpsEvenWhenServerHttpsIsDisabled()
++    {
++        $this->helper->enable();
++        $this->helper->setSecure(true);
++        $this->helper->registerDojoStylesheet(true);
++        $this->helper->addStylesheetModule('dijit.themes.claro');
++        $this->helper->addStylesheet('http://example.org/css/style.css');
++        $this->helper->addLayer('http://example.org/js/layer.js');
++        $this->helper->registerModulePath('module', 'http://example.org/js/module');
++        $html = $this->helper->__toString();
++        $this->assertRegexp('#@import "https://.+/dojo/[0-9.]+/dojo/resources/dojo.css"#', $html);
++        $this->assertRegexp('#@import "https://.+/dojo/[0-9.]+/dijit/themes/claro/claro.css"#', $html);
++        $this->assertContains('@import "https://example.org/css/style.css"', $html);
++        $this->assertRegexp('#src="https://.+/dojo/[0-9.]+/dojo/dojo.xd.js"#', $html);
++        $this->assertContains('src="https://example.org/js/layer.js', $html);
++        $this->assertContains('dojo.registerModulePath("module", "https://example.org/js/module")', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojo", "https://.+/dojo/[0-9.]+/dojo"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dijit", "https://.+/dojo/[0-9.]+/dijit"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojox", "https://.+/dojo/[0-9.]+/dojox"\)#', $html);    
++    }
++    
++    /**
++     * @group ZF-11519
++     */
++    public function testShouldSetSchemeToHttpEvenWhenServerHttpsIsEnabled()
++    {
++        $_SERVER['HTTPS'] = 'on';
++        $this->helper->enable();
++        $this->helper->setSecure(false);
++        $this->helper->registerDojoStylesheet(true);
++        $this->helper->addStylesheetModule('dijit.themes.claro');
++        $this->helper->addStylesheet('http://example.org/css/style.css');
++        $this->helper->addLayer('http://example.org/js/layer.js');
++        $this->helper->registerModulePath('module', 'http://example.org/js/module');
++        $html = $this->helper->__toString();
++        $this->assertRegexp('#@import "http://.+/dojo/[0-9.]+/dojo/resources/dojo.css"#', $html);
++        $this->assertRegexp('#@import "http://.+/dojo/[0-9.]+/dijit/themes/claro/claro.css"#', $html);
++        $this->assertContains('@import "http://example.org/css/style.css"', $html);
++        $this->assertRegexp('#src="http://.+/dojo/[0-9.]+/dojo/dojo.xd.js"#', $html);
++        $this->assertContains('src="http://example.org/js/layer.js', $html);
++        $this->assertContains('dojo.registerModulePath("module", "http://example.org/js/module")', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojo", "http://.+/dojo/[0-9.]+/dojo"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dijit", "http://.+/dojo/[0-9.]+/dijit"\)#', $html);
++        $this->assertRegexp('#dojo.registerModulePath\("dojox", "http://.+/dojo/[0-9.]+/dojox"\)#', $html);
++    }
+ 
+     public function testShouldUtilizeCdnByDefault()
+     {

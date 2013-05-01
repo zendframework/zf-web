@@ -1,0 +1,144 @@
+<h2>ZF-8783: Unit test for Zend_Form_Element_Size::getFileSize fails</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Unit Tests: Problem</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-12T02:46:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-12T06:07:17.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Menno Luiten (mluiten)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+            <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8733">ZF-8733</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12604/ZF-8783.patch">ZF-8783.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Solution to ZF-8733 breaks a current unit test, namely {{Zend_Form_Element_FileTest::testFileSize}}, which relies on {{Zend_File_Transfer_Adapter_Abstract::getFileSize()}} to inspect the actual file size by means of the filesize() function, but since r20141 only returns the file's size attribute (which is falsely set in the Mock adapter). A function called _detectFileSize() is created, but only used in {{Zend_File_Transfer_Adapter_Http}}. Not quite sure what changing getFileSize() function had to do with the references issue though.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-12T04:20:50.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r20215</p>
+
+<p>Thanks for the report
+Note: User provided filesize is seen as unsecure/incorrect and therefor no longer be used</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Menno Luiten (mluiten) on 2010-01-12T04:36:24.000+0000</p> 
+        <div class="body">
+            <p>Isn't that all the more reason to call _detectFileSize() (and _detectMimeType() for that matter) inside the Abstract class as well? In the current implementation, any adapter inherited from Abstract can now determine it's own filesize by setting the size attribute, instead of a check on the filesystem; or is that by design?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-12T04:52:03.000+0000</p> 
+        <div class="body">
+            <p>Expect an adapter which uses a service.
+The service sends the file afterwards and the informations before.</p>
+
+<p>There would be no way to implement this without transferring the file BEFORE accessing the informations. In HTTP the file is send in combination with the informations so this does not matter for HTTP.</p>
+
+<p>Conclusion: This is by design.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Menno Luiten (mluiten) on 2010-01-12T04:58:24.000+0000</p> 
+        <div class="body">
+            <p>In case the answer to the above question is "no", I would propose to add the attached patch; which used _detectFileSize inside the MockAdapter instead of 'relying' on metadata as given by the adapter as an additional unit test. To replicate the 'old' behaviour.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Menno Luiten (mluiten) on 2010-01-12T05:03:39.000+0000</p> 
+        <div class="body">
+            <p>In the service-case, that indeed makes sense... but file size will not be returned if the file is not physically found:</p>
+
+<pre class="highlight"><code>
+if (file_exists($value['name']) || file_exists($value['tmp_name'])) {
+    if ($value['options']['useByteString']) {
+        $result[$key] = self::_toByteString($value['size']);
+    } else {
+        $result[$key] = $value['size'];
+    }
+} else if (empty($value['options']['ignoreNoFile'])) {
+    require_once 'Zend/File/Transfer/Exception.php';
+    throw new Zend_File_Transfer_Exception("File '{$value['name']}' does not exist");
+} else {
+    continue;
+}
+</code></pre>
+
+<p>So in that case, the getFileSize() wouldn't work anyway, right?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-12T05:40:06.000+0000</p> 
+        <div class="body">
+            <p>To your first question:
+No... there is no need to test if an extended adapter works correct.
+_detectFileSize() is a method of Zend_File_Transfer and not the File element.</p>
+
+<p>Additionally there is no need to replicate old (for the file element broken) behaviour. The unittests work as they are intended to work.</p>
+
+<p>To your second question:
+Also wrong... getFileSize() does not always throw an exception when no file was given. When the option "ignoreNoFile" was set then there is a returned value (null/0). The wished behaviour can be set by the extending adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Menno Luiten (mluiten) on 2010-01-12T06:07:16.000+0000</p> 
+        <div class="body">
+            <p>To the additional unit test: you are right... wrong place for the wrong task. thank you :)</p>
+
+<p>To the second part: Not exactly what I meant. I was suggesting that in your Service Adapter analogy (where mime-type, file size, etc is sent before the actual transfer), requesting getFileSize() would always return either an Exception or 0/null, even if the service would set it to something useful. Same story with the mime-type. So while not calling _detectFileSize in Abstract, makes it possible to first send metadata, it will not return those values before the file transfer is complete. Right?</p>
+
+<p>Thanks for your time, just coming to grasps with the inner workings of ZF, one step at a time ;)</p>
+
+        </div>
+    </div>
+    </div>
+

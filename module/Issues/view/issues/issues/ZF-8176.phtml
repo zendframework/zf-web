@@ -1,0 +1,178 @@
+<h2>ZF-8176: $parent-&gt;isRunning() never updated after child proccess fork</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-10-29T09:47:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-02-24T03:26:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Victor Grachev (scriptbots)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>ZendX_Console_Process_Unix</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9481">ZF-9481</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12959/Unix.php">Unix.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This code I found in reference manual will never work, cose after fork child process will never change _isRunning variable in parent process and $process1-&gt;isRunning() will always return true even after child process stop running.</p>
+
+<p>==================</p>
+
+<p>class MyProcess extends ZendX_Console_Process_Unix
+{
+protected function _run()
+{
+for ($i = 0; $i &lt; 10; $i++) {
+// Doing something really important which can't wait: sleeping
+sleep(1);
+}
+}
+}</p>
+
+<p>// This part should last about 10 seconds, not 20.
+$process1 = new MyProcess();
+$process1-&gt;start();</p>
+
+<p>$process2 = new MyProcess();
+$process2-&gt;start();</p>
+
+<p>while ($process1-&gt;isRunning() &amp;&amp; $process2-&gt;isRunning()) {
+sleep(1);
+}</p>
+
+<p>echo 'All processes completed';</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mark Nielsen (polothy) on 2009-11-18T13:18:20.000+0000</p> 
+        <div class="body">
+            <p>I seem to be having the same problem, the processes run forever.  I tried the ZendX_Console_Process_UnixTest::testParallel() code and it failed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florian Hoenig (flo) on 2009-12-31T14:18:30.000+0000</p> 
+        <div class="body">
+            <p>Same problem here!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florian Hoenig (flo) on 2010-01-04T14:26:43.000+0000</p> 
+        <div class="body">
+            <p>This will fix the problem on OSX's WAITPID behavior (Linux not yet tested):</p>
+
+<p>public function isRunning()
+{<br />
+    $this-&gt;_isRunning = (0 == pcntl_waitpid($this-&gt;_pid, $status, WNOHANG));
+    return $this-&gt;_isRunning;
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sébastien Cramatte (scramatte) on 2010-01-06T02:13:10.000+0000</p> 
+        <div class="body">
+            <p>The isRunning() fix seems to works under Linux too. 
+I've tested under Debian Lenny.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florian Hoenig (flo) on 2010-01-07T13:27:04.000+0000</p> 
+        <div class="body">
+            <p>Here is another fix.</p>
+
+<p>shmop_read returns a string and therefore it's ($okay === "0") instead of === 0.</p>
+
+<pre><code>/**
+ * Wait for IPC Semaphore
+ * 
+ * @return void
+ */
+private function _waitForIpcSemaphore()
+{
+    while (true) {
+        $okay = shmop_read($this-&gt;_internalSemKey, 0, 1);
+        if ($okay === "0") {
+            break;
+        }
+        usleep(10);
+    }
+}
+</code></pre>
+
+<p>Looks like the class is based on PHP_Fork from PEAR. Really needs some redesign.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ferenc Kovacs (tyrael) on 2010-03-29T05:45:58.000+0000</p> 
+        <div class="body">
+            <p>I've had the the same problem, it seems that the isRunning is only good for checking, whether the process started or not.
+So I implemented an isFinished method with a getFinished and _setFinished.
+isFinished() returns whether or not the process is finished running, getFinished returns when was the _setFinished called, so it can be used for measuring the execution time.</p>
+
+<p>I'm gonna attach the patch.</p>
+
+<p>Tyrael</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ferenc Kovacs (tyrael) on 2010-03-29T05:46:52.000+0000</p> 
+        <div class="body">
+            <p>isFinished, getFinished, _setFinished</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ferenc Kovacs (tyrael) on 2010-03-29T07:34:22.000+0000</p> 
+        <div class="body">
+            <p>sorry, I missed something from the patch.
+I wanted to set the actual time in the _setFinished method, so the "true" should be "time()" there.</p>
+
+<p>Tyrael</p>
+
+        </div>
+    </div>
+    </div>
+

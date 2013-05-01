@@ -1,0 +1,200 @@
+<h2>ZF-190: Make Zend_Db_Rowset, Zend_Db_Row serialisable</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-07-03T19:30:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:12.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.0 (17/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently a Db_Table (and consequently Rows and Rowsets) store a copy of a Zend_Db adapter in each and every instance, which IMO is not ideal. It would sometimes make sense to serialise a Table or Row (storing a model within a session,for example) but currently this isn't possible as a PDO connection cannot be serialised. There is also the issue of duplication and (less significantly) memory usage for each instance.</p>
+
+<p>Instead, I would like to propose some form of named Db Adapter storage, so that each Model (= Zend_Db_Table) can simply call a static method to retrieve a registered instance of a Zend_Db_Adapter.</p>
+
+<p>E.g.</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db::factory(
+    $config-&gt;db-&gt;connection,
+    $config-&gt;db-&gt;asArray());
+$db-&gt;setFetchMode(Zend_Db::FETCH_OBJ);
+Zend_Db::register('myConnection1', $db);
+</code></pre>
+
+<p>and then when a new Zend_Table is instantiated, it can be assigned a named connection (e.g. 'myConnection1') or simply default to the first registered connection.</p>
+
+<p>E.g.</p>
+
+<pre class="highlight"><code>
+$myTable = new Zend_Db_Table('myConnection1');
+</code></pre>
+
+<p>My only slight concern would be a slight performance hit, but believe this would be outweighed by the ability to serialise Tables so that database connections are only called when actually needed.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-07-04T13:54:37.000+0000</p> 
+        <div class="body">
+            <p>In PHP5, objects are always passed by reference. Thus, objects "assigned" to variables, only result in variables containing handles to the object.  Object cloning performs shallow copies, but cloning is not used.</p>
+
+<p>Would you provide some example use cases, where a Db_Table_Row, Db_Table_Rowset, or Db_Table needs access to the original Db_Adapter?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2006-07-05T07:35:02.000+0000</p> 
+        <div class="body">
+            <p>A real-world scenario might be:-</p>
+
+<p>// Do a user login and serialise it ready for session storage:-</p>
+
+<p>$db = Zend_Db::factory('pdoMysql', $params);
+Zend_Db_Table::setDefaultAdapter($db);</p>
+
+<p>class UserList extends Zend_Db_Table {}</p>
+
+<p>$user = new UserList();
+serialize($user);</p>
+
+<p>...boom...</p>
+
+<p>If the Zend_Db_Table didn't store a copy of the Db adapter instance, it would serialize just fine.</p>
+
+<p>It would take something like replacing all the $this-&gt;_db with $this-&gt;getDbConnection($this-&gt;_dbname) where $this-&gt;_dbname is a named connection and is populated during the _setup()</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-07-05T12:47:27.000+0000</p> 
+        <div class="body">
+            <p>The use case above appears to serialize an empty Zend_Db_Table object, which doesn't appear to provide any useful purpose.</p>
+
+<p>I understand that the instance variable holding a <em>reference</em> to a Db adapter causes serialize() for Db_Table* objects to go "... boom ..".</p>
+
+<p>However, I don't yet see a reason (common use case) why we would want to serialize Db_Table_Row, Db_Table_Rowset, or Db_Table, where "[they] need access to the original Db_Adapter".  In the situations I'm thinking of, it seems more straightforward to either serialize the object without the _db instance variable, or to recreate the object, populated with up-to-date information, rather than a stale, serialized copy that needs to have its database connection auto-magically restored.</p>
+
+<p>Specifically, if we don't have some reasonable use cases, for needing to <em>also</em> serialize the Db adapter along with the Db_Table* object, then why wouldn't it be trivially easy to use __sleep() and __wakeup() to enable support for serialize()?</p>
+
+<p><a href="http://www.zend.com/manual/language.oop5.magic.php">http://www.zend.com/manual/language.oop5.magic.php</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2006-07-05T16:58:31.000+0000</p> 
+        <div class="body">
+            <p>Hi Gavin</p>
+
+<p>Sorry about the example above - it saved the wrong copy when I copied and pasted (is there any way to edit these posts?). What I meant to show was that you could find a user record and store that like</p>
+
+<p>$record = $user-&gt;find('1');
+$_SESSION['user'] = $record;</p>
+
+<p>indeed, I was suggesting that the reference to the Db adapter is removed entirely. So instead of storing the connection in the _db property, a method like getDbConnection() is called that performs a static call to a Db registry - see the Zend_Log class as an example.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-07-05T17:13:13.000+0000</p> 
+        <div class="body">
+            <p>Wouldn't  __sleep() accomplish this, by simply returning an array of the names of the object's variables excluding '_db'?</p>
+
+<p>Then serialize should work as desired.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2006-07-05T17:17:42.000+0000</p> 
+        <div class="body">
+            <p>How would the row or rowset then re-establish the Db link (or get a reference to it) on __wakeup()?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-07-05T18:16:38.000+0000</p> 
+        <div class="body">
+            <p>That is one reason why I was asking for a practical example "where a Db_Table_Row, Db_Table_Rowset, or Db_Table needs access to the original Db_Adapter".  Upon unserializing, in most cases, I'd expect the data to be "stale" and probably used as "read-only" data.</p>
+
+<p>Regardless, I suppose __sleep() could simply add an object property containing textual information about $this-&gt;_db for use by __wakeup().  However, I don't see a way to remove the added property after serialize does its work, which might not be an issue, if the program is shutting down (hence the need for serialize).  If the program is simply transmitting a serialized copy to another program, and plan to continue using these objects, then the overhead of the added properties might become an issue.  I still don't see a practical, common need for saving any information about the adapter with the object when calling serialize().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:15:30.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-01-05T17:06:25.000+0000</p> 
+        <div class="body">
+            <p>Recategorize as Zend_Db_Table component.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-03-15T19:35:56.000+0000</p> 
+        <div class="body">
+            <p>Update summary, format description.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-03-16T00:09:24.000+0000</p> 
+        <div class="body">
+            <p>A solution for serializing (sic) Row and Rowset objects has been committed in revision 3995.</p>
+
+<p>A Row or Rowset has an internal instance variable $_connected.  Under normal circumstances, $_connected is true.  This means that the object has a reference to a Zend_Db_Table, which in turn has a reference to a connected Zend_Db_Adapter.  Therefore applying changes to the Row to the database is permitted.</p>
+
+<p>When a Row or Rowset is serialized, object variables are stored, but <em>not</em> the Zend_Db_Table reference.  When a Row or Rowset is deserialized, the $_connected variable is set to false.  A "disconnected" Row or Rowset is effectively read-only.  The save() method, delete() method, and any find() methods for table relationships throw an exception.</p>
+
+<p>The deserialized Row or Rowset can be "reconnected" to a live database connection using the setTable() method.  The app developer specifies a Table object.  After setting the Row/Rowset's Table reference using setTable(), that deserialized Row or Rowset can run methods that require a live database connection.</p>
+
+<p>The table specified in the setTable() method must be an instance of the same class (or a class derived from) that which was used to create the Row or Rowset originally.  That table class name is stored in the serialized Row or Rowset.</p>
+
+        </div>
+    </div>
+    </div>
+

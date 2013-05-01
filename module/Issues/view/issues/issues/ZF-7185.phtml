@@ -1,0 +1,252 @@
+<h2>ZF-7185: getdate() expects parameter 1 to be long, string given</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-02T10:29:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-29T04:59:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.1 (11/Aug/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marcel Kloubert (generalpd)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7188">ZF-7188</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I am defining an own error handler and catching anything. Also function calls like @getdate() are catched there.</p>
+
+<p>The problem is that I get a message like that:</p>
+
+<pre><code>getdate() expects parameter 1 to be long, string given
+
+
+FILE: /xyz/classes/Zend/Date/DateObject.php
+LINE: 667
+</code></pre>
+
+<p>I solved the problem by changing the line 667 to the following one:</p>
+
+<pre><code>return @getdate((int)$timestamp);
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-02T10:49:49.000+0000</p> 
+        <div class="body">
+            <p>So you propose to  limit Zend_Date to dates from 1914 to 2034 because you use a own error handler ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2009-07-02T10:56:32.000+0000</p> 
+        <div class="body">
+            <p>I would suggest you stop catching anything, but only catch errors/exceptions.</p>
+
+<p>Furthermore I was not able to reproduce this issue, propose to close it as cannot reproduce, or just 'not an issue'..</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-02T11:08:55.000+0000</p> 
+        <div class="body">
+            <p>Closing as non-issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcel Kloubert (generalpd) on 2009-07-02T11:38:15.000+0000</p> 
+        <div class="body">
+            <p>@Dolf Schimmel: I need the complete error output for my debugger.</p>
+
+<p>If you look at the code starting at line 666:</p>
+
+<pre><code>    // 32bit timestamp
+    if (abs($timestamp) &lt;= 0x7FFFFFFF) {
+        return @getdate($timestamp);
+    }
+</code></pre>
+
+<p>The IF-block is only called if the value of abs($timestamp) is smaller or equal 2^31 - 1, that means, that values that are greater, are handled by the following lines. So I think it might be better (and no problem) to cast the $timestamp variable to integer to produce no E_WARNINGs. I don't think that a cast like that creates limitations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florent PELLET (f.pellet) on 2009-07-06T01:17:50.000+0000</p> 
+        <div class="body">
+            <p>I don't know how to reopen issue, I copy ZF-7188 here, hoping that my remarks will be seen.</p>
+
+<p>By looking better, the problem is that getUnixTimestamp() (class DateObject) send an empty string when this-&gt; _ unixTimestamp equals null, while getdate() waits null value and not empty string.</p>
+
+<p>A correction which I propose is simple. It is enough to add a line in getUnixTimestamp() , which becomes:</p>
+
+<pre class="highlight"><code>
+    protected function getUnixTimestamp()
+    {
+        if($this-&gt;_unixTimestamp === null) return null;
+
+        if ($this-&gt;_unixTimestamp === intval($this-&gt;_unixTimestamp)) {
+            return (int) $this-&gt;_unixTimestamp;
+        } else {
+            return (string) $this-&gt;_unixTimestamp;
+        }
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-06T02:55:50.000+0000</p> 
+        <div class="body">
+            <p>I still don't see a issue.</p>
+
+<p>When the timestamp is not a number it will call "getdate()" which itself will NEVER raise an exception as it accepts to be called without a parameter.</p>
+
+<p>Line 661 prevents that non numeric values are given to the code below this line. Line 666 will in the case you described never be called.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcel Kloubert (generalpd) on 2009-07-06T04:26:09.000+0000</p> 
+        <div class="body">
+            <p>I know, but the expression "abs($timestamp)" converts the variabel "$timestamp" to an integer automatically, but the data type of the variable is never changed (if the datatype of $timestamp is string, it keeps at being a string).</p>
+
+<p>It seems so that in some cases the $timestamp is a &gt;&gt;&gt;numeric&lt;&lt;&lt; STRING, so the getdate() function of PHP creates an E_WARNING if the data type of the $timestamp variabel is NOT of the type long.</p>
+
+<p>I don't think that it is much work to do an explicit cast ... in other words: to write "@getdate((int)$timestamp)" instead of "@getdate($timestamp)"</p>
+
+<p>I am using PHP 5.2.6 (LAMP)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-06T05:21:55.000+0000</p> 
+        <div class="body">
+            <p>There is only one way how this could happen...</p>
+
+<p>When you call Zend_Date-&gt;getDate() manually by giving a string within unix rage. And this case MUST throw an error/warning as it's then expected behaviour.</p>
+
+<p>For Zend_Date the handling is like this:
+Initiation -&gt; timestamp = null -&gt; getDate() called at line 662
+Integer given -&gt; Timestamp in unix timestamp range -&gt; getDate($timestamp) called at line 667
+String given -&gt; Timestamp extends unix range -&gt; code below 669 is called.</p>
+
+<p>And a empty string, like mentioned above, will not pass the isNumeric check at line 661.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcel Kloubert (generalpd) on 2009-07-06T07:39:03.000+0000</p> 
+        <div class="body">
+            <p>dann halt nicht ... <em>grummel</em></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-06T08:33:12.000+0000</p> 
+        <div class="body">
+            <p>Please stay at a language which all readers are conform with.</p>
+
+<p>As you referred to line 667, what does the line 661 read ?
+It should be "if (!is_numeric($timestamp)) {"</p>
+
+<p>I expect that it's different in your case which would be the reason why you have a different behaviour.
+As I said: Empty strings or null would not pass the numeric check and unix timestamps MUST be integers otherwise we would have multiple other problems.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marcel Kloubert (generalpd) on 2009-07-06T16:48:33.000+0000</p> 
+        <div class="body">
+            <p>@Thomas Weidner: Mal eine Frage: Wo kann man sein Benutzerkonto löschen? Ich finde nichts im Bereich 'Profile' ... :-(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florent PELLET (f.pellet) on 2009-07-07T00:54:39.000+0000</p> 
+        <div class="body">
+            <p>@Thomas Weidner</p>
+
+<p>I don't call "getdate()" manually.</p>
+
+<p>A warning is sent on this line:
+New Zend_Date ('2009-07-01 00:00:00');
+a DateTime in MySql 5.1</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2009-07-07T01:00:02.000+0000</p> 
+        <div class="body">
+            <p>"Zend recommends the most current release of PHP for critical security and performance enhancements, and currently supports PHP 5.2.4 or later."</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florent PELLET (f.pellet) on 2009-07-07T05:07:23.000+0000</p> 
+        <div class="body">
+            <p>@Dolf Schimmel : ??
+Marcel Kloubert use PHP 5.2.6 ( &gt; PHP 5.2.4) and I use PHP 5.2.9, MySQL 5.1.30 (last wamp version) and ZF 1.8.4 (last stable release)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alex Frenkel (sirshurf) on 2009-07-29T02:50:08.000+0000</p> 
+        <div class="body">
+            <p>Sorry to make a point, I am using the latest Zend_Core for i5, and it has a 5.2.6.</p>
+
+<p>I have this problem too and I used a fix by Florent PELLET.</p>
+
+<p>Now it works correctly.</p>
+
+<p>Since I dont know how to reopen it, I am voting for this fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-07-29T04:59:11.000+0000</p> 
+        <div class="body">
+            <p>I can not fix something which does no longer exist since almost 2 months.
+Eighter use the latest Release or handle the warning in another way.
+Voting for a already fixed issue is somewhat useless.</p>
+
+        </div>
+    </div>
+    </div>
+

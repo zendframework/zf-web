@@ -1,0 +1,188 @@
+<h2>ZF-3020: Zend_Session error handler handles anything in E_ALL as an exception</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-02T08:37:24.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-19T11:11:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Taylor Barstow (tbarstow)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1325">ZF-1325</a></li>
+            <li><a href="/issues/browse/ZF-2900">ZF-2900</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is related to to <a href="http://framework.zend.com/issues/browse/ZF-1325">http://framework.zend.com/issues/browse/ZF-1325</a></p>
+
+<p>Take a look at how Zend_Session::start() handles errors that might arise during the real session_start() call:</p>
+
+<p>set_error_handler(array('Zend_Session_Exception', 'handleSessionStartError'), E_ALL);</p>
+
+<p>That error handler will unconditionally set a flag which gets picked up a few lines later (again in Zend_Session::start()):</p>
+
+<pre><code>    if (Zend_Session_Exception::$sessionStartError !== null) {
+       set_error_handler(array('Zend_Session_Exception', 'handleSilentWriteClose'), E_ALL);
+       session_write_close();
+       restore_error_handler();
+       throw new Zend_Session_Exception(__CLASS__ . '::' . __FUNCTION__ . '() - ' . Zend_Session_Exception::$sessionStartError);
+    }
+</code></pre>
+
+<p>So, ANYTHING falling under E_ALL (even E_WARNING or, gasp!, E_NOTICE) will end up raising an exception, and the session will not start.  Surely this is not the desired behavior.</p>
+
+<p>In my particular situation, this is a problem because I get a couple of normal/expected include warnings thrown by Zend_Loader during my unserialize callback.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Taylor Barstow (tbarstow) on 2008-04-02T08:38:45.000+0000</p> 
+        <div class="body">
+            <p>The fix to ZF-1325 is the source of this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-04-22T10:45:14.000+0000</p> 
+        <div class="body">
+            <p>This is actually the intended behavior.</p>
+
+<p>In fact, Zend_Loader shouldnt be throwing warnings or errors, and there is a new verison in the incubator that supresses those issues.</p>
+
+<p>I'm gonna wait on this.</p>
+
+<p>--</p>
+
+<p>Updating project management info.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florian Hoenig (flo) on 2008-06-10T13:53:40.000+0000</p> 
+        <div class="body">
+            <p>I found the same problem. Have a custom savehandler, which uses Zend_XmlRpc_Client. This somewhere down the chain uses Zend_Validate_Hostname and for a .com address it tried to do Zend_Loader::isReadible("Zend/Validate/Hostname/Com.php"), which does not exist. isReadible tried to @fopen and surpress the warning when it does NOT exist. Which is fine, except the above error handler seems to ignore the "@" in front of the fread.</p>
+
+<p>This renders Zend_XmlRpc_Client unusable within a session savehandler callback !!</p>
+
+<p>ZF 1.5.2 that is. and php 5.2.1  through php 5.2.6 is what I tried. I when through all possible php.ini settings, but could not figure out how to make Zend_Session::start() respect the @ in Zend_Loader.</p>
+
+<p>Any glue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon R Jones (studio24) on 2008-11-02T07:17:34.000+0000</p> 
+        <div class="body">
+            <p>I've been looking into ZF-2900 which is related.</p>
+
+<p>The underlying problem is that if a custom error handler is used then this will always receive errors, even when they are suppressed. The solution is to update the code in Zend_Session_Exception::handleSessionStartError as so:</p>
+
+<pre class="highlight"><code>
+static public function handleSessionStartError($errno, $errstr, $errfile, $errline, $errcontext)
+    {
+        // Do not throw an exception if this is a suppressed error - see ZF-3020
+        if (error_reporting() === 0) {
+                return;
+        }
+        self::$sessionStartError = $errfile . '(Line:' . $errline . '): Error #' . $errno . ' ' . $errstr . ' ' . $errcontext;
+    }
+</code></pre>
+
+<p>I can make this change myself if given SVN commit rights to the Zend/Session folder</p>
+
+<p>best wishes,
+Simon</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-10T09:34:07.000+0000</p> 
+        <div class="body">
+            <p>Will reevaluate within 2 weeks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-01-10T14:05:59.000+0000</p> 
+        <div class="body">
+            <p>WHAT THE F^H^H^H^H^H^H^H^H^H^HI would really appreciate it if this were fixed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-01-10T14:12:22.000+0000</p> 
+        <div class="body">
+            <p>To add more information to my previous outburst,</p>
+
+<p>Warning: array_key_exists() [function.array-key-exists]: The first argument should be either a string or an integer in /usr/lib64/php/ZendFramework-1.7.1/library/Zend/Filter/Input.php on line 429</p>
+
+<p>Fatal error: Exception thrown without a stack frame in Unknown on line 0</p>
+
+<p>Disappears when Zend_Session::start() is commented out.</p>
+
+<p>Thanks Ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-01-10T14:46:24.000+0000</p> 
+        <div class="body">
+            <p>(sigh)  Sorry, everyone.  It turns out it was my own dumb fault.  There was a bug in our custom save handler.  After two hours trying to debug this, my eyes were going cross-eyed.  My apologies.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chad Cunningham (gnarfle) on 2009-04-09T13:50:04.000+0000</p> 
+        <div class="body">
+            <p>So is the 1.8 suppress warnings going to fix this? And is there any chance of it being fixed in the 1.7 branch? I've hacked ZendSession to get around this which I hate doing, but this bug is a royal pain.</p>
+
+<p>I'm using Doctrine with ZF, and doctrine does a lot of on the fly class generation. Zend autoloader tries to load these classes when it doesn't need to, however I can easily suppress these warnings by setting error reporting and the app works great. That is, until I try to save a Doctrine object in the session. Since Zend Session believes that I don't know what I want my error reporting to be and throws an exception for every little warning or notice, it will grind the app to a halt for a problem that I've configured the app to ignore.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-05-19T11:11:15.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r15640</p>
+
+        </div>
+    </div>
+    </div>
+

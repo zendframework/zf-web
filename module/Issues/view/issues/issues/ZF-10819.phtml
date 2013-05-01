@@ -1,0 +1,138 @@
+<h2>ZF-10819: Zend_Date: addMonth(340) returns a completely wrong answer.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-12-13T09:17:22.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:38:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Derek Illchuk (dillchuk)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Calling Zend_Date-&gt;addMonth(340) returns a completely wrong answer.</p>
+
+<p>Test code:</p>
+
+<p>$test = new Zend_Date();
+$test-&gt;addMonth(340);
+echo $test.'<br />'; // "Is bad: Jan 1, 1970 ..."
+$test = new Zend_Date();
+$test-&gt;addWeek(340*5);
+echo $test.'<br />'; // "Is good: Jul 13, 2043 ..."
+die;</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2010-12-20T09:21:51.000+0000</p> 
+        <div class="body">
+            <p>You are probably overrunning the 32-bit integer used to store the date (ie: # of seconds since Jan 1 1970). Any date past 19.01.2038 03:14:07 ( =2147480047 ) can't be represented in "epoch time" using the 32 bit signed integer datatype. 
+See: <a href="http://bugs.php.net/bug.php?id=7103">http://bugs.php.net/bug.php?id=7103</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Derek Illchuk (dillchuk) on 2010-12-20T15:52:38.000+0000</p> 
+        <div class="body">
+            <p>Indeed yes!</p>
+
+<p>Yet, the documentation of Zends /Date/DateObject.php's <code>mktime</code> function says:</p>
+
+<p>"The timestamp returned by mktime() can exceed the precision of traditional UNIX timestamps, by allowing PHP to auto-convert to using a float value."</p>
+
+<p>So, in this case, the documented functionality is breaking.</p>
+
+<p>Here's a fix that works for me, although I don't know the ramifications (if any).  You'll notice a lot of effort has gone into the DateTime::mktime function to handle the case of year &gt;= 2038, so my fix simply uses that as a fallback.</p>
+
+<pre><code>// In Date/DateObject.php
+protected function mktime($hour, $minute, $second, $month, $day, $year, $gmt = false)
+{
+    // complete date but in 32bit timestamp - use PHP internal
+    if ((1901 &lt; $year) and ($year &lt; 2038)) {
+
+        $oldzone = @date_default_timezone_get();
+        // Timezone also includes DST settings, therefor substracting the GMT offset is not enough
+        // We have to set the correct timezone to get the right value
+        if (($this-&gt;_timezone != $oldzone) and ($gmt === false)) {
+            date_default_timezone_set($this-&gt;_timezone);
+        }
+        $result = ($gmt) ? @gmmktime($hour, $minute, $second, $month, $day, $year)
+                         :   @mktime($hour, $minute, $second, $month, $day, $year);
+        date_default_timezone_set($oldzone);
+
+        /**
+         * The fix: check that system `mktime` returns something valid.  If not,
+         * carry on, it might be better than giving up.
+         */
+        // return $result;
+        if ( $result !== false ) {
+          return $result;
+        }
+</code></pre>
+
+<p>I hope you give this a fair shake, as it looks like a straightforward fix -- you've heard that before ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Derek Illchuk (dillchuk) on 2010-12-20T16:56:53.000+0000</p> 
+        <div class="body">
+            <p>I just noticed that <code>mktime</code> returns -1 (instead of FALSE) prior to PHP 5.1, so that would be:</p>
+
+<p>if ( $result !== false &amp;&amp; $result != -1 ) { return $result; }</p>
+
+<p>All the best,
+Derek</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-12-20T17:19:03.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+I just noticed that <code>mktime</code> returns -1 (instead of FALSE) prior to PHP 5.1, so that would be:
+{quote}
+Yes but is recommendation of the framework 5.2.4 or later see <a href="http://framework.zend.com/svn/framework/standard/trunk/README.txt">http://framework.zend.com/svn/framework/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

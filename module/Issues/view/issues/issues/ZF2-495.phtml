@@ -1,0 +1,198 @@
+<h2>ZF2-495: First optional routing segment acts as mandatory one</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-08-23T15:28:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-23T15:46:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alexander Gerasimov (xl32)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Mvc\Router</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF2-486">ZF2-486</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have following route options:</p>
+
+<pre><code>return array(
+    'router' =&gt; array(
+        'routes' =&gt; array(
+            'home' =&gt; array(
+                'type' =&gt; 'segment',
+                'options' =&gt; array(
+                    'route' =&gt; '[/:lang][/:controller][/:action][/]',
+                    'defaults' =&gt; array(
+                        '__NAMESPACE__' =&gt; 'Application\Controller',
+                        'controller' =&gt; 'Index',
+                        'action' =&gt; 'index',
+                        'lang' =&gt; 'en',
+                    ),
+                    'constraints' =&gt; array(
+                        'lang' =&gt; '[a-z]{2}',
+                        'controller' =&gt; '[a-zA-Z][a-zA-Z0-9_-]{2,}',
+                        'action' =&gt; '[a-zA-Z][a-zA-Z0-9_-]*',
+                    ),
+                ),
+            ),
+        ),
+    ),
+</code></pre>
+
+<p>They work good if lang is present, e.g.:
+/ru/
+/ru/news
+/ru/news/
+/ru/news/edit/</p>
+
+<p>But not for</p>
+
+<p>/news</p>
+
+<p>So, it looks like first optional routing segment acts as mandatory one.
+Checked with ZF2 rc3 and rc4.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2012-08-23T15:43:59.000+0000</p> 
+        <div class="body">
+            <p>If you have multiple optional segments, they must be nested; otherwise, the router does not know which segment has matched, nor can it assemble a route.</p>
+
+<p>See <a href="http://framework.zend.com/issues/browse/ZF2-486">http://framework.zend.com/issues/browse/ZF2-486</a> as well -- same route defined there, but the issue was with URL generation. The solution is to nest the conditionals:</p>
+
+<pre class="highlight"><code>
+'route' =&gt; '[/:lang[/:controller[/:action]]][/]',
+</code></pre>
+
+<p>If you want to be able to match also just '[:controller[/:action]]', then you should (a) add constraints to the "lang" parameter on the "lang" route, and create and register another route with just '[:controller[/:action]]' <em>before</em> registering the lang route (so that when the lang route fails, it falls back to this route).</p>
+
+<pre class="highlight"><code>
+return array(
+    'router' =&gt; array(
+        'routes' =&gt; array(
+            'home' =&gt; array(
+                'type' =&gt; 'segment',
+                'options' =&gt; array(
+                    'route' =&gt; '[/:lang[/:controller[/:action]]][/]',
+                    'defaults' =&gt; array(
+                        '_NAMESPACE_' =&gt; 'Application\Controller',
+                        'controller'  =&gt; 'Index',
+                        'action'      =&gt; 'index',
+                        'lang'        =&gt; 'en',
+                    ),
+                    'constraints' =&gt; array(
+                        'controller' =&gt; '[a-zA-Z][a-zA-Z0-9_-]{2,}',
+                        'action'     =&gt; '[a-zA-Z][a-zA-Z0-9_-]*',
+                    ),
+                ),
+            ),
+            'lang' =&gt; array(
+                'type' =&gt; 'segment',
+                'options' =&gt; array(
+                    'route' =&gt; '[/:lang[/:controller[/:action]]][/]',
+                    'defaults' =&gt; array(
+                        '_NAMESPACE_' =&gt; 'Application\Controller',
+                        'controller'  =&gt; 'Index',
+                        'action'      =&gt; 'index',
+                        'lang'        =&gt; 'en',
+                    ),
+                    'constraints' =&gt; array(
+                        'lang'       =&gt; '[a-z]{2}',
+                        'controller' =&gt; '[a-zA-Z][a-zA-Z0-9_-]{2,}',
+                        'action'     =&gt; '[a-zA-Z][a-zA-Z0-9_-]*',
+                    ),
+                ),
+            ),
+        ),
+    ),
+),
+</code></pre>
+
+<p>Yes, it's redundant, but it's also more efficient and more properly describes what you want to have happen: if we have a valid lang identifier as the first segment, then we matched the "lang" route; otherwise, we should move on to the next route.</p>
+
+<p>Alternately, you could do the "controller" type route as a child route:</p>
+
+<pre class="highlight"><code>
+
+return array(
+    'router' =&gt; array(
+        'routes' =&gt; array(
+            'home' =&gt; array(
+                'type' =&gt; 'segment',
+                'options' =&gt; array(
+                    'route' =&gt; '/[:lang]',
+                    'defaults' =&gt; array(
+                        '_NAMESPACE_' =&gt; 'Application\Controller',
+                        'controller'  =&gt; 'Index',
+                        'action'      =&gt; 'index',
+                        'lang'        =&gt; 'en',
+                    ),
+                    'constraints' =&gt; array(
+                        'lang'       =&gt; '[a-z]{2}',
+                    ),
+                ),
+                'may_terminate' =&gt; true,
+                'child_routes' =&gt; array(
+                    'controller' =&gt; array(
+                        'type' =&gt; 'segment',
+                        'options' =&gt; array(
+                            'route' =&gt; '/[:controller[/:action]]][/]',
+                            'defaults' =&gt; array(
+                                'controller'  =&gt; 'Index',
+                                'action'      =&gt; 'index',
+                            ),
+                            'constraints' =&gt; array(
+                                'controller' =&gt; '[a-zA-Z][a-zA-Z0-9_-]{2,}',
+                                'action'     =&gt; '[a-zA-Z][a-zA-Z0-9_-]*',
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+),
+</code></pre>
+
+<p>I haven't tested the above, but it should work. When generating a URL that includes the controller, you'd use the route name "home/controller".</p>
+
+        </div>
+    </div>
+    </div>
+

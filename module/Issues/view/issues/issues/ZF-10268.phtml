@@ -1,0 +1,129 @@
+<h2>ZF-10268: Calling Zend_Db_Table_Row_Abstract::_doUpdate() without updated data unnecessarily calls _refresh()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-08-05T05:35:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:55.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jacob Kiers (jacobkiers)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Problem (always repeatable):
+This problem is verified to happen in version 1.10.5-1.10.7. I haven't checked other versions.</p>
+
+<p>Let's suppose we have a Zend_Db_Table_Rowset object with 100 Zend_Db_Table_Row objects, of which some are updated and others (most) are not:</p>
+
+<pre class="highlight"><code>
+$table = new Zend_Db_Table($options);
+$rows = $table-&gt;fetchAll();
+$rows-&gt;current()-&gt;someData = 'changed';
+</code></pre>
+
+<p>Let's say in another part of the application these rows are saved. That part doesn't know (nor cares) whether these rows are updated.</p>
+
+<pre class="highlight"><code>
+foreach ($rows as $row) {
+    $row-&gt;save();
+}
+</code></pre>
+
+<p>Now, the only changed row is updated, but all rows are read again from the database, thereby hurting performance.</p>
+
+<p>Suggested solution:
+Make sure the database is only read after an update has taken place.</p>
+
+<p>If someone wants to explicitly refresh the row, she can always use the refresh() function.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jacob Kiers (jacobkiers) on 2010-08-05T05:38:33.000+0000</p> 
+        <div class="body">
+            <p>I tried to attach a patch, but I couldn't find some place to add attachments. Hereby the code:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Db/Table/Row/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Row/Abstract.php  (revision 22791)
++++ library/Zend/Db/Table/Row/Abstract.php  (working copy)
+@@ -559,22 +559,21 @@
+          */
+         if (count($diffData) &gt; 0) {
+             $this-&gt;_getTable()-&gt;update($diffData, $where);
+-        }
+ 
+-        /**
+-         * Run post-UPDATE logic.  Do this before the _refresh()
+-         * so the _postUpdate() function can tell the difference
+-         * between changed data and clean (pre-changed) data.
+-         */
+-        $this-&gt;_postUpdate();
++       /**
++        * Run post-UPDATE logic.  Do this before the _refresh()
++        * so the _postUpdate() function can tell the difference
++        * between changed data and clean (pre-changed) data.
++        */
++       $this-&gt;_postUpdate();
+ 
++       /**
++        * Refresh the data just in case triggers in the RDBMS changed
++        * any columns.  Also this resets the _cleanData.
++        */
++       $this-&gt;_refresh();
++   }
+         /**
+-         * Refresh the data just in case triggers in the RDBMS changed
+-         * any columns.  Also this resets the _cleanData.
+-         */
+-        $this-&gt;_refresh();
+-
+-        /**
+          * Return the primary key value(s) as an array
+          * if the key is compound or a scalar if the key
+          * is a scalar.
+
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

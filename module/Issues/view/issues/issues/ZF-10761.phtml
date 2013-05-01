@@ -1,0 +1,181 @@
+<h2>ZF-10761: Add FirePhp 'Collapsed' option for GROUP_START message type</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-30T14:50:34.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-12-17T10:39:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.2 (30/Dec/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Chris Strosser (cstrosser)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christoph Dorn (cadorn)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Wildfire</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The option that allows users to initialize the FirePHP console with items initially collapsed is currently not available. Users who use the FirePHP extensively for debugging, and viewing a variety of data will find it difficult to maneuver through data without closing unnecessary grouped items. The addition of this feature to the Zend Framework, which most likely already exists within the FirePHPCore class (see: <a href="http://www.firephp.org/HQ/Use.html">http://www.firephp.org/HQ/Use.html</a>), makes the FirePHP interface more usable in the context of ZF.</p>
+
+<p>(Not sure I have permissions to upload, so here is the patch - inline.)</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Wildfire/Plugin/FirePhp.php
+===================================================================
+--- library/Zend/Wildfire/Plugin/FirePhp.php    (revision 23462)
++++ library/Zend/Wildfire/Plugin/FirePhp.php    (working copy)
+@@ -322,12 +322,13 @@
+     /**
+      * Starts a group in the Firebug Console
+      *
+-     * @param string $title The title of the group
++     * @param  string  $title    The title of the group
++     * @param  array   $options  OPTIONAL Setting 'Collapsed' to true will initialize group collapsed instead of expanded
+      * @return TRUE if the group instruction was added to the response headers or buffered.
+      */
+-    public static function group($title)
++    public static function group($title, $options = array())
+     {
+-        return self::send(null, $title, self::GROUP_START);
++        return self::send(null, $title, self::GROUP_START, $options);
+     }
+ 
+     /**
+@@ -487,7 +488,13 @@
+             unset($meta['File']);
+             unset($meta['Line']);
+         }
+-
++        
++        if ($meta['Type'] == self::GROUP_START) {
++            if (isset($options['Collapsed']) &amp;&amp; $options['Collapsed']) {
++                $meta['Collapsed'] = 'true';
++            }
++        }
++
+         if ($meta['Type'] == self::DUMP) {
+ 
+           return $firephp-&gt;_recordMessage(self::STRUCTURE_URI_DUMP,
+    
+</code></pre>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Wildfire/WildfireTest.php
+===================================================================
+--- tests/Zend/Wildfire/WildfireTest.php    (revision 23462)
++++ tests/Zend/Wildfire/WildfireTest.php    (working copy)
+@@ -604,7 +604,28 @@
+ 
+         $this-&gt;assertTrue($this-&gt;_response-&gt;verifyHeaders($headers));
+     }
++    
++    public function testMessageGroupsWithCollapsedOption()
++    {
++        $this-&gt;_setupWithFrontController();
+ 
++        Zend_Wildfire_Plugin_FirePhp::group('Test Group', array('Collapsed' =&gt; true));
++        Zend_Wildfire_Plugin_FirePhp::send('Test Message');
++        Zend_Wildfire_Plugin_FirePhp::groupEnd();
++
++        $this-&gt;_controller-&gt;dispatch();
++
++        $headers = array();
++        $headers['X-Wf-Protocol-1'] = '<a href="http://meta.wildfirehq.org/Protocol/JsonStream/0.2">http://meta.wildfirehq.org/Protocol/JsonStream/0.2</a>';
++        $headers['X-Wf-1-Structure-1'] = '<a href="http://meta.firephp.org/Wildfire/Structure/FirePHP/FirebugConsole/0.1">http://meta.firephp.org/Wildfire/Structure/…</a>';
++        $headers['X-Wf-1-Plugin-1'] = '<a href="http://meta.firephp.org/Wildfire/Plugin/ZendFramework/FirePHP/1.6.2">http://meta.firephp.org/Wildfire/Plugin/…</a>';
++        $headers['X-Wf-1-1-1-1'] = '69|[{"Type":"GROUP_START","Label":"Test Group","Collapsed":"true"},null]|';
++        $headers['X-Wf-1-1-1-2'] = '31|[{"Type":"LOG"},"Test Message"]|';
++        $headers['X-Wf-1-1-1-3'] = '27|[{"Type":"GROUP_END"},null]|';
++
++        $this-&gt;assertTrue($this-&gt;_response-&gt;verifyHeaders($headers));
++    }
++
+     public function testMessageComparison()
+     {
+         $label = 'Message';
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-12-01T00:27:06.000+0000</p> 
+        <div class="body">
+            <p>This patch break BC should be used func_get_arg(s).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Strosser (cstrosser) on 2010-12-01T08:38:55.000+0000</p> 
+        <div class="body">
+            <p>In what way does it break BC? We are only adding a parameter to group(), which shouldn't affect anything b/c the original function only uses one parameter, $title. What are you seeing?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-12-02T12:09:30.000+0000</p> 
+        <div class="body">
+            <p>This patch should be fine. We'll need a unit test as well that verifies the header output with the option set.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Strosser (cstrosser) on 2010-12-03T08:21:15.000+0000</p> 
+        <div class="body">
+            <p>Added patch for WildfireTest.php unit test.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-12-03T08:37:17.000+0000</p> 
+        <div class="body">
+            <p><em>looks</em> good to me. Have not tested. Thanks!</p>
+
+<p>These patches can be applied by anyone. I'll try and get to it next week.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2010-12-17T10:38:11.000+0000</p> 
+        <div class="body">
+            <p>Committed:</p>
+
+<p><a href="http://framework.zend.com/code/revision.php?repname=Zend+Framework&amp;path=%2F&amp;rev=23531&amp;peg=23531">http://framework.zend.com/code/revision.php/…</a>
+<a href="http://framework.zend.com/code/revision.php?repname=Zend+Framework&amp;path=%2F&amp;rev=23532&amp;peg=23532">http://framework.zend.com/code/revision.php/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

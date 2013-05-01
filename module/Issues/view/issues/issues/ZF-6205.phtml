@@ -1,0 +1,330 @@
+<h2>ZF-6205: Serializer doesn't support cyclic reference</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-03T05:28:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-16T13:29:06.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.4 (23/Jun/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Mikaël LABRUT (ml_kiiwy)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Wade Arnold (wadearnold)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11990/009-Incubator-Zend_Amf_Parse_Amf0_Serializer.patch">009-Incubator-Zend_Amf_Parse_Amf0_Serializer.patch</a></li>
+            <li><a href="/issues/secure/attachment/11883/main.mxml">main.mxml</a></li>
+            <li><a href="/issues/secure/attachment/11877/patch_serializer.patch">patch_serializer.patch</a></li>
+            <li><a href="/issues/secure/attachment/11893/patch_serializer_v2.patch">patch_serializer_v2.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The class : Zend_Amf_Parse_Amf3_Serializer doesn't support cyclic references. (I didn't test the Zend_Amf_Parse_Amf0_Serializer).</p>
+
+<p>Problem sample :
+class ServiceProvider
+{
+    /**
+     * @return TestObject
+     */
+    public function testGetRecursiveObject()
+    {
+        $o = new TestObject();
+        $o-&gt;recursive = new TestObject();
+        $o-&gt;recursive-&gt;recursive = $o;
+        return $o;
+    }
+}</p>
+
+<p>When you call testGetRecursiveObject() with an AMF request, the server doesn't respond. What is worse is that : on Win Vista the apache server stops running.
+This problem is critical : no error is returned by the server.</p>
+
+<p>The solution to solve this problem, is to use the "reference system" described in the AMF3 specifications.</p>
+
+<p>I've tried to solve the problem myself but unfortunately without success :  I think i didn't write the good code for writing the object reference on the output stream.</p>
+
+<p>Here is the patch :</p>
+
+<h1>Index: Serializer.php</h1>
+
+<p>--- Serializer.php  (revision 14591)
++++ Serializer.php  (working copy)
+@@ -35,6 +35,8 @@
+  */
+ class Zend_Amf_Parse_Amf3_Serializer extends Zend_Amf_Parse_Serializer
+ {
++   private $_references = array();
++<br />
+     /**
+      * Serialize PHP types to AMF3 and write to stream
+      *
+@@ -250,6 +252,24 @@
+         return $this;
+     }</p>
+
+<ul><li>public function writeReference($object)</li>
+<li>{</li>
+<li>$this-&gt;_stream-&gt;writeByte(0x07);</li>
+<li>$ref = &amp; $object;</li>
+<li>$ref = $ref &lt;&lt; 1;</li>
+<li>$this-&gt;writeInteger($ref);</li>
+<li>}</li>
+<li></li>
+<li>private function referenceExist($object)</li>
+<li>{</li>
+<li>if(in_array($object, $this-&gt;_references, true)) {</li>
+<li>return true;</li>
+<li>} else {</li>
+<li>$this-&gt;_references[] = $object;</li>
+<li>return false;</li>
+<li>}</li>
+<li>}</li>
+<li>
+ /**
+
+<ul><li>Write object to ouput stream</li>
+<li>
+@@ -258,6 +278,11 @@
+*/
+public function writeObject($object)
+{</li>
+</ul></li>
+<li>if($this-&gt;referenceExist($object)) {</li>
+<li>$this-&gt;writeReference($object);</li>
+<li>return $this;</li>
+<li>}</li>
+<li>
+     $encoding  = Zend_Amf_Constants::ET_PROPLIST;
+     $className = '';</li>
+</ul>
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mikaël LABRUT (ml_kiiwy) on 2009-04-17T09:42:46.000+0000</p> 
+        <div class="body">
+            <p>This patch correct the problem</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikaël LABRUT (ml_kiiwy) on 2009-04-17T09:50:51.000+0000</p> 
+        <div class="body">
+            <p>I think that I solve the problem.</p>
+
+<p>You can try my patch in attachment.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Arnold (wadearnold) on 2009-04-17T18:03:32.000+0000</p> 
+        <div class="body">
+            <p>Confirmed that the patch does not break any of the old unit tests. Creating unit tests that expose the additional functionality.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Arnold (wadearnold) on 2009-04-18T12:55:04.000+0000</p> 
+        <div class="body">
+            <p>First I have confirmed that cyclic references do not work inside of ZendAmf and crash the serialize. However after testing your patch with the below service I no longer received any PHP errors but I never received a response from or a valid AMF byte-stream in flex. When trying to debug with Charles Proxy it actually takes down the application. This usually happens with malformed AMF responses. Where you able to make it work?</p>
+
+<p>Thanks!</p>
+
+<pre class="highlight"><code>
+&lt;?php 
+class Recursive {
+    
+    public function testGetRecursiveObject() { 
+        $o = new TestObject(); 
+        $o-&gt;recursive = new TestObject(); 
+        $o-&gt;recursive-&gt;recursive = $o; 
+        return $o; 
+    }
+}
+
+class TestObject {
+    public $recursive;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikaël LABRUT (ml_kiiwy) on 2009-04-20T01:28:42.000+0000</p> 
+        <div class="body">
+            <p>I test my patch with Flex 3 and ServiceCapture and occured no problem. (In attachment my minimal MXML file)</p>
+
+<p>I don't understand where is your problem ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mikaël LABRUT (ml_kiiwy) on 2009-04-27T01:20:10.000+0000</p> 
+        <div class="body">
+            <p>This patch fix an other problem relative to arrays.</p>
+
+<p>Explanation (from amfphp library)
+        //Circular referencing is disabled in arrays
+        //Because if the array contains only primitive values,
+        //Then === will say that the two arrays are strictly equal
+        //if they contain the same values, even if they are really distinct
+        //if(($key = patched_array_search($d, $this-&gt;storedObjects, TRUE)) === FALSE )</p>
+
+<p>So we just need to save the index information into _references table when an array is serialized.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-05-29T07:08:35.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I'm having the same problem here too and the patch didn't fix the problem.</p>
+
+<p>To be clear -</p>
+
+<p>We're sending data from Flash with circular references, and they get decoded into PHP fine.  The problem exists in the opposite direction - sending the data back from PHP to Flash.</p>
+
+<p>It seems odd to me that the bug is asymmetric.</p>
+
+<p>More than happy to help with testing patches.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-06-03T07:53:18.000+0000</p> 
+        <div class="body">
+            <p>I've been looking into this further (we really need it to work so I'm trying to hack together a fix), and I'm really confused by how this works.  We're sending amf3 requests from Flash, and they are certainly arriving as part of the request as amf 3 (error_log("client version $clientVersion"); ) in  the readMessage method in Zend_Amf_Request definitely says 3.  However, the $clientVersion variable is never promoted to a member variable - I see there's a $_clientType member, but that doesn't seem to get set, and defaults to 0.</p>
+
+<p>Worse, the Amf3 Serializer never even gets included - putting an error_log call at the top of the file (outside the class even) , never shows up.</p>
+
+<p>Looking through the code, I can't find any connection between getting an Amf3 request, and sending an Amf3 Response.   The _handle method of the Server certainly wants to send back amf0, based on objectEncoding it gets from the request (which surely should be 3, since that's what $clientVersion is!?), and the only way I can see the Amf3 Serializer being loaded is in the Amf0 Serializer's writeAmf3TypeMarker method, which has a comment which says, "Once AMF3 is encountered it will not return to AMf0", yet I cannot find any code-evidence that is the case, and this method isn't being called anyway.</p>
+
+<p>I'm sure I am just being dense and there's something silly we're doing wrong as nobody else seems to have a problem with amf3 ;) Is there any obvious way to force amf3, since setting the objectEncoding to 3 in Flash doesn't seem to work for us?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-06-03T08:58:19.000+0000</p> 
+        <div class="body">
+            <p>Manually applying the patch changes to the Amf0 Serializer just gives me client.data.underflow error, so that doesn't seem like a viable workaround :(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Arnold (wadearnold) on 2009-06-03T09:55:59.000+0000</p> 
+        <div class="body">
+            <p>@penny the $clientVersion does not explicitly meant hat the data is going to be AMF3. In most cases it just means it is coming from a flash player 9 or greater player which supports AMF3. The deserialization process starts in the amf0 system and until it encounters and AMF3 type it stays AMF0. If you are using netconnection you will almost always stay inside of amf0. RemoteObject is wrapped in a RemoteMessage that is an AM3 type so if you use remoteobject it will always be amf3. Hope that helps.</p>
+
+<p>There are two patches that we committed yesterday for resource handling and authentication and this is next on the list!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-06-04T02:21:22.000+0000</p> 
+        <div class="body">
+            <p>Hi Wade, thanks for replying.    I'm happy to help with debugging or testing if that helps develop a fix for this circular reference problem.</p>
+
+<p>I can be reached on irc (Mjollnir` on freenode/oftc) or skype (mjollnir__) and I will try patches.</p>
+
+<p>Cheers!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Klug (stefanklug) on 2009-06-08T02:24:45.000+0000</p> 
+        <div class="body">
+            <p>Just a note. This bug is mostly a duplicate of ZF-6641.
+The patch provided here will not work in all cases as it doesn't reference XML data, Date objects etc.
+In ZF-6641 I provided a patch which also fixes this problem.</p>
+
+<p>Stefan</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Klug (stefanklug) on 2009-06-09T00:57:03.000+0000</p> 
+        <div class="body">
+            <p>Hi Penny, are you really running Amf0 only? If you could provide a testcase for your issue it would be easier to fix.
+I attached a patch for the Amf0 Serializer which adds support for references. This patch is a quick shot and not tested at all (as I already said a testcase is needed).</p>
+
+<p>Regards Stefan</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-06-09T09:07:04.000+0000</p> 
+        <div class="body">
+            <p>argh, I can't figure out how to making it do Amf3 - Here's a simple test case:</p>
+
+<p><a href="http://paste.dollyfish.net.nz/6bcd3e">http://paste.dollyfish.net.nz/6bcd3e</a></p>
+
+<p>and the flash side, we're using the code here:</p>
+
+<p><a href="http://git.penny.liip.ch/?p=amftester.git;a=summary">http://git.penny.liip.ch//…</a></p>
+
+<p>When I uncomment the second $return, I get Object in the flash view. When I comment it out, I get ... nothing.. anger.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-06-09T09:11:41.000+0000</p> 
+        <div class="body">
+            <p>Sorry, should have tried the patch before speaking.</p>
+
+<p>At initial testing (with test data, not the real data since my flash guy is away this week), it seems to completely fix the problem! You are my hero!</p>
+
+<p>Still no idea why it's not switching to Amf3, but if this solves the problem I'll be really happy.   I'll test again with real data and get back to you.</p>
+
+<p><em>Thanks</em></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Penny Leach (mjollnir) on 2009-06-16T09:01:09.000+0000</p> 
+        <div class="body">
+            <p>Confirm this patch completely fixed the problem.  Stefan, thanks so much!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wade Arnold (wadearnold) on 2009-06-16T13:29:06.000+0000</p> 
+        <div class="body">
+            <p>Issues has been resolved in the standard trunk. Patch and unit test have been committed. Thanks everyone for the patch and for the test cases!</p>
+
+        </div>
+    </div>
+    </div>
+

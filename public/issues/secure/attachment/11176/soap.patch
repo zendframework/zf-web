@@ -1,0 +1,547 @@
+Index: Wsdl.php
+===================================================================
+--- Wsdl.php	(revisão 8721)
++++ Wsdl.php	(cópia de trabalho)
+@@ -33,14 +33,32 @@
+      */
+ 
+     private $wsdl;
+-    
++
+     /**
+      * @var array Class information
+      */
+-     
++
+     public $class;
+ 
+     /**
++     * @var string URI where the WSDL will be available
++     */
++
++    private $_uri;
++
++    /**
++     * @var DOMElement
++     */
++    private $_schema = null;
++
++    /**
++     * Types defined on schema
++     *
++     * @var array
++     */
++    private $_includedTypes = array();
++
++    /**
+      * Constructor
+      *
+      * @param string $name Name of the Web Service being Described
+@@ -50,7 +68,7 @@
+     public function __construct($name, $uri)
+     {
+     	if ($uri instanceof Zend_Uri_Http) {
+-    		$uri = $uri->getUri();
++    		$uri = $this->_uri = $uri->getUri();
+     	}
+         $wsdl = "<?xml version='1.0' ?>
+                 <definitions name='$name' targetNamespace='$uri'
+@@ -78,9 +96,9 @@
+     public function &addMessage($name, $parts)
+     {
+         $message = $this->dom->createElement('message');
+-        
++
+         $message->setAttribute('name', $name);
+-        
++
+         if (sizeof($parts) > 0) {
+ 	        foreach ($parts as $name => $type) {
+     	        $part = $this->dom->createElement('part');
+@@ -89,9 +107,9 @@
+             	$message->appendChild($part);
+         	}
+         }
+-        
++
+         $this->wsdl->appendChild($message);
+-        
++
+         return $message;
+     }
+ 
+@@ -107,7 +125,7 @@
+         $portType = $this->dom->createElement('portType');
+         $portType->setAttribute('name', $name);
+         $this->wsdl->appendChild($portType);
+-        
++
+         return $portType;
+     }
+ 
+@@ -126,7 +144,7 @@
+     {
+         $operation = $this->dom->createElement('operation');
+         $operation->setAttribute('name', $name);
+-        
++
+         if (is_string($input) && (strlen(trim($input)) >= 1)) {
+             $node = $this->dom->createElement('input');
+             $node->setAttribute('message', $input);
+@@ -142,9 +160,9 @@
+             $node->setAttribute('message', $fault);
+             $operation->appendChild($node);
+         }
+-        
++
+         $portType->appendChild($operation);
+-        
++
+         return $operation;
+     }
+ 
+@@ -161,9 +179,9 @@
+         $binding = $this->dom->createElement('binding');
+         $binding->setAttribute('name', $name);
+         $binding->setAttribute('type', $portType);
+-        
++
+         $this->wsdl->appendChild($binding);
+-        
++
+         return $binding;
+     }
+ 
+@@ -214,7 +232,7 @@
+             $node->appendChild($soap_node);
+             $operation->appendChild($node);
+         }
+-        
++
+         $binding->appendChild($operation);
+ 
+         return $operation;
+@@ -234,9 +252,9 @@
+         $soap_binding = $this->dom->createElement('soap:binding');
+         $soap_binding->setAttribute('style', $style);
+         $soap_binding->setAttribute('transport', $transport);
+-        
++
+         $binding->appendChild($soap_binding);
+-        
++
+         return $soap_binding;
+     }
+ 
+@@ -255,9 +273,9 @@
+     	}
+         $soap_operation = $this->dom->createElement('soap:operation');
+         $soap_operation->setAttribute('soapAction', $soap_action);
+-        
++
+         $binding->insertBefore($soap_operation, $binding->firstChild);
+-        
++
+         return $soap_operation;
+     }
+ 
+@@ -278,19 +296,19 @@
+     	}
+         $service = $this->dom->createElement('service');
+         $service->setAttribute('name', $name);
+-        
++
+         $port = $this->dom->createElement('port');
+         $port->setAttribute('name', $port_name);
+         $port->setAttribute('binding', $binding);
+-        
++
+         $soap_address = $this->dom->createElement('soap:address');
+         $soap_address->setAttribute('location', $location);
+-        
++
+         $port->appendChild($soap_address);
+         $service->appendChild($port);
+-        
++
+         $this->wsdl->appendChild($service);
+-        
++
+         return $service;
+     }
+ 
+@@ -333,7 +351,7 @@
+             $this->wsdl->appendChild($dom);
+         }
+     }
+-    
++
+     /**
+      * Return the WSDL as XML
+      *
+@@ -344,13 +362,13 @@
+     {
+    		return $this->dom->saveXML();
+     }
+-    
++
+     /**
+      * Return DOM Document
+      *
+      * @return object DomDocum ent
+      */
+-     
++
+     public function toDomDocument()
+     {
+         return $this->dom;
+@@ -371,6 +389,97 @@
+             return file_put_contents($filename, $this->toXML());
+         }
+     }
++
++    /**
++     * Returns an XSD Type for the given PHP type
++     *
++     * @param string $type PHP Type to get the XSD type for
++     * @return string
++     */
++    public function getType($type)
++    {
++        switch ($type) {
++            case 'string':
++            case 'str':
++                return 'xsd:string';
++                break;
++            case 'int':
++            case 'integer':
++                return 'xsd:int';
++                break;
++            case 'float':
++            case 'double':
++                return 'xsd:float';
++                break;
++            case 'boolean':
++            case 'bool':
++                return 'xsd:boolean';
++                break;
++            case 'array':
++                return 'soap-enc:Array';
++                break;
++            case 'object':
++                return 'xsd:struct';
++                break;
++            case 'mixed':
++                return 'xsd:anyType';
++                break;
++            case 'void':
++                return '';
++            default:
++                if (class_exists($type))
++                    return $this->addComplexType($type);
++                else
++                    return 'xsd:anyType';
++			}
++    }
++
++    /**
++     * Add a {@link http://www.w3.org/TR/wsdl#_types types} data type definition
++     *
++     * @param string $type Name of the class to be specified
++     * @return string XSD Type for the given PHP type
++     */
++    public function addComplexType($type)
++    {
++
++        if (in_array($type, $this->_includedTypes)) {
++            return "tns:$type";
++        }
++
++        if ($this->_schema === null) {
++            $this->_schema = $this->dom->createElement('xsd:schema');
++            $this->_schema->setAttribute('targetNamespace', $this->_uri);
++            $types = $this->dom->createElement('types');
++            $types->appendChild($this->_schema);
++            $this->wsdl->appendChild($types);
++        }
++
++        $class = new ReflectionClass($type);
++
++        $complexType = $this->dom->createElement('xsd:complexType');
++        $complexType->setAttribute('name', $type);
++
++        $all = $this->dom->createElement('xsd:all');
++
++        foreach ($class->getProperties() as $property) {
++
++            if (preg_match_all('/@var\s+([^\s]+)/m', $property->getDocComment(), $matches)) {
++                $element = $this->dom->createElement('xsd:element');
++                $element->setAttribute('name', $property->getName());
++                $element->setAttribute('type', $this->getType(trim($matches[1][0])));
++                $all->appendChild($element);
++            }
++
++        }
++
++        $complexType->appendChild($all);
++        $this->_schema->appendChild($complexType);
++
++        $this->_includedTypes[] = $type;
++
++        return "tns:$type";
++    }
+ }
+ 
+ 
+Index: AutoDiscover.php
+===================================================================
+--- AutoDiscover.php	(revisão 8721)
++++ AutoDiscover.php	(cópia de trabalho)
+@@ -31,17 +31,17 @@
+ 	 * @var Zend_Soap_Wsdl
+ 	 */
+     private $_wsdl = null;
+-    
++
+     /**
+      * @var Zend_Server_Reflection
+      */
+     private $_reflection = null;
+-    
++
+     /**
+      * @var array
+      */
+     private $_functions = array();
+-    
++
+     /**
+      * Constructor
+      */
+@@ -49,7 +49,7 @@
+     {
+     	$this->_reflection = new Zend_Server_Reflection();
+     }
+-    
++
+     /**
+      * Set the Class the SOAP server will use
+      *
+@@ -61,17 +61,16 @@
+     {
+     	$uri = Zend_Uri::factory('http://'  .$_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME']);
+     	$wsdl = new Zend_Soap_Wsdl($class, $uri);
+-    	
+     	$port = $wsdl->addPortType($class . 'Port');
+         $binding = $wsdl->addBinding($class . 'Binding', 'tns:' .$class. 'Port');
+-        
++
+         $wsdl->addSoapBinding($binding, 'rpc');
+         $wsdl->addService($class . 'Service', $class . 'Port', 'tns:' . $class . 'Binding', $uri);
+ 		foreach ($this->_reflection->reflectClass($class)->getMethods() as $method) {
+ 			foreach ($method->getPrototypes() as $prototype) {
+ 				$args = array();
+ 				foreach ($prototype->getParameters() as $param) {
+-					$args[$param->getName()] = self::getType($param->getType());
++					$args[$param->getName()] = $wsdl->getType($param->getType());
+ 				}
+ 				$message = $wsdl->addMessage($method->getName() . 'Request', $args);
+ 				$desc = $method->getDescription();
+@@ -79,7 +78,7 @@
+ 					//$wsdl->addDocumentation($message, $desc);
+ 				}
+ 				if ($prototype->getReturnType() != "void") {
+-					$message = $wsdl->addMessage($method->getName() . 'Response', array($method->getName() . 'Return' => self::getType($prototype->getReturnType())));
++					$message = $wsdl->addMessage($method->getName() . 'Response', array($method->getName() . 'Return' => $wsdl->getType($prototype->getReturnType())));
+ 				}
+ 				 /* <wsdl:portType>'s */
+            		$portOperation = $wsdl->addPortOperation($port, $method->getName(), 'tns:' .$method->getName(). 'Request', 'tns:' .$method->getName(). 'Response');
+@@ -87,18 +86,18 @@
+ 	                //$wsdl->addDocumentation($portOperation, $desc);
+ 	            }
+            		/* </wsdl:portType>'s */
+-            
++
+ 	            /* <wsdl:binding>'s */
+ 	            $operation = $wsdl->addBindingOperation($binding, $method->getName(),  array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"), array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"));
+ 	            $wsdl->addSoapOperation($binding, $uri->getUri() . '#' .$method->getName());
+ 	            /* </wsdl:binding>'s */
+-	            
++
+ 	            $this->_functions[] = $method->getName();
+ 			}
+ 		}
+ 		$this->_wsdl = $wsdl;
+     }
+-    
++
+     /**
+      * Add a Single or Multiple Functions to the WSDL
+      *
+@@ -110,33 +109,34 @@
+     	static $port;
+     	static $operation;
+     	static $binding;
+-    	
++
+     	if (!is_array($function)) {
+     		$function = (array) $function;
+     	}
+-    	
++
+     	$uri = Zend_Uri::factory('http://'  .$_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME']);
+ 
+     	if (!($this->_wsdl instanceof Zend_Soap_Wsdl)) {
+ 	    	$parts = explode('.', basename($_SERVER['SCRIPT_NAME']));
+ 	    	$name = $parts[0];
+ 	    	$wsdl = new Zend_Soap_Wsdl($name, $uri);
+-	    	
++
+ 	    	$port = $wsdl->addPortType($name . 'Port');
+ 	        $binding = $wsdl->addBinding($name . 'Binding', 'tns:' .$name. 'Port');
+-	        
++
+ 	        $wsdl->addSoapBinding($binding, 'rpc');
+ 	        $wsdl->addService($name . 'Service', $name . 'Port', 'tns:' . $name . 'Binding', $uri);
+     	} else {
+     		$wsdl = $this->_wsdl;
+     	}
+-    	
++
+     	foreach ($function as $func) {
+     		$method = $this->_reflection->reflectFunction($func);
+ 			foreach ($method->getPrototypes() as $prototype) {
+ 				$args = array();
++
+ 				foreach ($prototype->getParameters() as $param) {
+-					$args[$param->getName()] = self::getType($param->getType());
++					$args[$param->getName()] = $wsdl->getType($param->getType());
+ 				}
+ 				$message = $wsdl->addMessage($method->getName() . 'Request', $args);
+ 				$desc = $method->getDescription();
+@@ -144,7 +144,7 @@
+ 					//$wsdl->addDocumentation($message, $desc);
+ 				}
+ 				if ($prototype->getReturnType() != "void") {
+-					$message = $wsdl->addMessage($method->getName() . 'Response', array($method->getName() . 'Return' => self::getType($prototype->getReturnType())));
++					$message = $wsdl->addMessage($method->getName() . 'Response', array($method->getName() . 'Return' => $wsdl->getType($prototype->getReturnType())));
+ 				}
+ 				 /* <wsdl:portType>'s */
+            		$portOperation = $wsdl->addPortOperation($port, $method->getName(), 'tns:' .$method->getName(). 'Request', 'tns:' .$method->getName(). 'Response');
+@@ -152,21 +152,21 @@
+ 	                //$wsdl->addDocumentation($portOperation, $desc);
+ 	            }
+            		/* </wsdl:portType>'s */
+-            
++
+ 	            /* <wsdl:binding>'s */
+ 	            $operation = $wsdl->addBindingOperation($binding, $method->getName(),  array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"), array('use' => 'encoded', 'encodingStyle' => "http://schemas.xmlsoap.org/soap/encoding/"));
+ 	            $wsdl->addSoapOperation($binding, $uri->getUri() . '#' .$method->getName());
+ 	            /* </wsdl:binding>'s */
+-			
++
+ 				$this->_functions[] = $method->getName();
+-				
++
+ 				// We will only add one prototype
+ 				break;
+ 			}
+     	}
+ 		$this->_wsdl = $wsdl;
+     }
+-    
++
+     /**
+      * Action to take when an error occurs
+      *
+@@ -176,9 +176,9 @@
+      */
+     public function fault($fault = null, $code = null)
+     {
+-    	
++
+     }
+-    
++
+     /**
+      * Handle the Request
+      *
+@@ -191,7 +191,7 @@
+     	}
+     	$this->_wsdl->dump();
+     }
+-    
++
+     /**
+      * Return an array of functions in the WSDL
+      *
+@@ -199,9 +199,9 @@
+      */
+     public function getFunctions()
+     {
+-    	return $this->_functions;	
++    	return $this->_functions;
+     }
+-    
++
+     /**
+      * Load Functions
+      *
+@@ -210,9 +210,9 @@
+      */
+     public function loadFunctions($definition)
+     {
+-    	
++
+     }
+-    
++
+     /**
+      * Set Persistance
+      *
+@@ -224,45 +224,5 @@
+ 
+     }
+ 
+-    /**
+-     * Returns an XSD Type for the given PHP type
+-     *
+-     * @param string $type PHP Type to get the XSD type for
+-     * @return string
+-     */
+-    static function getType($type)
+-    {
+-        switch ($type) {
+-            case 'string':
+-            case 'str':
+-                return 'xsd:string';
+-                break;
+-            case 'int':
+-            case 'integer':
+-                return 'xsd:int';
+-                break;
+-            case 'float':
+-            case 'double':
+-                return 'xsd:float';
+-                break;
+-            case 'boolean':
+-            case 'bool':
+-                return 'xsd:boolean';
+-                break;
+-            case 'array':
+-                return 'soap-enc:Array';
+-                break;
+-            case 'object':
+-                return 'xsd:struct';
+-                break;
+-            case 'mixed':
+-                return 'xsd:anyType';
+-                break;
+-            case 'void':
+-                return '';
+-            default:
+-                return 'xsd:anyType';
+-        }
+-    }
+ }
+ 

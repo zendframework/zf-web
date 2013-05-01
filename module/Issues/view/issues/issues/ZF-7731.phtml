@@ -1,0 +1,178 @@
+<h2>ZF-7731: Zend_Date_DateObject::date returns timestamp with added timezone offset when timestamp is outside the range of what PHP's date() can handle</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-31T05:41:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-01T03:18:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Robin Lindroos (robinlindroos)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7740">ZF-7740</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Getting the timestamp of a Zend_Date object returns a wrong timestamp if the timestamp is outside the range of what PHP's date() function can handle. That is roughly years 1901 to 2038 on my system. In the method Zend_Date_DateObject::date the timestamp is added with the current timezone offset if the year is outside the range 1901 - 2038. As I have understood it the timestamp is not timezone-dependant and should therefore always be relative to the GMT timezone. In other words the timestamp should stay the same regardless of what timezone you are in. I'm in the timezone "Europe/Helsinki" or "EET" with a timezone offset of 7200 seconds. This offset is always wrongly added to the timestamp if it is outside the 1901 - 2038 range, but stays as it is if inside that range.</p>
+
+<p>Code to proove the bug:
+&lt;?php
+date_default_timezone_set('EET');
+//December 6th 1917 10:10:10
+$timeArr = array('day' =&gt; 6, 'month' =&gt; 12, 'year' =&gt; 1917, 'hour' =&gt; 10, 'minute' =&gt; 10, 'second' =&gt; 10);
+$dateObj = new Zend_Date($timeArr);
+var_dump($dateObj); //shows that the private _unixTimestamp has a value of -1643212190
+echo $dateObj-&gt;get(Zend_Date::TIMESTAMP); //returns -1643212190 which is correct
+
+//December 6th 1817 10:10:10
+$timeArr = array('day' =&gt; 6, 'month' =&gt; 12, 'year' =&gt; 1817, 'hour' =&gt; 10, 'minute' =&gt; 10, 'second' =&gt; 10);
+$dateObj = new Zend_Date($timeArr);
+var_dump($dateObj); //shows that the private _unixTimestamp has a value of -4798885790
+echo $dateObj-&gt;get(Zend_Date::TIMESTAMP); //returns -4798878590 which is incorrect
+
+//December 6th 2041 10:10:10
+$timeArr = array('day' =&gt; 6, 'month' =&gt; 12, 'year' =&gt; 2041, 'hour' =&gt; 10, 'minute' =&gt; 10, 'second' =&gt; 10);
+$dateObj = new Zend_Date($timeArr);
+var_dump($dateObj); //shows that the private _unixTimestamp has a value of 2269930210
+echo $dateObj-&gt;get(Zend_Date::TIMESTAMP); //returns 2269937410 which is incorrect
+?&gt;</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-08-31T10:15:48.000+0000</p> 
+        <div class="body">
+            <p>You should have checked yourself your assumption. Then you would have seen that it's incorrect.
+Run the following example code:</p>
+
+<pre class="highlight"><code>
+date_default_timezone_set('EET');
+var_dump(mktime(0,0,0,10,10,2008));
+$date = new Zend_Date('10.10.2008 00:00:00 EET');
+var_dump($date-&gt;getTimestamp());
+
+date_default_timezone_set('GMT');
+var_dump(mktime(0,0,0,10,10,2008));
+$date = new Zend_Date('10.10.2008 00:00:00 GMT');
+var_dump($date-&gt;getTimestamp());
+</code></pre>
+
+<p>The returned content is:</p>
+
+<pre class="highlight"><code>
+int 1223586000
+string '1223586000' (length=10)
+int 1223596800
+string '1223596800' (length=10)
+</code></pre>
+
+<p>As you can see the timestamp IS dependent from the timezone. When you think a little bit then the reason is quite logically.</p>
+
+<p>When you set a date within timezone 1 then within timezone 2 the ACTUAL date is not the same... it differs by the timezone at the same timestamp.</p>
+
+<p>At the timestamp where GMT has 02:00:00 within GMT+1 you have 03:00:00. By setting 02:00:00 within the timezone GMT+1 you have of course a difference of one hour which you are setting.</p>
+
+<p>So the behaviour you have seen is correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robin Lindroos (robinlindroos) on 2009-08-31T10:45:35.000+0000</p> 
+        <div class="body">
+            <p>Yes, everything is fine with dates inside the range of 1901 to 2038, so your example works fine as I new from my example. And Zend_Date::getTimestamp() always returns the correct timestamp. But if you call Zend_Date::get(Zend_Date::TIMESTAMP) then the value is incorrect. Let me give you another more simple example to demonstrate what goes wrong:</p>
+
+<pre class="highlight"><code>
+$timestamp = '-1643212190';
+$dateObj = new Zend_Date($timestamp);
+echo $timestamp . "\n";
+echo $dateObj-&gt;getTimestamp() . "\n";
+echo $dateObj-&gt;get(Zend_Date::TIMESTAMP) . "\n";
+
+$timestamp = '-4798885790';
+$dateObj = new Zend_Date($timestamp);
+echo $timestamp . "\n";
+echo $dateObj-&gt;getTimestamp() . "\n";
+echo $dateObj-&gt;get(Zend_Date::TIMESTAMP);
+</code></pre>
+
+<p>This produces the output:</p>
+
+<pre class="highlight"><code>
+-1643212190
+-1643212190
+-1643212190
+-4798885790
+-4798885790
+-4798878590
+</code></pre>
+
+<p>Why is the last unix timestamp not the same when calling get(Zend_Date::TIMESTAMP) and calling getTimestamp()?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robin Lindroos (robinlindroos) on 2009-09-01T01:04:50.000+0000</p> 
+        <div class="body">
+            <p>The explanation Thomas Weidner gives here does not solve the issue I have. Of course the timestamp differs depending on the timezone when SETTING the date of a Zend_Date object from a date. But the timestamp should not be different in different timezones when GETTING the timestamp from the Zend_Date object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-09-01T02:50:45.000+0000</p> 
+        <div class="body">
+            <p>You noted in your description:
+{quote}
+ As I have understood it the timestamp is not timezone-dependant and should therefore always be relative to the GMT timezone. In other words the timestamp should stay the same regardless of what timezone you are in.
+{quote}</p>
+
+<p>This is a false assumption as you can see in the attached example. The timezone is always different for the same date when you are in another timezone.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robin Lindroos (robinlindroos) on 2009-09-01T03:18:03.000+0000</p> 
+        <div class="body">
+            <p>Yes, I just meant that the timestamp is not and should not be timezode-dependant when getting the timezone from the date object. So just problem in communication :)</p>
+
+<p>But great work with Zend_Date! It will be an invaluable part of our PHP project where it is necessary to handle dates as timestamps before the year 1901.</p>
+
+        </div>
+    </div>
+    </div>
+

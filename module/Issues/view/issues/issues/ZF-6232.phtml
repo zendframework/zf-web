@@ -1,0 +1,185 @@
+<h2>ZF-6232: findManyToManyRowset() returns columns from the intersection table</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-07T08:58:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-16T08:30:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.2 (24/Feb/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ludek Stepan (ludek.stepan)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3709">ZF-3709</a></li>
+            <li><a href="/issues/browse/ZF-10626">ZF-10626</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12763/zf6232.r21084.patch">zf6232.r21084.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<p>I've found that the method findManyToManyRowset() from the Zend_Db_Table_Row_Abstract returns all columns both from the matching and intersection tables in the resulting rowset. Is that safe? I mean what happens if the matching and intersection table have a same column name with different values? Would the results be valid? However the $select sets integrityCheck off and consequently the result rowset's readOnly flag off too.</p>
+
+<p>I believe that the result rowset should not contain any values from the intersection table or optionaly some column collision checking should be done. At least, if the resulting rowset contains any values from the intersection table, it should be marked readOnly for sake.</p>
+
+<p>Best regards,
+Ludek Stepan</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Steve Yang (steve.yang) on 2009-08-03T08:56:51.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I believe this is linked to <a href="http://framework.zend.com/issues/browse/ZF-3709">http://framework.zend.com/issues/browse/ZF-3709</a></p>
+
+<p>Inside Zend_Db_Table_Row_Abstract line 1053 onwards we have</p>
+
+<pre class="literal">
+ $select-&gt;from(array('i' =&gt; $interName), Zend_Db_Select::SQL_WILDCARD, $interSchema)
+               -&gt;joinInner(array('m' =&gt; $matchName), $joinCond, Zend_Db_Select::SQL_WILDCARD, $matchSchema)
+               -&gt;setIntegrityCheck(false);
+</pre>
+
+<p>I believe the from column declaration is causing the issue and should be</p>
+
+<pre class="literal">
+ $select-&gt;from(array('i' =&gt; $interName), array(), $interSchema)
+               -&gt;joinInner(array('m' =&gt; $matchName), $joinCond, Zend_Db_Select::SQL_WILDCARD, $matchSchema)
+               -&gt;setIntegrityCheck(false);
+</pre>
+
+<p>to hide all the columns of the intersection table.  This would then matchup with the documentation in <a href="http://framework.zend.com/manual/en/zend.db.table.relationships.html#zend.db.table.relationships.fetching.many-to-many">http://framework.zend.com/manual/en/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Rehbein (tech13) on 2010-01-14T10:37:16.000+0000</p> 
+        <div class="body">
+            <p>Comment converted to patch file.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Rehbein (tech13) on 2010-02-18T11:53:19.000+0000</p> 
+        <div class="body">
+            <p>Attached patch with fix and adjustment to a unit test to verify</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-02-19T13:15:08.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk 21100 and in release branch 1.10 in 21102</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-03-10T00:56:37.000+0000</p> 
+        <div class="body">
+            <p>First, i believe this is a behaviour not suited to be changed in a minor version.</p>
+
+<p>I have to agree that overlapping column names could invalidate the result set.</p>
+
+<p>However i disagree with <em>issue 3709</em> that any subsequent {{save()}} will fail with an exception as it would only fail if you explicitly {{<em>set</em>()}} a column of the intersection table, wich does not make any sense.</p>
+
+<p>We would like to adapt these changes as they make our domain model code somewhat less complicated, but we are running into issues.</p>
+
+<p>Previously we used to display a ManyToMany-Rowset using all columns [i.id_r, i.id_m, m.id, m.value]. Then manipulate it and then synchronize it to a Dependent-Rowset using only the columns that represent the intersection [i.id_r, i.id_m]. This is still possible by <em>translating</em>/<em>fixing</em> the column names from [m.id] to [i.id_r (given), i.id_m].</p>
+
+<p>However we are facing an issue when we <em>actually need a value from the intersection table</em>, in other words when the relation contains some data. I have tried to give a Zend_Db_Table_Select statement to findManyToManyRowset().
+bq. {{$this-&gt;select()-&gt;columns(array('i' =&gt; 'value'));}}
+This fails because the intersection Table has not been defined.
+bq. Zend_Db_Select(255): No table has been specified for the FROM clause</p>
+
+<p>+Do we really have to findDependents and then findParents on this rowset to get the information we could retrieve just fine before?+</p>
+
+<p>Another quick but possibly dirty solution would be to revert the behaviour of this fix by overloading findManyToManyRowset with</p>
+
+<pre class="highlight"><code>
+if( $select === null )
+{
+  if( is_string($intersectionTable) )
+  {
+    $intersectionTable = $this-&gt;_getTableFromString($intersectionTable);
+  }
+  $select = $intersectionTable-&gt;select(true);
+}
+</code></pre>
+
+<p>before calling the parent method.</p>
+
+<p>Anyway i'd like this bug to be reopened because of the issue:
++It is not easily possible to include intersection values that are actually needed.+</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by martin hughes (martinph) on 2010-04-29T06:48:29.000+0000</p> 
+        <div class="body">
+            <p>I'm going to agree with Christoph here. This one came as a bit of a surprise in a minor release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by William McDonald Buck (deebuck) on 2010-08-27T11:05:27.000+0000</p> 
+        <div class="body">
+            <p>For what it is worth I just spent 4 hours trying to track down a problem which turns out to be due to this change. Working code dependent on the documented behaviour that the result set contains data from the intersection table. Docs say "This method returns a Zend_Db_Table_Rowset_Abstract containing rows from the table $table, satisfying the many-to-many relationship. The current Row object $row from the origin table is used to find rows in the intersection table, and that is joined to the destination table. "
+Not nice to break working code in a minor release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Roensch (croensch) on 2010-08-28T03:06:38.000+0000</p> 
+        <div class="body">
+            <p>I've extraced my solution to a Workaround: <a href="http://gist.github.com/554965">http://gist.github.com/554965</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-11-16T08:30:17.000+0000</p> 
+        <div class="body">
+            <p>Commentary and workaround on this issue has been blogged about here: <a href="http://ralphschindler.com/2010/11/15/composite-rowsets-for-many-to-many-relationships-via-zend_db_table">http://ralphschindler.com/2010/11/…</a></p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+    </div>
+

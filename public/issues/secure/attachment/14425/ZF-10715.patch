@@ -1,0 +1,134 @@
+Index: library/Zend/Json/Server.php
+===================================================================
+--- library/Zend/Json/Server.php        (revision 24159)
++++ library/Zend/Json/Server.php        (working copy)
+@@ -188,10 +188,14 @@
+         }
+
+         // Handle request
+-        $this->_handle();
++        $handleResponse = $this->_handle();
+
+         // Get response
+-        $response = $this->_getReadyResponse();
++        if ($handleResponse instanceof Zend_Json_Server_Error) {
++            $response = $this->getResponse()->setError($handleResponse);
++        } else {
++            $response = $this->_getReadyResponse();
++        }
+
+         // Emit response?
+         if ($this->autoEmitResponse()) {
+@@ -501,7 +505,11 @@
+      */
+     protected function _handle()
+     {
+-        $request = $this->getRequest();
++        try {
++            $request = $this->getRequest();
++        } catch (Zend_Json_Exception $ex) {
++            return $this->fault('Parse Error', -32768);
++        }
+
+         if (!$request->isMethodError() && (null === $request->getMethod())) {
+             return $this->fault('Invalid Request', -32600);
+Index: tests/Zend/Json/ServerTest.php
+===================================================================
+--- tests/Zend/Json/ServerTest.php      (revision 24159)
++++ tests/Zend/Json/ServerTest.php      (working copy)
+@@ -440,6 +440,21 @@
+         $server->loadFunctions($functions);
+         $this->assertEquals($functions->toArray(), $server->getFunctions()->toArray());
+     }
++
++    /**
++     * @group ZF-10715
++     */
++    public function testServerHandlesInvalidJsonResponseProperly()
++    {
++        $server = new Zend_Json_ServerTest_Server();
++        $server->setClass('Zend_Json_ServerTest_Foo')
++               ->setAutoEmitResponse( false );
++
++        $response = $server->handle();
++        $this->assertTrue($response instanceof Zend_Json_Server_Response);
++        $this->assertTrue($response->isError());
++        $this->assertEquals(-32768, $response->getError()->getCode());
++    }
+ }
+
+ /**
+@@ -481,6 +496,53 @@
+     return true;
+ }
+
++/**
++ * Invalid Request implementation
++ * @see ZF-10715
++ */
++class Zend_Json_ServerTest_Request_Invalid extends Zend_Json_Server_Request
++{
++    protected $_rawJson = null;
++
++    /**
++     * Constructor
++     */
++    public function __construct()
++    {
++        $this->_rawJson = 'This is invalid JSON';
++        $this->loadJson($this->_rawJson);
++    }
++
++    /**
++     * Retrieve raw JSON string
++     * @return string
++     */
++    public function getRawJson()
++    {
++        return $this->_rawJson;
++    }
++}
++
++/**
++ * Zend_Json_Server w/ getRequest() which injects test request object
++ * @see ZF-10715
++ */
++class Zend_Json_ServerTest_Server extends Zend_Json_Server
++{
++    /**
++     * Get JSON-RPC request object
++     *
++     * @return Zend_Json_Server_Request
++     */
++    public function getRequest()
++    {
++        if (null === ($request = $this->_request)) {
++            $this->setRequest(new Zend_Json_ServerTest_Request_Invalid());
++        }
++        return $this->_request;
++    }
++}
++
+ // Call Zend_Json_ServerTest::main() if this source file is executed directly.
+ if (PHPUnit_MAIN_METHOD == "Zend_Json_ServerTest::main") {
+     Zend_Json_ServerTest::main();
+Index: tests/Zend/Json/Server/RequestTest.php
+===================================================================
+--- tests/Zend/Json/Server/RequestTest.php      (revision 24159)
++++ tests/Zend/Json/Server/RequestTest.php      (working copy)
+@@ -275,6 +275,15 @@
+             'id'     => 'foobar'
+         );
+     }
++
++    /**
++     * @group ZF-10715
++     * @expectedException Zend_Json_Exception
++     */
++    public function testLoadJsonThrowsExceptionOnInvalidJson()
++    {
++        $this->request->loadJson('this is invalid JSON');
++    }
+
+     public function validateJson($json, array $options)
+     {

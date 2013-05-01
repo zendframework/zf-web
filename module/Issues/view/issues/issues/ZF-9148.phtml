@@ -1,0 +1,226 @@
+<h2>ZF-9148: Zend_Cache_Backend_Static doesn't  work properly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-11T08:46:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-03-16T05:22:35.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Nikita Afanasenko (nikitug)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm trying to use Zend_Cache_Backend_Static like this:</p>
+
+<pre class="highlight"><code>
+protected function _initCache()
+{
+    $manager = new Zend_Cache_Manager();  
+    $manager-&gt;setCacheTemplate('page', array(
+        'frontend' =&gt; array(
+            'name'    =&gt; 'Capture',
+            'options' =&gt; array(
+                'ignore_user_abort' =&gt; true,
+                'automatic_serialization' =&gt; true
+            ),
+        ),
+        'backend' =&gt; array(
+            'name'    =&gt; 'Static',
+            'options' =&gt; array(
+                'public_dir' =&gt; 'cache',
+            ),
+        ),
+    ));
+    $manager-&gt;getCache('page')-&gt;start('nothing', array());
+}
+</code></pre>
+
+<p>Firstly, why i have to specify {{$id}} and {{$tag}} in {{start()}}? Why not just {{$manager-&gt;getCache('page')-&gt;start()}}?</p>
+
+<p>Then, in Zend_Cache_Backend_Static:</p>
+
+<pre class="highlight"><code>
+if (is_null($id) || strlen($id) == 0) {
+    $id = $this-&gt;_detectId();
+} else {
+    $id = $this-&gt;_decodeId($id);
+}
+</code></pre>
+
+<p>But {{$id}} couldn't ever be {{null}} or {{""}}. It's impossible to call {{start('', array())}}, because {{Zend_Cache_Core::<em>validateIdOrTag}} will throw exception {{"Invalid id or tag '$string' : must use only [a-zA-Z0-9</em>]"}}. So, {{$id = $this-&gt;_detectId();}} will never be executed, and {{$id = $this-&gt;_decodeId($id);}} will produce wrong filename.</p>
+
+<p>Then, in 
+```
+{{$pathName}} become {{"bla-bla/public/cache."}}, and name of file to be created become {{"bla-bla/public/cache./index.html"}}.</p>
+
+<p>So, is it's my mistake or it's really BUG?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2010-02-11T09:05:03.000+0000</p> 
+        <div class="body">
+            <p>Reassigned for Padraic</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-02-11T09:31:54.000+0000</p> 
+        <div class="body">
+            <p>It's important to remember that the static cache doesn't work like the other caches. It's designed to be a transparent backend system triggered from a controller action, and as such, it's entire operation is dictated by the Zend_Controller_Action_Helper_Cache class. About the only thing you should change is the location of the public_dir (you're using a non-path above - use the absolute path).</p>
+
+<p>To offer a few points of difference:</p>
+
+<p>IDs are the request URI, however the ID passed to the backend must first be encoded as hexadecimal characters (i.e. bin2hex()) to bypass the Zend_Cache_Core ID restrictions. The request URI may be empty (root URI) and detectId() simply adds a check to ensure this isn't an error passed along by mistake.</p>
+
+<p>Tags are not stored to the static cache, since the static cache holds files to be served OUTSIDE of PHP. The tags are stored to an "inner" cache instead. The inner cache is managed by the backend, and so tags need to be passed at that point.</p>
+
+<p>Data is never serialized unless it also requires a custom extension name outside of the default option. So setting automatic_serialization, as above, should not be done.</p>
+
+<p>The cache is intended to be managed via the Cache action manager which allows you to setup which actions in a controller to cache, with what extension, and with which tags. It also offers methods for removing/purging the cache using the request URI or tags (the tag cleaning is similar to other backends). Use outside of the action helper should use the helper itself as a reference point for manual management. Manually, you would also need to register a helper/plugin to trigger the Capture frontend.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-02-11T09:38:44.000+0000</p> 
+        <div class="body">
+            <p>Here's an example from a current project:</p>
+
+<p>.htaccess (includes extra settings for local XML feeds):</p>
+
+<pre class="highlight"><code>AddType application/rss+xml .xml
+AddType application/atom+xml .xml
+
+RewriteEngine On
+
+RewriteCond %{REQUEST_URI} feed/rss$
+RewriteCond %{DOCUMENT_ROOT}/cached/%{REQUEST_URI}.xml -f
+RewriteRule .* cached/%{REQUEST_URI}.xml [L,T=application/rss+xml]
+
+RewriteCond %{REQUEST_URI} feed/atom$
+RewriteCond %{DOCUMENT_ROOT}/cached/%{REQUEST_URI}.xml -f
+RewriteRule .* cached/%{REQUEST_URI}.xml [L,T=application/atom+xml]
+
+RewriteCond %{DOCUMENT_ROOT}/cached/index.html -f
+RewriteRule ^/*$ cached/index.html [L]
+RewriteCond %{DOCUMENT_ROOT}/cached/%{REQUEST_URI}.(html|xml|json|opml) -f
+RewriteRule .* cached/%{REQUEST_URI}.%1 [L]
+
+RewriteCond %{REQUEST_FILENAME} -s [OR]
+RewriteCond %{REQUEST_FILENAME} -l [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^.*$ - [NC,L]
+
+RewriteRule ^.*$ index.php [NC,L]</code></pre>
+
+<p>application.ini:</p>
+
+<pre class="highlight"><code>; Custom Caches (Adjustments To Default CacheManager)
+resources.cacheManager.page.backend.options.public_dir = APPLICATION_PATH "/../public/cached"
+resources.cacheManager.pagetag.backend.options.cache_dir = APPLICATION_PATH "/../data/cache/tags"</code></pre>
+
+<p>IndexController (Cached):</p>
+
+<pre class="highlight"><code>class Zfplanet_IndexController extends Zend_Controller_Action
+{
+
+    protected $_paginator = null;
+
+    public function init()
+    {
+        $this-&gt;_paginator = new Zend_Paginator(
+            Doctrine_Core::getTable('Zfplanet_Model_Entry')
+        );
+        $this-&gt;view-&gt;paginator = $this-&gt;_paginator;
+        $this-&gt;_helper-&gt;cache(array('index', 'page'), array('allentries'));
+    }
+
+    public function indexAction()
+    {
+        $this-&gt;_paginator-&gt;setCurrentPageNumber(1);
+    }
+    
+    public function pageAction()
+    {
+        $this-&gt;_helper-&gt;viewRenderer-&gt;setNoRender();
+        $this-&gt;_paginator-&gt;setCurrentPageNumber(
+            $this-&gt;_getParam('pageNumber')
+        );
+        $this-&gt;render('index');
+    }
+
+}</code></pre>
+
+<p>Cache Purging (Here, after a feed is polled (updates index/pages with new content)):</p>
+
+<pre class="highlight"><code>&lt;?php
+
+class Zfplanet_CallbackController extends Zend_Controller_Action
+{
+
+    public function processAction()
+    {
+        // ...
+        $this-&gt;_helper-&gt;getHelper('Cache')-&gt;removePagesTagged(array('allentries'));
+        // ...
+    }
+
+}</code></pre>
+
+<p>This works perfectly fine here.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nikita Afanasenko (nikitug) on 2010-02-11T09:46:24.000+0000</p> 
+        <div class="body">
+            <p>Padraic, thanks a lot!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-03-16T05:22:35.000+0000</p> 
+        <div class="body">
+            <p>Closing - report was the result of a misundertanding of how the static cache operated. Nothing to fix ;).</p>
+
+        </div>
+    </div>
+    </div>
+

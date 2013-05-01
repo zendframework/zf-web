@@ -1,0 +1,105 @@
+<h2>ZF-11226: Zend_Mime::encodeBase64 split multi-bytes word imperfectly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-26T03:35:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-03-31T23:49:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                immez (immez)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mime</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi, I am using the Zend Framework 1.10.6.
+I encountered a problem when I am sending mails using Zend_Mail.
+There are wrong (or imperfect) encoded subjects in my sent mails.
+In most cases it doesn't matter but it failed at some E-mail service provider.</p>
+
+<p>Because the function Zend_Mime::encodeBase64Header can return the encoded string in multilines whose lengths are limited in Zend_Mime::LINELENGTH. In the utf-8 case I encountered such a problem: The multi-bytes word may be splited in incorrect way, here is an example:</p>
+
+<p>(correct case)
+        $email = new Zend_Mail('UTF-8');
+        $email-&gt;setHeaderEncoding(Zend_Mime::ENCODING_BASE64);
+        $subject = '一二三四五六七八九十一二三四五六七八九十'; // 20 Chinese characters
+        $email-&gt;setSubject($subject);</p>
+
+<p>Then the subject will be encoded as 
+"=?UTF-8?B?5LiA5LqM5LiJ5Zub5LqU5YWt5LiD5YWr5Lmd5Y2B5LiA5LqM5LiJ5Zub5LqU?=
+ =?UTF-8?B?5YWt5LiD5YWr5Lmd5Y2B?="</p>
+
+<p>If we decode it line by line (some E-mail service provider do so, for example mail.sohu.com, an huge E-mail service provider in China), we can correctly obtain the origin Chinese characters in two parts: "一二三四五六七八九十一二三四五" and "六七八九十".</p>
+
+<p>But if we add some half-width symbols into the string, for example, spaces:</p>
+
+<pre><code>    $subject = ' 一二三四五六七八九十一二三四五六七八九十'; // 20 Chinese characters with an space in the front
+</code></pre>
+
+<p>It will be encoded into
+"=?UTF-8?B?IOS4gOS6jOS4ieWbm+S6lOWFreS4g+WFq+S5neWNgeS4gOS6jOS4ieWbm+S6?=
+ =?UTF-8?B?lOWFreS4g+WFq+S5neWNgQ==?="</p>
+
+<p>Now we will get an wrong result when we try to decode it line by line, because the character '五' was splited into two parts, and then be decoded incorrectly. Although most E-mail service provider can wisely avoid this problem by compose the encoded string beforehand, but some do not. So in the mail.sohu.com subjects list, the user will see the subject as "一二三四五六七八九十一二三四***六七八九十".</p>
+
+<p>This problem can be solved in a simple way: split the origin string into parts in prior, ensure that the length of each part is shorter than the Zend_MIME::LINELENGTH(In the 4:3 ratio), Then encode and compose them. I think that Gmail and some E-mail service provider do it in this way. i.e. maybe we can rewrite the function Zend_Mime::encodeBase64 as below:</p>
+
+<pre><code>public static function encodeBase64($str,
+    $lineLength = self::LINELENGTH,
+    $lineEnd = self::LINEEND)
+{
+    $lineLimit    = floor($lineLength * 3 /4);
+    $encoding     = mb_detect_encoding($str);
+    $encodedLines = array();
+    while(strlen($str)&gt;0){
+        $encodedLine    = mb_strcut($str, 0, $lineLimit, $encoding);
+        $encodedLines[] = base64_encode(rtrim($encodedLine));
+        $str = mb_strcut($str, $lineLimit, strlen($str), $encoding);
+        $line++;
+    }
+    return implode($lineEnd, $encodedLines);
+}
+</code></pre>
+
+<p>So, could someone tell me that if it is a bug of this function? Or it is designed so that I should do the prior splitting by myself manually ? Or there are other methods/parameters to avoid this problem? Thanks for your answer!</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

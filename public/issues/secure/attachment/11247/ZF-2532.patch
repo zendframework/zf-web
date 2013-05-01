@@ -1,0 +1,159 @@
+Index: Mail.php
+===================================================================
+--- Mail.php	(revision 9236)
++++ Mail.php	(working copy)
+@@ -454,7 +454,8 @@
+         $email = strtr($email,"\r\n\t",'???');
+         $this->_addRecipient($email, ('To' == $headerName) ? true : false);
+         if ($name != '') {
+-            $name = '"' . $this->_encodeHeader($name) . '" ';
++            $myName = Zend_Mime::encodeHeader('To', $name, $this->getCharset());
++            $name = substr($myName, 4) . ' ';
+         }
+ 
+         $this->_storeHeader($headerName, $name .'<'. $email . '>', true);
+@@ -588,11 +589,13 @@
+      * @return  Zend_Mail Provides fluent interface
+      * @throws  Zend_Mail_Exception
+      */
+-    public function setSubject($subject)
++    public function setSubject($subject, $encoding = Zend_Mime::ENCODING_QUOTEDPRINTABLE)
+     {
+         if ($this->_subject === null) {
+             $subject = strtr($subject,"\r\n\t",'???');
+-            $this->_subject = $this->_encodeHeader($subject);
++
++            $this->_subject = Zend_Mime::encodeHeader('Subject', $subject, $this->getCharset(), $encoding);
++            $this->_subject = substr($this->_subject, strlen('Subject: '));
+             $this->_storeHeader('Subject', $this->_subject);
+         } else {
+             /**
+@@ -613,7 +616,7 @@
+     {
+         return $this->_subject;
+     }
+-    
++
+     /**
+      * Sets Date-header
+      *
+@@ -629,7 +632,7 @@
+             } else if (is_int($date)) {
+                 $date = date('r', $date);
+             } else if (is_string($date)) {
+-            	$date = strtotime($date);
++                $date = strtotime($date);
+                 if ($date === false || $date < 0) {
+                     throw new Zend_Mail_Exception('String representations of Date Header must be ' .
+                                                   'strtotime()-compatible');
+Index: Mime.php
+===================================================================
+--- Mime.php	(revision 9236)
++++ Mime.php	(working copy)
+@@ -158,6 +158,106 @@
+         return $out;
+     }
+ 
++    public static function encodeQencoding($field_name, $str, $charset) {
++        $prefix     = ' =?'.$charset.'?Q?';
++        $suffix     = '?=';
++        $maxLine    = 73;
++        $search  = array(
++            '=',
++            '_',
++            '?',
++            ' '
++        );
++        $replace = array(
++            '=3D',
++            '=5F',
++            '=3F',
++            '_'
++        );
++
++        $str = str_replace($search, $replace, $str);
++        $str = str_replace(self::$qpKeys, self::$qpReplaceValues, $str);
++        $var = preg_split('/(=[A-F0-9]{2})/', $str, -1, PREG_SPLIT_NO_EMPTY | PREG_SPLIT_DELIM_CAPTURE);
++        $lines = array();
++        $line = $field_name.':'.$prefix;
++        for($i = 0;$i < sizeof($var); $i++) {
++            $splitable = false;
++            if (substr($var[$i], 0, 1) == '=') {
++                $hex = $var[$i];
++                $dec = hexdec($hex);
++                if ($dec >= 0 && $dec <= 127) {
++                    $part = $hex;
++                } else if ($dec >= 194 && $dec <= 223) {
++                    $part = $hex.$var[++$i];
++                } else if ($dec >= 224 && $dec <= 239) {
++                    $part = $hex.$var[++$i].$var[++$i];
++                } else if ($dec >= 240 && $dec <= 244) {
++                    $part = $hex.$var[++$i].$var[++$i].$var[++$i];
++                }
++            } else {
++                $splitable = true;
++                $part = $var[$i];
++            }
++            if (strlen($line) + strlen($part) > $maxLine) {
++                if ($splitable == true) {
++                    while($part) {
++                        $linelength = strlen($line);
++                        if ($maxLine - $linelength - 1 > 0) {
++                            $newpart = substr($part, 0, $maxLine - $linelength - 1);
++                        } else {
++                            $newpart = '';
++                        }
++                        $lines[] = $line.$newpart.$suffix;
++                        $line = $prefix;
++                        $part = substr($part, strlen($newpart));
++                        if (strlen($line) + strlen($part) <= $maxLine) {
++                            $line .= $part;
++                            $part = false;
++                        }
++                    }
++                } else {
++                    $lines[] = $line.$suffix;
++                    $line = $prefix.$part;
++                }
++            } else {
++                $line .= $part;
++            }
++        }
++        $lines[] = $line.$suffix;
++        if (sizeof($lines) > 0) {
++            return rtrim(implode("\r\n", $lines));
++        } else {
++            return rtrim($lines[0]);
++        }
++
++    }
++
++    public static function encodeHeader($field_name, $field_value, $charset, $encoding = Zend_Mime::ENCODING_QUOTEDPRINTABLE) {
++        if (self::isPrintable($field_value)) {
++            return rtrim(wordwrap("$field_name: $field_value", 74, "\r\n "));
++        }
++        if ($encoding == Zend_Mime::ENCODING_QUOTEDPRINTABLE) {
++// Currently a bug in PHP, iconv_mime_encode doesn't work for long subject lines
++// with an encoding schome of e
++//            $prefrences = array(
++//                'scheme'            => 'Q',
++//                'output-charset'    => $charset,
++//                'input-charset'     => $charset
++//            );
++//            return iconv_mime_encode($field_name, $field_value, $prefrences);
++            return self::encodeQencoding($field_name, $field_value, $charset);
++        } else if ($encoding == Zend_Mime::ENCODING_BASE64) {
++            $prefrences = array(
++                'scheme'            => 'B',
++                'output-charset'    => $charset,
++                'input-charset'     => $charset
++            );
++            return iconv_mime_encode($field_name, $field_value, $prefrences);
++        } else {
++            throw new Zend_Mime_Exception('Invalid encoding type');
++        }
++    }
++
+     /**
+      * Encode a given string in base64 encoding and break lines
+      * according to the maximum linelength.

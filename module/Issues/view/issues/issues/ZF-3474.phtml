@@ -1,0 +1,218 @@
+<h2>ZF-3474: Zend_Controller_Router_Route_Regex won't assemble when used with xml config</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-18T03:54:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-04T19:13:00.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Maurice Fonk (naneau)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5558">ZF-5558</a></li>
+            <li><a href="/issues/browse/ZF-2312">ZF-2312</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When setting a reverse route through an xml config file, the assemble method of the regex route fails. The _getMappedValues method expects it's map to be in index =&gt; key form:</p>
+
+<pre class="highlight"><code>
+$index = (!is_int($key)) ? array_search($key, $this-&gt;_map, true) : $key;
+</code></pre>
+
+<p>this will fail when used with xml, which doesn't support this, a sample config could contain:</p>
+
+<pre class="highlight"><code>
+
+        1
+    
+        2
+    </code></pre>
+
+<p>By limitation of xml this is different from the ini config and manual setup. When parsing the url this isn't a problem, but the assemble method fails to get any parts from the  _getMappedValues method to parse into the query string and throws an exception. It can easily solved by modifying the method a little:</p>
+
+<pre class="highlight"><code>
+$index = (!is_int($key)) ? array_search($key, $this-&gt;_map, true) : $key;
+if (false !== $index) {
+    $return[$index] = $values[$key];
+} elseif (isset($this-&gt;_map[$key])) {
+    //non-numerical setup
+    $return[$key] = $this-&gt;_map[$key];
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Maurice Fonk (naneau) on 2008-06-30T05:27:40.000+0000</p> 
+        <div class="body">
+            <p>Alternatively, a simple ``` in the getInstance() method would do the trick too</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-10-30T18:11:45.000+0000</p> 
+        <div class="body">
+            <p>Actually, the example shown here is missing the "reverse" URL format configuration option; without this, route assembly cannot happen. The reverse URL format was added as without it, assembling regex URLs was basically guesswork when complex regexen were used, and doing it entirely based on the map did not have consistent results.</p>
+
+<p>To get your example working, simply provide a "reverse" URL format in your configuration, in printf format, such as the following:</p>
+
+<pre class="highlight"><code>
+&lt;?xml version="1.0"?&gt;
+Zend_Controller_Router_Route_Regexarchive/(\d+)archiveshow1archive/%s</code></pre>
+
+<p>This is true even of INI configurations; the INI equivalent of the above looks like this:</p>
+
+<pre class="highlight"><code>
+[production]
+routes.archive.type = "Zend_Controller_Router_Route_Regex"
+routes.archive.route = "archive/(\d+)"
+routes.archive.defaults.controller = "archive"
+routes.archive.defaults.action = "show"
+routes.archive.map.year = 1
+routes.archive.reverse = "archive/%s"
+</code></pre>
+
+<p>Placeholders will be replaced with the value specified by the matching index from the map. In other words, if you pass a "year" value, that maps to the index "1", and will thus be passed as the first argument to vsprintf().</p>
+
+<p>All of this is documented in the Regex route documentation: <a href="http://framework.zend.com/manual/en/zend.controller.router.html#zend.controller.router.routes.regex">http://framework.zend.com/manual/en/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John (morex) on 2009-08-03T02:57:19.000+0000</p> 
+        <div class="body">
+            <p>The problem still occurs in ZF1.9.
+I've written a little fix to allow the use of both mapping formats</p>
+
+<pre class="highlight"><code>
+routes.archive.map.year = 1
+</code></pre>
+
+<p>and</p>
+
+<pre class="highlight"><code>
+routes.archive.map.1 = year
+</code></pre>
+
+<p>to assemble an url. In according to the given example</p>
+
+<pre class="highlight"><code>
+#somewhere in a view
+
+&lt;?= $this-&gt;url(array(
+        'controller' =&gt; 'archive',
+        'action'     =&gt; 'show',       
+        'year'       =&gt; 4
+    ), 'archive') ?&gt;
+</code></pre>
+
+<pre class="highlight"><code>
+    public function __construct($route, $defaults = array(), $map = array(), $reverse = null)
+    {
+        $this-&gt;_regex    = $route;
+        $this-&gt;_defaults = (array) $defaults;
+        $this-&gt;_reverse  = $reverse; 
+        $this-&gt;_setMap( (array) $map );
+    }
+
+    protected function _setMap(array $map)
+    {
+         $this-&gt;_map = array();
+
+         foreach($map as $key =&gt; $val)
+         {
+            if( is_int($key) ) {
+                $this-&gt;_map[$key] = $val;
+            } else {
+                $this-&gt;_map[$val] = $key;
+            }
+        }
+    }
+</code></pre>
+
+<p>I hope this "bug" will fixed one day officially.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Kleijn (448191) on 2010-04-04T18:32:18.000+0000</p> 
+        <div class="body">
+            <p>This issue still exists. Seems to be an issue with the difference in Zend_Config_Ini and Zend_Config_Xml, though.</p>
+
+<p>This makes it impossible to use XML files for regex route config which really is a PITA cause INI files are not the best suited for high nesting levels.</p>
+
+<p>This works:</p>
+
+<p>widget_forwarder.type = Zend_Controller_Router_Route_Regex
+widget_forwarder.reverse = widget/%s/%d/%s
+widget_forwarder.route = "widget/(.<em>)/(.</em>)/(.*)"
+widget_forwarder.defaults.module = system
+widget_forwarder.defaults.controller = widgets
+widget_forwarder.defaults.action = forward
+widget_forwarder.map.type = 1
+widget_forwarder.map.id = 2
+widget_forwarder.map.params = 3</p>
+
+<p>This is of course way too simple to warrant a regex route, but still. This fails:</p>
+
+<p>widget/%s/%d/%swidget/(.<em>)/(.</em>)/(.*)123</p>
+
+<p>Using attributes (&lt;map type="1" etc) makes no difference, the result is always:</p>
+
+<p>PHPUnit 3.4.11 by Sebastian Bergmann.</p>
+
+<p>....................................E...</p>
+
+<p>Time: 1 second, Memory: 119.25Mb</p>
+
+<p>There was 1 error:</p>
+
+<p>1) eyeopen_tests_controller_action_system_WidgetControllerTest::testCanForwardCommandFromWidget
+Zend_Controller_Router_Exception: Cannot assemble. Too few arguments?</p>
+
+<p>/usr/share/php/Zend/Controller/Router/Route/Regex.php:196
+/usr/share/php/Zend/Controller/Router/Rewrite.php:441
+/usr/share/php/Zend/Controller/Action/Helper/Url.php:99</p>
+
+<p>A dirty var_dump() reveals that the issue is exactly as described in this ticket.</p>
+
+        </div>
+    </div>
+    </div>
+

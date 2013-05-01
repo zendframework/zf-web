@@ -1,0 +1,172 @@
+<h2>ZF-4692: Create new function Zend_Db_Table_Row-&gt;getDependentSelect()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-23T08:29:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-29T02:32:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Roger Hunwicks (rhunwicks)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6461">ZF-6461</a></li>
+            <li><a href="/issues/browse/ZF-4186">ZF-4186</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Db_Table_Row-&gt;findDependentRowset() returns a rowset from a linked table constrained by a foreign key. It does this by creating a Zend_Db_Table_Select object and passing it to Zend_Db_Table-&gt;fetchAll.</p>
+
+<p>findDependentRowset() accepts a Zend_Db_Table_Select as an optional parameter, which we can use to further restrict the records returned.</p>
+
+<p>At present when we find the dependent rowset we must query all rows at once (fetchAll). It would be better if we could just retrieve the Zend_Db_Table_Select representing the query and then execute it later. In particular this will allow us to set the -&gt;limit() clause before running the query and thus only retrieve the rows we are interested in.</p>
+
+<p>My use case is that I want to pass the child rows of a table to Zend_Paginator to display in a master-detail view:</p>
+
+<pre class="highlight"><code>
+// Get the child rows for display
+        $childTab = $this-&gt;_request-&gt;getParam('childtab', $table-&gt;getDefaultChild());
+        if (isset($childTab)) {
+        // Send variables to the view
+            $this-&gt;view-&gt;childTab = $childTab;
+            $select = $row-&gt;getDependentSelect($childTab);
+            $paginator = Zend_Paginator::factory($select, 'DbTableSelect'); 
+            $paginator-&gt;setCurrentPageNumber($this-&gt;_request-&gt;getParam('page')); 
+            $this-&gt;view-&gt;childPaginator = $paginator;
+        }</code></pre>
+
+<p>Looking at the documentation, using Zend_Db_Table_Select is the preferred way of integrating Zend_Db with Zend_Paginator, because we can use the limit() clause to avoid returning all the rows when we only want to display 10 of them. Zend_Paginator_Adapter_DbTable returns a Zend_Db_Table_Rowset from getItems().</p>
+
+<p>This function would allow the use of Zend_Db_Table_Row and Zend_Db_Table_Rowset functions for handling relationships while retaining the performance benefits of a SELECT ... LIMIT statement.</p>
+
+<p>The code changes required are trivial and do not alter existing functionality, the existing findDependentRowset is split into two portions: 1) build the select statment, 2) execute the fetchall. E.g.</p>
+
+<pre class="highlight"><code>    /**
+     * Generate a select statement to query a dependent table to retrieve rows matching the current row.
+     *
+     * @param string|Zend_Db_Table_Abstract  $dependentTable
+     * @param string                         OPTIONAL $ruleKey
+     * @param Zend_Db_Table_Select           OPTIONAL $select
+     * @return Zend_Db_Table_Select          Query result from $dependentTable
+     * @throws Zend_Db_Table_Row_Exception   If $dependentTable is not a table or is not loadable.
+     */
+    public function getDependentSelect($dependentTable, $ruleKey = null, Zend_Db_Table_Select $select = null)
+    {
+        $db = $this-&gt;_getTable()-&gt;getAdapter();
+
+        if (is_string($dependentTable)) {
+            try {
+                @Zend_Loader::loadClass($dependentTable);
+            } catch (Zend_Exception $e) {
+                require_once 'Zend/Db/Table/Row/Exception.php';
+                throw new Zend_Db_Table_Row_Exception($e-&gt;getMessage());
+            }
+            $dependentTable = new $dependentTable(array('db' =&gt; $db));
+        }
+        if (! $dependentTable instanceof Zend_Db_Table_Abstract) {
+            $type = gettype($dependentTable);
+            if ($type == 'object') {
+                $type = get_class($dependentTable);
+            }
+            require_once 'Zend/Db/Table/Row/Exception.php';
+            throw new Zend_Db_Table_Row_Exception("Dependent table must be a Zend_Db_Table_Abstract, but it is $type");
+        }
+
+        if ($select === null) {
+            $select = $dependentTable-&gt;select();
+        } else {
+            $select-&gt;setTable($dependentTable);
+        }
+
+        $map = $this-&gt;_prepareReference($dependentTable, $this-&gt;_getTable(), $ruleKey);
+
+        for ($i = 0; $i &lt; count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+            $parentColumnName = $db-&gt;foldCase($map[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+            $value = $this-&gt;_data[$parentColumnName];
+            // Use adapter from dependent table to ensure correct query construction
+            $dependentDb = $dependentTable-&gt;getAdapter();
+            $dependentColumnName = $dependentDb-&gt;foldCase($map[Zend_Db_Table_Abstract::COLUMNS][$i]);
+            $dependentColumn = $dependentDb-&gt;quoteIdentifier($dependentColumnName, true);
+            $dependentInfo = $dependentTable-&gt;info();
+            $type = $dependentInfo[Zend_Db_Table_Abstract::METADATA][$dependentColumnName]['DATA_TYPE'];
+            $select-&gt;where("$dependentColumn = ?", $value, $type);
+        }
+        
+        return $select;
+    }
+    
+    /**
+     * Query a dependent table to retrieve rows matching the current row.
+     *
+     * @param string|Zend_Db_Table_Abstract  $dependentTable
+     * @param string                         OPTIONAL $ruleKey
+     * @param Zend_Db_Table_Select           OPTIONAL $select
+     * @return Zend_Db_Table_Rowset_Abstract Query result from $dependentTable
+     * @throws Zend_Db_Table_Row_Exception If $dependentTable is not a table or is not loadable.
+     */
+    public function findDependentRowset($dependentTable, $ruleKey = null, Zend_Db_Table_Select $select = null)
+    {
+        $select = $this-&gt;getDependentSelect($dependentTable, $ruleKey, $select);
+        return $dependentTable-&gt;fetchAll($select);
+    }</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-04-29T00:22:45.000+0000</p> 
+        <div class="body">
+            <p>There is a small(!) error in my findDependentRowset - it breaks if you pass in a string $dependentTable instead of a Zend_Db_Table_Abstract one. The correct code should be:</p>
+
+<pre class="highlight"><code>
+    public function findDependentRowset($dependentTable, $ruleKey = null, Zend_Db_Table_Select $select = null)
+    {
+        $select = $this-&gt;getDependentSelect($dependentTable, $ruleKey, $select);
+        return $select-&gt;getTable()-&gt;fetchAll($select);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-04-29T00:25:39.000+0000</p> 
+        <div class="body">
+            <p>Sorry - I created a new issue ZF-6461 because I forgot I had already logged it as ZF-4692.</p>
+
+        </div>
+    </div>
+    </div>
+

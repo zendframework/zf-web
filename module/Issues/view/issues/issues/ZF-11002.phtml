@@ -1,0 +1,117 @@
+<h2>ZF-11002: Omitted attributes get retrieved then forgotten</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-27T08:38:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-13T05:53:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.4 (03/Mar/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Claude Duvergier (cduv)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stefan Gehrig (sgehrig)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Auth_Adapter_Ldap</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The {{Zend_Auth_Adapter_Ldap::getAccountObject()}} method accepts a list parameters to return and a list of parameters to omit.</p>
+
+<p>When {{$returnAttribs}} is an empty array(), all attributes are fetched ({{Zend_Ldap::getEntry()}} behavior), and then attributes are filtered using {{$omitAttribs}}.</p>
+
+<p>But when {{$returnAttribs}} and {{$omitAttribs}} are not empty, elements of {{$returnAttribs}} should be filtered using {{$omitAttribs}} <em>before</em> calling ({{Zend_Ldap::getEntry()}}.</p>
+
+<p><em>+Reproduce code:+</em></p>
+
+<pre class="highlight"><code>
+$auth = Zend_Auth::getInstance();
+$ldapOptions = array(...); // place valid LDAP configuration options here
+$authAdapter = new Zend_Auth_Adapter_Ldap($ldapOptions, 'theUserName', 'theSecretPassword');
+$result = $auth-&gt;authenticate($authAdapter);
+$authedUser = $authAdaptater-&gt;getAccountObject(array('dn', 'sn', 'uid', 'lastname', 'phonenumber'), array('jpegphoto', 'phonenumber'));
+</code></pre>
+
+<p>{{$authedUser}} will contains the following attributes: <em>dn</em>, <em>sn</em>, <em>uid</em> and <em>lastname</em> but during the execution, <em>phonenumber</em> has been fetched from LDAP server (for nothing).</p>
+
+<p><em>+Fix proposal:+</em></p>
+
+<pre class="highlight"><code>
+public function getAccountObject(array $returnAttribs = array(), array $omitAttribs = array())
+{
+    if (!$this-&gt;_authenticatedDn) {
+        return false;
+    }
+    
+    $returnObject = new stdClass();
+    
+    $returnAttribs = array_map('strtolower', $returnAttribs ); //FIXED: desired attribute names are lowered too (for array_diff() to work)
+    $omitAttribs = array_map('strtolower', $omitAttribs);
+    
+    $returnAttribs = array_diff($returnAttribs, $omitAttribs); //FIXED: $returnAttribs is filtered before LDAP fetching
+    $entry = $this-&gt;getLdap()-&gt;getEntry($this-&gt;_authenticatedDn, $returnAttribs, true);
+    foreach ($entry as $attr =&gt; $value) {
+        if (in_array($attr, $omitAttribs)) {
+            // skip attributes marked to be omitted
+            continue;
+        }
+        if (is_array($value)) {
+            $returnObject-&gt;$attr = (count($value) &gt; 1) ? $value : $value[0];
+        } else {
+            $returnObject-&gt;$attr = $value;
+        }
+    }
+    return $returnObject;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2011-02-01T10:40:18.000+0000</p> 
+        <div class="body">
+            <p>Will be fixed on short-notice... Thanks for the issue report.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2011-02-13T05:53:31.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (r23693) and in 1.11-release branch (r23694)</p>
+
+        </div>
+    </div>
+    </div>
+

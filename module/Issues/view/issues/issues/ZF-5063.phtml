@@ -1,0 +1,524 @@
+<h2>ZF-5063: Segmentaion fault on preg_replace in Zend_Db_Statement</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-25T12:55:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-16T22:15:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Asger Hallas (asgerhallas)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3025">ZF-3025</a></li>
+            <li><a href="/issues/browse/ZF-10209">ZF-10209</a></li>
+            <li><a href="/issues/browse/ZF-7585">ZF-7585</a></li>
+            <li><a href="/issues/browse/ZF-8399">ZF-8399</a></li>
+            <li><a href="/issues/browse/ZF-7911">ZF-7911</a></li>
+            <li><a href="/issues/browse/ZF-11249">ZF-11249</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12241/ZF-5063.patch">ZF-5063.patch</a></li>
+            <li><a href="/issues/secure/attachment/14965/ZF-7911-ZF-5063.patch">ZF-7911-ZF-5063.patch</a></li>
+            <li><a href="/issues/secure/attachment/14693/ZF-7911_ungreedy.patch">ZF-7911_ungreedy.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This seems not to exactly be a Zend Framework bug, but more likely PHP or PRCE lib bug, but I'll post it here for your opinion.</p>
+
+<p>On line 190 of Zend_Db_Statement is the following preg_replace:</p>
+
+<p>$sql = preg_replace("/$q($qe|\\{2}|[^$q])*$q/", '', $sql);</p>
+
+<p>When the sql passed is longer than about 4100 characters the process dies with the following error in the log:</p>
+
+<p>[notice] child pid 7426 exit signal Segmentation fault (11)</p>
+
+<p>I can drill it down to be this part of the regex that fails: /([^'])*/</p>
+
+<p>The content in the sql i UTF8 encoded text - all characters are ascii though. I don't know if that might be of any help.</p>
+
+<p>It seems to be somewhat related to this filed php bug:</p>
+
+<p><a href="http://bugs.php.net/bug.php?id=46551">http://bugs.php.net/bug.php?id=46551</a></p>
+
+<p>I'm using PHP 5.2.6-0.dotdeb.1 with Suhosin-Patch 0.9.6.2 (cli) (built: May  2 2008 10:24:03) on a debian-server. I will upgrade to latest snapshot tomorrow to see if that helps.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Asger Hallas (asgerhallas) on 2008-11-25T13:50:26.000+0000</p> 
+        <div class="body">
+            <p>I guess it has something to do with this: <a href="http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=476419">http://bugs.debian.org/cgi-bin/bugreport.cgi/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-11T21:53:50.000+0000</p> 
+        <div class="body">
+            <p>This appears to be an issue within php itself and not an issue in ZF.  Also appears to have been fixed in php.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Rehbein (tech13) on 2009-06-19T14:25:15.000+0000</p> 
+        <div class="body">
+            <p>It appears that it is actually an issue with pcre, which has been flagged as "won't fix".</p>
+
+<p>See: <a href="http://bugs.exim.org/show_bug.cgi?id=797">http://bugs.exim.org/show_bug.cgi?id=797</a></p>
+
+<p>Raising the process stack limit helps handle larger queries, but doesn't "fix" the issue.</p>
+
+<p>// simple "query" that triggers segfault.
+$sql = str_pad("'", 6000, 'a');</p>
+
+<p>// should throw invalid sql, actually segfaults
+$dbAdapter-&gt;query($sql);</p>
+
+<p>Is there another way to write code to prevent large queries from segfaulting php since there doesn't appear to be a fix coming for the pcre library?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-21T08:40:54.000+0000</p> 
+        <div class="body">
+            <p>This issue can be fixed or better, worked around by changing the regexp slightly. Basically, the (..|..|[^.])* will 'eat' every character between quotes one-by-one, incrementing the stack every character. Adding a + sign after the negated character class will eat as much characters as it can, significantly reducing the stack usage.</p>
+
+<p>I've attached a patch that will fix this issue, and also will correct <a href="http://framework.zend.com/issues/browse/ZF-3025">http://framework.zend.com/issues/browse/ZF-3025</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-21T08:41:51.000+0000</p> 
+        <div class="body">
+            <p>submitted patch also fix a wrong fix for issue ZF-3025</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-30T02:51:15.000+0000</p> 
+        <div class="body">
+            <p>I'd really like to see this fix in 1.9.4 when ZF-7911 is not ready yet.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrick Schwisow (patrick.schwisow) on 2010-03-23T10:37:44.000+0000</p> 
+        <div class="body">
+            <p>The patch works, why hasn't this fix made it to production in the last six months?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Brian Holub (bholub) on 2010-06-27T12:04:31.000+0000</p> 
+        <div class="body">
+            <p>this cost me a couple hours. please bump up the priority on this one (the patch works), the seg fault might not be ZF's... fault.. but it's extremely painful.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Kreuer (dkreuer) on 2011-03-11T00:28:12.000+0000</p> 
+        <div class="body">
+            <p>This Issue still exists in ZF.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Georgy Korshunov (kipelovets) on 2011-05-13T20:12:45.000+0000</p> 
+        <div class="body">
+            <p>the patch doesn't work for me. also it's not correct though adding '+' after $qe means 'last character of $qe repeated one or more times'. this would be better: $sql = preg_replace("/$d(($de)+|(\\{2})+|([^$d])+)*$d/", '', $sql);
+and the best solution for me is just making the pattern ungreedy. 
+i'm not an expert in PCRE, but as i read on wikipedia, the PCRE engine would work faster with ungreedy patterns. and with this pattern greediness actually doesn't matter</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Misha Krassovski (mkrassovski) on 2011-10-03T21:35:08.000+0000</p> 
+        <div class="body">
+            <p>Guys, does anybody know how to fight this problem? I have RHE6, ZF 1.11.3, and issue is still there.
+Published patch fixes nothing as well as others published in <a href="http://framework.zend.com/issues/browse/ZF-7911">ZF-7911</a>
+Today is 10/3/2011, meaning it has been in the air for almost 3 years now!!!!!!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Georgy Korshunov (kipelovets) on 2011-10-05T09:09:28.000+0000</p> 
+        <div class="body">
+            <p>@Misha Krassovski
+besides patches published here, there are two workarounds that worked perfectly for me:
+1) make the pattern ungreedy by adding /U (more at <a href="http://php.net/manual/en/reference.pcre.pattern.modifiers.php">http://php.net/manual/en/…</a>)
+here you need to change ZF code, but it will help with all your queries
+2) use the adapter directly with those queries that fail, i.e:
+        $db-&gt;getAdapter()-&gt;getConnection()-&gt;exec($query);</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-05T14:37:26.000+0000</p> 
+        <div class="body">
+            <p>Are there any known side-effects to switching the preg_replace call to ungreedy?  That seems like the simplest solution, assuming we can come up with a test to prove it actually solves the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2011-10-05T15:33:38.000+0000</p> 
+        <div class="body">
+            <p>The problem with this issue, is that it is not something that can reliably be unit tested. The segfault will only appear on certain systems when enough data is passed, where 'enough' depends on the system and how PHP and PCRE are build.</p>
+
+<p>The patch that I suggested for this issue has been (and probably still is) in production. The patch would probably not fix the problem entirely, if enough data is passed, the query might still fail. I feel that if ZF-7911 is solved properly, this issue will go away or become even more unlikely.</p>
+
+<p>In the mean time, I've got a new job where ZF is not used (yet).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-17T01:22:18.000+0000</p> 
+        <div class="body">
+            <p>Could someone here who is experiencing this issue please try the patch i've attached (ZF-7911_ungreedy.patch) and report back the result?
+It's a modified version of the fix suggested in ZF-7911, with the addition of the ungreedy modifier as suggested here by [~kipelovets]</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Georgy Korshunov (kipelovets) on 2011-10-17T11:24:14.000+0000</p> 
+        <div class="body">
+            <p>[~adamlundrigan], it worked for me</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dvir Azulay (dvirazulay) on 2011-10-18T20:17:20.000+0000</p> 
+        <div class="body">
+            <p>Just casting my opinion on this - I've also wasted a couple of hours banging my head with this issue a few good months ago when it appeared on the zf-based product I was working on, but it only happened on my local env (which was Windows XP) and not on our linux production env. Nevertheless, important and really annoying issue that takes a while to drill down to.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tilman (tilman) on 2012-01-03T21:49:29.000+0000</p> 
+        <div class="body">
+            <p>I just ran into this issue with a very long query (inserting a PHP serialized array) with ZF 1.11.11 on PHP 5.3.3 and PHP 5.3.6. I tried out the ungreedy patch. I can't tell if the code in _stripQuoted() is now still doing what it is supposed to do, but the segmentation fault on preg_replace did go away.</p>
+
+<p>This is a 3 year old bug, and knowing from experience now, it is pretty nasty once you run into it. I don't even remember running into segfault issues with PHP before. It took me a while to find the culprit and then this bug report.</p>
+
+<p>If the maintainers are not willing to fix the problem, at least put a disclaimer in the manual of Zend_Db, that one should refrain from using Zend_Db_Statement, if they need to run certain long queries.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joern Heissler (joernh) on 2012-01-11T19:27:34.000+0000</p> 
+        <div class="body">
+            <p>I agree that the bug is in libpcre, but with a different regex, the probability of segfault can be reduced.
+The below fix is mysql specific and also addresses ZF-7911.
+libpcre still goes into a recursion, but the depth seems to be only a fraction of the original.
+A proper fix would be in the libpcre. Or ZF has to write its own FSM. But doing it in pure php is probably slow.</p>
+
+<pre class="highlight"><code>
+class Company_Db_Statement_Pdo_Mysql extends Zend_Db_Statement_Pdo
+{
+    /* remove "foo""b\ar\"b\\az" and 'foo''b\ar\'b\\az' style quoted strings from sql queries. `backticks` are not touched. Specific for mysql syntax.
+     * for `foo``bar` style quotes, that regex part could be added (not tested):
+     *    `([^`]+|``)*?`(?!`)
+     */
+    protected function _stripQuoted($sql)
+    {
+        $regex = "/\"([^\\\\\"]+|\\\\.|\"\")*?\"(?!\")|'([^\\\\']+|\\\\.|'')*?'(?!')/";
+        return preg_replace($regex, '', $sql);
+    }
+}
+
+$db = Zend_Db::factory('PDO_MYSQL', $config-&gt;params);
+$db-&gt;setStatementClass('Company_Db_Statement_Pdo_Mysql');
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-13T23:41:48.000+0000</p> 
+        <div class="body">
+            <p>Added a patch that tries to solve the following:
+- adds unit tests as proposed by Vincent de Lau with some supposed improvements where they seemed wrong
+- completes the _stripQuoted function, as it was quite incomplete if tested against the new unit test
+- used the U modifier in the regexes that need it to avoid the segfault that I could reproduce over and over again</p>
+
+<p>Please review and give your opinion. If I get no complaints I will commit in about two weeks from now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joern Heissler (joernh) on 2012-03-14T20:33:59.000+0000</p> 
+        <div class="body">
+            <blockquote>
+  <p>If I get no complaints</p>
+</blockquote>
+
+<p>SELECT '<code>'</code>?`;</p>
+
+<p>expected result: SELECT ;
+I get: SELECT '?`;</p>
+
+<p>Also, \ has no special meaning within `` style quotes in mysql. i.e. <code>\</code> or <code>\\</code> are both valid and different.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joern Heissler (joernh) on 2012-03-14T20:36:38.000+0000</p> 
+        <div class="body">
+            <p><code>\</code> or <code>\ \</code> (without the blank) are both valid and different.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-14T21:30:59.000+0000</p> 
+        <div class="body">
+            <p>Joern, can you be more specific. It's good that you complain / comment. I'm just the other developer trying to fix something that has been broken for many years. I don't expect it to be fixed overnight.</p>
+
+<p>From what I have understood from the research of Vincent de Lau, is that no attempt is made to validate or improve the query. The query is assumed to be correct and identifiers are stripped, so that the query can be parsed. Quoted identifiers have to be stripped as well.</p>
+
+<p>From the research of others I have understood that a backtick can't be escaped with a backslash, only with an extra backtick. Please use [] to quote strings in comments here, as Vincent did, to avoid confusion.</p>
+
+<p>When complaining about expected results, please do so in a format that I can readily use in the unit test.</p>
+
+<p>In your case, this would be:
+Expected:</p>
+
+<pre class="highlight"><code>
+in: [SELECT '`'`?`;]
+out: [SELECT ;]
+</code></pre>
+
+<p>Actual:</p>
+
+<pre class="highlight"><code>
+in: [SELECT '`'`?`;]
+out: [SELECT '?`;]
+</code></pre>
+
+<p>I can explain why you get what you do not expect: the two mathing backticks are stripped first. What remains is the actual output. Why is this wrong? Can you explain that? If so, I'll by happy to fix it.</p>
+
+<p>Either way, it doesn't segfault anymore, while it covers the most obvious use cases. I will welcome edge cases to be solved in separate issues if needed. Maybe we should even add an adapter specific way to override the order and format of the regexes if needed, but it seems to me that solving the segfault issue and the common use cases would already help a lot of people.</p>
+
+<p>I find it hard to find a realistic use case for the format you supplied, do you know of any?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joern Heissler (joernh) on 2012-03-14T22:28:52.000+0000</p> 
+        <div class="body">
+            <p>I'll try to make a more realistic example. Not sure if anyone would actually do it, but it looks like someone might. I hope that now it is obvious why the actual output is wrong.</p>
+
+<p>Expected:</p>
+
+<pre class="highlight"><code>
+in: [SELECT '?`' `x`, col `y` FROM t WHERE u = ?;]
+out: [SELECT  , col  FROM t WHERE u = ?;]
+</code></pre>
+
+<p>Actual:</p>
+
+<pre class="highlight"><code>
+in: [SELECT '?`' `x`, col `y` FROM t WHERE u = ?;]
+out: [SELECT '?xy` FROM t WHERE u = ?;]
+</code></pre>
+
+<p>Here is another unrealistic use case which segfaults:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+$regex = "/'(\\\\'|[^'])*'/U";
+$sql = "'";
+for ($i = 0; $i &lt; 1000000; ++$i) $sql .= "\\x";
+$sql .= "'";
+$sql = preg_replace($regex, '', $sql);
+</code></pre>
+
+<p>I wish I could come up with a perfect solution myself, but everything I try is either deadly slow, segfaults, would require libpcre changes or would require making a C module for stripping quotes :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-15T07:56:21.000+0000</p> 
+        <div class="body">
+            <p>Thanks for your explanation and the excellent formatting of your code examples.</p>
+
+<p>I still have trouble understanding, because I think the query is wrong and we do not attempt to validate the query. In this input:</p>
+
+<pre class="highlight"><code>[SELECT '?`' `x`, col `y` FROM t WHERE u = ?;]
+</code></pre>
+
+<p>the first backtick is not allowed in my opinion and that's why is goes 'wrong' with the output. Or should a backtick not be considered a quote if inside single quotes and that is what I'm missing? Why would one want a single backtick inside the single quotes? I still find it very, very hard to imagine a use case for that.</p>
+
+<p>I could imagine something like this:</p>
+
+<pre class="highlight"><code>
+[INSERT INTO `pcre` (`test`) VALUES ('In MySQL, the backtick (`) is used to quoted identifiers')]
+</code></pre>
+
+<p>Will I be in trouble with this?:</p>
+
+<pre class="highlight"><code>
+[INSERT INTO `pcre` (`test`) VALUES ('In MySQL, the backtick (`) is used to quoted identifiers, and here is another backtick: ` ...ooops')]
+</code></pre>
+
+<p>I admit that I will have to look deeper into examples like these and make sure I am confident about how these should be formatted to be valid queries and then what the expected output should be. Any help is still appreciated. Even if it doesn't get perfect, It would help if it would improve, or?</p>
+
+<p>Your segfaulting examples worries me, although it is unrealistic. Maybe I should not be worried, in php you can't do everything either. Like allocating memory inside an infinite loop will certainly crash php.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joern Heissler (joernh) on 2012-03-15T09:59:55.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+Thanks for your explanation and the excellent formatting of your code examples.
+{quote}
+I'm trying my best to learn the formatting language of this bug tracker :-)</p>
+
+<p>{quote}
+Or should a backtick not be considered a quote if inside single quotes and that is what I'm missing? Why would one want a single backtick inside the single quotes? I still find it very, very hard to imagine a use case for that.
+{quote}</p>
+
+<p>Inside quotes (whatever the type) all other quotes lose their special meaning and are just ordinary characters. So '?<code>' is a string consisting of a question mark and a backtick. My query would return two columns, named x and y, where the value of the former is always '?</code>' and the latter's value comes from the database:</p>
+
+<pre class="literal">
+mysql&gt; create table t (u int unsigned not null, col varchar(20) not null);
+Query OK, 0 rows affected (0.00 sec)
+
+mysql&gt; insert into t values (10,'ten'), (20,'twenty'), (42,'fortytwo');
+Query OK, 3 rows affected (0.00 sec)
+Records: 3  Duplicates: 0  Warnings: 0
+
+mysql&gt; SELECT '?`' `x`, col `y` FROM t WHERE u = 20;
++----+--------+
+| x  | y      |
++----+--------+
+| ?` | twenty |
++----+--------+
+1 row in set (0.00 sec)
+</pre>
+
+<p>And your two queries are perfectly valid in mysql:</p>
+
+<pre class="literal">
+mysql&gt; create table pcre (test varchar(255));
+Query OK, 0 rows affected (0.02 sec)
+
+mysql&gt; INSERT INTO `pcre` (`test`) VALUES ('In MySQL, the backtick (`) is used to quoted identifiers');
+Query OK, 1 row affected (0.00 sec)
+
+mysql&gt; INSERT INTO `pcre` (`test`) VALUES ('In MySQL, the backtick (`) is used to quoted identifiers, and here is another backtick: ` ...ooops');
+Query OK, 1 row affected (0.00 sec)
+
+mysql&gt; select * from pcre;
++----------------------------------------------------------------------------------------------------+
+| test                                                                                               |
++----------------------------------------------------------------------------------------------------+
+| In MySQL, the backtick (`) is used to quoted identifiers                                           |
+| In MySQL, the backtick (`) is used to quoted identifiers, and here is another backtick: ` ...ooops |
++----------------------------------------------------------------------------------------------------+
+2 rows in set (0.00 sec)
+</pre>
+
+<p>Of course my examples appear to be unrealistic. But they can get very real when user-provided data is sent to the database and people can cause your application to segfault (resulting in DoS) or worse. I believe that with unrealistic code this bug can allow a user to at least inject random data into the database or tamper with SELECT results.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-15T11:30:36.000+0000</p> 
+        <div class="body">
+            <p>Thank you very much. You just clarified a key point I missed: the fact that inside any type of quotes all other quotes lose their meaning entirely. It is obvious, but I overlooked it's importance for this function completely. I'll have to redo my homework. It will have to wait for a while, but in any case, I won't commit my patches until I have give it additional attention.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-16T22:05:29.000+0000</p> 
+        <div class="body">
+            <p>By changing the order by which the quoted identifiers and values are stripped, I now have your use cases - and mine - convered by the unit test. So, maybe I solved the related ZF-7911 issue.</p>
+
+<p>As far as the segfault is concerned: I tested that with 9000 chars. It segfaulted. I added the Ungreedy modifier, it stopped segfaulting. But if I try with only a few more characters, like 9500, it segfaults just the same, even with the /U modifier. No sophisticated string needs to be inserted to reproduce it: I just insert 9500 times the [a] character:</p>
+
+<pre class="highlight"><code>
+$db = Zend_Db_Table::getDefaultAdapter();
+$value = str_repeat('a', 9500);
+$query = "INSERT INTO `pcre` (`test`) VALUES ('$value')";
+$db-&gt;query($query);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-05-10T22:42:57.000+0000</p> 
+        <div class="body">
+            <p>I commited some changes to trunk using issue ZF-7911. This does not mean everything is fixed and fine now. However, my fix adds a test that should cover what has been asked for here and in ZF-7911.</p>
+
+<p>Today I did another commit with a slightly changed regex. While the old regex would segfault near 9,500 characters, the new regex segfaults near 65,000 characters. It's still not good, but we are improving.</p>
+
+<p>I also want to point everyone at this new bugreport in the PCRE library, there is some usefull information in there, that we might be able to use in order to get regular errors from PCRE instead of segfaults and to allow us to increase the memory limit of PCRE based on the memory limit we set for php:</p>
+
+<p><a href="http://bugs.exim.org/show_bug.cgi?id=1233">http://bugs.exim.org/show_bug.cgi?id=1233</a></p>
+
+<p>I would appreciate help from anyone who has experience compiling php. What I would like to do is change it so that:
+- PCRE uses heap instead of stack
+- PCRE is configured with a memory limit based on the memory limit of php, so that if we increase the memory limit for php, we also increase the memory limit for PCRE and so that we get regular errors instead of segfaults.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-05-16T22:15:43.000+0000</p> 
+        <div class="body">
+            <p>I committed a new regex a while ago, that passes all unit tests added in ZF-7911. With this regex, you can use a query of around 65,000 characters if you use the default settings of php.</p>
+
+<p>In addition, by asking the PCRE developers, I found there is a setting you can put in php.ini. 
+pcre.recursion_limit and pcre.backtrack_limit</p>
+
+<p>I experimented with those, and I found that if I set the pcre.recursion_limit to 1000, which is a very low value, compared to the default of 100k, it 'just works' (all the unit tests pass). You get a regular memory_limit exceeded php error if you use too long a query, but you can increase the memory_limit until you get a MySQL has gone away error (because the maximum packet size was exceeded). In either case, it is no longer Zend_Db_Statement that is the problem. I could insert 100k utf8 characters before MySQL gave up.</p>
+
+<p>See also:
+<a href="http://bugs.exim.org/show_bug.cgi?id=1233">http://bugs.exim.org/show_bug.cgi?id=1233</a></p>
+
+<p>If you still experience problems even with the new regex and tweaked settings, feel free to reopen this issue.</p>
+
+<p>Note that if you set the recursion limit to low, to 10 for example, the resulting replacement string will be empty and you will have no query anymore. In that case, the unit tests will not pass.</p>
+
+        </div>
+    </div>
+    </div>
+

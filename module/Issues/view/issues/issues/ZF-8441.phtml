@@ -1,0 +1,366 @@
+<h2>ZF-8441: Wrong count of records when using DISTINCT in paginator's select object</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-02T04:18:41.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-12-08T12:19:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.12 (22/Jun/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Andris Causs (cypher)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marco Kaiser (bate)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12443/ContractsController.php">ContractsController.php</a></li>
+            <li><a href="/issues/secure/attachment/12442/tables.sql">tables.sql</a></li>
+            <li><a href="/issues/secure/attachment/12441/view.phtml">view.phtml</a></li>
+            <li><a href="/issues/secure/attachment/12440/_pagination.phtml">_pagination.phtml</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have a Zend_Db_Select object that does several one-to-many joins on multiple tables. I am passing that select object to view's "paginationControl" helper. The number of rows I get is, for example, 5 but the paginator control's "totalItemCount" property says 11.</p>
+
+<p>Here is some example code:</p>
+
+<p>Zend_Db_Select generation in the controller action
+Note -&gt;distinct()</p>
+
+<pre class="highlight"><code>
+$select = $c-&gt;getAdapter()-&gt;select()-&gt;distinct();
+$select-&gt;from(array('c' =&gt; 'table0'), array(
+    '*',
+));
+$select-&gt;joinLeft(array('t' =&gt; 'table1'),
+    'c.id = t.id',
+    array()
+);
+$select-&gt;joinLeft(array('f' =&gt; 'table2'),
+    'c.id = f.id',
+    array()
+);
+</code></pre>
+
+<p>Then I assign the paginator object to the view:</p>
+
+<pre class="highlight"><code>
+$paginator = Zend_Paginator::factory($select);
+$paginator-&gt;setCurrentPageNumber($page);
+$paginator-&gt;setItemCountPerPage(10);
+$this-&gt;view-&gt;items = $paginator;
+</code></pre>
+
+<p>After that I'm printing the paginator in the view like this:</p>
+
+<pre class="highlight"><code>
+$params = array(...);
+print $this-&gt;paginationControl($this-&gt;items, Options::PAGINATOR_STYLE, '_pagination.phtml', $params);
+</code></pre>
+
+<p>And just in case, here's how the counts in the _pagination.phtml are printed:</p>
+
+<pre class="highlight"><code>
+print 'Showing ' . $this-&gt;firstItemNumber . ' - ' . $this-&gt;lastItemNumber . ' of ' . $this-&gt;totalItemCount . ' results (' . $this-&gt;itemCountPerPage . ' per page)';
+</code></pre>
+
+<p>The output is: "Showing 1 - 5 of 11 results (10 per page)"</p>
+
+<p>To summarize it all - the amount of row objects in the paginator is correct but totalItemCount is not.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2009-12-02T04:25:48.000+0000</p> 
+        <div class="body">
+            <p>Can you add a -&gt;distinct() to your select?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andris Causs (cypher) on 2009-12-02T04:31:43.000+0000</p> 
+        <div class="body">
+            <p>Yes. If you "print $select" the result will be:
+SELECT DISTINCT c.* FROM table0 AS c LEFT JOIN table1 AS t ON c.id = t.id LEFT JOIN table2 AS f ON c.id = f.id;</p>
+
+<p>Also, here's a link to the documentation:
+<a href="http://framework.zend.com/manual/en/zend.db.select.html#zend.db.select.building.distinct">http://framework.zend.com/manual/en/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2009-12-02T04:50:31.000+0000</p> 
+        <div class="body">
+            <p>I think this isnt a bug. you have to provide example table structure and data. I havnt reproducted it with my Data here.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andris Causs (cypher) on 2009-12-02T05:06:29.000+0000</p> 
+        <div class="body">
+            <p>OK, let's say you've got two tables:
+table0:
+id | field_a | field_b | field_c</p>
+
+<p>table1:
+id | field_d</p>
+
+<p>the contents could be like this:
+table0:
+1 | a | a | a
+2 | b | b | b
+3 | c | c | c</p>
+
+<p>table1:
+1 | x
+1 | y
+1 | z
+2 | p
+2 | q
+3 | f
+3 | g
+3 | h</p>
+
+<p>So, if you do
+SELECT t0.* FROM table0 AS t0
+LEFT JOIN table1 AS t1 ON t0.id = t1.id;
+...you will get 8 rows just because there are 8 rows in table1.</p>
+
+<p>What I infact need is to get unique rows from table0, hence I need to add DISTINCT:
+SELECT DISTINCT t0.* FROM table0 AS t0
+LEFT JOIN table1 AS t1 ON t0.id = t1.id;</p>
+
+<p>In this case you get 3 rows.</p>
+
+<p>Now, I pass this object to Zend_Paginator::factory() it creates the paginator object.
+When I do
+foreach ($paginator as $item) {}
+it will print 4 rows, which is correct but when I print the page numbers it says that there are 8 items.
+That is the bug that I'm trying to describe.</p>
+
+<p>Sorry, I can't supply you any specific table structures as it's an internal company project.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2009-12-02T05:09:57.000+0000</p> 
+        <div class="body">
+            <p>Can you please attach to this issue your partial view paginator rendering script, a sql dump and other details so that it is more easier to reproduct that all? :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andris Causs (cypher) on 2009-12-02T05:13:59.000+0000</p> 
+        <div class="body">
+            <p>Sorry, there's a typo - instead of "it will print 4 rows" it should say "it will print 3 rows".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andris Causs (cypher) on 2009-12-03T03:07:43.000+0000</p> 
+        <div class="body">
+            <p>Just a quick update.</p>
+
+<p>Here is the output of my $select-&gt;__toString() (Zend_Db_Select that I pass to the paginator):</p>
+
+<pre class="highlight"><code>
+SELECT DISTINCT c.* FROM ctr_details AS c
+LEFT JOIN ctr_tags AS t ON c.contract_id = t.contract_id
+LEFT JOIN ctr_files AS f ON c.contract_id = f.contract_id
+GROUP BY c.contract_id
+</code></pre>
+
+<p>// I added $select-&gt;group('c.contract_id') thinking that it might group all the rows when counting</p>
+
+<p>And here is the output of $paginator-&gt;getAdapter()-&gt;getCountSelect()-&gt;__toString():</p>
+
+<pre class="highlight"><code>
+SELECT COUNT(1) AS `zend_paginator_row_count` FROM ctr_details AS c
+LEFT JOIN ctr_tags AS t ON c.contract_id = t.contract_id
+LEFT JOIN ctr_files AS f ON c.contract_id = f.contract_id
+</code></pre>
+
+<p>As you can see GROUP BY is gone as well.</p>
+
+<p>The problem seems to be in Zend_Paginator_Adapter_DbSelect::getCountSelect().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andris Causs (cypher) on 2009-12-03T03:32:12.000+0000</p> 
+        <div class="body">
+            <p>OK, found a dirty workaround for those that stumble upon this page and want a quick fix.
+As you probably know there's a function in Zend_Paginator_Adapter_DbSelect called setRowCount ().
+It allows you to specify a custom Zend_Db_Select object to use in counting the rows.</p>
+
+<p>This is what I did:</p>
+
+<pre class="highlight"><code>
+$select = $c-&gt;getAdapter()-&gt;select()-&gt;distinct();
+$select_count = $c-&gt;getAdapter()-&gt;select();
+
+// generate the select object
+$select-&gt;from(array('c' =&gt; $c-&gt;getTableName()), array(
+    '*',
+));
+$select-&gt;joinLeft(array('t' =&gt; $t-&gt;getTableName()),
+    'c.contract_id = t.contract_id',
+    array()
+);
+$select-&gt;joinLeft(array('f' =&gt; $f-&gt;getTableName()),
+    'c.contract_id = f.contract_id',
+    array()
+);
+
+// generate the count select object
+$select_count-&gt;from(array('c' =&gt; $c-&gt;getTableName()), array(
+    new Zend_Db_Expr('COUNT(DISTINCT c.contract_id) AS ' . Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN),
+));
+$select_count-&gt;joinLeft(array('t' =&gt; $t-&gt;getTableName()),
+    'c.contract_id = t.contract_id',
+    array()
+);
+$select_count-&gt;joinLeft(array('f' =&gt; $f-&gt;getTableName()),
+    'c.contract_id = f.contract_id',
+    array()
+);
+
+// ...
+
+$adapter = new Zend_Paginator_Adapter_DbSelect($select);
+$adapter-&gt;setRowCount($select_count);
+
+$paginator = new Zend_Paginator($adapter);
+
+$this-&gt;view-&gt;contracts = $paginator;
+</code></pre>
+
+<p>I know it's not the coolest approach but at least it works.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ivan Krechetov (ikr) on 2010-01-07T01:13:24.000+0000</p> 
+        <div class="body">
+            <p>I seem to have a similar problem using Zend_Paginator_Adapter_DbSelect. &lt;?php echo $this-&gt;totalItemCount ?&gt; in my control.phtml is always 10, even though there are 50 pages with 10 items each.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ivan Krechetov (ikr) on 2010-01-07T01:22:28.000+0000</p> 
+        <div class="body">
+            <p>Correction: it's not always 10 for me, on the last page it's 8. So, looks like totalItemCount has actually the value of currentItemCount.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ivan Krechetov (ikr) on 2010-01-07T02:52:04.000+0000</p> 
+        <div class="body">
+            <p>Forget my comments. Found a bug in my code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marco Kaiser (bate) on 2010-05-31T01:04:36.000+0000</p> 
+        <div class="body">
+            <p>i tested it and i cannot reproduce your bug, i fixed some lines of code in Zend_Paginator, please test with the latest code and if still exists please reopen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2010-05-31T01:18:29.000+0000</p> 
+        <div class="body">
+            <p>Marco,</p>
+
+<p>If the issue cannot be reproduced, please do not "fix some lines of code". If there is an issue with those lines, consider opening a new issue. Also, please mention the revision numbers :)</p>
+
+<p>Cheers,</p>
+
+<p>Jurriën</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris MacPherson (chrismacp) on 2011-12-08T12:02:13.000+0000</p> 
+        <div class="body">
+            <p>I can confirm I am seeing the same results when I perform a query with joins that needs a distinct on one table.</p>
+
+<p>My original query looks like this :</p>
+
+<pre class="literal">
+SELECT DISTINCT `t1`.* 
+FROM `table1` AS `t1` 
+INNER JOIN `table2` AS `t2` ON t1.columna = t2.columna
+LEFT JOIN `table3` AS `t3` ON t2.columnb = t3.columnb
+</pre>
+
+<p>Inside the dBSelect adapter, at line 260, if I perform __toString() on $this-&gt;_countSelect I get the following:</p>
+
+<pre class="literal">
+SELECT COUNT(1) AS `zend_paginator_row_count` 
+FROM `table1` AS `t1` 
+INNER JOIN `table2` AS `t2` ON t1.columna = t2.columna
+LEFT JOIN `table3` AS `t3` ON t2.columnb = t3.columnb
+</pre>
+
+<p>This is returning an incorrect count due to the lack of the distinct statement which is need due to multiple rows being created during the join process.</p>
+
+<p>I think it would be hard for the method to dynamically get around this issue and so the solution for me is to alter the check at line 217 to pick up my situation and do the count around a sub-query as it does in other situations. Although probably not the most efficient way to count the rows, it does provide the correct result. With the code I am working on it would be difficult to provide a dynamically created custom query just for the count.</p>
+
+<p>I basically just check there is only one column part and that is uses a wildcard. This then makes the adapter and paginator work perfectly for my query.</p>
+
+<p>My change</p>
+
+<pre class="literal">
+Index: Zend/Paginator/Adapter/DbSelect.php
+===================================================================
+--- Zend/Paginator/Adapter/DbSelect.php (revision 43843)
++++ Zend/Paginator/Adapter/DbSelect.php (working copy)
+@@ -215,7 +215,8 @@
+              * than one group, or if the query has a HAVING clause, then take
+              * the original query and use it as a subquery os the COUNT query.
+              */
+-            if (($isDistinct &amp;&amp; count($columnParts) &gt; 1) || count($groupParts) &gt; 1 || !empty($havingParts)) {
++            if (($isDistinct &amp;&amp; ((count($columnParts) == 1 &amp;&amp; $columnParts[0][1] == Zend_Db_Select::SQL_WILDCARD) 
++                 || count($columnParts) &gt; 1)) || count($groupParts) &gt; 1 || !empty($havingParts)) {
+                 $rowCount-&gt;reset(Zend_Db_Select::ORDER);
+                 $rowCount = $db-&gt;select()-&gt;from($rowCount);
+             } else if ($isDistinct) {
+</pre>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,207 @@
+<h2>ZF-10118: Speed improvement for Zend_Form_Element</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-07T16:58:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-09T16:49:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                John Crenshaw (bugslayer)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13193/Element.patch">Element.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Form elements each get their own set of plugin loaders. At 3 per element, this overhead adds up fast with large forms, or pages that heavily use multiple forms. In the most common cases, there is no reason for this. The default plugin loaders are fine, and can be reused.</p>
+
+<p>I've included a patch that uses a set of shared static loaders by default. Special loaders can be set on a per element basis as needed (just like before). This seems to improve speed by 10%-20% on the large forms I was testing. There is a mechanism for ignoring the static loaders, but it's probably not needed, so feel free to remove it.</p>
+
+<pre class="literal">
+
+Index: Element.php
+===================================================================
+--- Element.php (revision 936)
++++ Element.php (working copy)
+@@ -141,8 +141,20 @@
+      * Element label
+      * @var string
+      */
+-    protected $_label;
+-
++    protected $_label;
++    
++    /**
++     * Static plugin loaders (improves performance)
++     * @var array
++     */
++    static protected $_staticLoaders = array();
++
++    /**
++     * Option to disable static loaders if needed
++     * @var boolean
++     */
++    static protected $_useStaticLoaders = true;
++    
+     /**
+      * Plugin loaders for filter and validator chains
+      * @var array
+@@ -1000,15 +1012,28 @@
+                     $prefixSegment = 'Form_Decorator';
+                     $pathSegment   = 'Form/Decorator';
+                 }
+-                if (!isset($this-&gt;_loaders[$type])) {
+-                    require_once 'Zend/Loader/PluginLoader.php';
+-                    $this-&gt;_loaders[$type] = new Zend_Loader_PluginLoader(
+-                        array('Zend_' . $prefixSegment . '_' =&gt; 'Zend/' . $pathSegment . '/')
+-                    );
++                if (!isset($this-&gt;_loaders[$type])) {
++                    if (self::$_useStaticLoaders &amp;&amp; isset(self::$_staticLoaders[$type]))
++                    {
++                      $this-&gt;_loaders[$type] = self::$_staticLoaders[$type];
++                    }
++                    else
++                    {
++                      require_once 'Zend/Loader/PluginLoader.php';
++                      $this-&gt;_loaders[$type] = new Zend_Loader_PluginLoader(
++                          array('Zend_' . $prefixSegment . '_' =&gt; 'Zend/' . $pathSegment . '/')
++                      );
++                      
++                      if (self::$_useStaticLoaders)
++                      {
++                        // this is our new static loader
++                        self::$_staticLoaders[$type] = $this-&gt;_loaders[$type];
++                      }
++                    }
+                 }
+                 return $this-&gt;_loaders[$type];
+             default:
+                 require_once 'Zend/Form/Exception.php';
+                 throw new Zend_Form_Exception(sprintf('Invalid type "%s" provided to getPluginLoader()', $type));
+         }
+     }
+
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-07-07T18:19:19.000+0000</p> 
+        <div class="body">
+            <p>Did you run the unittests with this patch? If so, did all tests pass?</p>
+
+<p>Also, as a sidenote for a next time; often it helps if you attach a patch as a file rather than inline, so people can easily wget it ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Crenshaw (bugslayer) on 2010-07-07T20:03:46.000+0000</p> 
+        <div class="body">
+            <p>No, I didn't run the tests (I actually deleted them locally some time ago assuming I didn't need them.)</p>
+
+<p>I actually intended to attach a patch file, but there wasn't an upload field when I created the ticket.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-06-08T16:30:49.000+0000</p> 
+        <div class="body">
+            <p>This patch introduces one error and two failures. John - could you provide a new patch and make sure you have signed CLA.</p>
+
+<pre class="highlight"><code>
+$ cd tests
+$ phpunit Zend/Form/AllTests.php
+
+...
+
+There was 1 error:
+
+1) Zend_Form_Element_RadioTest::testCustomLabelDecorator
+
+/home/kim/workspace/zf/tests/Zend/Form/Element/RadioTest.php:184
+
+--
+
+
+There were 2 failures:
+
+1) Zend_Form_ElementTest::testAddingFilterPluginLoaderPrefixPathDoesNotAffectOtherLoaders
+Failed asserting that 
+Array
+(
+    [0] =&gt; Zend/Form/
+)
+ is false.
+
+/home/kim/workspace/zf/tests/Zend/Form/ElementTest.php:609
+
+2) Zend_Form_FormTest::testCustomGlobalElementPrefixPathUsedInNewlyCreatedElements
+Zend_Form_Decorator_Label
+Failed asserting that  is true.
+
+/home/kim/workspace/zf/tests/Zend/Form/FormTest.php:3764
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Crenshaw (bugslayer) on 2011-06-08T23:53:12.000+0000</p> 
+        <div class="body">
+            <p>If I get a minute, I'll try to work out what is happening there.</p>
+
+<p>Is there any documentation on setting things up to run the unit tests? I tried to run them a year ago after your prior comment, but it seemed like I got more skip and error than anything else, seemingly due to lack of configuration on various stuff.</p>
+
+<p>Where do I check whether I signed the CLA? I think I did a while back, but I don't remember for certain.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-06-09T16:49:33.000+0000</p> 
+        <div class="body">
+            <p>John - you can start by running test only for form element and when everything is right then run all form related tests. To run these tests you don't have to set any configurations.</p>
+
+<pre class="highlight"><code>
+$ cd tests
+$ phpunit Zend/Form/ElementTest.php # Zend Form Element tests
+$ phpunit Zend/Form/AllTests.php # All Zend Form related tests
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

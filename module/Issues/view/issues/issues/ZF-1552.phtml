@@ -1,0 +1,259 @@
+<h2>ZF-1552: A method that returns the complete translation data array</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-12T08:07:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-11-15T14:52:09.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.2 (25/Sep/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Werner Mollentze (werner)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>It would be really convenient to have some method of retrieving the complete translation data array. Alternatively, a method that retrieves all assigned message ID's for any adapter would be just as useful.</p>
+
+<p>A common scenario we face daily is having to translate messages in batch, and assigning the translated strings to a view variable (e.g. a third party template that expects multiple translated strings). We do not know the message ID's of the strings that are being translated - they are loaded from any given translation file, and new messages may be added after we complete the code.</p>
+
+<p>As far as I could see, there seems to be no way of retrieving the available (already assined) message ID's from any Zend_Tanslate component - If that was possible, one could (of course) iterate over the array of Message ID's and translate them all automatically. Currently (as far as I can tell, I might be wrong) the assumption is made that the developer is aware of any specific message ID in order to translate it.</p>
+
+<p>Thanks for your time and effort.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-12T17:56:17.000+0000</p> 
+        <div class="body">
+            <p>Assign to Thomas.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-06-13T16:37:01.000+0000</p> 
+        <div class="body">
+            <p>You can already do this... but the other way round...</p>
+
+<p>There is a method "isTranslated()" with which you can check if the given MessageID is already loaded or translateable.</p>
+
+<p>When iterating through your array, you would just have to write an foreach loop and if isTranslated returns false add this messageID to the source file.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Werner Mollentze (werner) on 2007-06-13T21:17:32.000+0000</p> 
+        <div class="body">
+            <p>Hi Thomas,</p>
+
+<p>You described our problem perfectly - even if you want to use isTranslated(), it is assumed that the developer knows about the MessageID, or that the developer has access to an array of MessageID's. That is not always the case, so we would like to propagate a method that does indeed work the other way around.</p>
+
+<p>Consider the following MVC scenario, which we are dealing with on a regular basis (also suppose we are using the Csv Adapter).</p>
+
+<p>1) We only know the <em>location</em> of the CSV file that holds the MessageID's. We do not know the contents of the file, nor the name of any given MessageID. The Csv file location is based on the requested language, e.g." tpl/en-US/whatever.csv".
+2) The translators maintain the CSV file, it is not our job to do this. Their work is separate from ours.
+3) The designers maintain the display templates (the views), it is not our job to do this. Their work is separate from ours.
+4) Our job is only to assign the messages to the view when dealing with the Model and the Controller.</p>
+
+<p>This is very easy to do, if we add a new method to Zend_Translate_Adapter_Csv:</p>
+
+<p>public function getData()
+{
+    return $this-&gt;_translate;
+}</p>
+
+<p>Suppose we also have this pseudo code (e.g. in a Controller) that checks the availability of translated content if the user requested content in another language:</p>
+
+<p>public function loadLanguage($defaultLangFile, $requestLangFile='') {
+    if (file_exists($defaultLangFile)) {
+        $translate = new Zend_Translate('csv', $defaultLangFile, $this-&gt;config-&gt;language-&gt;default);
+        // See if target / request language is available
+        if ($this-&gt;lang != $this-&gt;config-&gt;language-&gt;default) {
+            if (file_exists($requestLangFile)) {
+                $translate-&gt;addTranslation($requestLangFile, $this-&gt;lang);
+            }
+        }
+        return $translate;
+    }
+    return null;
+}</p>
+
+<p>In order to automatically translate all MessageID's that are available for the language the user requested, we can then use the getData() method that we added to Zend_Translate_Adapter_Csv to allow us to get access to the translated data and the MessageID's from a Controller:</p>
+
+<p>// Assign translation strings to the view template (if defined in config)</p>
+
+<p>$language = array(); // The view expects an array of MessageID keys and translated values</p>
+
+<p>$translation = $this-&gt;loadLanguage(
+    "/path/to/english.csv",
+    "/path/to/french.csv"
+);</p>
+
+<p>if ($translation) {
+    $translateData = $translation-&gt;getAdapter()-&gt;getData(); // &lt;-- We need something like this
+    if (is_array($translateData)) {
+        if (isset($translateData[$this-&gt;config-&gt;language-&gt;default])) {
+            $defLangData = $translateData[$this-&gt;config-&gt;language-&gt;default];
+            foreach ($defLangData as $key =&gt; $value) {
+                $language[$key] = $this-&gt;_($translation, $key);
+            }
+        }
+    }
+}</p>
+
+<p>// And, finally
+$this-&gt;view-&gt;assign('language', $language);</p>
+
+<p>What this pseudo-code example illustrates is that nowhere we are aware of any given MessageID. The view/template expects an array of (translated) language strings, and displays those strings, without being aware of the language it is displaying.</p>
+
+<p>By (currently) having to know a MessageID throughout Zend_Translate in order to use is, involves the developer with the translations - it does not allow us to completely separate the data/content/presentation during our workflow.</p>
+
+<p>I hope this makes sense :-)</p>
+
+<p>Kind Regards,
+Werner</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-06-14T01:22:17.000+0000</p> 
+        <div class="body">
+            <p>If you dont have the messageIDs but only the translated strings you really have a problem...
+Because when you code with numbers instead of strings your code is really unreadable.</p>
+
+<p>Related to your scenario...
+No one adds the messageIds from the code to the csv file. This should normally be done by the developer because he is the one who defines which output should be given, which wording and so on.
+Also the designer should (in some cases) know the messageIDs.</p>
+
+<p>Your code is just a wrapper to have the translated strings broken down to a second public array.
+I don't see the benefit...</p>
+
+<p>You have one guy developing... he is probably the one who creates the original csv file.
+You have a second guy translating the content.
+And you have a third guy doing the view... he should also know the messageIDs because he has to know what should be presented.</p>
+
+<p>But as you max have mentioned the issue is still opened... if it would make complete no sense I would already have closed it. You should only know that the actual API will not change anymore until 1.0 is released, so this feature (I'm not sure if we integrate it exactly this way) is a after-1.0 feature and will be delayed a little bit.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Werner Mollentze (werner) on 2007-06-14T03:03:07.000+0000</p> 
+        <div class="body">
+            <p>Hi!</p>
+
+<blockquote>
+  <p>Your code is just a wrapper to have the translated strings broken down to a second public array.
+  I don't see the benefit...</p>
+</blockquote>
+
+<p>You are right, there is no benefit. We still need a way to access the available MessageID's for a given language, alternatively all translation data.</p>
+
+<p>Why?</p>
+
+<p>I'll quickly give you a practical example of our current workflow for a specific project we're working on.</p>
+
+<p>1) The Designer</p>
+
+<p>1.1) The designer designs the template using PHPTAL. She defines all the language strings (and thus the ID's) beforehand (by consulting with the</p>
+
+<h2>customers, where she gets her content from), for certain static content. She puts this in a csv file, eg:</h2>
+
+<h1>English Stuff</h1>
+
+<p>hello;Good Day!</p>
+
+<h2>title;Sorry, Page Not Found</h2>
+
+<h2>1.2) She creates a PHPTAL template that refers to these strings, eg:</h2>
+
+<h1>Good Day!</h1>
+
+<hr /><p>Being PHPTAL, this means that a translated string is displayed for the MessageID 'hello' as the content for the H! element (for whatever language is selected on the development side).</p>
+
+<p>2) The Translator</p>
+
+<p>They only get the csv files from the designer , and translate them. Easy enough. They upload the translation files to a predefined directory (e.g. 'fr') on the server.</p>
+
+<p>3) The Developer</p>
+
+<h2>All that needs to be done here is get data from the translations files and assign it to the view:</h2>
+
+<p>$translatedArr = getTranslatedDataByMessageIDArrayKeys();</p>
+
+<h2>$this-&gt;view-&gt;assign('translation', $translatedArr);</h2>
+
+<p>The translations files (even for the default language) can (and will change), (the translators job) along with the view (the designer's job). In this scenario, the developer does not need to know a single MessageID, <em>but</em> he needs access to the available MessageID's (at least) coming from the translation files. If not, the controller code needs to be updated each time new content gets added to the view (or is translated) - From my perspective there is no benefit in <em>that</em>, only more work.</p>
+
+<p>Kind Regards,
+Werner</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Werner Mollentze (werner) on 2007-06-14T03:17:56.000+0000</p> 
+        <div class="body">
+            <p>Hi Again,</p>
+
+<p>Thanks for the feedback - It's OK if you only consider adding this type of access in a future version. Right now we will extend the existing classes to provide our needed functionality.</p>
+
+<p>Regarding the example I gave of "quickly hacking" Zend_Translate_Adapter_Csv - There is definately a better way to go about this, but it needs some thought.</p>
+
+<p>Maybe something like getTranslatedMessageIDs() , getAllMessageIDs() ?</p>
+
+<p>Any method(s) that provides this functionality and suits your preferences will be great.</p>
+
+<p>Thank you for your time and effort.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-07-14T11:59:04.000+0000</p> 
+        <div class="body">
+            <p>Added new methods "getMessageIds()" and "getMessages()" with SVN 5693.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-07-17T16:27:10.000+0000</p> 
+        <div class="body">
+            <p>New features are only allowed to be integrated in minor releases (1.x.0)</p>
+
+        </div>
+    </div>
+    </div>
+

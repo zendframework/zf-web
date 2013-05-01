@@ -1,0 +1,269 @@
+<h2>ZF-11401: Use of $s3 getObjectsByBucket() when using a delimiter parameter does not provide access to CommonPrefix resultset.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-05-23T15:02:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-02-12T20:41:57.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Chris Atkinson (layke)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Enrico Zimuel (zimuel)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Service_Amazon</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When you want to retrieve Objects within a bucket you can emulate a normal filesystem by using the params "prefix" and "delimiter".</p>
+
+<p>If I were to use:</p>
+
+<pre class="highlight"><code>
+ $s3 = new Zend_Service_Amazon_S3($aws_key, $aws_secret_key);
+ $s3-&gt;getObjectsByBucket("my-bucket");
+</code></pre>
+
+<p>Then I would get all of the keys in this bucket. 
+Such as "folder/", "folder/childFolder/anotherFolder", "someFile.jpg", "anotherImage.jpg".</p>
+
+<p>However, if I only wanted the immediate children in order to emulate a "Folders" and "Files" hierarchy like you would see in a normal filesystem, then you would use a delimiter param of "/". 
+This then aggregates the keys which have "/" in their key name and adds them to the "CommonPrefix".</p>
+
+<p>However,  the getObjectsByBucket() mthod ignores the "CommonPrefix" result in the XML response object, and only checks if the Contents is set. 
+As a consequence, it does not provide access to the CommonPrefix anywhere.</p>
+
+<p>This is a XML response. There is a CommonPrefixes key in this XML object, but it is ignored, making the use of $params for the most part useless.</p>
+
+<pre class="highlight"><code>
+object(SimpleXMLElement)#265 (8) {
+  ["Name"]=&gt;
+  string(7) "samplebucket"
+  ["Prefix"]=&gt;
+  object(SimpleXMLElement)#267 (0) {
+  }
+  ["Marker"]=&gt;
+  object(SimpleXMLElement)#268 (0) {
+  }
+  ["MaxKeys"]=&gt;
+  string(3) "100"
+  ["Delimiter"]=&gt;
+  string(1) "/"
+  ["IsTruncated"]=&gt;
+  string(5) "false"
+  ["Contents"]=&gt;
+  array(2) {
+    [0]=&gt;
+    object(SimpleXMLElement)#269 (6) {
+      ["Key"]=&gt;
+      string(8) "myobject"
+      ["LastModified"]=&gt;
+      string(24) "2011-05-23T14:05:42.000Z"
+      ["ETag"]=&gt;
+      string(34) ""aefaf7502d52994c3b01957636a3cdd2""
+      ["Size"]=&gt;
+      string(1) "8"
+      ["Owner"]=&gt;
+      object(SimpleXMLElement)#275 (2) {
+        ["ID"]=&gt;
+        string(64) "5021341ae50ddc73d3c34c6ae80d86d4f03b20cc71bbc99a6cddd720c2"
+        ["DisplayName"]=&gt;
+        string(9) "username"
+      }
+      ["StorageClass"]=&gt;
+      string(8) "STANDARD"
+    }
+    [1]=&gt;
+    object(SimpleXMLElement)#270 (6) {
+      ["Key"]=&gt;
+      string(15) "rowPosition.jpg"
+      ["LastModified"]=&gt;
+      string(24) "2011-05-20T13:29:49.000Z"
+      ["ETag"]=&gt;
+      string(34) ""49e20234ad87244150e6092a47998b8a7d9""
+      ["Size"]=&gt;
+      string(6) "294142"
+      ["Owner"]=&gt;
+      object(SimpleXMLElement)#275 (2) {
+        ["ID"]=&gt;
+        string(64) "50ca3cfbc61b7ae5021345ddc73d3c34c6ae80d86d4f03b20cc71bbc99a6cddd720c2"
+        ["DisplayName"]=&gt;
+        string(9) "chrisacky"
+      }
+      ["StorageClass"]=&gt;
+      string(8) "STANDARD"
+    }
+  }
+  ["CommonPrefixes"]=&gt;
+  array(4) {
+    [0]=&gt;
+    object(SimpleXMLElement)#271 (1) {
+      ["Prefix"]=&gt;
+      string(13) "anhoterhfols/"
+    }
+    [1]=&gt;
+    object(SimpleXMLElement)#272 (1) {
+      ["Prefix"]=&gt;
+      string(6) "asdaf/"
+    }
+    [2]=&gt;
+    object(SimpleXMLElement)#273 (1) {
+      ["Prefix"]=&gt;
+      string(7) "folder/"
+    }
+    [3]=&gt;
+    object(SimpleXMLElement)#274 (1) {
+      ["Prefix"]=&gt;
+      string(9) "original/"
+    }
+  }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2011-05-26T15:38:34.000+0000</p> 
+        <div class="body">
+            <p>Hi Chris,
+my proposal is to add a boolean optional parameter to the getObjectsByBucket() method of Zend_Service_Amazon_S3 to specify if include or not the CommonPrefix values in the result list.
+This is the change in the source code of Zend_Service_Amazon_S3:</p>
+
+<pre class="highlight"><code>
+public function getObjectsByBucket($bucket, $params = array(), $commonPrefix=false)
+{
+  $response = $this-&gt;_makeRequest('GET', $bucket, $params);
+  if ($response-&gt;getStatus() != 200) {
+    return false;
+  }
+  $xml = new SimpleXMLElement($response-&gt;getBody());
+  $objects = array();
+  if (isset($xml-&gt;Contents)) {
+    foreach ($xml-&gt;Contents as $contents) {
+      foreach ($contents-&gt;Key as $object) {
+        $objects[] = (string)$object;
+      }
+    }
+  }
+  if ($commonPrefix &amp;&amp; isset($xml-&gt;CommonPrefixes)) {
+    foreach ($xml-&gt;CommonPrefixes as $prefix) {
+      foreach ($prefix-&gt;Prefix as $object) {
+        $objects[] = (string)$object;
+      }
+    }
+  }
+  return $objects;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Chris Atkinson (layke) on 2011-05-26T18:26:50.000+0000</p> 
+        <div class="body">
+            <p>The benefits of using a prefix is to be able to partition the main Objects listings from your prefix. Mixing them in the $objects response means that you can't easily retrieve the Objects and the grouped Common Prefixes.</p>
+
+<p>Also, lets say that you were to return a two $objects arrays...
+It might be better to check if $params has a prefix key. I don't know if Amazon AWS returns a XML key if no prefix matches. If this is the case then what you have proposed works okay, but if no prefixes match and they decide not to return a CommonPrefix XML key, then it might throw an unexpected result back as a response.</p>
+
+<p>Would it be bad for backwards compatibility to check if $commonPrefix boolean is set, and if it is, then return an array back like</p>
+
+<pre class="highlight"><code>
+array(
+'objects' =&gt; $objects,
+'prefixes' =&gt; $prefixes
+);
+</code></pre>
+
+<p>Only people utilising the new boolean will be affected so it shouldn't affect BC and it will mean that the prefixes are clearly partitioned from the main objects resultset. (Which is in my opinion important).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2011-05-27T08:17:01.000+0000</p> 
+        <div class="body">
+            <p>Following your considerations I think is better to create a new method to retrieve Objects and CommonPrefixes values (something like getObjectsAndPrefixesByBucket()). Your idea to get the result as associative array of 'objects' and 'prefixes' is very good. In this way we can easily distinguish between objects and prefixes.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2011-05-31T13:20:18.000+0000</p> 
+        <div class="body">
+            <p>Added the getObjectsAndPrefixesByBucket() method in S3.php (trunk, commit 24095). Try it and let me know, thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Nott (jonnott) on 2011-11-17T21:03:43.000+0000</p> 
+        <div class="body">
+            <p>This commit seems to not have made it into the 'release-1.11' branch on SVN. Any good reason? I <em>really</em> need to use this additional method, or I'll have to ditch Zend_Service_Amazon_S3 altogether.. :(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Nott (jonnott) on 2013-02-12T16:47:24.000+0000</p> 
+        <div class="body">
+            <p>The new method appears to be present now (v1.12.1), so can this issue therefore be marked as resolved and closed?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-02-12T16:58:11.000+0000</p> 
+        <div class="body">
+            <p>@Jon
+You are right, we can close this issue.</p>
+
+<p>Thanks for your feedback!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jon Nott (jonnott) on 2013-02-12T20:00:46.000+0000</p> 
+        <div class="body">
+            <p>Can the 'Fix Version' be added above? I'm not sure exactly when this was actually introduced..</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-02-12T20:41:57.000+0000</p> 
+        <div class="body">
+            <p>@Jon
+Done. :)</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,193 @@
+<h2>ZF-5082: Syntaxe compatibility issue between Pdo_Oci and oracle 8i and less in describeTable()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-27T07:01:11.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-21T06:07:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.2 (23/Dec/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                David Berlioz (quazardous)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5099">ZF-5099</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>in Zend_Db_Adapter_Pdo_Oci::describeTable()</p>
+
+<p>the sql syntaxe used to get column description use ansi join.</p>
+
+<p>ansi join is available since Oracle 9i :</p>
+
+<p>Oracle 8 only support old oracle style join</p>
+
+<p>I've modify the $sql ="..." line.</p>
+
+<p>To be clean a test on the oracle version should be done and different syntaxe provided.</p>
+
+<p>here is the Oracle 8 compatible syntaxe  :</p>
+
+<pre class="highlight"><code>
+$sql = "SELECT TC.TABLE_NAME, TB.OWNER, TC.COLUMN_NAME, TC.DATA_TYPE,
+                TC.DATA_DEFAULT, TC.NULLABLE, TC.COLUMN_ID, TC.DATA_LENGTH,
+                TC.DATA_SCALE, TC.DATA_PRECISION, C.CONSTRAINT_TYPE, CC.POSITION
+            FROM ALL_TAB_COLUMNS TC, ALL_TABLES TB, ALL_CONS_COLUMNS CC, ALL_CONSTRAINTS C
+            WHERE TC.TABLE_NAME = :TBNAME
+              AND TB.TABLE_NAME = TC.TABLE_NAME AND TB.OWNER = TC.OWNER
+              AND TC.TABLE_NAME = CC.TABLE_NAME(+) AND TC.COLUMN_NAME = CC.COLUMN_NAME(+)
+              AND CC.CONSTRAINT_NAME = C.CONSTRAINT_NAME(+) AND CC.TABLE_NAME = C.TABLE_NAME(+) AND C.CONSTRAINT_TYPE(+) = 'P' ";
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-11-28T05:29:55.000+0000</p> 
+        <div class="body">
+            <p>I haven't Oracle8 for the moment but if I run this SQL on 9i or 10g, I obtain the primary key field in multiple lines. As I remember 9i also supports this syntax. Have you any problems with table with primary key? Please run this command in SQLPlus and give us informations about result?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Berlioz (quazardous) on 2008-11-28T05:45:43.000+0000</p> 
+        <div class="body">
+            <p>sorry,</p>
+
+<p>I don't exactly understand what u want me to do ....</p>
+
+<p>you want me to test the old syntax on 8i and give you results ??</p>
+
+<p>anyway</p>
+
+<p>I ve "fixed" Zend_Db_Adapter_Pdo_Oci::describeTable() with this old syntax and test it against a table with a primary key : it works fine.</p>
+
+<p>...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Berlioz (quazardous) on 2008-11-28T07:41:03.000+0000</p> 
+        <div class="body">
+            <p>ok,</p>
+
+<p>well</p>
+
+<p>it's a bit more complicated to avoid duplicate row for some columns....</p>
+
+<p>the sql must be :</p>
+
+<pre class="highlight"><code>
+SELECT TC.TABLE_NAME, TC.OWNER, TC.COLUMN_NAME, TC.DATA_TYPE,
+                TC.DATA_DEFAULT, TC.NULLABLE, TC.COLUMN_ID, TC.DATA_LENGTH,
+                TC.DATA_SCALE, TC.DATA_PRECISION, CC.CONSTRAINT_TYPE, CC.POSITION
+            FROM ALL_TAB_COLUMNS TC, (
+            SELECT ALL_CONSTRAINTS.OWNER, ALL_CONSTRAINTS.TABLE_NAME, ALL_CONS_COLUMNS.COLUMN_NAME, ALL_CONSTRAINTS.CONSTRAINT_TYPE, ALL_CONS_COLUMNS.POSITION
+            from ALL_CONSTRAINTS, ALL_CONS_COLUMNS
+              WHERE ALL_CONS_COLUMNS.CONSTRAINT_NAME = ALL_CONSTRAINTS.CONSTRAINT_NAME 
+                AND ALL_CONS_COLUMNS.TABLE_NAME = ALL_CONSTRAINTS.TABLE_NAME
+                AND ALL_CONS_COLUMNS.OWNER = ALL_CONSTRAINTS.OWNER
+                AND ALL_CONSTRAINTS.CONSTRAINT_TYPE = 'P'
+                AND ALL_CONSTRAINTS.TABLE_NAME = 'FOO'
+                ) CC
+            WHERE TC.TABLE_NAME = 'FOO'
+              AND TC.OWNER = CC.OWNER(+) AND TC.TABLE_NAME = CC.TABLE_NAME(+) AND TC.COLUMN_NAME = CC.COLUMN_NAME(+);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Berlioz (quazardous) on 2008-11-28T07:43:45.000+0000</p> 
+        <div class="body">
+            <p>and php code</p>
+
+<pre class="highlight"><code>
+
+...
+        $consql="SELECT ALL_CONSTRAINTS.OWNER, ALL_CONSTRAINTS.TABLE_NAME, ALL_CONS_COLUMNS.COLUMN_NAME, ALL_CONSTRAINTS.CONSTRAINT_TYPE, ALL_CONS_COLUMNS.POSITION
+            from ALL_CONSTRAINTS, ALL_CONS_COLUMNS
+              WHERE ALL_CONS_COLUMNS.CONSTRAINT_NAME = ALL_CONSTRAINTS.CONSTRAINT_NAME 
+                AND ALL_CONS_COLUMNS.TABLE_NAME = ALL_CONSTRAINTS.TABLE_NAME
+                AND ALL_CONS_COLUMNS.OWNER = ALL_CONSTRAINTS.OWNER
+                AND ALL_CONSTRAINTS.CONSTRAINT_TYPE = 'P'
+                AND ALL_CONSTRAINTS.TABLE_NAME = :TBNAME";
+        $bind[':TBNAME'] = $tableName;
+        if ($schemaName) {
+            $sql .= ' AND ALL_CONS_COLUMNS.OWNER = :SCNAME';
+            $bind[':SCNAME'] = $schemaName;
+        }
+ 
+        $sql="SELECT TC.TABLE_NAME, TC.OWNER, TC.COLUMN_NAME, TC.DATA_TYPE,
+                TC.DATA_DEFAULT, TC.NULLABLE, TC.COLUMN_ID, TC.DATA_LENGTH,
+                TC.DATA_SCALE, TC.DATA_PRECISION, CC.CONSTRAINT_TYPE, CC.POSITION
+            FROM ALL_TAB_COLUMNS TC, ($consql) CC
+            WHERE TC.TABLE_NAME = :TBNAME
+              AND TC.OWNER = CC.OWNER(+) AND TC.TABLE_NAME = CC.TABLE_NAME(+) AND TC.COLUMN_NAME = CC.COLUMN_NAME(+)";      
+        if ($schemaName) {
+            $sql .= ' AND TB.OWNER = :SCNAME';
+        }
+        
+        $sql .= ' ORDER BY TC.COLUMN_ID';
+
+...
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-11-28T09:46:54.000+0000</p> 
+        <div class="body">
+            <p>That's exactly what I want :) . I link this to ZF-5099 to be able to read Oracle server version.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-12-01T14:53:28.000+0000</p> 
+        <div class="body">
+            <p>Resolved in SVN12982 but <em>NOT</em> merged to 1.7-branch for the moment</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-12-15T13:44:43.000+0000</p> 
+        <div class="body">
+            <p>Merged to 1.7-branch</p>
+
+        </div>
+    </div>
+    </div>
+

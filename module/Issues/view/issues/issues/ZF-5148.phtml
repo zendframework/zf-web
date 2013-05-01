@@ -1,0 +1,305 @@
+<h2>ZF-5148: &quot;locale&quot; Exception on Zend_Date::now()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-03T05:40:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-03-05T10:01:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marc Bennewitz (GIATA mbH) (mben)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Sometimes I get an exception on calling Zend_Date::now() with the message Given locale () does not exist ???
+This is apache error log line:</p>
+
+<pre class="highlight"><code>
+PHP Fatal error:  Uncaught exception 'Zend_Date_Exception' with message 'Given locale () does not exist' in .../libraries/framework.zend.com/Zend/Date.php:4517
+Stack trace:
+#0 .../libraries/framework.zend.com/Zend/Date.php(176): Zend_Date-&gt;setLocale(NULL)
+#1 .../libraries/framework.zend.com/Zend/Date.php(3322): Zend_Date-&gt;__construct(1228311040, 'TIMESTAMP', NULL)
+#2 .../htdocs/public/swf/vplayer.php(70): Zend_Date::now()
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-03T07:35:40.000+0000</p> 
+        <div class="body">
+            <p>This is not really an issue of Zend_Date.
+The locale of your environment can not be detected under special ways.</p>
+
+<p>This can mean:
+* Your customer does not provide a locale within his browser
+* Your environments locale can not be detected
+* The framework locale has been erased
+* You are not using application wide locales</p>
+
+<p>Eigther way, you should define the locale instead of relying to the system when you know that there are problems with the detection.</p>
+
+<p>Btw:
+You have created this sort of issue already in the past but this is a environment problem. :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-12-03T07:45:42.000+0000</p> 
+        <div class="body">
+            <p>Why you need the current locale to create a date object by unix timestamp ?
+The locale information is only needed to format the date or on creation by a format if the format contains localized information.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-12-03T09:05:51.000+0000</p> 
+        <div class="body">
+            <p>You don't check the current locale in this Order.</p>
+
+<p>This is a changed version to check it:</p>
+
+<pre class="highlight"><code>
+public function __construct($date = null, $part = null, $locale = null)
+{
+    if (($date !== null) and !($date instanceof Zend_TimeSync_Protocol) and (Zend_Locale::isLocale($date, true, false))) {
+        $locale = $date;
+        $date = null;
+        $part = null;
+    } else if (($part !== null) and (Zend_Locale::isLocale($part, null, false))) {
+        $locale = $part;
+        $part   = null;
+    }
+
+    if (empty($locale)) {
+        // Why you use Zend_Registry ???
+        // I think the following detact the current locale
+        $locales = Zend_Locale::getOrder();
+        if (count($locales)) {
+            $locale = array_shift($locales);
+        }
+        // require_once 'Zend/Registry.php';
+        // if (Zend_Registry::isRegistered('Zend_Locale') === true) {
+        //     $locale = Zend_Registry::get('Zend_Locale');
+        // }
+    }
+
+    $this-&gt;setLocale($locale);
+    
+    // ..
+    
+}
+</code></pre>
+
+<p>On setLocale is no autodetaction (but the exception)</p>
+
+<pre class="highlight"><code>
+public function setLocale($locale = null)
+{
+    if (!Zend_Locale::isLocale($locale, true, false)) {
+        if (!Zend_Locale::isLocale($locale, false, false)) {
+            require_once 'Zend/Date/Exception.php';
+            throw new Zend_Date_Exception("Given locale ({$locale}) does not exist", (string) $locale);
+        }
+
+        $locale = new Zend_Locale($locale);
+    }
+
+    $this-&gt;_locale = (string) $locale;
+    return $this;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-03T10:56:28.000+0000</p> 
+        <div class="body">
+            <p>The fact is that Zend_Date is a locale aware class.
+Which means it must have a locale to work.</p>
+
+<p>When this would not be the case there would be no way to calculate localized informations.
+And no the locale is also used for parsing the input and often internally.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-12-03T11:01:54.000+0000</p> 
+        <div class="body">
+            <p>mh ok but I have set the locale before with Zend_Locale::setDefault('de') this will not be used</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-03T11:29:40.000+0000</p> 
+        <div class="body">
+            <p>What do you mean with "before".</p>
+
+<p>When this is not done in the same script is will not work because the static variable would be deleted when the class in initialized again when the new script has been loaded.</p>
+
+<p>And you are not using a application locale.</p>
+
+<p>Eighter use application locales (they were introduced with 1.7) or initialize the locale within the same script.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2008-12-03T14:30:24.000+0000</p> 
+        <div class="body">
+            <p>ok you are right. I have overlooked that the default locale will be used on Zend_Locale::isLocale($locale, false, false)</p>
+
+<p>The problem is that I'm set the default locale and Zend_Locale initialize "en" automatically.
+I can't reproduce the error in the apache logs but they are periodically :(
+If I remove the system locale and create e request without locale information Zend_Date::now() works fine.</p>
+
+<p>I will report back if I can reproduce it.</p>
+
+<p>Alternatively it can be useful if an empty string for locale will handle equal to NULL for locale params in Zend_Locale</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-03T22:58:31.000+0000</p> 
+        <div class="body">
+            <p>No, because an empty string is definetly against RFC.</p>
+
+<p>HTTP_ACCEPT_LANGUAGE must have minimum 2 chars.
+And the systemlocale will eighter be C or a minimum 2 char string.</p>
+
+<p>On failure you get FALSE which is also handled.</p>
+
+<p>So an empty string is definitly a errorous case and handled as such.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ilya Gruzinov (shagren) on 2009-03-05T01:20:40.000+0000</p> 
+        <div class="body">
+            <p>I think this is  Zend_Date problem, not Zend_Locale problem.
+If locale cannot be auto-detected it can be set to some default("en") locale.</p>
+
+<p>Example: i setup for my browser some unknown for Zend_Framework language('oc' language). It is correct language. I can setup it in firefox. But in this case simple script:</p>
+
+<p>&lt;?php
+require_once "Zend/Date.php";
+$date = new Zend_Date('2001-01-01 12:00:00');</p>
+
+<p>Throw error(exception): Zend_Date_Exception: Given locale () does not exist in /usr/local/lib/php/ZendFramework-1.7.6-minimal/library/Zend/Date.php on line 4531
+I does not find in documentation requirement to set some default locale before using Zend_Date class.</p>
+
+<p>Small history: sometimes my site users send me mails, about problem with site in IE browser. But I cannot reproduce it. I spend many time to finding where error, because really cannot reproduce it in all my browsers/systems. Problem in users windows version - it have some internatialization, not supported by zend_locale.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-03-05T02:42:19.000+0000</p> 
+        <div class="body">
+            <p>Then you should use application wide locales and not rely on the users input.</p>
+
+<p>When the user sends "mylocale" as content of HTTP_ACCEPT_LOCALE and you accept this without checking then  of course Zend_Date will fail as it can not detect a default date for this locale as no format was given.</p>
+
+<p>Relying on the users input is ALWAYS a problematic thing.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ilya Gruzinov (shagren) on 2009-03-05T05:25:53.000+0000</p> 
+        <div class="body">
+            <p>If I use Zend_Locale with browser locale autodetection - then this bahavior(with exception) is good.
+But I use Zend_Date object. And use as described in manual.</p>
+
+<p>Then construction $date = new Zend_Date('someString') must not throw exception about auto detection locale problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-03-05T05:39:42.000+0000</p> 
+        <div class="body">
+            <p>You are missing some points:</p>
+
+<p>*) Zend_Date is a component of the I18N core and uses always Zend_Locale as base class
+*) What methodology of Zend_Locale you will use, is not defined in the chapter of Zend_Date. For Zend_Date there is no difference if you use application wide locale, default locale, locale fallback or manual given locale.
+*) 'someString' will be parsed to detect localized informations... for example 'Monday' or 'June' which are also dates
+*) Rethrowing of exceptions is depreciated</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ilya Gruzinov (shagren) on 2009-03-05T06:43:18.000+0000</p> 
+        <div class="body">
+            <p><a href="http://framework.zend.com/manual/en/zend.date.basic.html">http://framework.zend.com/manual/en/…</a></p>
+
+<blockquote>
+  <p>Without any arguments, constructing an instance returns an object in the default locale with the current, local date using PHP's time() function to obtain the UNIX timestamp  for the object. Make sure your PHP environment has the correct default timezone  .</p>
+</blockquote>
+
+<p>There no any limitation. There no any info about browser locale. There no any info how detected "default locale". There only words: "constructing an instance returns an object". Then it is must return an object.</p>
+
+<p>I see 2 way. Both ways is right. We need only choose one:
+1. Add information about this behavior to documentation. Add link to <a href="http://framework.zend.com/manual/en/zend.locale.html#zend.locale.frameworkwidelocale">http://framework.zend.com/manual/en/…</a>. And explain what happens if " Application wide locale" is not set.
+2. For Zend_Date, when cannot find default locale  fall back to some default locale.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-03-05T09:39:14.000+0000</p> 
+        <div class="body">
+            <p>Zend_Date is based on Zend_Locale.</p>
+
+<p>Zend_Locale falls back to a default locale when the locale can not be detected.
+When the fallback is not possible then it throws an exception.</p>
+
+<p>This is, when happens in your case.</p>
+
+<p>There is no need to duplicate this behaviour in Zend_Date, as Zend_Date does not handle locales. And even when Zend_Date handles locales, it would throw an exception like Zend_Locale in this case.</p>
+
+<p>Therefor application wide locales were added, to be able to override false locales for all classes at one point.
+When you don't use this way, then you must add a manual check for all locale aware classes.
+When you don't check the users input, like in this case the locale, you can get failures.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ilya Gruzinov (shagren) on 2009-03-05T10:01:32.000+0000</p> 
+        <div class="body">
+            <p>I want only additional notes in manual about this behavior. It is really useful for developers, because many of developers use for test  browsers/os with supported by zend locales and does not see our case(with not supported locale in browser). But after developer finish own job and publish site,small, really small, count of users see exception on this site. And developers spend time for finding why this is happens.</p>
+
+        </div>
+    </div>
+    </div>
+

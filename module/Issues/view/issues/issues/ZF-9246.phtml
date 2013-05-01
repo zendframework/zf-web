@@ -1,0 +1,224 @@
+<h2>ZF-9246: Problem with counting of files which are uploading to server</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-23T15:34:00.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-02-26T15:22:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.3 (01/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michal Korus (deallas)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+            <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I found a bug related to counting of files (maximum and minimum) which we can send to the server. For example, this code:</p>
+
+<pre class="highlight"><code>
+        $upload = new Zend_Form_Element_File('img');
+        $upload-&gt;addValidator('Count', false, array('min' =&gt; 2, 'max' =&gt; 3))
+               -&gt;setMultiFile(3);
+</code></pre>
+
+<p>...or this...</p>
+
+<pre class="highlight"><code>
+        $upload = new Zend_Form_Element_File('img');
+        $upload-&gt;addValidator('Count', false, array('min' =&gt; 0, 'max' =&gt; 1));
+</code></pre>
+
+<p>...won't function properly (doesn't show an error) if you send a empty form. I prepared the appropriate FIX, which eliminates the above error. In the file Zend/File/Transfer/Adapter/Abstract.php (lines 615-629) instead of:</p>
+
+<pre class="highlight"><code>
+        foreach($check as $key =&gt; $content) {
+            if (array_key_exists('validators', $content) &amp;&amp;
+                in_array('Zend_Validate_File_Count', $content['validators'])) {
+                $validator = $this-&gt;_validators['Zend_Validate_File_Count'];
+                if (array_key_exists('destination', $content)) {
+                    $checkit = $content['destination'];
+                } else {
+                    $checkit = dirname($content['tmp_name']);
+                }
+
+                $checkit .= DIRECTORY_SEPARATOR . $content['name'];
+                $validator-&gt;addFile($checkit);
+                $count = $content;
+            }
+        }
+</code></pre>
+
+<p>should be:</p>
+
+<pre class="highlight"><code>
+        foreach($check as $key =&gt; $content) {
+            if (array_key_exists('validators', $content) &amp;&amp;
+                in_array('Zend_Validate_File_Count', $content['validators'])) {
+        $validator = $this-&gt;_validators['Zend_Validate_File_Count'];
+        $count = $content;
+        if (empty($content['name'])) continue; /* FIX */
+                if (array_key_exists('destination', $content)) {
+                    $checkit = $content['destination'];
+                } else {
+                    $checkit = dirname($content['tmp_name']);
+                }
+
+                $checkit .= DIRECTORY_SEPARATOR . $content['name'];
+                $validator-&gt;addFile($checkit);
+            }
+        }
+</code></pre>
+
+<p>And in the file Zend/Validate/File/Count.php (lines 242-263) instead of:</p>
+
+<pre class="highlight"><code>
+    public function isValid($value, $file = null)
+    {
+        if (($file !== null) &amp;&amp; !array_key_exists('destination', $file)) {
+            $file['destination'] = dirname($value);
+        }
+
+        if (($file !== null) &amp;&amp; array_key_exists('tmp_name', $file)) {
+            $value = $file['destination'] . DIRECTORY_SEPARATOR . $file['name'];
+        }
+
+        $this-&gt;addFile($value);
+        $this-&gt;_count = count($this-&gt;_files);
+        if (($this-&gt;_max !== null) &amp;&amp; ($this-&gt;_count &gt; $this-&gt;_max)) {
+            return $this-&gt;_throw($file, self::TOO_MANY);
+        }
+
+        if (($this-&gt;_min !== null) &amp;&amp; ($this-&gt;_count &lt; $this-&gt;_min)) {
+            return $this-&gt;_throw($file, self::TOO_FEW);
+        }
+
+        return true;
+    }
+</code></pre>
+
+<p>should be:</p>
+
+<pre class="highlight"><code>
+    public function isValid($value, $file = null)
+    {
+        if (($file !== null) &amp;&amp; !array_key_exists('destination', $file)) {
+            $file['destination'] = dirname($value);
+        }
+
+        if (($file !== null) &amp;&amp; array_key_exists('tmp_name', $file)) {
+            $value = $file['destination'] . DIRECTORY_SEPARATOR . $file['name'];
+        }
+
+    if (!empty($file['name'])) { /* FIX */
+            $this-&gt;addFile($value);
+    }
+        $this-&gt;_count = count($this-&gt;_files);
+        if (($this-&gt;_max !== null) &amp;&amp; ($this-&gt;_count &gt; $this-&gt;_max)) {
+            return $this-&gt;_throw($file, self::TOO_MANY);
+        }
+
+        if (($this-&gt;_min !== null) &amp;&amp; ($this-&gt;_count &lt; $this-&gt;_min)) {
+            return $this-&gt;_throw($file, self::TOO_FEW);
+        }
+
+        return true;
+    }
+</code></pre>
+
+<p>I hope that bug will be fixed soon</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-02-24T14:49:33.000+0000</p> 
+        <div class="body">
+            <p>Your fix breaks the component. It adds failures which did not exist before.</p>
+
+<p>Setting "min" to "0" I would not know why there should be a failure when sending an empty form. "0" is identical to no file available, and if the form shows a failure depends on how you build your form.</p>
+
+<p>How does your form / elements look like?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Korus (deallas) on 2010-02-25T14:01:31.000+0000</p> 
+        <div class="body">
+            <p>For example:</p>
+
+<p>1.</p>
+
+<pre class="highlight"><code>
+$upload = new Zend_Form_Element_File('img');
+$upload-&gt;addValidator('Count', false, array('min' =&gt; 1, 'max' =&gt; 1))
+</code></pre>
+
+<p>a) empty form (without uploaded file)</p>
+
+<p>ZF 1.10.2 - doesn't show error, but should return
+ZF + FIX - return an error "Too few files, minimum '1' are expected but '0' are given"</p>
+
+<p>2.</p>
+
+<pre class="highlight"><code>
+$upload = new Zend_Form_Element_File('img');
+$upload-&gt;addValidator('Count', false, array('min' =&gt; 2, 'max' =&gt; 3))
+    -&gt;setMultiFile(3);
+</code></pre>
+
+<p>a) empty form</p>
+
+<p>ZF 1.10.2 - return an error "Too few files, minimum '2' are expected but '1' are given" - but it's wrong because I don't send any files
+ZF + FIX - return an error "Too few files, minimum '2' are expected but '0' are given" - OK</p>
+
+<p>b) 1 uploaded file</p>
+
+<p>ZF 1.10.2 - doesn't show error, but should return
+ZF + FIX - return an error "Too few files, minimum '2' are expected but '1' are given" - OK</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-02-26T15:22:37.000+0000</p> 
+        <div class="body">
+            <p>Fixed with r21208</p>
+
+        </div>
+    </div>
+    </div>
+

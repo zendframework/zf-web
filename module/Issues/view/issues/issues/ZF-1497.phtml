@@ -1,0 +1,199 @@
+<h2>ZF-1497: Zend_Session doesn't allow you to destory/recreate a session</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-06-05T15:45:23.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-26T10:38:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.4 (26/Feb/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                John Coggeshall (coogle)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11420">ZF-11420</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The following doesn't work:</p>
+
+<pre class="highlight"><code>
+Zend_Session::start();
+Zend_Session::destroy();
+Zend_Session::start();
+</code></pre>
+
+<p>It never writes any session data, because the second start() command is silently ignored.</p>
+
+<p>Here is a patch which fixes the problem:</p>
+
+<pre class="highlight"><code>
+Index: Session.php
+===================================================================
+--- Session.php (revision 5124)
++++ Session.php (working copy)
+@@ -360,11 +360,6 @@
+                . " output started in {$filename}/{$linenum}");
+         }
+
+-        // See <a href="http://www.php.net/manual/en/ref.session.php">http://www.php.net/manual/en/ref.session.php</a> for explanation
+-        if (defined('SID')) {
+-            throw new Zend_Session_Exception('session has already been started by session.auto-start or session_start()');
+-        }
+-
+         /**
+          * Hack to throw exceptions on start instead of php errors
+          * @see <a href="http://framework.zend.com/issues/browse/ZF-1325">http://framework.zend.com/issues/browse/ZF-1325</a>
+@@ -379,6 +374,7 @@
+            throw new Zend_Session_Exception(__CLASS__ . '::' . __FUNCTION__ . '() - ' . Zend_Session_Exception::$sessionStartError);
+         }
+
++        self::$_destroyed = false;
+         parent::$_readable = true;
+         parent::$_writable = true;
+         self::$_sessionStarted = true;
+@@ -594,11 +590,15 @@
+         }
+
+         session_destroy();
++
+         self::$_destroyed = true;
+-
++               self::$_sessionStarted = false;
++               self::$_regenerateIdState = -1;
++
+         if ($remove_cookie) {
+             self::expireSessionCookie();
+         }
+     }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-07T11:26:36.000+0000</p> 
+        <div class="body">
+            <p>Assign to Darby.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-08-01T12:30:23.000+0000</p> 
+        <div class="body">
+            <p>John, I dont follow what the use case is here.</p>
+
+<p>Start
+Destroy
+Start..</p>
+
+<p>All within a single request, aside from making it "possible", I am interested in the Use case you present for applications to do this.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Coggeshall (coogle) on 2007-08-06T09:33:58.000+0000</p> 
+        <div class="body">
+            <p>The idea here probably was that I wanted to start from scratch with a new session every time that particular controller was called, although I'm pretty sure the code itself has changed to the point where that use-case has disappeared.</p>
+
+<p>Regardless, nothing should just be silently ignored -- it should either tell me I'm using the API incorrectly or do what I ask it to.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-02-14T15:09:11.000+0000</p> 
+        <div class="body">
+            <p>Added a check in Zend_Session::start() to throw an exception if destroy was called before start().</p>
+
+<p>In r8010.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by venu (tvgece) on 2011-05-31T13:10:29.000+0000</p> 
+        <div class="body">
+            <p>My requirement is, When user agent change session should destroy, and it should start new session. But Zend_Session::start() is throwing an exception if destroy was called before start().</p>
+
+<pre>
+try { 
+Zend_Session::start();
+ } catch (Zend_Session_Exception $e) {
+ Zend_Session::destroy(true); 
+Zend_Session::start(); // breaking here 
+Zend_Session::regenerateId(); 
+}
+Zend_Session::registerValidator(new Zend_Session_Validator_HttpUserAgent());
+</pre>
+
+<p>I have a global session management in bootstrap, which validates the request and starts session. By that time, request won't be dispatched. Then why to make another request to redirect to another page? As we already knew that session is wrong one? we could easily start new one right?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by venu (tvgece) on 2011-05-31T13:11:32.000+0000</p> 
+        <div class="body">
+            <p>I have posted a new issue here, Please check it once</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by venu (tvgece) on 2011-05-31T13:14:37.000+0000</p> 
+        <div class="body">
+            <p>here it is <a href="http://framework.zend.com/issues/browse/ZF-11420">http://framework.zend.com/issues/browse/ZF-11420</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2011-08-26T10:38:13.000+0000</p> 
+        <div class="body">
+            <p><em>IMPORTANT!</em>
+{{session_destroy()}} will (by design) prevent any further session cookies to be sent.
+This means your use case <em>must be avoided</em> if you are using cookies.</p>
+
+<p>Here is more info in php manual comments:
+<a href="http://www.php.net/manual/en/function.session-destroy.php#85379">http://php.net/manual/en/…</a></p>
+
+<p>Here are my analysis on the issue:
+<a href="http://framework.zend.com/issues/browse/ZF2-52?focusedCommentId=48042&amp;page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-48042">http://framework.zend.com/issues/browse/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

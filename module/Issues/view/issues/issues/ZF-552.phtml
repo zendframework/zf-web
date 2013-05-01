@@ -1,0 +1,311 @@
+<h2>ZF-552: This is a new approach for the Session Module for Zend and is open for any implementation in the future</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-07-24T02:36:47.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Nicolae Dima (nicolaedima)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-289">ZF-289</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Come advantages are:
+- use PHP native functions like: session_start() and session_destroy();
+- use the global $_SESSION;</p>
+
+<p>The plugin is using an SQL table (the example is for a MySQL table)</p>
+
+<p>Code:</p>
+
+<p>CREATE TABLE <code>app_session</code> (
+  <code>session_id</code> varchar(32) collate latin1_general_ci NOT NULL default '',
+  <code>session_time</code> int(11) NOT NULL default '0',
+  <code>session_start</code> int(11) NOT NULL default '0',
+  <code>session_data</code> text collate latin1_general_ci NOT NULL,
+  <code>session_key</code> varchar(50) collate latin1_general_ci default NULL
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;</p>
+
+<p>The Session class where factory is located.</p>
+
+<p>php:</p>
+
+<p>/**
+ * Application_Plugins_Session_Exception
+ */
+require_once 'Application/Plugins/Session/Exception.php';</p>
+
+<p>/**
+ * Factory for Zend_Db_Handler classes.
+ *
+ * @param string $adapterName   Name of the adapter to return:
+ *                              'database' -&gt; Application_Plugins_Session_Handler_Database
+ *
+ * @param array  $config        An array of adapter configuration keys.
+ *
+ * @return Application_Plugins_Session_Handler_Abstract
+ *
+ */
+class Application_Plugins_Session {
+        static public function factory($adapterName, $configuration = null)
+    {<br />
+        if (!is_string($adapterName) or !strlen($adapterName)) {<br />
+            throw new Application_Plugins_Session_Exception('Adapter name must be specified in a string!');
+        }<br />
+                $adapterName = 'Application_Plugins_Session_Handler_'.str_replace(' ','_',ucwords(str_replace('_', ' ', $adapterName)));</p>
+
+<pre><code>    # Load adapter
+    Zend::loadClass($adapterName);
+
+    return new $adapterName();
+}
+</code></pre>
+
+<p>}</p>
+
+<p>The abstract class from which all other implementations will be extended (sorry for my english):</p>
+
+<p>php:
+/**
+ * Abstract class for Zend_Session to help enforce private constructs.
+ *
+ * @category   Zend
+ * @package    Zend_Session
+ */
+abstract class Application_Plugins_Session_Handler_Abstract
+{
+        /**
+         * This is the first function called by PHP when a session is started
+         *
+         * @param string $strSessionPath
+         * @param string $strSessionName
+         */
+        public function open($strSessionPath, $strSessionName)
+        {</p>
+
+<pre><code>    }
+
+    /**
+     * The close function is the last function called by PHP related to the session.
+     * It does not accept any parameters, and returns either TRUE or FALSE.
+     */
+    public function close()
+    {
+
+    }
+
+    /**
+     * Retrieve any data that is stored for the session, and return it. It is extremely
+     * important always to return a string from this function, even if it's empty.
+     */
+    public function read()
+    {
+
+    }
+
+    /**
+     * Write session data
+     *
+     * @param string $strSessionId
+     * @param string $SessionData
+     */
+    public function write($strSessionId,$SessionData)
+    {
+
+    }
+
+    /**
+     * Destroy session, delete all data related to the session id
+     *
+     * @param string $strSessionId
+     */
+    public function destroy($strSessionId)
+    {
+
+    }
+
+    public function gc($strSessionLifeTime)
+    {
+
+    }
+</code></pre>
+
+<p>}</p>
+
+<p>The Database implementation
+php:</p>
+
+<p>/**
+ * Application_Plugins_Session_Handler_Absstract
+ */
+require_once 'Application/Plugins/Session/Handler/Abstract.php';</p>
+
+<p>/**
+ * Application_Plugins_Session_Handler_Exception
+ */
+require_once 'Application/Plugins/Session/Handler/Exception.php';</p>
+
+<p>class Application_Plugins_Session_Handler_Database extends Application_Plugins_Session_Handler_Abstract
+{
+        public function open($strSessionPath, $strSessionName)
+        {
+                return true;<br />
+        }</p>
+
+<pre><code>    public function close()
+    {
+            return true;
+    }
+
+    protected function _generateId()
+    {       
+            do {
+                    # Generate session ID
+                    $strSessionId = md5(uniqid(mt_srand((double) microtime() * 1000000))); 
+
+            } while ($this-&gt;_validateId($strSessionId) === false);
+    }
+
+    protected function _formatSessionData($SessionData)
+    {
+            $arrSession = array();
+            $arrSession = preg_split("/([a-zA-Z0-9\_]+\|)/",$SessionData,-1,PREG_SPLIT_NO_EMPTY|PREG_SPLIT_DELIM_CAPTURE);
+            return array_chunk($arrSession,2);                       
+    }
+
+    protected function _validateId($strSessionId)
+    {
+            # Get database connection
+            $db = Zend::registry('db');
+
+            # Check is the session ID is unique
+            $select = $db-&gt;select();
+            $select-&gt;from('app_session','count(session_id) as session_found');
+            $select-&gt;where('session_id = ?',$strSessionId);
+            $intValue = $db-&gt;fetchOne($select-&gt;__toString()) ;           
+            if($intValue) {
+                    return false;
+            }
+            else {
+                    return true;
+            }
+    }
+
+
+    public function write($strSessionId,$SessionData)
+    {
+            # Get database connection
+            $db = Zend::registry('db');
+            $arrSessionData = $this-&gt;_formatSessionData($SessionData);
+
+            # Check if the session id exists
+            if($this-&gt;_validateId($strSessionId))
+            {
+                    foreach ($arrSessionData as $arrSessionDataKey =&gt; $arrSessionDataValue) {                     
+                            # ID of the session doesn't exist, perform insert              
+                            $db-&gt;insert("app_session",array("session_id"=&gt;$strSessionId,"session_time"=&gt;time(),"session_start"=&gt;time(),"session_data"=&gt;$arrSessionDataValue[1],"session_key"=&gt;$arrSessionDataValue[0]));
+                    }
+            }
+            else
+            {
+                    # ID of the session exists perform update                     
+                    foreach ($arrSessionData as $arrSessionDataKey =&gt; $arrSessionDataValue) {                            
+                            # ID of the session doesn't exist, perform insert              
+                            $intAffected = $db-&gt;update("app_session",array("session_time"=&gt;time(),"session_key"=&gt;$arrSessionDataValue[0],"session_data"=&gt;$arrSessionDataValue[1]),"session_id = '".$strSessionId."' and session_key = '".$arrSessionDataValue[0]."'");
+                            if(!$intAffected) {
+                                    $db-&gt;insert("app_session",array("session_id"=&gt;$strSessionId,"session_time"=&gt;time(),"session_start"=&gt;time(),"session_data"=&gt;$arrSessionDataValue[1],"session_key"=&gt;$arrSessionDataValue[0]));                   
+                            }
+                    }                                          
+            }
+            return true;
+    }
+
+    public function destroy($strSessionId)
+    {
+            # Get database connection
+            $db = Zend::registry('db');
+
+            # Check if the session id exists
+            if(!$this-&gt;_validateId($strSessionId))
+            {
+                    # Delete session and data associated with it from database
+                    return $db-&gt;delete("app_session","session_id= '".$strSessionId."'") &gt; 0 ? true : false;
+            }
+            return true;
+    }
+
+    public function gc($strSessionLifeTime = 30)
+    {
+            # Get database connection
+            $db = Zend::registry('db');
+
+            # Load application configuration parameters to get session lifetime
+            $config_app = Zend::registry('config_app');
+
+            $strSessionLifeTime = strtotime("-".$config_app-&gt;lifetime." minutes");
+            $db-&gt;delete("app_session","session_time &lt; ".$strSessionLifeTime);
+            return true;
+    }
+
+    public function read($strSessionId)
+    {
+            # Get database connection
+            $db = Zend::registry('db');
+
+            # Get all data associated with the session
+            $select = $db-&gt;select();
+            $select-&gt;from('app_session',"(GROUP_CONCAT(session_key,session_data SEPARATOR '')) as session_data");
+            $select-&gt;where('session_id = ?',$strSessionId);
+            $SessionData = $db-&gt;fetchAll($select-&gt;__toString());           
+
+
+            # If no results the empty string will be returned
+            return $SessionData ;
+    }
+</code></pre>
+
+<p>}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

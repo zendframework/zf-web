@@ -1,0 +1,356 @@
+<h2>ZF-2428: Patch to make line and file information available in log events</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-01-13T19:47:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-07T12:27:50.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Mark Maynereid (mim)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Eddo Rotman (karnaf)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Log</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11488/zend_log_tracing.patch">zend_log_tracing.patch</a></li>
+            <li><a href="/issues/secure/attachment/11489/zend_log_tracing2.patch">zend_log_tracing2.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I personally find it hard to track down where log entries are originating from sometimes, so I wanted to add line and file info to my log format like this:</p>
+
+<pre><code>    $format = '%timestamp% %priorityName% (%priority%): %message% at line %line% in file %file%' . PHP_EOL;
+    $formatter = new Zend_Log_Formatter_Simple($format);
+    $writer-&gt;setFormatter($formatter);
+</code></pre>
+
+<p>However, "line" and "file" are not currently available in Zend_Log's $events array. So I wrote a patch to provide it. Hope it might be considered for inclusion.</p>
+
+<p>Regards,
+Mark Maynereid</p>
+
+<pre class="highlight"><code>
+diff Log.php LogNew.php
+106c106
+&lt;             $this-&gt;log(array_shift($params), $priority);
+---
+&gt;             $this-&gt;log(array_shift($params), $priority, array_slice(debug_backtrace(), 1));
+130a131,137
+&gt;         // obtain line and file from where we have been called
+&gt;         if (func_num_args() &gt; 2) {
+&gt;             $backtrace = func_get_arg(2);
+&gt;         } else {
+&gt;             $backtrace = debug_backtrace();
+&gt;         }
+&gt;
+135c142,144
+&lt;                                     'priorityName' =&gt; $this-&gt;_priorities[$priority]),
+---
+&gt;                                     'priorityName' =&gt; $this-&gt;_priorities[$priority],
+&gt;                                     'line'         =&gt; $backtrace[0]['line'],
+&gt;                                     'file'         =&gt; $backtrace[0]['file']),
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-01-21T14:22:26.000+0000</p> 
+        <div class="body">
+            <p>I've since added "class" and "function" which seems to need the index set at 1 so for in my sub-classed version I've added:</p>
+
+<pre class="highlight"><code>
+        $this-&gt;setEventItem('function', isset($backtrace[1]['function']) ? $backtrace[1]['function'] : '');
+        $this-&gt;setEventItem('class', isset($backtrace[1]['class']) ? $backtrace[1]['class'] : '');
+</code></pre>
+
+<p>which lets me:</p>
+
+<pre class="highlight"><code>
+$format = '%timestamp% %priorityName% (%priority%) %class%::%function%: %message% at line %line% in file %file%' . PHP_EOL;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-01-30T12:02:04.000+0000</p> 
+        <div class="body">
+            <p>I only found out about svn diff today (as opposed to plain old diff) so here's the patch reworked to include all useful backtrace items:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Log.php
+===================================================================
+--- library/Zend/Log.php        (revision 7698)
++++ library/Zend/Log.php        (working copy)
+@@ -103,7 +103,7 @@
+     {
+         $priority = strtoupper($method);
+         if (($priority = array_search($priority, $this-&gt;_priorities)) !== false) {
+-            $this-&gt;log(array_shift($params), $priority);
++            $this-&gt;log(array_shift($params), $priority, array_slice(debug_backtrace(), 1));
+         } else {
+             throw new Zend_Log_Exception('Bad log priority');
+         }
+@@ -128,12 +128,26 @@
+             throw new Zend_Log_Exception('Bad log priority');
+         }
+
++        if (func_num_args() &gt; 2) {
++            $backtrace = func_get_arg(2);
++        } else {
++            $backtrace = debug_backtrace();
++        }
++
+         // pack into event required by filters and writers
+-        $event = array_merge(array('timestamp'    =&gt; date('c'),
+-                                    'message'      =&gt; $message,
+-                                    'priority'     =&gt; $priority,
+-                                    'priorityName' =&gt; $this-&gt;_priorities[$priority]),
+-                              $this-&gt;_extras);
++        $event = array_merge(
++            array(
++                'class'         =&gt; isset($backtrace[1]['class']) ? $backtrace[1]['class'] : '',
++                'file'          =&gt; $backtrace[0]['file'],
++                'function'      =&gt; isset($backtrace[1]['function']) ? $backtrace[1]['function'] : '',
++                'line'          =&gt; $backtrace[0]['line'],
++                'message'       =&gt; $message,
++                'priority'      =&gt; $priority,
++                'priorityName'  =&gt; $this-&gt;_priorities[$priority],
++                'timestamp'     =&gt; date('c'),
++            ),
++            $this-&gt;_extras
++        );
+
+         // abort if rejected by the global filters
+         foreach ($this-&gt;_filters as $filter) {
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Panning (panman) on 2008-06-20T08:55:26.000+0000</p> 
+        <div class="body">
+            <p>One note about the backtrace stack. You'll need to detect which trace in the stack to use. Because if someone calls the "priority magic function" ex: $log-&gt;info('test');  it will add another trace in the stack from the logger. I've worked around it by detecting the class name, ex:</p>
+
+<pre class="highlight"><code>
+// Detect what trace to use
+foreach ($backtrace as $number =&gt; $trace) {
+    if (!isset($trace['class']) || $trace['class'] != 'Zend_Log') {
+        break;
+    }
+}
+
+// Find the file and line from previous trace
+$line = $backtrace[$number - 1]['line'];
+$file = $backtrace[$number - 1]['file'];
+
+// Find the calling info
+$function = $backtrace[$number]['function'];
+// etc...
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Panning (panman) on 2008-06-20T09:11:20.000+0000</p> 
+        <div class="body">
+            <p>Ignore my previous comment. I noticed that the backtrace stack is passed from __call() as well which is another solution.</p>
+
+<p>Is any of the other backtrace info usefull? Ex: type, args</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2008-08-20T10:56:59.000+0000</p> 
+        <div class="body">
+            <p>I've just started messing with Zend_Log and I think that trace information would be a very valuable addition. (My ideal is Java's Logger class.)</p>
+
+<p>I'd suggest that in addition to timestamp, priority name, message, etc:</p>
+
+<ul><li>Filename</li>
+<li>Line Number</li>
+<li>Method name (if applicable)</li>
+<li>Class name (if applicable)</li>
+<li>Full trace data (arrays) that a custom formatter can access</li>
+</ul><p>Function arguments? Probably not: If those were important I would expect that to be part of the log message the developer chooses.</p>
+
+<p>Lastly, there needs to be a way to turn this on or off for performance purposes (debug_backtrace can be expensive) and possibly on or off depending on the priority level.</p>
+
+<p>It seems the recent Zend_Log_Writer_Firebug class supports it's own tracing, but that's done in the Zend_Wildfire stuff rather than Zend_Log. I'll mess around and see if I can come up with something.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2008-08-20T13:05:47.000+0000</p> 
+        <div class="body">
+            <p>This is a diff against the 1.5.3 release tag.</p>
+
+<p>It adds support for toggling "tracing" for various priority levels. When enabled on a certain level, all messages in that level are accompanied by call-stack information.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2008-08-20T13:08:02.000+0000</p> 
+        <div class="body">
+            <p>Patch attached. OOPS! Leftover var_dump() call  in there on line 203, my fault.</p>
+
+<p>Had to modify Zend_Log_Formatter_Simple to keep it from choking on non-string data.</p>
+
+<p>Added Zend_Log_Formatter_Tracer to allow formatting trace output as text.</p>
+
+<p>Tracing on a given level is off by default.</p>
+
+<p>No "getTracing()' function at the moment.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2008-08-20T13:24:37.000+0000</p> 
+        <div class="body">
+            <p>Revised version</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2008-08-20T16:13:07.000+0000</p> 
+        <div class="body">
+            <p>I may have an off-by-one error in there, will test some more.</p>
+
+<p>But I realize there's a conceptual problem:</p>
+
+<p>(A) In this patch, backtraces are made at the instant that the log message is generated, but suppose they're all filtered out later? That could be a big way to lose performance in a high-log environment, with some time-consuming operations (debug_backtrace()) that you can't bypass it with a filter.</p>
+
+<p>(B) On the other side, what if you want to make a filter which filters <em>based on</em> the stack trace or a file whitelist/blacklist?</p>
+
+<p>I <em>think</em> (A) is more likely, myself.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Panning (panman) on 2008-08-21T05:56:06.000+0000</p> 
+        <div class="body">
+            <p>I would agree that (A) is more likely and the trace should be more informational than anything. What if the filter is applied at time of event creation? I know it could be changed during runtime but that would be an option.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darien Hager (hagerd) on 2008-08-26T02:32:49.000+0000</p> 
+        <div class="body">
+            <p>I'm afraid I don't have access to the code anymore, but I did successfully test a version where the backtracing was done immediately after logger-level filters were applied. (Before writer-level filtering.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2008-11-16T04:00:26.000+0000</p> 
+        <div class="body">
+            <p>The idea of using the backtrace is genious i have to say.</p>
+
+<p>What i personally think of this patch, how much performance impact does debug_backtrace() have? its a debug function and many people use the logger on production systems, so its an important question how performance is impacted by say 100-1000 debug_backtrace calls.</p>
+
+<p>So i wrote a little performance checking script, looping 100000 times and doing syslog in the one case and syslog + debug_backtrace in the other case. there was no huge impact in performance, so i guess this should be added in the future.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2008-11-16T11:00:18.000+0000</p> 
+        <div class="body">
+            <p>Performance is surely a potential concern here.</p>
+
+<p>Perhaps the best answer is to have this additional information functionality enabled/disabled by a flag on construction?  That way in development one could typically have it on and in live mode off, but could override either as required.  And it would be off by default.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-21T14:06:50.000+0000</p> 
+        <div class="body">
+            <p>This is a great feature that I think many would find useful. We (the ZF team at Zend) also have concerns about performance, but we can also mention features like this that may affect performance in the performance guide.
+The one change we suggest is moving this functionality over to Zend_Debug, where not only people can use it for Zend_Log and any other component/applicaiton code, but it also fills out our relatively weak Zend_Debug component with functionality that would be useful in any PHP 5 application.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-26T09:38:38.000+0000</p> 
+        <div class="body">
+            <p>I'm postponing this since we don't have the resources to implement it in the next few weeks. Any community member can volunteer to implement this (if the code above is used, the author must sign a CLA) and provide appropriate unit tests. If a community member commits to implementing this, I will re-assign the issue to him/her.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mark Maynereid (mim) on 2009-01-26T21:28:05.000+0000</p> 
+        <div class="body">
+            <p>I see Benjamin above has done some speed testing suggesting there is no huge impact (apols I missed the post before).  That's encouraging :)</p>
+
+<p>I am hopefully still on record as having signed the CLA if anyone wants to push this patch forward.  Am still a novice at SVN and unit testing and a community contribution virgin. If I can get time to get up to speed more safely I'll return to this and have a crack at Will's invitation, but anyone more capable is welcome to advance it in the meantime as far as I'm concerned.</p>
+
+<p>I note the mention of backtrace args above.  I deliberately thought to exclude them from the patch as it struck me as mission creep and personally that kind of (core dump like stuff) seems more to do with Zend_Debug to me.  In fact I wonder if Zend_Debug ought to become a singleton issuing unique IDs in managing PHP var dumps (like 'core dumps' to disk).  Perhaps Zend_Log and Zend_Debug could plug into each other in some way but keep their roles nicely separated? eg.  log message "Critical error blah bla in file:class:function:line blah blah, var core dump ID: (MD5 hash of file:class:function)".  I like that because it seems to me it could facilitate automated bug logging/recurrance counts with vardumps dumped tidily to disk, a third party bugs DB entry made/updated and a lovely message to the user "Sorry but an unrecoverable error has occurred.  This error is caused by a (new|known) bug and is logged for attention of the The Support Team. Please accept our apologies for the inconvenience rhubarb rhubarb.."</p>
+
+<p>Well returning to the patch, as a stopgap and if anyone finds it useful, here's my own sub-classing version:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class Mm_Log extends Zend_Log
+{
+    public function log($message, $priority)
+    {
+        if (func_num_args() &gt; 2) {
+            $backtrace = func_get_arg(2);
+        } else {
+            $backtrace = debug_backtrace();
+        }
+        $this-&gt;setEventItem('function', isset($backtrace[1]['function']) ? $backtrace[1]['function'] : '');
+        $this-&gt;setEventItem('class', isset($backtrace[1]['class']) ? $backtrace[1]['class'] : '');
+        $this-&gt;setEventItem('line', $backtrace[0]['line']);
+        $this-&gt;setEventItem('file', $backtrace[0]['file']);
+
+        parent::log($message, $priority);
+    }
+
+    public function __call($method, $params)
+    {
+        $priority = strtoupper($method);
+        if (($priority = array_search($priority, $this-&gt;_priorities)) !== false) {
+            $this-&gt;log(array_shift($params), $priority, array_slice(debug_backtrace(), 1));
+        } else {
+            throw new Zend_Log_Exception('Bad log priority');
+        }
+    }
+
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

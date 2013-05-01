@@ -1,0 +1,382 @@
+<h2>ZF-1929: &quot;fix_dst&quot; problem</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-09-10T14:33:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-11-15T14:03:26.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.3 (30/Nov/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                NiKi Zh (nikizh)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This problem seems to occure only when the timezone is "UTC" ...
+The code that I think is problematic is in Zend/Date.php, about the 1290th row ...</p>
+
+<pre class="highlight"><code>
+        // dst-correction if 'fix_dst' = true and dst !== false
+        if ((self::$_Options['fix_dst'] === true) and ($dst !== false)) {
+            $hour = $this-&gt;get(Zend_Date::HOUR);
+            if ($hour != $dst) {
+                if (($dst == ($hour + 1)) or ($dst == ($hour - 23))) {
+                    $value += 3600;
+                } else if (($dst == ($hour - 1)) or ($dst == ($hour + 23))) {
+                    $value -= 3600;
+                }
+                $this-&gt;setUnixTimestamp($value);
+            }
+        }
+</code></pre>
+
+<p>The problem occured when I tried this method of creating a date</p>
+
+<pre class="highlight"><code>
+// Set a default timezone... this has to be done within the bootstrap file or php.ini
+// We do this here just for having a complete example
+date_default_timezone_set('UTC'); 
+$Y = 2007; $m = 1; $d = 1; $H = 20; $i = 45; $s = 37;
+
+$arr = array('year' =&gt; $Y, 'month' =&gt; $m, 'day' =&gt; $d, 'hour' =&gt; $H, 'minute' =&gt; $i, 'second' =&gt; $s);
+
+$date = new Zend_Date($arr);
+echo $date-&gt;toString('r');
+</code></pre>
+
+<p>The out put is "Mon, 01 Jan 2007 20:45:37 +0000" and it's OK</p>
+
+<p>but if the $H variable is:
+$H = 1; // the output is "Mon, 01 Jan 2007 00:45:37 +0000"
+$H = 23; // the output is "Tue, 02 Jan 2007 00:45:37 +0000"</p>
+
+<p>This does not happen if the timezone is different from "UTC" ... and as far as I know DST doesn'y apply to UTC/GMT</p>
+
+<p>This thing fix the above problem</p>
+
+<pre class="highlight"><code>
+        // dst-correction if 'fix_dst' = true and dst !== false
+         $zone = @date_default_timezone_get();
+        if ((self::$_Options['fix_dst'] === true) and ($dst !== false) and ($zone != 'UTC')) {
+</code></pre>
+
+<p>but I'm not sure how this interact with the rest of the ZF code and i'm not sure that this is the most elegant way to fix the problem ... if it's a real problem anyway :) ... I hope this is not my mistake or misunderstanding of the way the fix_dst works</p>
+
+<p>EDIT:
+As I get deep into the code I found something that may be the problem ... The fix above probably in not the right way to fix it ...</p>
+
+<p>So I followed the path of the arrat throw the functions in Zend_Date:
+1. Line 160 the constructor
+2. Line 201 $this-&gt;set()
+3. Line 1154 function set(....)
+4. Line 1156 return $result = $this-&gt;_calculate('set', $date, $part, $locale);
+5. Line 1315 function _calculate ....</p>
+
+<p>this is almost the end of the journey ...</p>
+
+<p>Line 1338: $hour   = $this-&gt;get(Zend_Date::HOUR_SHORT); //as I tested ... it's alway 0 ... because the $_unixTimestamp in the Date_Object is 0 ...</p>
+
+<p>Line 1466: return $this-&gt;_assign($calc, $this-&gt;mktime($hours, $minutes, $seconds, $months, $days, $years, true),
+                                             $this-&gt;mktime($hour,  $minute,  $second,  $month,  $day,  $year,  true), $hour);
+$hour is used as last argument in _assign ...</p>
+
+<p>private function _assign($calc, $date, $comp = 0, $dst = false)</p>
+
+<p>so $hour is $dst in _assign function ... and $dst is used in "dst_fix" ...</p>
+
+<p>$dst is 0 ... and when $hour is 23 or 1 ...  an hour is added or substracted ....</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-09-10T16:00:24.000+0000</p> 
+        <div class="body">
+            <p>If you do not want to take DST in account you have to use</p>
+
+<p>```</p>
+
+<p>See <a href="http://framework.zend.com/manual/en/zend.date.overview.html">http://framework.zend.com/manual/en/…</a> - DST and Date Math
+for detailed information.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by NiKi Zh (nikizh) on 2007-09-10T16:03:58.000+0000</p> 
+        <div class="body">
+            <p>Well I want to take DST in account :)... but not in this particular situation</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-09-10T16:20:59.000+0000</p> 
+        <div class="body">
+            <p>Then turn off DST for this particular situation.</p>
+
+<p>You can't say "I want DST" and then say "but I dont want DST"... either with or without but not both the same time. :-)</p>
+
+<p>Actually DST must be switched off /on per hand. This is not done automatically because DST handling is per definition a static attribute.</p>
+
+<p>This may change in the future...
+But for now this is not a bug but a feature request.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by NiKi Zh (nikizh) on 2007-09-10T18:18:58.000+0000</p> 
+        <div class="body">
+            <p>Well, anyway there is something that is not working ... :)</p>
+
+<pre class="highlight"><code>
+        date_default_timezone_set('America/New_York'); 
+        $Y = 2007; $m = 1; $d = 1; $H = 20; $i = 45; $s = 37;
+        $arr = array('year' =&gt; $Y, 'month' =&gt; $m, 'day' =&gt; $d, 'hour' =&gt; $H, 'minute' =&gt; $i, 'second' =&gt; $s);
+        $date = new Zend_Date($arr);
+        echo $date-&gt;toString('r');
+</code></pre>
+
+<pre><code>    //OUTPUT: Mon, 01 Jan 2007 19:45:37 -0500
+
+    Why?
+
+    On line 1334 to 1340 the date is initiated
+    We set the time zone to GMT-5
+    1970-01-01 00:00:00 - 5 hours = 1969-12-31 19:00:00
+
+    So the initiated $hour is = 19
+
+    The lines 1446-1447 are:
+</code></pre>
+
+<pre class="highlight"><code>
+        return $this-&gt;_assign($calc, $this-&gt;mktime($hours, $minutes, $seconds, $months, $days, $years, true),
+                                     $this-&gt;mktime($hour,  $minute,  $second,  $month,  $day,  $year,  true), $hour);
+</code></pre>
+
+<pre class="highlight"><code>
+        // private function _assign($calc, $date, $comp = 0, $dst = false)
+</code></pre>
+
+<pre><code>    So $dst = $hour ... So $dst = 19
+</code></pre>
+
+<pre class="highlight"><code>
+        // dst-correction if 'fix_dst' = true and dst !== false
+        if ((self::$_Options['fix_dst'] === true) and ($dst !== false)) {
+            $hour = $this-&gt;get(Zend_Date::HOUR);
+            if ($hour != $dst) {
+                if (($dst == ($hour + 1)) or ($dst == ($hour - 23))) { // @_if_1
+                    $value += 3600;
+                } else if (($dst == ($hour - 1)) or ($dst == ($hour + 23))) { // @_if_2
+                    $value -= 3600;
+                }
+                $this-&gt;setUnixTimestamp($value);
+            }
+        }
+</code></pre>
+
+<pre class="highlight"><code>
+        } else if (($dst == ($hour - 1)) or ($dst == ($hour + 23))) {
+</code></pre>
+
+<pre><code>    the magic is on this line ... for this example only :) ... 
+
+    OUTPUT: Mon, 01 Jan 2007 19:45:37 -0500 // but we wanted ... $H = 20; $i = 45; $s = 37; ... 
+
+    if the time zone is GMT+0 (UTC) and $H = 23 the magic will happen in @_if_1
+        OUTPUT: Tue, 02 Jan 2007 00:45:37 +0000 // but we wanted ... $H = 20; $i = 45; $s = 37; ...
+
+    if the time zone is GMT+1 (CET) and $H = 2 the magic will happen in @_if_2
+        OUTPUT: Mon, 01 Jan 2007 01:45:37 +0100 // but we wanted ... $H = 2; $i = 45; $s = 37; ... 
+
+    if the time zone is GMT+2 (Europe/Sofia) and $H = 3 the magic will happen in @_if_2
+        OUTPUT: Mon, 01 Jan 2007 02:45:37 +0200 // but we wanted ... $H = 3; $i = 45; $s = 37; ... 
+
+        and so on ...
+
+    But in the other cases ... where there is no magic :) ... everything is OK ...
+
+    if the time zone is GMT+2 (Europe/Sofia) and $H = 4 the magic will happen in @_if_2
+        OUTPUT: Mon, 01 Jan 2007 04:45:37 +0200 // but we wanted ... $H = 4; $i = 45; $s = 37; ... 
+
+    And what is the conclusion ...
+
+    Every call to _assign with hour defined by the user (if the particlur function allows it) and with last argument ($dst) $hour (the initiated value between line 1334 to 1340) are buggy
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by NiKi Zh (nikizh) on 2007-09-10T18:24:45.000+0000</p> 
+        <div class="body">
+            <p>Ups ...
+I was copy-pasting the final rows ... and made mistake ...
+And could not find an option to edit the last comment ... so i'm writing a new one</p>
+
+<p>So ...
+EDIT:
+But in the other cases ... where there is no magic  ... everything is OK ...</p>
+
+<p>if the time zone is GMT+2 (Europe/Sofia) and $H = 4 the magic will !!!NOT!!! happen
+OUTPUT: Mon, 01 Jan 2007 04:45:37 +0200 // but we wanted ... $H = 4; $i = 45; $s = 37; !!! AND WE GET IT :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-09-11T11:43:23.000+0000</p> 
+        <div class="body">
+            <p>For me your code works...</p>
+
+<p>I dont know which revision you are using but I recommend that you update to the latest SVN release.
+If your example does not work with the latest SVN release please provide the following data:</p>
+
+<p>SVN release version
+PHP version
+BCMath avaiable ?
+standard locale
+standard timezone</p>
+
+<p>We will then try to reproduce your problem</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-09-11T12:48:28.000+0000</p> 
+        <div class="body">
+            <p>I integrated the requested feature.</p>
+
+<p>Now, if the timezone is set to UTC or GMT, the DST will no longer be used and switched off.
+Please check SVN 6292.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by NiKi Zh (nikizh) on 2007-09-11T13:53:50.000+0000</p> 
+        <div class="body">
+            <p>Now with the latest changes ... 
+SVN 6294
+PHP 5.2.3
+BCMath enabled</p>
+
+<p>This is my index.php for testing ...</p>
+
+<pre class="highlight"><code>
+&lt;?php 
+error_reporting(E_ALL|E_STRICT); 
+date_default_timezone_set('CET'); 
+
+include "Zend/Loader.php"; 
+ 
+Zend_Loader::loadClass('Zend_Date');
+
+$Y = 2007; $m = 1; $d = 1; $H = 1; $i = 45; $s = 37;
+$arr = array('year' =&gt; $Y, 'month' =&gt; $m, 'day' =&gt; $d, 'hour' =&gt; $H, 'minute' =&gt; $i, 'second' =&gt; $s);
+$date = new Zend_Date($arr);
+        
+echo $date-&gt;toString('r');
+</code></pre>
+
+<p>OUTPUT: Mon, 01 Jan 2007 00:45:37 +0100</p>
+
+<p>So with the latest changes ... from lines 1364 to 1370 the date is initiated ...
+Even the default timezone is set to CET the initial date is 1970-01-01 00:00:00</p>
+
+<p>So on line 1496 the used $hour is 0 when passed to _assign .... and by default fix_dst is True ...</p>
+
+<pre class="highlight"><code>
+        if ((self::$_Options['fix_dst'] === true) and ($dst !== false) and ($this-&gt;_dst === true)) {
+            $hour = $this-&gt;get(Zend_Date::HOUR);
+            if ($hour != $dst) {
+                if (($dst == ($hour + 1)) or ($dst == ($hour - 23))) { 
+                    $value += 3600;
+                } else if (($dst == ($hour - 1)) or ($dst == ($hour + 23))) { //@_if_2
+                    $value -= 3600;
+                }
+                $this-&gt;setUnixTimestamp($value);
+            }
+        }
+</code></pre>
+
+<p>So when the passed $hour ... the $dst = 0 .... and we want to set the date hour to 1 ... In @_if_2     $dst == ($hour -1)  // 0 == (1 - 1) ... then $value -=3600</p>
+
+<p>That's why the produced output is -1 hour ...</p>
+
+<p>Well ... :) This is what happens on my test ... on my system ....</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by NiKi Zh (nikizh) on 2007-09-11T14:01:10.000+0000</p> 
+        <div class="body">
+            <p>and ... the bug occures ... on my system ... on my test  :)... on every set timezone ... without UTC of course</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-09-11T14:49:07.000+0000</p> 
+        <div class="body">
+            <p>The example in your second reply differs from your first one you gave us...</p>
+
+<p>Related to your problem:
+It seems for me that gmmktime differs if it is called from commandline or from browser.</p>
+
+<p>I integrated both of your examples within our testbed and they passed.
+But within the browser it differed for one hour.
+I love such behaviour <em>grrr</em></p>
+
+<p>Anyway... with SVN 6300 also the array initialion behaviour is fixed.
+Give it a try and us a response.  :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by NiKi Zh (nikizh) on 2007-09-11T15:13:37.000+0000</p> 
+        <div class="body">
+            <p>SVN 6300 is working fine :) ...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-09-12T00:11:08.000+0000</p> 
+        <div class="body">
+            <p>Fixed as with SVN 6300</p>
+
+        </div>
+    </div>
+    </div>
+

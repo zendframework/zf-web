@@ -1,0 +1,166 @@
+<h2>ZF-8681: Zend_Session_SaveHandler_DbTable race condition in write() method</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-31T10:30:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:38:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Herman Radtke (hermanradtke)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The write method is trying to determine if it needs to insert or update the sessions table by executing a select statement looking for the session id.  This is a classic race condition, as something may write to the sessions table in between the current processes select and insert.</p>
+
+<p>This typically shows up in error logs as: "PHP Fatal error:  Exception thrown without a stack frame in Unknown on line 0"</p>
+
+<p>Patch:</p>
+
+<pre class="literal">
+--- DbTable.php 2009-07-21 13:24:35.000000000 -0700
++++ DbTable.fix.php     2009-12-31 10:12:43.000000000 -0800
+@@ -342,20 +342,26 @@
+         $data = array($this-&gt;_modifiedColumn =&gt; time(),
+                       $this-&gt;_dataColumn     =&gt; (string) $data);
+
+-        $rows = call_user_func_array(array(&amp;$this, 'find'), $this-&gt;_getPrimary($id));
+-
+-        if (count($rows)) {
+-            $data[$this-&gt;_lifetimeColumn] = $this-&gt;_getLifetime($rows-&gt;current());
+-
+-            if ($this-&gt;update($data, $this-&gt;_getPrimary($id, self::PRIMARY_TYPE_WHERECLAUSE))) {
+-                $return = true;
+-            }
+-        } else {
++        try {
+             $data[$this-&gt;_lifetimeColumn] = $this-&gt;_lifetime;
+
+             if ($this-&gt;insert(array_merge($this-&gt;_getPrimary($id, self::PRIMARY_TYPE_ASSOC), $data))) {
+                 $return = true;
+             }
++        } catch (Zend_Db_Statement_Exception $e) {
++            if (strpos($e-&gt;getMessage(), '1062') === false) { // duplicate key
++                throw new Exception($e);
++            }
++
++            $rows = call_user_func_array(array(&amp;$this, 'find'), $this-&gt;_getPrimary($id));
++
++            if (count($rows)) {
++                $data[$this-&gt;_lifetimeColumn] = $this-&gt;_getLifetime($rows-&gt;current());
++
++                if ($this-&gt;update($data, $this-&gt;_getPrimary($id, self::PRIMARY_TYPE_WHERECLAUSE))) {
++                    $return = true;
++                }
++            }
+         }
+
+         return $return;
+</pre>
+
+<p>My method of checking for a duplicate key exception may not be ideal, but I do not know of another way using Zend_Db.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sri (sri2talk) on 2010-06-11T07:16:36.000+0000</p> 
+        <div class="body">
+            <p>This has issues related to the application.ini entries: (please ignore the ;;)
+;;resources.session.saveHandler.options.primary.session_id = "id"
+;;resources.session.saveHandler.options.primary.save_path = "save_path"
+;;resources.session.saveHandler.options.primary.name = "name"
+;;resources.session.saveHandler.options.primaryAssignment.sessionId = "sessionId"
+;;resources.session.saveHandler.options.primaryAssignment.sessionSavePath = "sessionSavePath"
+;;resources.session.saveHandler.options.primaryAssignment.sessionName = "sessionName"</p>
+
+<p>They are required to be :
+;;resources.session.saveHandler.options.primary.0 = "session_id"
+;;resources.session.saveHandler.options.primary.1 = "save_path"
+;;resources.session.saveHandler.options.primary.2 = "name"
+;;resources.session.saveHandler.options.primaryAssignment.0 = "sessionId"
+;;resources.session.saveHandler.options.primaryAssignment.1 = "sessionSavePath"
+;;resources.session.saveHandler.options.primaryAssignment.2 = "sessionName"</p>
+
+<p>The _getPrimary() will have problems. It won't find the right rows and we try to INSERT when we ought to be UPDATEing the table. Hence the exception from mysql.</p>
+
+<p>The first time, it works because we INSERT succesfully.
+Next time, it throws the exception because we are trying to INSERT with an already existing key.</p>
+
+<p>This problem does not exist if we change the session table structure to the simpler one although the primary.0 for session_id is needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Herman Radtke (hermanradtke) on 2010-06-11T08:23:23.000+0000</p> 
+        <div class="body">
+            <p>@Sri Is your comment referring the existing code or the patch I posted above?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Herman Radtke (hermanradtke) on 2010-06-11T10:03:19.000+0000</p> 
+        <div class="body">
+            <p>My CLA was processed, so please look at the above patch again ;)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sri (sri2talk) on 2010-06-11T13:07:28.000+0000</p> 
+        <div class="body">
+            <p>@Herman,
+I am indicating that your patch does not address the root cause. It is only a remedy. 
+Since you indicated that the method of checking "duplicate record" exception is kludgy, I wanted to give you a heads up.</p>
+
+<p>The RCA is that we try to INSERT when we should be updating because _getPrimary is not functioning as it is expected to for the extended table schema. Please note that it works with the simple table schema even without the patch.</p>
+
+<p>HTH.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Herman Radtke (hermanradtke) on 2010-06-12T07:58:36.000+0000</p> 
+        <div class="body">
+            <p>It does address the root cause: the write operations is not currently atomic.  My method of checking the exception is kludgy only because Zend_Db has horrible exception support.</p>
+
+<p>The _getPrimary function has no bearing on this issue.  The problem is that we have two processes running at nearly the same time (think AJAX).  Process A calls find() and finds no existing session record and moves to do a simple insert.  Before that insert takes place, process B calls find() and finds no existing session record and moves to do a simple insert.  Process A completes the insert and exists normally.  Process B tries to insert, has a duplicate key exception and the session handling code in C throws "PHP Fatal error: Exception thrown without a stack frame in Unknown on line 0".</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,270 @@
+<h2>ZF-11392: UNION</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-05-20T15:00:22.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-14T12:08:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Rodrigo Novelo Primolan (primolan)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4338">ZF-4338</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14332/ZF-11392.patch">ZF-11392.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Line 295 should be change from:</p>
+
+<p>$this-&gt;_parts[self::UNION][] = array($target, $type);</p>
+
+<p>To:</p>
+
+<p>$this-&gt;_parts[self::UNION][] = array("({$target})", $type);</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Ludwig (ludwig) on 2011-05-27T15:20:55.000+0000</p> 
+        <div class="body">
+            <p>There might be some explanation needed.</p>
+
+<p>Without the parentheses you get the wrong results i. e. when you want to order the complete query.</p>
+
+<p>The example in the documentation ([<a href="http://framework.zend.com/manual/en/zend.db.select.html#zend.db.select.building.union">http://framework.zend.com/manual/en/…</a>])</p>
+
+<pre class="literal">
+    $sql1 = $db-&gt;select();
+    $sql2 = "SELECT ...";
+     
+    $select = $db-&gt;select()
+        -&gt;union(array($sql1, $sql2))
+        -&gt;order("id");
+</pre>
+
+<p>this will output something like:</p>
+
+<pre class="literal">
+So the ORDER BY will only sort the second query!
+
+With the path it will work as expected and output:
+</pre>
+
+<p>Here once more the patch:</p>
+
+<pre class="literal">
+diff U3B /Zend/Db/Select.php
+--- Select.php 23775 2011-03-01 17:25:24Z ralph
++++ Select.php Working Copy
+@@ -292,7 +292,7 @@
+         }
+ 
+         foreach ($select as $target) {
+-            $this-&gt;_parts[self::UNION][] = array($target, $type);
++            $this-&gt;_parts[self::UNION][] = array('(' . $target . ')', $type);
+         }
+ 
+         return $this;
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-27T17:27:10.000+0000</p> 
+        <div class="body">
+            <p>I can see from mysql docs that parentheses are required, but still tried to write a unit test to see that the current code will fail. However couldn't make it happen. Could you help me with that? I modified {{_selectUniontString()}} method in {{tests/Zend/Db/Select/TestCommon.php}} and got the query like this</p>
+
+<pre class="highlight"><code>
+SELECT `bug_id` AS `id`, `assigned_to` AS `name` FROM `zfbugs` UNION SELECT `product_id` AS `id`, `product_name` AS `name` FROM `zfproducts` ORDER BY `name` ASC
+</code></pre>
+
+<p>and result like this</p>
+
+<pre class="highlight"><code>
+Array
+(
+    [0] =&gt; Array
+        (
+            [id] =&gt; 4
+            [name] =&gt; goofy
+        )
+
+    [1] =&gt; Array
+        (
+            [id] =&gt; 2
+            [name] =&gt; Linux
+        )
+
+    [2] =&gt; Array
+        (
+            [id] =&gt; 3
+            [name] =&gt; mmouse
+        )
+
+    [3] =&gt; Array
+        (
+            [id] =&gt; 1
+            [name] =&gt; mmouse
+        )
+
+    [4] =&gt; Array
+        (
+            [id] =&gt; 2
+            [name] =&gt; mmouse
+        )
+
+    [5] =&gt; Array
+        (
+            [id] =&gt; 3
+            [name] =&gt; OS X
+        )
+
+    [6] =&gt; Array
+        (
+            [id] =&gt; 1
+            [name] =&gt; Windows
+        )
+</code></pre>
+
+<p>Looks correct for me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Ludwig (ludwig) on 2011-05-27T22:03:16.000+0000</p> 
+        <div class="body">
+            <p>I don't know what your data source is looking like, but the parentheses should always be there. Think about a query where you want to order the results of the second select of the UNION only.</p>
+
+<pre class="literal">
+(SELECT FROM ...) UNION (SELECT FROM ... ORDER BY `id`);
+</pre>
+
+<p>Without parentheses it would end up in your query</p>
+
+<pre class="literal">
+SELECT FROM ... UNION SELECT FROM ... ORDER BY `id`;
+</pre>
+
+<p>Or use a LIMIT for your tests:</p>
+
+<pre class="literal">
+(SELECT FROM ...) UNION (SELECT FROM ... ORDER BY `id` LIMIT 1);
+</pre>
+
+<p>against</p>
+
+<pre class="literal">
+(SELECT FROM ...) UNION (SELECT FROM ...) ORDER BY `id` LIMIT 1;
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-28T06:35:46.000+0000</p> 
+        <div class="body">
+            <p>Patch file attached as suggested by the author. Couldn't make a unit test though. Seems like this cannot be reproduced with the current test data.</p>
+
+<p>Christian - thank you for the explanation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-28T20:47:17.000+0000</p> 
+        <div class="body">
+            <p>Ok, looks like we still need the test. The test below cannot reproduce the issue atm. and should be fixed to do so. I'm pretty sure that I'm missing something and doing it wrong. You can find test data source from {{tests/Db/TestUtil/Common.php}}.</p>
+
+<pre class="highlight"><code>
+    /** @group ZF-11392 */
+    protected function _selectUnionStringWhichFailsIfParenthesesAreNotUsed()
+    {
+        $bugs = $this-&gt;_db-&gt;quoteIdentifier('zfbugs');
+        $bug_id = $this-&gt;_db-&gt;quoteIdentifier('bug_id');
+        $bug_assigned = $this-&gt;_db-&gt;quoteIdentifier('assigned_to');
+        $products = $this-&gt;_db-&gt;quoteIdentifier('zfproducts');
+        $product_id = $this-&gt;_db-&gt;quoteIdentifier('product_id');
+        $product_name = $this-&gt;_db-&gt;quoteIdentifier('product_name');
+        $id = $this-&gt;_db-&gt;quoteIdentifier('id');
+        $name = $this-&gt;_db-&gt;quoteIdentifier('name');
+        $sql1 = "SELECT $bug_id AS $id, $bug_assigned AS $name FROM $bugs";
+        $sql2 = "SELECT $product_id AS $id, $product_name AS $name FROM $products";
+
+        $select = $this-&gt;_db-&gt;select()
+            -&gt;union(array($sql1, $sql2))
+            -&gt;order('name');
+        return $select;
+    }
+
+    /** @group ZF-11392 */
+    public function testSelectUnionStringHasToHaveParentheses()
+    {
+        $select = $this-&gt;_selectUnionStringWhichFailsIfParenthesesAreNotUsed();
+        $stmt = $this-&gt;_db-&gt;query($select);
+        $result = $stmt-&gt;fetchAll();
+--&gt;     $this-&gt;assertEquals('goofy', $result[0]['name']); // should fail without the patch, i'm expecting 'mmouse'
+        //echo $select;
+        //print_r($result);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-30T15:05:32.000+0000</p> 
+        <div class="body">
+            <p>See the comment by Christoph Roensch from ZF-4338 ...</p>
+
+<p>bq. I <a href="http://stackoverflow.com/questions/4653124/what-does-the-sql-standard-say-about-parentheses-in-sql-union-except-intersect-st">believe</a> this is non-standard SQL, because of that it cannot be included in Zend_Db_Select.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-14T12:08:31.000+0000</p> 
+        <div class="body">
+            <p>Marked as Won't Fix on the basis of:</p>
+
+<ol><li>This is not standard SQL and is MySQL specific</li>
+<li>A known workaround exists and the fix would breach backwards compatibility.</li>
+<li>This is also a duplicate issue (duplicated issue resolved on same basis as above).</li>
+</ol><p>Reporters and Assignee are recommended to fix in ZF2 if still a problem - or open a ZF2 issue in its respect.</p>
+
+        </div>
+    </div>
+    </div>
+

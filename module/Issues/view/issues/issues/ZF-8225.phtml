@@ -1,0 +1,168 @@
+<h2>ZF-8225: Wrong class gets instantiated in Zend_Application_Bootstrap_BootstrapAbstract::getPluginResource()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-05T04:02:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-08-21T13:55:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Hendri Smit (hendri.smit)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Pádraic Brady (padraic)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9259">ZF-9259</a></li>
+            <li><a href="/issues/browse/ZF-8150">ZF-8150</a></li>
+            <li><a href="/issues/browse/ZF-8299">ZF-8299</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13088/zf8225.patch">zf8225.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Using ZF 1.9.5 with Doctrine 1.1.5 and Dwoo 1.1.0</p>
+
+<p>In my application.ini I have the following:</p>
+
+<pre class="highlight"><code>
+...
+autoloaderNamespaces.Zoul = "Zoul"
+pluginPaths.Zoul_Application_Resource = "Zoul/Application/Resource"
+...
+resources.doctrine.connections.cx1.dsn = "mysql://user:pass@host/cx1"
+...
+</code></pre>
+
+<p>There is a resource plugin class named Zoul_Application_Resource_Doctrine in the Zoul/Application/Resource folder.
+My application is running fine with this plugin, except when I include the main file Doctrine.php from the Doctrine library before I bootstrap the application. Then I get the following error:
+{color:red}
+Fatal error: Uncaught exception 'Doctrine_Exception' with message 'Doctrine is static class. No instances can be created.'
+{color}</p>
+
+<p>I've traced it back to line 354 of Zend_Application_Bootstrap_BootstrapAbstract:</p>
+
+<pre class="highlight"><code>
+public function getPluginResource($resource)
+{
+
+...
+
+if (class_exists($plugin)) {
+    $spec = (array) $spec;
+    $spec['bootstrap'] = $this;
+    $instance = new $plugin($spec);
+    $pluginName = $this-&gt;_resolvePluginResourceName($instance);
+    unset($this-&gt;_pluginResources[$plugin]);
+    $this-&gt;_pluginResources[$pluginName] = $instance;
+
+    if (0 === strcasecmp($resource, $pluginName)) {
+        return $instance;
+    }
+}
+
+...
+
+}
+</code></pre>
+
+<p>So what happens is that the main Doctrine class is included and this piece of code tries to instantiate it ($plugin has value 'doctrine'), instead of trying to instantiate the resource plugin!
+Not including the main Doctrine class is a solution for now, but I came across this problem while testing my application and putting more than one test in a testcase. I re-bootstrap the app before every testcase and on the second bootstrap the main Doctrine class automatically exists in the php environment.
+As I'm not completely aware of what the above piece of code should do I haven't found a solution yet.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Hendri Smit (hendri.smit) on 2009-11-18T06:54:09.000+0000</p> 
+        <div class="body">
+            <p>Upgraded Doctrine to 1.2 branch. They moved class Doctrine to Doctrine_Core which solves the problem for the Doctrine part.</p>
+
+<p>Now I'm getting the error because the main Dwoo class gets instantitiated instead of Zoul_Application_Resource_Dwoo. I could (and I propably will) ask the guys from Dwoo to move to something like Dwoo_Core but those changes could take a while.</p>
+
+<p>However, looking at the related issues that wouldn't solve the problems of others. Although they propably could rename their main class quite easily.</p>
+
+<p>Are there any thoughts on how to solve this problem?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Zimmerman (sandwyrm) on 2009-12-29T23:13:19.000+0000</p> 
+        <div class="body">
+            <p>My work-around was to use a different name for the resource class, for example Site_Application_Resource_Doctrinelibrary.  I attempted Site_Application_Resource_DoctrineLibrary and other combinations to no avail, any idea about the formatting necessities for Resource class names to achieve camel casing?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomoaki Kosugi (noopable) on 2010-01-05T13:58:37.000+0000</p> 
+        <div class="body">
+            <p>I got the same problem.
+I solved it by this code. Check the $plugin is a resource or not.</p>
+
+<pre class="highlight"><code>
+Index: BootstrapAbstract.php
+===================================================================
+--- BootstrapAbstract.php   (revision 19975)
++++ BootstrapAbstract.php   (working copy)
+@@ -351,7 +351,8 @@
+                 }
+             }
+ 
+-            if (class_exists($plugin)) { //@SEE ZF-7550
++            if (class_exists($plugin) //{ //@SEE ZF-7550
++                &amp;&amp; is_subclass_of($plugin, 'Zend_Application_Resource_Resource')) { //@see ZF-8225
+                 $spec = (array) $spec;
+                 $spec['bootstrap'] = $this;
+                 $instance = new $plugin($spec);
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shawn Stratton (mfacenet) on 2010-05-20T08:47:18.000+0000</p> 
+        <div class="body">
+            <p>Based on the patch submitted by Tomoaki Kosugi, using instanceof operator rather than is_subclass_of() function to avoid autoloading.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-21T13:55:36.000+0000</p> 
+        <div class="body">
+            <p>Patched in r24393. Patch modified not to use instanceof since that creates a silent FALSE evaluation in plugin checks.</p>
+
+        </div>
+    </div>
+    </div>
+

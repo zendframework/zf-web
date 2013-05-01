@@ -1,0 +1,220 @@
+<h2>ZF-1726: Make the &quot;where&quot; clause parameters more consistent</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-07-16T12:15:02.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-03-18T14:19:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marc Richards (talawahdotnet)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Wil Sinclair (wil)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1905">ZF-1905</a></li>
+            <li><a href="/issues/browse/ZF-1881">ZF-1881</a></li>
+            <li><a href="/issues/browse/ZF-1905">ZF-1905</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10801/ZF-1726.patch">ZF-1726.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Old summary: Normalize the "where" clause parameters that are accepted by Zend_Db_Table's fetchAll/fetchRow and update/delete methods.</p>
+
+<p>I noticed that the where parameter for update and delete methods for Zend_Db_Table work a little differently than those for the fetchAll and fetchRow methods.  Looking at the code, this seems to be based on the fact that update/delete proxy their corresponding methods in Zend_Db whereas fetchAll/fetchRow use Zend_Db_Select to build their queries.  As it is now, all four of the methods accept the where clause either as a string or as an indexed array of strings (though this method is undocumented for fetchAll/fetchRow). The strings from the array are ANDed together without being quoted. e.g.</p>
+
+<pre class="highlight"><code>
+$where = $table-&gt;getAdapter()-&gt;quoteInto('bug_id = ?', 1234);
+</code></pre>
+
+<p>or</p>
+
+<pre class="highlight"><code>
+$where[] = "reported_by = 'goofy'";
+$where[] = "bug_status = 'OPEN'";
+</code></pre>
+
+<p>However fetchAll/fetchRow also accept another undocumented format for the "where" parameter which automatically does the quoting for you. It takes an associative array where the keys are the condition with a placeholder and the values are the values to be replaced. Values are automatically quoted and terms are joined together using ANDs. e.g.</p>
+
+<pre class="highlight"><code>
+$where = array('bug_status = ?' =&gt; 'NEW', 'reported_by = ?' =&gt; 'talawahdotnet');
+$rows = $table-&gt;fetchAll($where);
+</code></pre>
+
+<p>It would be nice if theses interfaces where unified and documented so that they accepted all three formats.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-16T12:30:59.000+0000</p> 
+        <div class="body">
+            <p>Updated summary, formatted code in description, assigned to Bill Karwin.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adrian Hope-Bailie (adrianhopebailie) on 2007-08-27T04:56:40.000+0000</p> 
+        <div class="body">
+            <p>By modfying the _whereExpr function on Zend_Db_Adapter_Abstract the where clause for the Zend_Db_Table_Abstract::update/delete functions is structured in the same way as the where clause for the fetchRow/fetchAll fucntions.</p>
+
+<p>$where can be:</p>
+
+<p>1) An instance of a Zend_Db_Expr
+2)A string
+3)An array of strings (each one a where condition)
+4)An array of where clauses where the array key is a where clause of the form " ?" and the value will be quoted into the key to replace the question mark. Eg: array('id = ?' =&gt; 123, 'created_date &gt; ?'  =&gt; '2007-08-27 09:34:08' )</p>
+
+<p>The new function would be:</p>
+
+<pre class="highlight"><code>    
+     /**
+     * Convert an array, string, or Zend_Db_Expr object
+     * into a string to put in a WHERE clause.
+     *
+     * @param mixed $where
+     * @return string
+     */
+    protected function _whereExpr($where)
+    {
+        if (empty($where)) {
+            return $where;
+        }
+        if (!is_array($where)) {
+            $where = array($where);
+        }
+        foreach ($where as $cond =&gt; &amp;$term) {
+            // is $cond an int? (i.e. Not a condition)
+            if (is_int($cond)) {
+                // $term is the full condition
+                if ($term instanceof Zend_Db_Expr) {
+                    $term = $term-&gt;__toString();
+                }
+            } else {
+                // $cond is the condition with placeholder,
+                // and $term is quoted into the condition
+                $term = $this-&gt;quoteInto($cond, $term);
+            }
+            $term = '(' . $term . ')';
+        }
+
+        $where = implode(' AND ', $where);
+        return $where;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adrian Hope-Bailie (adrianhopebailie) on 2007-09-14T12:07:30.000+0000</p> 
+        <div class="body">
+            <p>Patch modifies Zend_Db_Adapter_Abstract such that all where clauses use consistent arguments.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adrian Hope-Bailie (adrianhopebailie) on 2007-09-14T12:07:54.000+0000</p> 
+        <div class="body">
+            <p>Resolved with attached patch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-09-18T12:30:32.000+0000</p> 
+        <div class="body">
+            <p>Reopening because it appears that the patch has not been applied to SVN; reassigning to [~bkarwin].</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:59.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-04-02T13:37:00.000+0000</p> 
+        <div class="body">
+            <p>Past due date</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:12:06.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-08T16:40:12.000+0000</p> 
+        <div class="body">
+            <p>Ralph, can you please look in to this and get some closure when you have a little time?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-09T13:57:39.000+0000</p> 
+        <div class="body">
+            <p>Will evaluate in 2 weeks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-03-17T17:03:47.000+0000</p> 
+        <div class="body">
+            <p>Fixed with the patch provided at r14358</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2009-03-18T13:43:54.000+0000</p> 
+        <div class="body">
+            <p>Wil, I reopen it because it fails with Zend_Db_Adapter_Oracle and testAdapterUpdateWhereArrayWithVariable (only this adapter extends the update method). I will correct it in the next days.</p>
+
+<p>It also fail for the 2 asssociated tests with Db2, Oracle and Pdo_Oci but just for a mistake in tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2009-03-18T14:19:22.000+0000</p> 
+        <div class="body">
+            <p>Fixed with SVN14365 &amp; SVN14366</p>
+
+        </div>
+    </div>
+    </div>
+

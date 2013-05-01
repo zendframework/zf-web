@@ -1,0 +1,570 @@
+<h2>ZF-6473: Can not insert data in Oracle BLOB column</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-29T13:27:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-12-27T17:56:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Vik Paul (neo123)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Oracle</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZFINC-71">ZFINC-71</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have oracle 10g as backend database. We need to store user uploaded files in a table with BLOB column. I attempted to do so by passing form variable and then with using php global $_FILES array. Both cases oracle throws error identifying passed value as string. 
+I did not see any documentation if Zend supports Oracle BLOB datatype management. We are using zend core 2.5.0. Is this functionality supported?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-07-01T10:49:03.000+0000</p> 
+        <div class="body">
+            <p>We started using ZF at version 1.5 or so, and at that time it didn't seem to support BLOBs - I haven't looked recently to see if this has changed.</p>
+
+<p>We have a My_Db_Adapter_Oracle which overrides Zend_Db_Adapter_Oracle and overrides the insert() function as follows (there is some extra stuff to track whether a transaction is already open):</p>
+
+<pre class="highlight"><code>
+    /**
+     * @var boolean
+     */
+    protected $_transactionOpen = null;
+
+    /**
+     * Identifies whether the adapter has an open transaction
+     *
+     * @return boolean
+     */
+    protected function _hasOpenTransaction()
+    {
+        return $this-&gt;_transactionOpen;
+    }
+
+    /**
+     * Leave autocommit mode and begin a transaction.
+     *
+     * Overloads Zend_Db_Adapter_Oracle::_beginTransaction to
+     * track the open transaction
+     *  
+     * @return void
+     */
+    protected function _beginTransaction()
+    {
+        // Do the parent code
+        parent::_beginTransaction();
+
+        $this-&gt;_transactionOpen = true;       
+    }
+
+    /**
+     * Commit a transaction and return to autocommit mode.
+     *
+     * Overloads Zend_Db_Adapter_Oracle::_commit to track
+     * the open transaction
+     * 
+     * @return void
+     * @throws Zend_Db_Adapter_Oracle_Exception
+     */
+    protected function _commit()
+    {
+        $this-&gt;_transactionOpen = false;
+
+        // Do the parent code
+        parent::_commit();        
+    }
+
+    /**
+     * Roll back a transaction and return to autocommit mode.
+     *
+     * Overloads Zend_Db_Adapter_Oracle::_rollBack to track
+     * the open transaction
+     * 
+     * @return void
+     * @throws Zend_Db_Adapter_Oracle_Exception
+     */
+    protected function _rollBack()
+    {
+        $this-&gt;_transactionOpen = false;
+        
+        // Do the parent code
+        parent::_rollBack();
+    }
+
+    /**
+     * Inserts a table row with specified data.
+     *
+     * Overloads Zend_Db_Adapter_Oracle to support BLOB columns
+     *
+     * Oracle does not support anonymous ('?') binds.
+     *
+     * @param mixed $table The table to insert data into.
+     * @param array $bind Column-value pairs.
+     * @return int The number of affected rows.
+     */
+    public function insert($table, array $bind)
+    {
+        // Use transaction management rather than commit on success
+        $transactionOpenedHere = false;
+        if (!$this-&gt;_hasOpenTransaction()) {
+            $this-&gt;beginTransaction();
+            $transactionOpenedHere = true;
+        }
+
+        // Get the table metadata
+        $columns = $this-&gt;describeTable($table);
+        
+        // Check the columns in the array against the database table
+        // to identify BLOB (or CLOB) columns
+        foreach (array_keys($bind) as $column) {
+            if ( in_array($columns[$column]['DATA_TYPE'], array('BLOB', 'CLOB'))) {
+                $lobs[]=$column;
+            }
+        }
+
+        // If there are no blob columns then use the normal insert procedure
+        if ( !isset($lobs)) {
+            $result = parent::insert($table, $bind);
+
+        } else {            
+            // There are blobs in the $bind array so insert them separately
+            $ociTypes = array('BLOB' =&gt; OCI_B_BLOB, 'CLOB' =&gt; OCI_B_CLOB);
+
+            // Extract and quote col names from the array keys
+            $i = 0;
+            $cols = array();
+            $vals = array();
+            foreach ($bind as $col =&gt; $val) {
+                $cols[] = $this-&gt;quoteIdentifier($col, true);
+                if (in_array($col, $lobs)) {
+                    $vals[] = 'EMPTY_' . $columns[$col]['DATA_TYPE'] . '()';
+                    $lobData[':'.$col.$i] = array('ociType' =&gt; $ociTypes[$columns[$col]['DATA_TYPE']],
+                                                  'data'    =&gt; $val);
+                    unset($bind[$col]);
+                    $lobDescriptors[':'.$col.$i] = oci_new_descriptor($this-&gt;_connection, OCI_D_LOB);
+                    $returning[] = ':'.$col.$i;
+                    $bind[':'.$col.$i] = $lobDescriptors[':'.$col.$i];
+                } elseif ($val instanceof Zend_Db_Expr) {
+                    $vals[] = $val-&gt;__toString();
+                    unset($bind[$col]);
+                } else {
+                    $vals[] = ':'.$col.$i;
+                    unset($bind[$col]);
+                    $bind[':'.$col.$i] = $val;
+                }
+                $i++;
+            }
+            
+            // build the statement
+            $sql = "INSERT INTO "
+                 . $this-&gt;quoteIdentifier($table, true)
+                 . ' (' . implode(', ', $cols) . ') '
+                 . 'VALUES (' . implode(', ', $vals) . ') '
+                 . 'RETURNING ' . implode(', ', $lobs) . ' '
+                 . 'INTO '  . implode(', ', $returning);
+
+            // Execute the statement
+            $stmt = new Zend_Db_Statement_Oracle($this, $sql);
+            foreach (array_keys($bind) as $name) {
+                if (in_array($name, array_keys($lobData))) {
+                    $stmt-&gt;bindParam($name, $bind[$name], $lobData[$name]['ociType'], -1);
+                } else {
+                    $stmt-&gt;bindParam($name, $bind[$name]);
+                }
+            }
+
+            //Execute without committing
+            $stmt-&gt;execute();
+            $result = $stmt-&gt;rowCount();
+            
+            // Write the LOB data &amp; free the descriptor
+            foreach ( $lobDescriptors as $name =&gt; $lobDescriptor) {            
+                $lobDescriptor-&gt;write($lobData[$name]['data']);
+                $lobDescriptor-&gt;free();
+            }
+            
+        }
+
+        // Commit
+        if ($transactionOpenedHere) {
+            $this-&gt;commit();
+        }
+        
+        // Return result
+        return $result;
+
+    }
+</code></pre>
+
+<p>It shouldn't be too hard for you to take this approach with your application.</p>
+
+<p>It should also be possible to add this code into Zend_Db_Adapter_Oracle if any of the maintainers are interested.</p>
+
+<p>I would be happy to help with it if one of the maintainers can tell me what needs to be done.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gabriel Baez (gabrielbaez) on 2009-08-05T10:36:26.000+0000</p> 
+        <div class="body">
+            <p>We use zend framework at work with a Oracle Database  this feature would definitely make things easier to deal with BLOBs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guilherme Pereira (gpsa) on 2009-09-04T07:50:50.000+0000</p> 
+        <div class="body">
+            <p>I would like to give my contribution. 
+Advantage the insert function, I changed it to recognize the situation 
+where hava SCHEMA and TABLE in $table var, and we can use this idea to the update option:
+\
+\</p>
+
+<pre class="highlight"><code>
+/**
+     * Inserts a table row with specified data.
+     *
+     * Overloads Zend_Db_Adapter_Oracle to support BLOB columns
+     *
+     * Oracle does not support anonymous ('?') binds.
+     * Alteração para funcionar com campos BLOB e CLOB
+     * @param mixed $table The table to insert data into.
+     * @param array $bind Column-value pairs.
+     * @return int The number of affected rows.
+     */
+    public function insert($table, array $bind)
+    {
+        // Use transaction management rather than commit on success
+        $transactionOpenedHere = false;
+        if (!$this-&gt;_hasOpenTransaction()) {
+            $this-&gt;beginTransaction();
+            $transactionOpenedHere = true;
+        }
+        $tb = explode(".", $table);
+        if(count($tb) == 2)
+        {
+            $tbName = $tb[1];
+            $tbSchema = $tb[0];
+        }else
+            $tbName = $tb[0];
+        // Get the table metadata
+        $columns = $this-&gt;describeTable($tbName, @$tbSchema);
+
+        // Check the columns in the array against the database table
+        // to identify BLOB (or CLOB) columns
+        foreach (array_keys($bind) as $column) {
+            if ( in_array($columns[$column]['DATA_TYPE'], array('BLOB', 'CLOB'))) {
+                $lobs[]=$column;
+            }
+        }
+
+        // If there are no blob columns then use the normal insert procedure
+        if ( !isset($lobs)) {
+            $result = parent::insert($table, $bind);
+
+        } else {
+            // There are blobs in the $bind array so insert them separately
+            $ociTypes = array('BLOB' =&gt; OCI_B_BLOB, 'CLOB' =&gt; OCI_B_CLOB);
+
+            // Extract and quote col names from the array keys
+            $i = 0;
+            $cols = array();
+            $vals = array();
+            foreach ($bind as $col =&gt; $val) {
+                $cols[] = $this-&gt;quoteIdentifier($col, true);
+                if (in_array($col, $lobs)) {
+                    $vals[] = 'EMPTY_' . $columns[$col]['DATA_TYPE'] . '()';
+                    $lobData[':'.$col.$i] = array('ociType' =&gt; $ociTypes[$columns[$col]['DATA_TYPE']],
+                                                  'data'    =&gt; $val);
+                    unset($bind[$col]);
+                    $lobDescriptors[':'.$col.$i] = oci_new_descriptor($this-&gt;_connection, OCI_D_LOB);
+                    $returning[] = ':'.$col.$i;
+                    $bind[':'.$col.$i] = $lobDescriptors[':'.$col.$i];
+                } elseif ($val instanceof Zend_Db_Expr) {
+                    $vals[] = $val-&gt;__toString();
+                    unset($bind[$col]);
+                } else {
+                    $vals[] = ':'.$col.$i;
+                    unset($bind[$col]);
+                    $bind[':'.$col.$i] = $val;
+                }
+                $i++;
+            }
+
+            // build the statement
+            $sql = "INSERT INTO "
+                 . $this-&gt;quoteIdentifier($table, true)
+                 . ' (' . implode(', ', $cols) . ') '
+                 . 'VALUES (' . implode(', ', $vals) . ') '
+                 . 'RETURNING ' . implode(', ', $lobs) . ' '
+                 . 'INTO '  . implode(', ', $returning);
+
+            // Execute the statement
+            $stmt = new Zend_Db_Statement_Oracle($this, $sql);
+            foreach (array_keys($bind) as $name) {
+                if (in_array($name, array_keys($lobData))) {
+                    $stmt-&gt;bindParam($name, $bind[$name], $lobData[$name]['ociType'], -1);
+                } else {
+                    $stmt-&gt;bindParam($name, $bind[$name]);
+                }
+            }
+
+            //Execute without committing
+            $stmt-&gt;execute();
+            $result = $stmt-&gt;rowCount();
+
+            // Write the LOB data &amp; free the descriptor
+            foreach ( $lobDescriptors as $name =&gt; $lobDescriptor) {
+                $lobDescriptor-&gt;write($lobData[$name]['data']);
+                $lobDescriptor-&gt;free();
+            }
+
+        }
+
+        // Commit
+        if ($transactionOpenedHere) {
+            $this-&gt;commit();
+        }
+
+        // Return result
+        return $result;
+
+    }
+    /**
+     * 
+     * Updates table rows with specified data based on a WHERE clause.
+     *
+     * @param  mixed        $table The table to update.
+     * @param  array        $bind  Column-value pairs.
+     * @param  mixed        $where UPDATE WHERE clause(s).
+     * @return int          The number of affected rows.
+     */
+    public function update($table, array $bind, $where = '')
+    {
+       // Use transaction management rather than commit on success
+        $transactionOpenedHere = false;
+        if (!$this-&gt;_hasOpenTransaction()) {
+            $this-&gt;beginTransaction();
+            $transactionOpenedHere = true;
+        }
+        $tb = explode(".", $table);
+        if(count($tb) == 2)
+        {
+            $tbName = $tb[1];
+            $tbSchema = $tb[0];
+        }else
+            $tbName = $tb[0];
+        // Get the table metadata
+        $columns = $this-&gt;describeTable($tbName, @$tbSchema);
+
+        // Check the columns in the array against the database table
+        // to identify BLOB (or CLOB) columns
+        foreach (array_keys($bind) as $column) {
+            if ( in_array($columns[$column]['DATA_TYPE'], array('BLOB', 'CLOB'))) {
+                $lobs[]=$column;
+            }
+        }
+
+        // If there are no blob columns then use the normal insert procedure
+        if ( !isset($lobs)) {
+            $result = parent::update($table, $bind, $where);
+
+        } else {
+            // There are blobs in the $bind array so insert them separately
+            $ociTypes = array('BLOB' =&gt; OCI_B_BLOB, 'CLOB' =&gt; OCI_B_CLOB);
+
+            /**
+             * Build "col = ?" pairs for the statement,
+             * except for Zend_Db_Expr which is treated literally.
+             */
+            $set = array();
+            $i = 0;
+            foreach ($bind as $col =&gt; $val) {
+                if (in_array($col, $lobs))
+                {
+                    $lobData[':'.$col.$i] = array('ociType' =&gt; $ociTypes[$columns[$col]['DATA_TYPE']],
+                                                  'data'    =&gt; $val);
+                    unset($bind[$col]);
+                    $lobDescriptors[':'.$col.$i] = oci_new_descriptor($this-&gt;_connection, OCI_D_LOB);
+                    $returning[] = ':'.$col.$i;
+                    $bind[':'.$col.$i] = $lobDescriptors[':'.$col.$i];
+                    $val = 'EMPTY_' . $columns[$col]['DATA_TYPE'] . '()';
+                }elseif ($val instanceof Zend_Db_Expr) {
+                    $val = $val-&gt;__toString();
+                    unset($bind[$col]);
+                } else {
+                    if ($this-&gt;supportsParameters('positional')) {
+                        $val = '?';
+                    } else {
+                        if ($this-&gt;supportsParameters('named')) {
+                            unset($bind[$col]);
+                            $bind[':'.$col.$i] = $val;
+                            $val = ':'.$col.$i;
+                            $i++;
+                        } else {
+                            /** @see Zend_Db_Adapter_Exception */
+                            require_once 'Zend/Db/Adapter/Exception.php';
+                            throw new Zend_Db_Adapter_Exception(get_class($this) ." doesn't support positional or named binding");
+                        }
+                    }
+                }
+                $set[] = $this-&gt;quoteIdentifier($col, true) . ' = ' . $val;
+            }
+
+            $where = $this-&gt;_whereExpr($where);
+
+            /**
+             * Build the UPDATE statement
+             */
+            $sql = "UPDATE "
+                 . $this-&gt;quoteIdentifier($table, true)
+                 . ' SET ' . implode(', ', $set)
+                 . (($where) ? " WHERE $where" : ''). ' '
+                 . 'RETURNING ' . implode(', ', $lobs) . ' '
+                 . 'INTO '  . implode(', ', $returning);
+
+            // Execute the statement
+            $stmt = new Zend_Db_Statement_Oracle($this, $sql);
+            foreach (array_keys($bind) as $name) {
+                if (in_array($name, array_keys($lobData))) {
+                    $stmt-&gt;bindParam($name, $bind[$name], $lobData[$name]['ociType'], -1);
+                } else {
+                    $stmt-&gt;bindParam($name, $bind[$name]);
+                }
+            }
+
+            //Execute without committing
+            $stmt-&gt;execute();
+            $result = $stmt-&gt;rowCount();
+
+            // Write the LOB data &amp; free the descriptor
+            foreach ( $lobDescriptors as $name =&gt; $lobDescriptor) {
+                $lobDescriptor-&gt;write($lobData[$name]['data']);
+                $lobDescriptor-&gt;free();
+            }
+
+        }
+
+        // Commit
+        if ($transactionOpenedHere) {
+            $this-&gt;commit();
+        }
+
+        // Return result
+        return $result;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-10-02T05:06:34.000+0000</p> 
+        <div class="body">
+            <p>I don't like the solution using describeTable(), this seems like a serious performance hit for users that don't realize that insert() and update() need this function and therefore a cache should be wrapped around it.</p>
+
+<p>Since you retrieve a OCI-LOB instance anways from a select on a BLOB or CLOB field, wouldn'it be much more easy just to allow this methods to handle instances of that type correctly?</p>
+
+<p>For example:</p>
+
+<pre class="highlight"><code>
+$lob = oci_new_descriptor($db-&gt;getConnection(), OCI_DTYPE_LOB);
+$lob-&gt;write($text);
+$data = array(
+    'name' =&gt; $name,
+    'text' =&gt; $lob,
+);
+$db-&gt;insert('table', $data);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-10-02T05:08:04.000+0000</p> 
+        <div class="body">
+            <p>I just realized my solution isnt enough, the information about CLOB or BLOB is missing for the insert function, forget it :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gabriel Baez (gabrielbaez) on 2010-01-25T11:14:04.000+0000</p> 
+        <div class="body">
+            <p>Any updates  on  this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristiano G Carvalho (kikolino) on 2011-12-27T17:56:39.000+0000</p> 
+        <div class="body">
+            <p>A litle solution for Zend models. See.</p>
+
+<p>Model Cars</p>
+
+<p>class Custom_Row_Cars extends Zend_Db_Table_Row_Abstract {</p>
+
+<pre><code>public function init() { 
+
+    foreach($this-&gt;_data as $key =&gt; $value ) { 
+        if( is_resource($value) ) { 
+           $this-&gt;_data[$key] = stream_get_contents($value);
+        }
+    }
+
+} 
+</code></pre>
+
+<p>}</p>
+
+<p>class Application_Model_DbTable_Cars extends Zend_Db_Table_Abstract {</p>
+
+<pre><code>protected $_name = 'CARS';
+protected $_primary = 'ID';
+protected $_rowClass = 'Custom_Row_Cars'; // Custom Row for data manipulation
+
+public function getById($id) {
+    return $this-&gt;fetchRow($this-&gt;select()-&gt;where('ID = ?', $id));
+}
+</code></pre>
+
+<p>}</p>
+
+<p>CLOB field are resource. In case are read with function stream_get_contents</p>
+
+        </div>
+    </div>
+    </div>
+

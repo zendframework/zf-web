@@ -1,0 +1,294 @@
+<h2>ZF-11102: Zend_Form_Element  issue in _loadFilter  method when you use Zend_Filter with  an &quot;options&quot; array  </h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-22T02:08:59.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-03T15:29:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Przemys?aw Wróbel (wrobel)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>considering this Zend_Form class:</p>
+
+<pre class="highlight"><code>
+class MyForm extends Zend_Form
+
+public function __construct () { 
+
+...
+
+/* country is a Zend_Form_Element_Text object */
+$this-&gt;country
+     -&gt;addFilter('AutocompleteHelper', array('minlength' =&gt; 2, 'url' =&gt; '/json/coutries'));
+
+}
+
+...
+
+}
+</code></pre>
+
+<p>As you can see I add a filter to  text field with  options associative array. 
+Zend_Form_Element class doesn't instance well the Zend_Filter object and during the initializing phase it loose "options" parameters.</p>
+
+<p>To solve this  I've change the way how  Zend_Filter is initialized on line 1920 (_loadFilter method) of Zend_Form_Element class</p>
+
+<pre class="highlight"><code>
+            if ($r-&gt;hasMethod('__construct')) {
+                $instance = new $name($filter['options']);
+                //$instance = $r-&gt;newInstanceArgs($filter['options']);
+            } else {
+                $instance = new $name();
+                //$instance = $r-&gt;newInstance();
+            }
+</code></pre>
+
+<p>Regards</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Przemys?aw Wróbel (wrobel) on 2011-02-22T02:14:45.000+0000</p> 
+        <div class="body">
+            <p>I decided to reopen this issue since it seems to me to be an inconsistent behaviour when compared to the addValidator() method which does not require an extra wrapping of options array.
+I have spent some time to make things work and I believe more users will have the same problem - since there is even no such an example in ZF Guide.</p>
+
+<p>this-&gt;grade-&gt;addValidator('Float', false, array('locale' =&gt; 'en')); //english locale since value is already normalized
+this-&gt;grade-&gt;addFilter('LocalizedToNormalized', array(array('precision' =&gt; 2)));</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Przemys?aw Wróbel (wrobel) on 2011-02-22T02:16:39.000+0000</p> 
+        <div class="body">
+            <p>Sorry for cloning the issue - is there a better way to reopening it?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-06T01:33:24.000+0000</p> 
+        <div class="body">
+            <p>Is this still an issue against current SVN trunk?  This test passes against trunk for me:</p>
+
+<pre class="highlight"><code>
+Index: Zend/Form/ElementTest.php
+===================================================================
+--- Zend/Form/ElementTest.php   (revision 24672)
++++ Zend/Form/ElementTest.php   (working copy)
+@@ -2189,6 +2189,22 @@
+         $validator = $username-&gt;getValidator('regex');
+         $this-&gt;assertTrue($validator-&gt;zfBreakChainOnFailure);
+     }
++
++    /**
++     * @group ZF-11102
++     */
++    public function testAddFilterPassesOptionsOnToFilterObject()
++    {
++        $field = new Zend_Form_Element('foo');
++        $field-&gt;addFilter('Alpha', array(
++            'allowwhitespace' =&gt; true,
++        ));
++        $filters = $field-&gt;getFilters();
++        $this-&gt;assertArrayHasKey('Zend_Filter_Alpha', $filters);
++        $filter = $filters['Zend_Filter_Alpha'];
++        $this-&gt;assertType('Zend_Filter_Alpha', $filter);
++        $this-&gt;assertTrue($filter-&gt;getAllowWhitespace());
++    }
+ }
+ 
+ class Zend_Form_ElementTest_Decorator extends Zend_Form_Decorator_Abstract
+</code></pre>
+
+<p>Could you let me know if i've missed the point with the above test, or if the issue really is fixed in SVN trunk?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-06T01:39:01.000+0000</p> 
+        <div class="body">
+            <p>Apparently I did.  This test fails against trunk:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/ElementTest.php
+===================================================================
+--- tests/Zend/Form/ElementTest.php (revision 24672)
++++ tests/Zend/Form/ElementTest.php (working copy)
+@@ -2189,6 +2189,22 @@
+         $validator = $username-&gt;getValidator('regex');
+         $this-&gt;assertTrue($validator-&gt;zfBreakChainOnFailure);
+     }
++
++    /**
++     * @group ZF-11102
++     */
++    public function testAddFilterPassesOptionsOnToFilterObjectLocalizedToNormalized()
++    {
++        $field = new Zend_Form_Element('foo');
++        $field-&gt;addFilter('LocalizedToNormalized', array(
++            'precision' =&gt; 2,
++        ));
++        $filters = $field-&gt;getFilters();
++        $this-&gt;assertArrayHasKey('Zend_Filter_LocalizedToNormalized', $filters);
++        $filter = $filters['Zend_Filter_LocalizedToNormalized'];
++        $this-&gt;assertType('Zend_Filter_LocalizedToNormalized', $filter);
++        $this-&gt;assertEquals(2, $filter-&gt;getPrecision());
++    }
+ }
+ 
+ class Zend_Form_ElementTest_Decorator extends Zend_Form_Decorator_Abstract
+</code></pre>
+
+<p>With this error:</p>
+
+<pre class="highlight"><code>
+1) Zend_Form_ElementTest::testAddFilterPassesOptionsOnToFilterObjectLocalizedToNormalized
+Argument 1 passed to Zend_Filter_LocalizedToNormalized::setOptions() must be an array, integer given, called in Zend/Filter/LocalizedToNormalized.php on line 64 and defined
+
+Zend/Filter/LocalizedToNormalized.php:84
+Zend/Filter/LocalizedToNormalized.php:64
+</code></pre>
+
+<p>Could be a problem with how that particular filter implements it's option handling?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-03-10T02:16:18.000+0000</p> 
+        <div class="body">
+            <p>The problem is exactly as you point out.  {{newInstanceArgs}} takes it's argument to be an array of constructor arguments to pass on the new instance, which mesh with the intended functionality: the array being passed as first argument.  This change (which you also pointed out above) will fix the issue:</p>
+
+<pre class="highlight"><code>
+
+Index: library/Zend/Form/Element.php
+===================================================================
+--- library/Zend/Form/Element.php   (revision 24672)
++++ library/Zend/Form/Element.php   (working copy)
+@@ -2083,7 +2083,7 @@
+         } else {
+             $r = new ReflectionClass($name);
+             if ($r-&gt;hasMethod('__construct')) {
+-                $instance = $r-&gt;newInstanceArgs((array) $filter['options']);
++                $instance = $r-&gt;newInstanceArgs(array((array) $filter['options']));
+             } else {
+                 $instance = $r-&gt;newInstance();
+             }
+</code></pre>
+
+<p>Here's another example, this time of {{Zend_Filter_PregReplace}}:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/ElementTest.php
+===================================================================
+--- tests/Zend/Form/ElementTest.php (revision 24672)
++++ tests/Zend/Form/ElementTest.php (working copy)
+@@ -2189,6 +2189,23 @@
+         $validator = $username-&gt;getValidator('regex');
+         $this-&gt;assertTrue($validator-&gt;zfBreakChainOnFailure);
+     }
++
++    /**
++     * @group ZF-11102
++     */
++    public function testAddFilterPassesOptionsOnToFilterObjectPregReplace()
++    {
++        $field = new Zend_Form_Element('foo');
++        $field-&gt;addFilter('PregReplace', array(
++            'replace' =&gt; 'z',
++            'match' =&gt; '/[a-z]/i',
++        ));
++        $filters = $field-&gt;getFilters();
++        $this-&gt;assertArrayHasKey('Zend_Filter_PregReplace', $filters);
++        $filter = $filters['Zend_Filter_PregReplace'];
++        $this-&gt;assertType('Zend_Filter_PregReplace', $filter);
++        $this-&gt;assertEquals('z', $filter-&gt;getReplacement());
++    }
+ }
+ 
+ class Zend_Form_ElementTest_Decorator extends Zend_Form_Decorator_Abstract
+</code></pre>
+
+<p>And the result:</p>
+
+<pre class="highlight"><code>
+1) Zend_Form_ElementTest::testAddFilterPassesOptionsOnToFilterObjectPregReplace
+Failed asserting that two strings are equal.
+--- Expected
++++ Actual
+@@ @@
+-z
++/[a-z]/i
+</code></pre>
+
+<p>Instead of calling constructor with single array argument, the array contents are used as N arguments to the constructor.  Which works fine for some filters (like {{Zend_Filter_Alpha}}) which have only a single constructor argument anyway.  In the second example above, I purposefully changed the order of the array (putting 'replace' first) and the resulting values get switched inside the filter (pattern comes out through {{getReplacement()}}).</p>
+
+<p>So, what's the game plan?  Zend_Form_Element-&gt;_loadFilter is obviously broken, almost to the point of unusability.  But this change smells like a BC break to me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frédéric Dewinne (frederic@dwebconsulting.be) on 2012-05-03T15:29:24.000+0000</p> 
+        <div class="body">
+            <p>This fix will result in another bug. I mean when $filter['options'] is a string, it will be cast to an unindexed array.</p>
+
+<p>I explain what I mean :</p>
+
+<pre class="highlight"><code>
+-&gt;addFilter('null', 'integer');
+</code></pre>
+
+<p>This code will work with the current bug. But won't with that fix.</p>
+
+<p>By changing your fix into :</p>
+
+<pre class="highlight"><code>
+-                $instance = $r-&gt;newInstanceArgs((array) $filter['options']);
++                $instance = $r-&gt;newInstanceArgs(array($filter['options']));
+</code></pre>
+
+<p>It will be backward compatible and the second argument of the Zend_Form_Element::addFilter() method will really be the same as the first argument of the filter's constructor</p>
+
+        </div>
+    </div>
+    </div>
+

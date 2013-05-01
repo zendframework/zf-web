@@ -1,0 +1,441 @@
+<h2>ZF-7911: Zend_Db_Statement::_stripQuoted seems not to be complete</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-21T08:50:27.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-12T03:24:15.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Vincent de Lau (vdelau)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+            <li>FixForZF1.12</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3025">ZF-3025</a></li>
+            <li><a href="/issues/browse/ZF-5063">ZF-5063</a></li>
+            <li><a href="/issues/browse/ZF-10209">ZF-10209</a></li>
+            <li><a href="/issues/browse/ZF-7585">ZF-7585</a></li>
+            <li><a href="/issues/browse/ZF-8399">ZF-8399</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13462/ZF-7911-improved.patch">ZF-7911-improved.patch</a></li>
+            <li><a href="/issues/secure/attachment/15021/ZF-7911.patch">ZF-7911.patch</a></li>
+            <li><a href="/issues/secure/attachment/12242/ZF-7911.patch">ZF-7911.patch</a></li>
+            <li><a href="/issues/secure/attachment/14692/ZF-7911_aal.patch">ZF-7911_aal.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>While investigating <a href="http://framework.zend.com/issues/browse/ZF-5063">http://framework.zend.com/issues/browse/ZF-5063</a>, I noted that there were some inconsistencies in Zend_Db_Statement::_stripQuoted. I'll repeat what I've mailed to the list:</p>
+
+<p>Last week we ran in an issue with a segfault caused by the preg_replace
+statements in Zend_Db_Statements::_stripQuoted (issues ZF-5063[1] and
+ZF-7585[2]). While trying to find a work-around, I discovered that this
+function is broken. The fix for issue ZF-3025[3] seems to be applied wrong
+(r9727).</p>
+
+<p>The fix for my issue could be to modify the regular expression. Instead of
+the repetition, my replacement relies on assertions. During initial testing
+(running a 1MB query) it seems that this would not rely on the stack too
+much, reducing the chance of a segfault. This would need to be tested
+further. In the patch below, I restored the original replacement of quoted
+identifiers that was lost in r9727.</p>
+
+<p>However, there are still some issues:
+- In my regexp, I assume that a quote can be escaped by repeating the quote
+or by prefixing it with a backslash. A backslash itself can be escaped by
+repeating it. I'm not sure if these are safe assumptions for all RDBMS's.
+- The patch should be tested thoroughly, although I'm quite confident about
+it.
+- MySQL accepts both single and double quotes for values. This is not
+accounted for, nor was it in the old version. I'm not sure how this is for
+other RDBMS's. Would it be safe to strip out all quote style: single ('),
+double (") and backtick (`)? I could imagine that for most systems this
+would be OK. Individual adapters could always override the default function
+and provide their own.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-21T08:51:29.000+0000</p> 
+        <div class="body">
+            <p>Initial patch, doesn't cover all problems mentioned in the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-21T08:59:17.000+0000</p> 
+        <div class="body">
+            <p>Both issues are related to this function. Fixing this issue should also fix these.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-09-22T09:47:15.000+0000</p> 
+        <div class="body">
+            <p>Lets work together on this.  I need to see some unit tests to understand what use cases are triggering the bad behavior.</p>
+
+<p>The other issue described I feel like might be a PHP problem itself.  Lets discuss in #zftalk.dev when you're available.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2009-09-30T02:48:05.000+0000</p> 
+        <div class="body">
+            <p>First a specification: The function should strip all locations where prepared statement parameters (? and :name) should be ignored. The obvious places where this could occur are within strings and identifiers. Identifiers with strange characters are usually also quoted. The quotes used can vary per SQL dialect. Common quotes include 'single' and "double" quotes and <code>backticks</code>. To include the quote character in a string, they usally can be escaped. This can be done by repeating the quote or by prefixing it with an escape character. This escape character is usually a backslash ().</p>
+
+<p>h4. Some research:
+for MySQL:
+- identifiers can be escaped with backticks, escape can only be done by doubling the backtick. A backslash is not treated as a specials character.
+- strings should be escaped with single or double quotes, escaping can be done by doubling and escaping with a backslash</p>
+
+<p>common other dialects (SQL-92?):
+- identifiers can be escaped with double quotes, escaping is done by doubling
+- strings should be escaped with single quotes, escaping is done by doubling</p>
+
+<p>h4. Assumptions
+I think it would be save to generalize in saying that string enclosed in either single quotes, double quotes and backticks are to be stripped. A doubled quote character, or a character prefixed with a backslash should not be considered the ending quote. What happens if a dialect doesn't support a quoting style?</p>
+
+<ul><li>If doubling is not a valid escape, the whole sequence would be invalid, but stripped not the less: ['a''b']</li>
+<li>If a backslash is not a valid escape, it will just be stripped. Again, it may fail for incorrect queries: ['a\'b']</li>
+<li>If a specific quoting style is not supported, it should not appear in the query.</li>
+</ul><p>h4. Test case
+I've taken a quick look at the unit tests, but unfortunately can not spend enough time to create them. I'll provide some information and test cases so that someone else can maybe create unit tests for them.</p>
+
+<p>This test set is as it would work for MySQL. Other RDBMS might have other conventions. To avoid confusion, I'm enclosing the strings in [] brackets.</p>
+
+<pre class="literal">
+in: [SELECT * FROM table]
+out: [SELECT * FROM table]
+
+in: [SELECT * FROM `table`]
+out: [SELECT * FROM ]
+
+in: [SELECT * FROM `strange:table`]
+out: [SELECT * FROM ]
+
+in: [SELECT * FROM `strange`table`]
+out: [SELECT * FROM table`] (bad query)
+
+in: [SELECT * FROM `strange``table`]
+out: [SELECT * FROM ]
+
+in: [SELECT * FROM `strange</pre><pre class="highlight"><code>table`]
+out: [SELECT * FROM table`] (bad query)
+
+in: [SELECT * FROM `strange\`table`]
+out: [SELECT * FROM ]
+
+in: [SELECT * FROM `strange\``table`]
+out: [SELECT * FROM table`] (bad query)
+
+in: [SELECT * FROM `strange\</code></pre>table`]
+out: [SELECT * FROM ]
+
+in: [SELECT 'value' AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT 'strange:value' AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT 'strange'value' AS identifier]
+out: [SELECT value' AS identifier] (bad query)
+
+in: [SELECT 'strange''value' AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT 'strange'''value' AS identifier]
+out: [SELECT value' AS identifier] (bad query)
+
+in: [SELECT 'strange\'value' AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT 'strange\''value' AS identifier]
+out: [SELECT value' AS identifier] (bad query)
+
+in: [SELECT 'strange'''value' AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT "value" AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT "strange:value" AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT "strange"value" AS identifier]
+out: [SELECT value" AS identifier] (bad query)
+
+in: [SELECT "strange""value" AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT "strange"""value" AS identifier]
+out: [SELECT value" AS identifier] (bad query)
+
+in: [SELECT "strange\"value" AS identifier]
+out: [SELECT  AS identifier]
+
+in: [SELECT "strange\""value" AS identifier]
+out: [SELECT value" AS identifier] (bad query)
+
+in: [SELECT "strange"""value" AS identifier]
+out: [SELECT  AS identifier]
+
+
+<p>h4. References</p>
+
+<p><a href="http://dev.mysql.com/doc/refman/5.1/en/string-syntax.html">http://dev.mysql.com/doc/refman/…</a>
+<a href="http://dev.mysql.com/doc/refman/5.1/en/identifiers.html">http://dev.mysql.com/doc/refman/…</a>
+<a href="http://publib.boulder.ibm.com/infocenter/rbhelp/v6r3/topic/com.ibm.redbrick.doc6.3/sqlrg/sqlrg16.htm">http://publib.boulder.ibm.com/infocenter/rbhelp/…</a>
+<a href="http://msdn.microsoft.com/en-us/library/ms179899">http://msdn.microsoft.com/en-us/library/ms179899</a>(SQL.90).aspx</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-11-17T09:07:43.000+0000</p> 
+        <div class="body">
+            <p>Modified and improved patch; may not solve all issues, but completes the majority. (Patch from xenforo.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-05T14:26:20.000+0000</p> 
+        <div class="body">
+            <p>As far as I can tell, the patch was never committed.  Is there any particular reason?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Vincent de Lau (vdelau) on 2011-10-05T15:41:41.000+0000</p> 
+        <div class="body">
+            <p>Initially, I think this was not committed because there are no unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-17T00:50:25.000+0000</p> 
+        <div class="body">
+            <p>A couple of observations:
+* The patch attached by Matthew does not handle the case where values are quoted using double-quotes.  Does that need to be added?
+* The patch attached by Matthew makes the assumption that backslash is only escaping method.  Is that a safe assumption?
+* It appears that this case is not handled properly:</p>
+
+<pre class="highlight"><code>
+IN: SELECT 'strange\'''value' AS identifier
+OUT: SELECT AS identifier
+</code></pre>
+
+<p>My expectation is that it would behave the same as:</p>
+
+<pre class="highlight"><code>
+IN: SELECT 'strange\'value' AS identifier
+OUT: SELECT AS identifier
+</code></pre>
+
+<p>as it also has an even number of unescaped quotes, however with Matthew's patch applied it works like this:</p>
+
+<pre class="highlight"><code>
+IN: SELECT 'strange\'''value' AS identifier
+OUT: SELECT value' AS identifier
+</code></pre>
+
+<p>I've attached a patch with a first try at implementing a unit test to cover the "Test Case" part of Vincent's 30/Sep/09 post.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joern Heissler (joernh) on 2012-01-11T19:29:33.000+0000</p> 
+        <div class="body">
+            <p>See my comment in ZF-5063. It's MySQL-specific, though.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-13T22:22:29.000+0000</p> 
+        <div class="body">
+            <p>I am building a unit test using the input from Vincent de Lau, also using his research. I think that since he states that a backtick in MySQL can only be escaped with a backtick, the following example input / output pair is wrong:</p>
+
+<pre class="highlight"><code>
+in: [SELECT * FROM `strange\`table`]
+out: [SELECT * FROM ]
+</code></pre>
+
+<p>I would expect:</p>
+
+<pre class="highlight"><code>
+in: [SELECT * FROM `strange\`table`]
+out: [SELECT * FROM `strange\]
+</code></pre>
+
+<p>because only the last pair of backticks matches. The backslash in this case has no special meaning.</p>
+
+<p>But of course, I can be wrong.
+What I currently get when unit testing is:</p>
+
+<pre class="highlight"><code>
+in: [SELECT * FROM `strange\`table`]
+out: [SELECT * FROM table`]
+</code></pre>
+
+<p>This probably makes even more sense, since if we do not consider the backtick a special character, the first two backticks match and the last one doesn't.</p>
+
+<p>A similar thing happens with the next example:</p>
+
+<pre class="highlight"><code>
+in: [SELECT * FROM `strange\``table`]
+out: [SELECT * FROM table`]
+</code></pre>
+
+<p>Since now we have a real backtick escape sequence (<code>), the second and third backtick that form the sequence should not be considered and so the first and last backticks match, so the input / output would be:
+&lt;pre class="highlight"&gt;&lt;code&gt;
+in: [SELECT * FROM `strange\</code>table<code>]
+out: [SELECT * FROM]
+&lt;/code&gt;&lt;/pre&gt;
+Maybe the 4th and 5th example are just accidentally swapped, yet the sixth example shows a similar behavior, the current implementation does this, contrary to the example given, and it makes sense:
+&lt;pre class="highlight"&gt;&lt;code&gt;
+in: [SELECT * FROM</code>strange\table<code>]
+out: [SELECT * FROM table</code>]
+```
+The fourth backtick in this case isn't escaped, so it matches the first and the last one remains.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-13T23:00:49.000+0000</p> 
+        <div class="body">
+            <p>I finally ended up with these expected input / output scenario's and I had to change quite a bit inside the function to make these all pass:</p>
+
+<pre class="highlight"><code>
+in: [SELECT * FROM `strange`table1`]
+out: [SELECT * FROM table1`]
+    
+in: [SELECT * FROM `strange``table2`]
+out: [SELECT * FROM ]
+    
+in: [SELECT * FROM `strange</code></pre>
+
+<p>table3<code>]
+out: [SELECT * FROM table3</code>]</p>
+
+<p>in: [SELECT * FROM <code>strange\</code>table4<code>]
+out: [SELECT * FROM table4</code>]</p>
+
+<p>in: [SELECT * FROM <code>strange\``table5</code>]
+out: [SELECT * FROM ]</p>
+
+<p>in: [SELECT * FROM <code>strange\&lt;pre class="highlight"&gt;&lt;code&gt;table6</code>]
+out: [SELECT * FROM table6`]</p>
+
+<p>in: [SELECT 'value7' AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT 'strange:value8' AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT 'strange'value9' AS identifier]
+out: [SELECT value9' AS identifier]</p>
+
+<p>in: [SELECT 'strange''value10' AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT 'strange'''value11' AS identifier]
+out: [SELECT value11' AS identifier]</p>
+
+<p>in: [SELECT 'strange\'value12' AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT 'strange\''value13' AS identifier]
+out: [SELECT value13' AS identifier]</p>
+
+<p>in: [SELECT 'strange'''value14' AS identifier]
+out: [SELECT value14' AS identifier]</p>
+
+<p>in: [SELECT "value15" AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT "strange:value16" AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT "strange"value17" AS identifier]
+out: [SELECT value17" AS identifier]</p>
+
+<p>in: [SELECT "strange""value18" AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT "strange"""value19" AS identifier]
+out: [SELECT value19" AS identifier]</p>
+
+<p>in: [SELECT "strange\"value20" AS identifier]
+out: [SELECT  AS identifier]</p>
+
+<p>in: [SELECT "strange\""value21" AS identifier]
+out: [SELECT value21" AS identifier]</p>
+
+<p>in: [SELECT "strange"""value22" AS identifier]
+out: [SELECT value22" AS identifier]
+</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-03-14T21:53:01.000+0000</p> 
+        <div class="body">
+            <p>Added a test case, not yet in the patch, but this passes as well:</p>
+
+<pre class="highlight"><code>
+in: [SELECT 'strange\'''value23' AS identifier]
+out: [SELECT  AS identifier]
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-04-14T22:25:07.000+0000</p> 
+        <div class="body">
+            <p>Added a patch that adds most recent unit test and hopefully better implementation. It still segfaults, but this should be complete. Please review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2012-05-09T21:26:32.000+0000</p> 
+        <div class="body">
+            <p>I committed the patch that contains all tests proposed here and updated code for _stripQuoted that satisfies all of those tests. The seqfault issue still exists above 9,000 characters. I will try to get this resolved using issue ZF-5063.</p>
+
+        </div>
+    </div>
+    </div>
+

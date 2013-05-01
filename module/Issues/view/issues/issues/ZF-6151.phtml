@@ -1,0 +1,181 @@
+<h2>ZF-6151: Translate the title attribute on form buttons including images (FormImage, Submit, Reset, Button)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-03-28T03:52:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-04-04T07:00:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.1 (12/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11844/Tooltip.php">Tooltip.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The title attribute on form elements, specifically buttons, allows for the creation of tooltips.</p>
+
+<p>These tooltips can be very useful, but they need to be translated.</p>
+
+<p>According to the documentation, Zend_Form offers no translation for the title attribute, but I think it would be an improvement if it would.</p>
+
+<p>Obviously, if we are to offer this functionality, the manual needs to be updated accordingly and tests have to be written.</p>
+
+<p>I can write the tests, but I have no experience with changing the manual.</p>
+
+<p>Apart from that, I do not know if there are arguments against translating the attribute or any attributes in general.</p>
+
+<p>I have a sample implementation that works for the FormImage element, but I should also work for submit.</p>
+
+<pre class="highlight"><code>
+// inside form/element/Image.php
+    /**
+     * Set the title (tooltip) for the image button. The tooltip will be translated if a translator
+     * is available and not disabled.
+     *
+     * @param string $title
+     * @return provides a fluent interface
+     */
+    public function setTitle($title)
+    {
+        // translate title (tooltip)
+        if (!$this-&gt;_translatorDisabled and null !== ($translator = $this-&gt;getTranslator())) {
+            $title = $translator-&gt;translate($title);
+        }
+        
+        $this-&gt;setAttrib('title', $title);
+        return $this;
+    }
+</code></pre>
+
+<p>If it is to work for submit and reset this function has to inside /form/Element.php with slightly simple comments:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Set the title (tooltip). The tooltip will be translated if a translator
+     * is available and not disabled.
+     *
+     * @param string $title
+     * @return provides a fluent interface
+     */
+    public function setTitle($title)
+    {
+        if (!$this-&gt;_translatorDisabled and null !== ($translator = $this-&gt;getTranslator())) {
+            $title = $translator-&gt;translate($title);
+        }
+        
+        $this-&gt;setAttrib('title', $title);
+        return $this;
+    }
+</code></pre>
+
+<p>The drawback of these is that setDisableTranslator() will have no effect if it is called after setTitle or if 'title' is passed in as an option before.</p>
+
+<p>The only other way I tried so far, was to put this functionality in the render method, so that normal behavior of setDisableTranslator() and getAttrib('title') are ensured. The latter should always return the untranslated version, but it will not if we use the naive implementation listed above.</p>
+
+<p>The drawback of translating in the render method is that we would impact all form elements performance wise, with a check for the presence of a title attribute. With large forms this impact will be considerable and very wasteful as most elements will not have title attributes and will not require translation of this attribute.</p>
+
+<p>Therefore I think one way to offer this is to create a common base class for elements that can have tooltips.  However, this is not the way Zend Framework works in general. On the contrary, we try to avoid this. The way to go would be to create an new decorator, that translates the tooltip. This would be a tooltip decorator. Is it already here and have I been missing it all along? No luckily, it looks like it is not yet there.</p>
+
+<p>Then  adding such a decorator manually would be more work then just translate the title attribute manually while passing it in... so I should be looking for a way to add this decorator to those elements that can benefit from it, like image, submit and reset. The best place for this will be loadDefaultDecorators().</p>
+
+<p>Inside Zend_Form_Element_Submit.php:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Default decorators
+     *
+     * Uses only 'Tooltip',  'Submit' and 'DtDdWrapper' decorators by default.
+     * 
+     * @return void
+     */
+    public function loadDefaultDecorators()
+    {
+        if ($this-&gt;loadDefaultDecoratorsIsDisabled()) {
+            return;
+        }
+
+        $decorators = $this-&gt;getDecorators();
+        if (empty($decorators)) {
+            $this-&gt;addDecorator('Tooltip')
+                 -&gt;addDecorator('ViewHelper')
+                 -&gt;addDecorator('DtDdWrapper');
+        }
+    }
+</code></pre>
+
+<p>This works indeed. It required a new decorator: Zend_Form_Decorator_Tooltip and it requires Zend_Form_Element_Submit and Zend_Form_Element_Image to load this decorator as the first decorator in loadDefaultDecorators(). This is not a problem since the decorator doesn't add any output, only translates the title attribute when the element is rendered.</p>
+
+<p>I will attach my proposal for Zend_Form_Decorator_Tooltip.</p>
+
+<p>If I receive no negative feedback, I will add two unit tests that will test the following:
+1. Does the title get translated if a translation is present
+2. Does the title remain unchanged when the translator is disabled</p>
+
+<p>Like I said before, I have no experience in updating the manual. I would appreciate it very much if Matthew or someone else would take care of that bit.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-03-28T13:17:36.000+0000</p> 
+        <div class="body">
+            <p>Zend_Form_Decorator_Tooltip proposal attached.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-04-04T06:58:17.000+0000</p> 
+        <div class="body">
+            <p>Added two unit tests in TestImage.php and TestSubmit.php. These also cover Reset and Button, as these inherit from Submit.</p>
+
+<p>Added new Zend_Form_Decorator_Tooltip and load it in both Submit and Image in loadDefaultDecorators().</p>
+
+<p>All is in svn now as I have not received any negative feedback on this from the community.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-04-04T07:00:02.000+0000</p> 
+        <div class="body">
+            <p>What is left to do now is add a line to the manual telling that the title is now being translated on buttons.</p>
+
+        </div>
+    </div>
+    </div>
+

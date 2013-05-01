@@ -1,0 +1,209 @@
+<h2>ZF-9129: Rule with assertion considered equivalent to rule without assertion</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-09T16:57:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-07-16T14:40:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                David Juhasz (david at artefactual)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Acl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In our project we'd like to add multiple rules with the same role, resource and permission, but a different assertion.  To illustrated I've created an example:</p>
+
+<pre class="highlight"><code>
+class myResource extends Zend_Acl_Resource
+{
+  public $topic;
+
+  public function __construct($resourceId, $topic = null)
+  {
+    $this-&gt;_resourceId = (string) $resourceId;
+    $this-&gt;topic = (null !== $topic) ? (string) $topic : 'unclassified';
+  }
+}
+
+class AssertTopic implements Zend_Acl_Assert_Interface
+{
+  protected $_testTopic;
+
+  public function __construct($topic)
+  {
+    $this-&gt;_testTopic = $topic;
+  }
+
+  public function assert(Zend_Acl $acl,
+                         Zend_Acl_Role_Interface $role = null,
+                         Zend_Acl_Resource_Interface $resource = null,
+                         $privilege = null)
+  {
+    return $resource-&gt;topic == $this-&gt;_testTopic; 
+  }
+}
+
+$acl = new Zend_Acl;
+
+$acl-&gt;addRole(new Zend_Acl_Role('contributor'))
+    -&gt;addRole(new Zend_Acl_Role('david'), 'contributor');
+
+$acl-&gt;add(new Zend_Acl_Resource('stories'));
+$acl-&gt;add(new myResource('story1', 'sports'), 'stories');
+$acl-&gt;add(new myResource('story2', 'news'), 'stories');
+
+$acl-&gt;allow('contributor', 'stories', 'edit');
+
+// David can only edit sports stories
+$acl-&gt;deny('david', 'stories', 'edit');
+$acl-&gt;allow('david', 'stories', 'edit', new AssertTopic('sports'));
+
+// David can delete sports stories 
+$acl-&gt;allow('david', 'stories', 'delete', new AssertTopic('sports'));
+
+printf("David %s edit story 1 because it's sports.\n", 
+  $acl-&gt;isAllowed('david', 'story1', 'edit') ? 'can' : 'can not');
+printf("David %s edit story 2 because it's news.\n", 
+  $acl-&gt;isAllowed('david', 'story2', 'edit') ? 'can' : 'can not');
+printf("David %s delete story 1 because it's sports.\n", 
+  $acl-&gt;isAllowed('david', 'story1', 'delete') ? 'can' : 'can not');
+printf("David %s delete story 2 because it's news.\n", 
+  $acl-&gt;isAllowed('david', 'story2', 'delete') ? 'can' : 'can not');
+</code></pre>
+
+<p>The output is:
+David can edit story 1 because it's sports.
+David can edit story 2 because it's news.
+David can delete story 1 because it's sports.
+David can not delete story 2 because it's news.</p>
+
+<p>When I echo the $_rules internal, it's clear that the allow rule for david with an assertion overwrites the previous deny rule:</p>
+
+<p>["edit"]=&gt;
+            array(2) {
+              ["type"]=&gt;
+              string(10) "TYPE_ALLOW"
+              ["assert"]=&gt;
+              object(AssertTopic)#8 (1) {
+                ["_testTopic:protected"]=&gt;
+                string(6) "sports"
+              }</p>
+
+<p>EDIT: Fix code formatting</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-07-16T14:40:41.000+0000</p> 
+        <div class="body">
+            <p>While it might seem confusing, you are actually overwriting the rule in which you apply the Allow with the assertion for david.  Since the assertion does not match on news, it attempts to consult the next thing up in the inherited hierarchy which happens to the be contributor rule NOT the "david deny rule".  The "david deny rule" actually doesn't exist b/c you are overwriting it.</p>
+
+<p>To model what you want, perhaps try code that looks like this:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+include_once 'bootstrap.php';
+
+class myResource extends Zend_Acl_Resource
+{
+  public $topic;
+
+  public function __construct($resourceId, $topic = null)
+  {
+    $this-&gt;_resourceId = (string) $resourceId;
+    $this-&gt;topic = (null !== $topic) ? (string) $topic : 'unclassified';
+  }
+}
+
+class AssertTopic implements Zend_Acl_Assert_Interface
+{
+  protected $_testTopic;
+
+  public function __construct($topic)
+  {
+    $this-&gt;_testTopic = $topic;
+  }
+
+  public function assert(Zend_Acl $acl,
+                         Zend_Acl_Role_Interface $role = null,
+                         Zend_Acl_Resource_Interface $resource = null,
+                         $privilege = null)
+  {
+    return $resource-&gt;topic == $this-&gt;_testTopic; 
+  }
+}
+
+$acl = new Zend_Acl;
+
+$acl-&gt;addRole('base_contributor')
+    -&gt;addRole('contributor', 'base_contributor')
+    -&gt;addRole('david', 'base_contributor');
+
+$acl-&gt;add(new Zend_Acl_Resource('stories'));
+$acl-&gt;add(new myResource('story1', 'sports'), 'stories');
+$acl-&gt;add(new myResource('story2', 'news'), 'stories');
+
+// base_constributors cannot edit, but general contributors can
+$acl-&gt;deny('base_contributor', 'stories', 'edit');
+$acl-&gt;allow('contributor', 'stories', 'edit');
+
+// David can only edit sports stories
+$acl-&gt;allow('david', 'stories', 'edit', new AssertTopic('sports'));
+
+// David can delete sports stories 
+$acl-&gt;allow('david', 'stories', 'delete', new AssertTopic('sports'));
+
+printf("David %s edit story 1 because it's sports.\n", 
+  $acl-&gt;isAllowed('david', 'story1', 'edit') ? 'can' : 'can NOT');
+printf("David %s edit story 2 because it's news.\n", 
+  $acl-&gt;isAllowed('david', 'story2', 'edit') ? 'can' : 'can NOT');
+printf("David %s delete story 1 because it's sports.\n", 
+  $acl-&gt;isAllowed('david', 'story1', 'delete') ? 'can' : 'can NOT');
+printf("David %s delete story 2 because it's news.\n", 
+  $acl-&gt;isAllowed('david', 'story2', 'delete') ? 'can' : 'can NOT');
+
+
+
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

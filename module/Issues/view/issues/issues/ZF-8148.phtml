@@ -1,0 +1,227 @@
+<h2>ZF-8148: Zend_Db_Statement_Sqlsrv -&gt; limit  () doesn't work properly when order clause  is not present</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-10-26T08:10:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-20T13:15:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Roman (romeo.deepmind)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Juozas Kaziukenas (juokaz)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>if i do not set order clause limit ignores offset parameter</p>
+
+<p>steps to reproduce: 
+do not set order clause in select</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Juozas Kaziukenas (juokaz) on 2009-10-26T10:14:04.000+0000</p> 
+        <div class="body">
+            <p>I would say this is expected behavior.</p>
+
+<p>Limit is based on <a href="http://www.tech-recipes.com/rx/1868/mimic_the_mysql_limit_feature_in_microsoft_sql_server/">http://tech-recipes.com/rx/1868/…</a></p>
+
+<p>It does it like this:</p>
+
+<p>{{SELECT TOP 10 *
+FROM (SELECT TOP 20 * FROM Orders ORDER BY OrderDate) as T
+ORDER BY OrderDate DESC}}</p>
+
+<p>Ordering is required in such query, because results need to be ordered and then sliced using "TOP X".</p>
+
+<p>Do you know better ways (compatible with old Mssql versions)?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roman (romeo.deepmind) on 2009-10-26T16:14:57.000+0000</p> 
+        <div class="body">
+            <p>maybe we can do default order on primary key?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Juozas Kaziukenas (juokaz) on 2009-10-26T16:20:28.000+0000</p> 
+        <div class="body">
+            <p>This does sound logical, however I don't think it's correct way of doing this. Mainly because query like this:</p>
+
+<p>SELECT * FROM table</p>
+
+<p>is not the same as:</p>
+
+<p>SELECT * FROM table ORDER BY [primery_key] ASC</p>
+
+<p>Having no order is literaly having no order - returned results have usually unpredictable ordering (correct me if I'm wrong). Currently I see solution to have an exception thrown, saying something like "Zend_Db_Adapter_Sqlsrv::limit() expects a query with ordering".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roman (romeo.deepmind) on 2009-10-26T18:13:36.000+0000</p> 
+        <div class="body">
+            <p>yes, i think this will be a solution for this</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roman (romeo.deepmind) on 2009-10-27T10:33:18.000+0000</p> 
+        <div class="body">
+            <p>by the way!</p>
+
+<p>even if i have order clause, this query goes mad on the last page. say, if i have 26 records and i want to show 20 records per page. first page will be shown ok. the second page (as expected) must contain 6 records, but it will also contain 20 records!</p>
+
+<p>this is because we have {{SELECT TOP 20}} at the begining of query.</p>
+
+<p>the only way to solve it is to keep track of number of records in the table and use something like this</p>
+
+<p>{{if($offset + $limit) &gt; $count 
+$sel = "SELECT TOP " . $count - ($offset + $limit) . " * From ..."
+}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Penner (pennedav) on 2009-11-11T13:25:05.000+0000</p> 
+        <div class="body">
+            <p>Also note that the implementation of {{Zend_Db_Adapter_Sqlsrv::limit()}} (ZF1.9.5) does not properly handle the case where the original query employs ORDER BY on more than one field.</p>
+
+<p>If my original query is:</p>
+
+<p>{{$sql = SELECT * FROM T ORDER BY "field_1" DESC, "field_2" DESC}}</p>
+
+<p>Then {{limit($sql, 10, 1)}} returns:</p>
+
+<p>{{SELECT * FROM (SELECT TOP 10 * FROM (SELECT TOP 20 * FROM T ORDER BY "field_1" DESC, "field_2" DESC) AS inner_tbl ORDER BY "field_1" , "field_2" ASC) AS outer_tbl ORDER BY "field_1" , "field_2" DESC}}</p>
+
+<p>Note the absence of {{DESC}} after {{"field_1"}} in the last two ORDER BY clauses, which causes field_1 to be sorted ASC in both cases causing the final result set to be not what is expected given the original query.</p>
+
+<p>As yet I have no patch or workaround to contribute.</p>
+
+<p>To me this seems to be a bug not a feature, but if there's something I'm missing in all this let me know. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ankit Aggarwal (ankitaggarwal) on 2009-12-17T09:12:26.000+0000</p> 
+        <div class="body">
+            <p>@David Penner</p>
+
+<p>Confirming the same bug on my side. This issue was originally reported (<a href="http://zendframework.com/issues/browse/ZF-4099">ZF-4099</a>) and solved for the PDO_MSSQL Adapter, but not for the SqlSrv adapter, which is using the same old code from before. I assume copy/pasting the PDO_MSSQL limit() method to the SqlSrv adapter's limit() method should function properly with maybe a few modifications here and there.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Penner (pennedav) on 2009-12-17T11:05:34.000+0000</p> 
+        <div class="body">
+            <p>@Ankit</p>
+
+<p>Thank you for the workaround. I'll look into implementing that.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ankit Aggarwal (ankitaggarwal113) on 2009-12-30T12:42:23.000+0000</p> 
+        <div class="body">
+            <p>@David</p>
+
+<p>Another thing to note is the issue Roman brought up above, as both Pdo_Mssql and SqlSrv do not address it. If you have 26 results, and you want to only view 10 per page, then you should have three pages with 10, 10, and 6 results respectively. However, both manually calling limit() on your Db_Select object AND using the Zend_Paginator interface/model (which I assume uses the limit() function of a Select object anyway) will show 10 items on page 3 instead of the desired 6.</p>
+
+<p>The only way I can figure out how to get around this is, like stated, to keep track of the TotalCount or run a COUNT(*) query and use this value to change the query:</p>
+
+<p>SELECT * FROM (SELECT TOP X FROM (SELECT TOP Y FROM table ORDER BY xyz DESC as inner_tbl) order by xyz ASC as outer_tbl) order by xyz DESC</p>
+
+<p>where Y = Count + Offset (this is correct in the code as it is) and
+X = Count + Offset (this is how it is currently) UNLESS TotalCount &lt; Count + Offset, where then X = TotalCount - Offset (as offset increases with the page number) or 0 if Offset &gt; TotalCount.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ankit Aggarwal (ankitaggarwal) on 2010-01-08T12:17:28.000+0000</p> 
+        <div class="body">
+            <p>SqlSrv driver can only be used with SQL Server 2005 or higher. The reason I bring this up is because SQL Server 2005 introduced the ROW_NUMBER() ranking function to mimic LIMIT. Thus, the best way for the Sqlsrv adapter to handle limit(), as we don't have to worry about backwards compatibility with MS SQL Server 2000 and earlier, would be something like the following:</p>
+
+<pre class="literal">
+$orderby = stristr($sql, 'ORDER BY');
+
+if (!$orderby) {
+    $sql = preg_replace(
+        '/^SELECT\s+(DISTINCT\s)?/i',
+        'SELECT $1TOP ' . ($count+$offset) . ' ',
+        $sql
+        );
+} else {
+    // Remove ORDER BY clause from $sql
+    $sql = preg_replace(
+        '/\s+ORDER BY(.*)/',
+        '',
+        $sql
+        );
+    // Add ORDER BY clause as an argument for ROW_NUMBER()
+    $sql = "SELECT ROW_NUMBER() OVER ($orderby) AS \"RowNumber\", * FROM ($sql) AS inner_tbl";
+  
+    $start = $offset + 1;
+    $end = $offset + $count;
+
+    $sql = "WITH outer_tbl AS ($sql) SELECT * FROM outer_tbl WHERE \"RowNumber\" BETWEEN $start AND $end";
+}
+
+return $sql;
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Juozas Kaziukenas (juokaz) on 2010-04-16T07:11:24.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r21878</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aaron S. Hawley (ashawley) on 2011-01-20T13:15:02.000+0000</p> 
+        <div class="body">
+            <p>Appears this issue is reopened in ZF-10455.</p>
+
+        </div>
+    </div>
+    </div>
+

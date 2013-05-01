@@ -1,0 +1,224 @@
+<h2>ZF-1312: Use getRequest(), getResponse() in front controller</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-04-25T08:45:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:44:06.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Lukas Kaiser (emperor)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Controller_Front:dispatch: To get more flexibility, it would be helpful if you don't use a local variable of the request and response object</p>
+
+<p>I like to exchange the hole request or response object in a Controller_Action or a Controller_Plugin. At the moment, it's possible by the method "setRequest". But there is no effect in the working dispatch process, because you use a local reference to the old request or response object.</p>
+
+<p>One example from your actual code:</p>
+
+<pre class="highlight"><code>
+
+My proposal to improve the situation and to make the above use case possible:
+</code></pre>
+
+<p>Actually, I like to save a request object to the registry, if the user doesn't have enough privileges, and afterwards, I replace the request object by the old one. This is the concrete example for the use case.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-04-26T10:59:48.000+0000</p> 
+        <div class="body">
+            <p>Assign to Matthew to consider this improvement request.</p>
+
+<p>Reworded summary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-16T14:59:02.000+0000</p> 
+        <div class="body">
+            <p>While I understand to a degree what you wish to do, this adds significant overhead -- instead of passing references, we end up adding no fewer than 9 method calls -- possibly more.</p>
+
+<p>Might I suggest that you instead modify the existing request object? Since it's being passed around by reference, modifying it would modify the same reference used in the dispatch loop and plugins. There are plenty of accessors that may be used to modify it.</p>
+
+<p>If this does not work, can you please give me a more concrete example of what you're trying to do and why?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Kaiser (emperor) on 2007-05-21T03:07:12.000+0000</p> 
+        <div class="body">
+            <p>I see the problem. So, then I suggest to use:</p>
+
+<pre class="highlight"><code>
+Line 754: $dispatcher-&gt;dispatch($this-&gt;_request, $this-&gt;_response);
+</code></pre>
+
+<p>The problem with modifying the existing object is that you can't change the kind of request- or response-object. At the moment, I don't have a good example. But I'm sure, there are.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-21T08:40:28.000+0000</p> 
+        <div class="body">
+            <p>If you wish to swap out the request object from within userland code, all you need to do is this:</p>
+
+<pre class="highlight"><code>
+Zend_Controller_Front::getInstance()-&gt;setRequest($request);
+</code></pre>
+
+<p>Since PHP 5 passes by reference, and because $request in dispatch() is pointing to the same reference as $this-&gt;_request, you can modify it in this fashion.</p>
+
+<p>I have tested this already, and it works fine. Closing as 'Not an Issue'.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-21T08:41:24.000+0000</p> 
+        <div class="body">
+            <p>$request points to the same reference as $this-&gt;_request, and can be reset at any time with a different request object by calling setRequest() on the front controller instance.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lukas Kaiser (emperor) on 2007-05-21T10:42:09.000+0000</p> 
+        <div class="body">
+            <p>I don't agree. It doesn't work here. I tested it one two server with almost the newest version of php. Linux and Windows. And I also created a dummy test:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+class bevor
+{
+    public function getName(){
+        return('bevor');
+    }
+}
+class after
+{
+    public function getName(){
+        return('after');
+    }
+}
+class controller
+{
+    public function preDispatch(){
+        $f = front::getInstance();
+        $f-&gt;setRequest(new after());
+    }
+}
+class front
+{
+    protected $request;
+    protected $controller;
+    protected static $instance = null;
+    
+    private function __construct()
+    {
+        $this-&gt;controller = new controller();
+    }
+    
+    public static function getInstance(){
+        if(self::$instance == null){
+            self::$instance = new front();
+        }
+        return self::$instance;
+    }
+    
+    public function setRequest($i){
+        $this-&gt;request = $i;
+    }
+    public function getRequest(){
+        return $this-&gt;request;
+    }
+    public function dispatch(){
+        $this-&gt;setRequest(new bevor());
+        $request = $this-&gt;getRequest();
+        $request2 = $this-&gt;request;
+        echo 'Bevor dispatch (local reference by methode): ' . $request-&gt;getName() . '<br />';
+        echo 'Bevor dispatch (local reference by property): ' . $request2-&gt;getName() . '<br />';
+        $this-&gt;controller-&gt;preDispatch();
+        echo 'After dispatch (local reference by methode): ' . $request-&gt;getName() . '<br />';
+        echo 'After dispatch (local reference by property): ' . $request2-&gt;getName() . '<br />';
+        echo 'After dispatch (property): ' . $this-&gt;request-&gt;getName() . '<br />';
+    }
+}
+$f = front::getInstance();
+$f-&gt;dispatch();
+
+?&gt;
+</code></pre>
+
+<p>result:
+{quote}
+Bevor dispatch (local reference by methode): bevor
+Bevor dispatch (local reference by property): bevor
+After dispatch (local reference by methode): bevor
+After dispatch (local reference by property): bevor
+After dispatch (property): after
+{quote}</p>
+
+<p>Do I have a miss configuration?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-21T11:52:02.000+0000</p> 
+        <div class="body">
+            <p>I botched my test scripts. I've created a unit test for this behaviour now, and indeed, it doesn't work as expected. I'm in the process of modifying dispatch() to use $this-&gt;_request and $this-&gt;_response throughout.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-21T11:53:02.000+0000</p> 
+        <div class="body">
+            <p>verified issue</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-21T11:53:19.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r4880.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,131 @@
+<h2>ZF-11121: route variable consumed by an unmatched route</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-02-28T09:12:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-11T16:29:04.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Guillaume ORIOL (goriol)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller_Router</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Let's consider this router configuration:</p>
+
+<pre class="highlight"><code>
+$defaultRoute = new Zend_Controller_Router_Route(
+    ':account/:module/:controller/:action/*',
+    array(
+        'account'    =&gt; 'demo',
+        'module'     =&gt; 'default',
+        'controller' =&gt; 'index',
+        'action'     =&gt; 'index'
+    ),
+    array('account' =&gt; '[a-z0-9]+')
+);
+$router-&gt;addRoute('default', $defaultRoute);
+
+$restRoute = new Zend_Rest_Route($front, array(), array('rest'));
+$accountRoute = new Zend_Controller_Router_Route(
+    ':account',
+    array('account' =&gt; 'demo'),
+    array('account' =&gt; '[a-z0-9]+')
+);
+$router-&gt;addRoute('rest', $accountRoute-&gt;chain($restRoute));
+</code></pre>
+
+<p>And consider the following URL:
+```</p>
+
+<p>The 'rest' route will be selected first.
+'customer1' will properly be identified by the $accountRoute of the chain as the account
+and 'default' will not match against the value 'rest' of the $restRoute. Up to now, everything is fine.</p>
+
+<p>Then, the 'default' route will be selected. But only the subpath 'default/invoice/index' will be passed to it <em>as the chain consumes the matched part of its child routes</em> (when they match) and never restore them if a subsequent route doesn't match. Hence the parameters identification will be erroneous.</p>
+
+<p>Won't you consider this a bug?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian O. Andersson (coa) on 2012-05-11T16:29:04.000+0000</p> 
+        <div class="body">
+            <p>I would definitely consider this a bug.</p>
+
+<p>Suggested fix:</p>
+
+<pre class="highlight"><code>
+*** Chain.php.original  2012-05-11 18:10:41.000000000 +0200
+--- library/Zend/Controller/Router/Route/Chain.php  2012-05-11 18:20:02.000000000 +0200
+***************
+*** 72,77 ****
+--- 72,78 ----
+       */
+      public function match($request, $partial = null)
+      {
++         $mutatedRequest = clone($request);
+          $path    = trim($request-&gt;getPathInfo(), self::URI_DELIMITER);
+          $subPath = $path;
+          $values  = array();
+***************
+*** 95,102 ****
+              if (!method_exists($route, 'getVersion') || $route-&gt;getVersion() == 1) {
+                  $match = $subPath;
+              } else {
+!                 $request-&gt;setPathInfo($subPath);
+!                 $match = $request;
+              }
+  
+              $res = $route-&gt;match($match, true);
+--- 96,103 ----
+              if (!method_exists($route, 'getVersion') || $route-&gt;getVersion() == 1) {
+                  $match = $subPath;
+              } else {
+!                 $mutatedRequest-&gt;setPathInfo($subPath);
+!                 $match = $mutatedRequest;
+              }
+  
+              $res = $route-&gt;match($match, true);
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

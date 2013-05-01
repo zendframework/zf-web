@@ -1,0 +1,269 @@
+<h2>ZF-3423: Validate_Float doesn't work with local than doesn't have a dot as decimal separator</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-09T14:10:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-19T04:02:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.0 (30/Apr/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jérémy Lajotte (pengu)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4000">ZF-4000</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11531/Zend_Validate.patch">Zend_Validate.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The php function strval use the decimal point character that is defined in the script's locale (category LC_NUMERIC), so depending on the local set in PHP.</p>
+
+<p>For instance, strval(1.2) return "1,2"  in "fr_FR.utf8" locale.</p>
+
+<p>So basicaly the isValid() function of the Zend_Validate_Float class does this :</p>
+
+<pre class="highlight"><code>
+        $locale = localeconv();
+        
+        $valueFiltered = str_replace($locale['thousands_sep'], '', $valueString);
+        $valueFiltered = str_replace($locale['decimal_point'], '.', $valueFiltered);
+        if (strval(floatval($valueFiltered)) != $valueFiltered) {
+          /* only true if the $locale['thousands_sep'] is already '' and $locale['decimal_point'] is already '.' */
+</code></pre>
+
+<p>Here, the code replace the locale decimal point by '.' and remove the locale thousand separator and then compare this string to the same string, convertred to float and displayed using that same locale decimal point and locale thousand separator ...  well, the only chance for this to work is if the locale decimal point IS already a '.' and the locale thousand separator is ''.</p>
+
+<p>I think this should be enough to test if a value is a float :</p>
+
+<pre class="highlight"><code>
+if (false===ereg('^[0-9]*\.[0-9]+$', $valueFiltered)){
+  /* not a float */
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-06-10T11:34:18.000+0000</p> 
+        <div class="body">
+            <p>Attention:
+You should also take in account that users may have set Zend_Locale to a different locale than the one from setlocale (setlocale is not threadsave).</p>
+
+<p>So we could have system set to french and user setting arabic.
+Validate should be able also to verify such.</p>
+
+<p>Easiest solution:
+Allow a locale to be set
+Use Zend_Locale to normalize the value.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Kusmierz (raistlin) on 2008-09-10T15:21:18.000+0000</p> 
+        <div class="body">
+            <p>This should be resolve this issue. It matches old value with converted from string to float and again to string old value.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-09T00:45:15.000+0000</p> 
+        <div class="body">
+            <p>The patch does not work when the user is using Zend_Form with an application locale.
+Input could be "1,2" even it system locale is set to "en" because the application locale is set to "fr".</p>
+
+<p>The validation would still fail.
+Therefor this fix does not solve the problem, only part of it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Kusmierz (raistlin) on 2008-12-10T12:25:00.000+0000</p> 
+        <div class="body">
+            <p>And what with this:
+<a href="http://framework.zend.com/issues/secure/attachment/11531/Zend_Validate.patch">http://framework.zend.com/issues/secure/…</a>
+?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-10T12:56:50.000+0000</p> 
+        <div class="body">
+            <p>This is the same patch which I commented... there is no difference.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sven Franke (snefit) on 2008-12-10T23:12:05.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I use this 'solution'. Maybe it isn't a correct one but it works for me in the application.</p>
+
+<pre class="literal">
+&lt;?php
+
+class Application_Validate_Float extends Zend_Validate_Float {
+    
+    const NOT_FLOAT = 'notFloat';
+
+    /**
+     * Message templates.
+     * 
+     * @var array
+     */
+    protected $_messageTemplates = array(
+        self::NOT_FLOAT =&gt; "'%value%' does not appear to be a float"
+    );
+
+    /**
+     * Locale
+     *
+     * @var Zend_Locale
+     */    
+    protected $_locale;
+    
+    /**
+     * Constructor
+     *
+     * @param string|Zend_Locale|null $locale
+     */
+    public function __construct($locale = null) {
+        
+        $this-&gt;setLocale($locale);
+        
+    }
+    
+    
+    /**
+     * Returns the locale option
+     *
+     * @return string|Zend_Locale|null
+     */
+    public function getLocale()
+    {
+        return $this-&gt;_locale;
+    }
+
+    /**
+     * Sets the locale option
+     *
+     * @param  string|Zend_Locale $locale
+     * @return Zend_Validate_Date provides a fluent interface
+     */
+    public function setLocale($locale = null)
+    {
+        if ($locale === null) {
+            $this-&gt;_locale = null;
+            return $this;
+        }
+
+        require_once 'Zend/Locale.php';
+        if (!Zend_Locale::isLocale($locale, true, false)) {
+            if (!Zend_Locale::isLocale($locale, false, false)) {
+                require_once 'Zend/Validate/Exception.php';
+                throw new Zend_Validate_Exception("The locale '$locale' is no known locale");
+            }
+
+            $locale = new Zend_Locale($locale);
+        }
+
+        $this-&gt;_locale = (string) $locale;
+        return $this;
+    }
+    
+    
+    /**
+     * Defined by Zend_Validate_Interface
+     *
+     * Returns true if and only if $value is a floating-point value
+     *
+     * @param  string $value
+     * @return boolean
+     */
+    public function isValid($value)
+    {
+        $valueString = (string) $value;
+
+        $this-&gt;_setValue($valueString);
+
+//        // ORIGINAL FROM ZEND_FLOAT (ZF 1.7.0)
+//        $locale = localeconv();
+//
+//        $valueFiltered = str_replace($locale['thousands_sep'], '', $valueString);
+//        $valueFiltered = str_replace($locale['decimal_point'], '.', $valueFiltered);
+// 
+//        if (strval(floatval($valueFiltered)) != $valueFiltered) {
+//            $this-&gt;_error();
+//            return false;
+//        }
+
+        // Locale aware.
+        if(!Zend_Locale_Format::isFloat($value, array('locale' =&gt; $locale))) { 
+            $this-&gt;_error(); 
+            return false; 
+        }
+        
+        return true;
+    }
+    
+}
+?&gt;
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-11T06:46:36.000+0000</p> 
+        <div class="body">
+            <p>Yes, this solution is the right direction.
+It can be used as workaround and shows what I said to be the solution.</p>
+
+<p>There are only part details which will be changed by me.</p>
+
+<p>Thanks Sven :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-12-19T04:02:38.000+0000</p> 
+        <div class="body">
+            <p>New feature added with r13372</p>
+
+        </div>
+    </div>
+    </div>
+

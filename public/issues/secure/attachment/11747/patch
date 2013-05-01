@@ -1,0 +1,154 @@
+diff --git a/library/Zend/View/Abstract.php b/library/Zend/View/Abstract.php
+index be22eaf..ef9d897 100644
+--- a/library/Zend/View/Abstract.php
++++ b/library/Zend/View/Abstract.php
+@@ -114,6 +114,12 @@ abstract class Zend_View_Abstract implements Zend_View_Interface
+     private $_encoding = 'ISO-8859-1';
+ 
+     /**
++     * Flag indicating whether or not LFI protection for rendering view scripts is enabled
++     * @var bool
++     */
++    private $_lfiProtectionOn = true;
++
++    /**
+      * Plugin loaders
+      * @var array
+      */
+@@ -199,6 +205,11 @@ abstract class Zend_View_Abstract implements Zend_View_Interface
+             $this->strictVars($config['strictVars']);
+         }
+ 
++        // LFI protection flag
++        if (array_key_exists('lfiProtectionOn', $config)) {
++            $this->setLfiProtection($config['lfiProtectionOn']);
++        }
++
+         $this->init();
+     }
+ 
+@@ -685,6 +696,28 @@ abstract class Zend_View_Abstract implements Zend_View_Interface
+     }
+ 
+     /**
++     * Set LFI protection flag
++     * 
++     * @param  bool $flag 
++     * @return Zend_View_Abstract
++     */
++    public function setLfiProtection($flag)
++    {
++        $this->_lfiProtectionOn = (bool) $flag;
++        return $this;
++    }
++
++    /**
++     * Return status of LFI protection flag
++     * 
++     * @return bool
++     */
++    public function isLfiProtectionOn()
++    {
++        return $this->_lfiProtectionOn;
++    }
++
++    /**
+      * Assigns variables to the view script via differing strategies.
+      *
+      * Zend_View::assign('name', $value) assigns a variable called 'name'
+@@ -856,6 +889,11 @@ abstract class Zend_View_Abstract implements Zend_View_Interface
+      */
+     protected function _script($name)
+     {
++        if ($this->isLfiProtectionOn() && preg_match('#\.\.[\\\/]#', $name)) {
++            require_once 'Zend/View/Exception.php';
++            throw new Zend_View_Exception('Requested scripts may not include parent directory traversal ("../", "..\\" notation)');
++        }
++
+         if (0 == count($this->_path['script'])) {
+             require_once 'Zend/View/Exception.php';
+             throw new Zend_View_Exception('no view script directory set; unable to determine location for view script',
+diff --git a/tests/Zend/ViewTest.php b/tests/Zend/ViewTest.php
+index d095851..e6a30d1 100644
+--- a/tests/Zend/ViewTest.php
++++ b/tests/Zend/ViewTest.php
+@@ -970,6 +970,79 @@ class Zend_ViewTest extends PHPUnit_Framework_TestCase
+         $this->view->setUseStreamWrapper(false);
+         $this->assertFalse($this->view->useStreamWrapper());
+     }
++
++    /**
++     * @group ZF-5748
++     */
++    public function testRenderShouldNotAllowScriptPathsContainingParentDirectoryTraversal()
++    {
++        $view = new Zend_View();
++        try {
++            $view->render('../foobar.html');
++            $this->fail('Should not allow parent directory traversal');
++        } catch (Zend_View_Exception $e) {
++            $this->assertContains('parent directory traversal', $e->getMessage());
++        }
++
++        try {
++            $view->render('foo/../foobar.html');
++            $this->fail('Should not allow parent directory traversal');
++        } catch (Zend_View_Exception $e) {
++            $this->assertContains('parent directory traversal', $e->getMessage());
++        }
++
++        try {
++            $view->render('foo/..\foobar.html');
++            $this->fail('Should not allow parent directory traversal');
++        } catch (Zend_View_Exception $e) {
++            $this->assertContains('parent directory traversal', $e->getMessage());
++        }
++    }
++
++    /**
++     * @group ZF-5748
++     */
++    public function testLfiProtectionFlagShouldBeEnabledByDefault()
++    {
++        $view = new Zend_View();
++        $this->assertTrue($view->isLfiProtectionOn());
++    }
++
++    /**
++     * @group ZF-5748
++     */
++    public function testLfiProtectionFlagMayBeDisabledViaConstructorOption()
++    {
++        $view = new Zend_View(array('lfiProtectionOn' => false));
++        $this->assertFalse($view->isLfiProtectionOn());
++    }
++
++    /**
++     * @group ZF-5748
++     */
++    public function testLfiProtectionFlagMayBeDisabledViaMethodCall()
++    {
++        $view = new Zend_View();
++        $view->setLfiProtection(false);
++        $this->assertFalse($view->isLfiProtectionOn());
++    }
++
++    /**
++     * @group ZF-5748
++     */
++    public function testDisablingLfiProtectionAllowsParentDirectoryTraversal()
++    {
++        $view = new Zend_View(array(
++            'lfiProtectionOn' => false,
++            'scriptPath'      => dirname(__FILE__) . '/View/_templates/',
++        ));
++        try {
++            $test = $view->render('../_stubs/scripts/LfiProtectionCheck.phtml');
++            $this->assertContains('LFI', $test);
++        } catch (Zend_View_Exception $e) {
++            $this->fail('LFI attack failed: ' . $e->getMessage());
++        }
++    }
+ }
+ 
+ /**

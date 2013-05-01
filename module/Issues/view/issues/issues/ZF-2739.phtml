@@ -1,0 +1,264 @@
+<h2>ZF-2739: Zend_Db_Select and Oracle with clause limit()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-02-27T12:57:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-05-28T11:02:06.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Until rev.7576, the implementation of the clause limit() functioned in Oracle.
+The new operation of __toString() broke the functionality.</p>
+
+<p>For information: Oracle has no clause limit(), we must simulate it with subqueries and ROWNUM.
+So we obtain a string like this: "SUBQUERY . SQL . SUBQUERY".</p>
+
+<p>The new __toString() implode the differents elements.</p>
+
+<p>Instead of:</p>
+
+<pre class="highlight"><code>
+SELECT z2.* FROM
+  ( SELECT ROWNUM AS zend_db_rownum, z1.* FROM ( 
+       SELECT tab_charge.num_charge
+       FROM tab_charge
+       ORDER BY date_charge DESC ) z1
+ ) z2
+WHERE z2.zend_db_rownum BETWEEN 1 AND 15
+</code></pre>
+
+<p>I have:</p>
+
+<pre class="highlight"><code>
+SELECT tab_charge.num_charge
+FROM tab_charge
+ORDER BY date_charge DESC
+SELECT z2.* FROM
+  ( SELECT ROWNUM AS zend_db_rownum, z1.* FROM (  ) z1
+ ) z2
+WHERE z2.zend_db_rownum BETWEEN 1 AND 15
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2008-02-27T13:11:47.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~peptolab] for initial review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-03-12T05:54:42.000+0000</p> 
+        <div class="body">
+            <p>Andre Vignaud in <a href="http://www.nabble.com/Why-does-this-snippet-%28using-Oracle-adapter%29-produce-broken-SQL--td15997769s16154.html">this message</a> propose modifications in Zend_Db_Select:</p>
+
+<pre class="highlight"><code>
+-   protected function _renderLimitoffset()
++   protected function _renderLimitoffset($sql)
+    {
+        $count = 0;
+        $offset = 0;
+
+        if (!empty($this-&gt;_parts[self::LIMIT_OFFSET])) {
+            $offset = (int) $this-&gt;_parts[self::LIMIT_OFFSET];
+            // This should reduce to the max integer PHP can support
+            $count = intval(9223372036854775807);
+        }
+
+        if (!empty($this-&gt;_parts[self::LIMIT_COUNT])) {
+            $count = (int) $this-&gt;_parts[self::LIMIT_COUNT];
+        }
+
+        /*
+         * Add limits clause
+         */
+        if ($count &gt; 0) {
+-           return trim($this-&gt;_adapter-&gt;limit('', $count, $offset));
++           return trim($this-&gt;_adapter-&gt;limit($sql, $count, $offset));
+        }
+
+-        return null;
++        return $sql;
+    }
+</code></pre>
+
+<p>and</p>
+
+<pre class="highlight"><code>
+    public function __toString()
+    {
+        $sql = array(self::SQL_SELECT);
+        foreach (array_keys(self::$_partsInit) as $part) {
+            $method = '_render' . ucfirst($part);
+            if (method_exists($this, $method)) {
+-               $sql[] = $this-&gt;$method();
++               if ( $part == self::LIMIT_OFFSET ) { 
++                   $sql = array($this-&gt;_renderLimitoffset(implode(' ', array_filter($sql)))); 
++               } else { 
++                   $sql[] = $this-&gt;$method(); 
++               }
+            }
+        }
+        return implode(' ', array_filter($sql));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2008-03-12T09:05:10.000+0000</p> 
+        <div class="body">
+            <p>I've refactored Zend_Db_Select to more gracefully handle the various transformations to the query. Can you please verify the limit() method is now behaving itself?</p>
+
+<p>Fixed in trunk r8784</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-21T15:03:16.000+0000</p> 
+        <div class="body">
+            <p>Was this fixed in 1.5.1? If not, could you get it verified, merge back to 1.5 branch, and mark it fixed for 1.5? If so, could you mark it fixed for 1.5.1?</p>
+
+<p>Thanks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-04-21T15:41:54.000+0000</p> 
+        <div class="body">
+            <p>This was fixed effectively for me in rév. 8784 (for 1.5.1) but not merge back to 1.5.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gabriel Baez (gabriel) on 2008-05-28T06:25:56.000+0000</p> 
+        <div class="body">
+            <p>I'm using    Zend Framework 1.5.2  and this function is not working for me,    I get the following error:</p>
+
+<p>SQLSTATE[HY000]: General error: 918 OCIStmtExecute: ORA-00918: column ambiguously defined</p>
+
+<p>(ext\pdo_oci\oci_statement.c:146)</p>
+
+<p>PHO Code:</p>
+
+<p>$select = $this-&gt;db-&gt;select()
+                                                 -&gt;from(array('p' =&gt; 'HARDWARE_JOBS_VW'),
+                                                        array('HARDWARE_ID','NAME','ACCOUNT','PASSWORD','TYPE_NAME','GROUP_ID','PLATFORM_NAME'))<br />
+                                                 -&gt;join(array('pf' =&gt;'USERS_IN_GROUPS'),
+                                                              'p.GROUP_ID=pf.GROUP_ID')<br />
+                                                 -&gt;where('pf.USER_ID= ?', $id)<br />
+                                                 -&gt;where('p.GROUP_ID= ?',$groupid)
+                                                 -&gt;limit($page,$limit);</p>
+
+<pre><code>              $stm = $this-&gt;db-&gt;query($select); 
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gabriel Baez (gabriel) on 2008-05-28T06:30:56.000+0000</p> 
+        <div class="body">
+            <p>This is the output from __toString();</p>
+
+<p>{quote}
+SELECT z2.*</p>
+
+<pre><code>        FROM (
+
+            SELECT ROWNUM AS zend_db_rownum, z1.*
+
+            FROM (
+
+                SELECT p.HARDWARE_ID, p.NAME, p.ACCOUNT, p.PASSWORD, p.TYPE_NAME, p.GROUP_ID, p.PLATFORM_NAME
+</code></pre>
+
+<p>, pf.* FROM HARDWARE_JOBS_VW p</p>
+
+<p>INNER JOIN USERS_IN_GROUPS pf ON p.GROUP_ID=pf.GROUP_ID WHERE (pf.USER_ID= '8') AND (p.GROUP_ID= '21'</p>
+
+<p>)</p>
+
+<pre><code>            ) z1
+
+        ) z2
+
+        WHERE z2.zend_db_rownum BETWEEN 11 AND 11
+</code></pre>
+
+<p>{/quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-05-28T09:11:54.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>It is not due to the limit() part but this is due to "join(array('pf' =&gt;'USERS_IN_GROUPS')".
+In this you select also pf.GROUP_ID so in Z1, you have p.GROUP_ID and pf.GROUP_ID.
+To resolve this you can add an alias to the first table like this:</p>
+
+<pre class="highlight"><code>
+$select = $this-&gt;db-&gt;select()
+-&gt;from(array('p' =&gt; 'HARDWARE_JOBS_VW'),
+array('HARDWARE_ID','NAME','ACCOUNT','PASSWORD','TYPE_NAME','gid'=&gt;'GROUP_ID','PLATFORM_NAME'))
+-&gt;join(array('pf' =&gt;'USERS_IN_GROUPS'),
+'p.GROUP_ID=pf.GROUP_ID')
+-&gt;where('pf.USER_ID= ?', $id)
+-&gt;where('p.GROUP_ID= ?',$groupid)
+-&gt;limit($page,$limit);
+
+$stm = $this-&gt;db-&gt;query($select); 
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gabriel Baez (gabriel) on 2008-05-28T11:02:06.000+0000</p> 
+        <div class="body">
+            <p>Thanks that fixed it.</p>
+
+        </div>
+    </div>
+    </div>
+

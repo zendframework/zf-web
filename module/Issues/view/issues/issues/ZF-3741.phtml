@@ -1,0 +1,167 @@
+<h2>ZF-3741: make Zend Log handle more than just strings</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-07-24T08:21:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-08-06T09:43:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Karol Grecki (antych)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christoph Dorn (cadorn)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Log</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11455/patch.txt">patch.txt</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Newly added FirePHP works great and it handles more than strings, so a nicely formatted array or exception can be printed in firebug console.
+Unfortunately standard zend log writer/formatter don't support anything else than a string and if multiple writers are used it's causing notices eg.</p>
+
+<pre class="highlight"><code>
+$logger = new Zend_Log();
+
+$fireWriter = new Zend_Wildfire_FirebugLogWriter();
+$logger-&gt;addWriter($fireWriter);
+        
+$streamWriter = new Zend_Log_Writer_Stream("/dev/null");
+$logger-&gt;addWriter($streamWriter);
+        
+$logger-&gt;info(range(1,10));
+</code></pre>
+
+<p>triggers Notice: Array to string conversion in /home/sites/shared/library/Zend/Log/Formatter/Simple.php on line 72</p>
+
+<p>It would be nice if the formatter ignored variables that are not strings and objects that does not implement __toString() method avoiding this notice.
+Alternatively arrays or objects could be passed through print_r() or similar so they can be displayed.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-08-04T13:17:51.000+0000</p> 
+        <div class="body">
+            <p>Possible solution for "simple" writer. Rather than running variable through print_r it simply converts it to a string calling __toString() on the object if it exists.</p>
+
+<p>If this is an acceptable solution I can commit along with unit tests.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-08-04T14:08:28.000+0000</p> 
+        <div class="body">
+            <p>__toString()  is already called automatically, the problem are objects that don't implement it and arrays, they need to be ignored or converted to strings manually</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-08-04T15:12:27.000+0000</p> 
+        <div class="body">
+            <p>Right. My patch effectively ignores them (by printing the variable type) if the __toString() method is not implemented.</p>
+
+<p>We could convert them to a string but in which format? print_r() is not really suited for single line logging nor is serialize().</p>
+
+<p>My patch may not be the final solution, but it eliminates the notice for now and does not change the logic otherwise.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-08-05T01:13:46.000+0000</p> 
+        <div class="body">
+            <p>Provided patch won't help if objects don't implement __toString()</p>
+
+<pre class="highlight"><code>
+Catchable fatal error: Object of class Foo could not be converted to string in...
+</code></pre>
+
+<p>Alternative solution could be to silence that function</p>
+
+<pre class="highlight"><code>
+$output = @str_replace("%$name%", $value, $output);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-08-05T09:30:19.000+0000</p> 
+        <div class="body">
+            <p>You are right. Don't know how I missed that.</p>
+
+<p>Silencing would work for me too.</p>
+
+<p>Or how about this:</p>
+
+<pre class="highlight"><code>
+if ((is_object($value) &amp;&amp; !method_exists($value,'__toString'))
+    || is_array($value)) {
+
+    $value = gettype($value);  
+}
+          
+$output = str_replace("%$name%", $value, $output);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Karol Grecki (antych) on 2008-08-05T09:36:14.000+0000</p> 
+        <div class="body">
+            <p>Looks good to me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-05T13:11:37.000+0000</p> 
+        <div class="body">
+            <p>Chrisoph -- can you apply this to trunk and 1.6 branch prior to 6 Aug 2008, 6pm PDT? If not, I'll apply. Is there a test for it?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-08-05T21:17:52.000+0000</p> 
+        <div class="body">
+            <p>I'll apply it tomorrow along with a test.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christoph Dorn (cadorn) on 2008-08-06T09:43:23.000+0000</p> 
+        <div class="body">
+            <p>Applied changes and added test to trunk, merged to 1.6 release branch.</p>
+
+        </div>
+    </div>
+    </div>
+

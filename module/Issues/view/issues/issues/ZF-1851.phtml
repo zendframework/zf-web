@@ -1,0 +1,134 @@
+<h2>ZF-1851: Unique value validator for Zend_Db</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-15T08:49:25.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-08-22T21:37:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jack Sleight (jacksleight)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>New validator for validating unique values in a DB table column. This is my current implementation, you might see a better way to do it:</p>
+
+<pre class="highlight"><code>
+class Jack_Validate_Unique extends Zend_Validate_Abstract
+{
+    const NOT_UNIQUE = 'uniqueNotUnique';
+
+    protected $_messageTemplates = array(
+        self::NOT_UNIQUE =&gt; "'%value%' already exists"
+    );
+    
+    protected $_table;
+    protected $_column;
+    protected $_current;
+
+    public function __construct(Zend_Db_Table $table, $column, $current = null)
+    {
+        $this-&gt;_table = $table;
+        $this-&gt;_column = $column;
+        // the primary key of the row being updated
+        // without knowing this validating an unchanged value would fail
+        $this-&gt;_current = $current;
+    }
+
+    public function isValid($value)
+    {
+        $this-&gt;_setValue($value);
+        
+        $db = $this-&gt;_table-&gt;getAdapter();
+        $where = array($db-&gt;quoteInto($this-&gt;_column . ' = ?', $value));
+        if (isset($this-&gt;_current)) {
+            $current = (array) $this-&gt;_current;
+            $info = $this-&gt;_table-&gt;info();
+            foreach ($info['primary'] as $key =&gt; $column) {
+                $where[] = $db-&gt;quoteInto($column . ' &lt;&gt; ?', $current[$key - 1]);
+            }
+        }
+        $row = $this-&gt;_table-&gt;fetchAll($where);
+        if ($row-&gt;count()) {
+            $this-&gt;_error();
+            return false;
+        }
+        return true;
+    }
+}
+</code></pre>
+
+<p>Might make sense to call it Zend_Db_Validate_Unique rather than Zend_Validate_Unique?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jack Sleight (jacksleight) on 2007-08-15T08:57:22.000+0000</p> 
+        <div class="body">
+            <p>Also needs set/get table/column/current methods.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-08-16T13:22:14.000+0000</p> 
+        <div class="body">
+            <p>Assigned to Bill</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-08-22T21:37:00.000+0000</p> 
+        <div class="body">
+            <p>The use case for this validator is apparently the desire to avoid inserting duplicate values in a database table.</p>
+
+<p>Validating that a value doesn't exist in the database isn't a reliable test in application space.  A race condition exists:  some other database client can insert a duplicate value into the database <em>after</em> your validation "passes".  In other words, the validator tells you that the value does not exist in the database, but this is a test only of that moment in time.  The assurance given by that validation is based on the state of data in the database, which can change at any time and without notifying the client.</p>
+
+<p>The only transaction-safe way to avoid inserting duplicate values in a database is to create the database table with an appropriate {{UNIQUE}} constraint (or {{PRIMARY KEY}}, which implies uniqueness), and attempt to insert the row.  If the insert violates the unique constraint, then an exception is thrown by the database client interface.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-08-22T21:37:42.000+0000</p> 
+        <div class="body">
+            <p>Enforcing database constraints in application space is not reliable.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,568 @@
+Index: Zend/Feed.php
+===================================================================
+--- Zend/Feed.php	(révision 3132)
++++ Zend/Feed.php	(copie de travail)
+@@ -308,4 +308,32 @@
+         return $feeds;
+     }
+ 
++    /**
++     * Construct a new Zend_Feed object from a custom data source
++     *
++     * @param $format string (rss|atom) the requested output format
++     * @param $builder Zend_Feed_Interface if not null this object will be used to extract the data of the feed
++     * @param $data array NULL if $builder is set, see Zend_Feed_Interface for array structure
++     * @throws Zend_Feed_Exception if format is unknown
++     */
++    public static function factory($format, Zend_Feed_Interface $builder = null, $data = null)
++    {
++        $format = strtolower($format);
++        switch($format) {
++            case 'rss':
++                $obj = 'Zend_Feed_Rss';
++                break;
++            case 'atom':
++                $obj = 'Zend_Feed_Atom';
++                break;
++            default:
++                throw new Zend_Feed_Exception("format '$format' is not supported");
++        }
++
++        if ($builder === null && $data === null) {
++            throw new Zend_Feed_Exception('please choose the extraction mode to use');
++        }
++
++        return new $obj(null, null, $builder ? $builder->getFeedData() : $data);
++    }
+ }
+Index: Zend/Feed/Atom.php
+===================================================================
+--- Zend/Feed/Atom.php	(révision 3132)
++++ Zend/Feed/Atom.php	(copie de travail)
+@@ -171,4 +171,151 @@
+         }
+     }
+ 
++    /**
++     * Generate the header of the feed when working in write mode
++     *
++     * @param array $array the data to use - see Zend_Feed_Interface for array structure
++     * @return DOMElement root node
++     * @internal
++     */
++    protected function _mapFeedHeaders($array)
++    {
++        $feed = $this->_element->createElement('feed');
++        $feed->setAttribute('xmlns', 'http://www.w3.org/2005/Atom');
++        
++        $id = $this->_element->createElement('id', $array['link']);
++        $feed->appendChild($id);
++        
++        $title = $this->_element->createElement('title', $array['title']);
++        $feed->appendChild($title);
++        
++        if (isset($array['author'])) {
++            $author = $this->_element->createElement('author');
++            $name = $this->_element->createElement('name', $array['author']);
++            $author->appendChild($name);
++            if (isset($array['email'])) {
++                $email = $this->_element->createElement('email', $array['email']);
++                $author->appendChild($email);
++            }
++            $feed->appendChild($author);
++        }
++        
++        $updated = isset($array['pubDate']) ? $array['pubDate'] : time();
++        $updated = $this->_element->createElement('updated', date(DATE_ATOM, $updated));
++        $feed->appendChild($updated);
++        
++        $link = $this->_element->createElement('link');
++        $link->setAttribute('rel', 'self');
++        $link->setAttribute('href', $array['link']);
++        $feed->appendChild($link);
++        
++        if (isset($array['description'])) {
++            $subtitle = $this->_element->createElement('subtitle', $array['description']);
++            $feed->appendChild($subtitle);
++        }
++        
++        if (isset($array['copyright'])) {
++            $copyright = $this->_element->createElement('rights', $array['copyright']);
++            $feed->appendChild($copyright);
++        }
++        
++        if (isset($array['image'])) {
++            $image = $this->_element->createElement('logo', $array['image']);
++            $feed->appendChild($image);
++        }
++        
++        $generator = !empty($array['generator']) ? $array['generator'] : 'Zend_Feed';
++        $generator = $this->_element->createElement('generator', $generator);
++        $feed->appendChild($generator);
++        
++        return $feed;
++    }
++
++    /**
++     * Generate the entries of the feed when working in write mode
++     *
++     * The following nodes are constructed for each feed entry
++     * <entry>
++     *    <id>url to feed entry</id>
++     *    <title>entry title</title>
++     *    <updated>last update</updated>
++     *    <link rel="alternate" href="url to feed entry" />
++     *    <summary>short text</summary>
++     *    <content>long version, can contain html</content>
++     * </entry>
++     *
++     * @param array $array the data to use - see Zend_Feed_Interface for array structure
++     * @param DOMElement $root the root node to use
++     * @internal
++     */
++    protected function _mapFeedEntries(DOMElement $root, $array)
++    {
++        if (empty($array['entries'])) {
++            return ;
++        }
++        foreach ($array['entries'] as $dataentry) {
++            $entry = $this->_element->createElement('entry');
++            
++            $id = $this->_element->createElement('id', isset($dataentry['guid']) ? $dataentry['guid'] : $dataentry['link']);
++            $entry->appendChild($id);
++            
++            $title = $this->_element->createElement('title', $dataentry['title']);
++            $entry->appendChild($title);
++            
++            $updated = isset($array['pubDate']) ? $array['pubDate'] : time();
++            $updated = $this->_element->createElement('updated', date(DATE_ATOM, $updated));
++            $entry->appendChild($updated);
++            
++            $link = $this->_element->createElement('link');
++            $link->setAttribute('rel', 'alternate');
++            $link->setAttribute('href', $dataentry['link']);
++            $entry->appendChild($link);
++            
++            $summary = $this->_element->createElement('summary');
++            $summary->appendChild($this->_element->createCDATASection($dataentry['description']));
++            $entry->appendChild($summary);
++            
++            if (isset($dataentry['content'])) {
++                $content = $this->_element->createElement('content');
++                $content->setAttribute('type', 'html');
++                $content->appendChild($this->_element->createCDATASection($dataentry['content']));
++                $entry->appendChild($content);
++            }
++            
++            $root->appendChild($entry);
++        }
++    }
++    
++    /**
++     * Override Zend_Feed_Element to allow formated feeds
++     * 
++     * @return string
++     */
++    public function saveXML()
++    {
++        // Return a complete document including XML prologue.
++        $doc = new DOMDocument($this->_element->ownerDocument->version,
++                               $this->_element->ownerDocument->actualEncoding);
++        $doc->appendChild($doc->importNode($this->_element, true));
++        $doc->formatOutput = true;
++
++        return $doc->saveXML();
++    }
++    
++    /**
++     * Send feed to a http client with the correct header
++     * 
++     * @throws Zend_Feed_Exception if headers have already been sent
++     * @return void
++     */
++    public function send()
++    {        
++        if (headers_sent()) {
++            throw new Zend_Feed_Exception('Cannot send ATOM because headers have already been sent.');
++        }
++        
++        header('Content-type: application/atom+xml; charset: ' . $this->_element->ownerDocument->actualEncoding);
++        
++        echo $this->saveXML();
++    }
+ }
+Index: Zend/Feed/Interface.php
+===================================================================
+--- Zend/Feed/Interface.php	(révision 0)
++++ Zend/Feed/Interface.php	(révision 0)
+@@ -0,0 +1,70 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Feed
++ * @copyright  Copyright (c) 2005-2007 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++
++
++/**
++ * Input feed data interface
++ *
++ * Classes implementing this interface can be passe to Zend_Feed::factory
++ * as an input data source for the Zend_Feed construction
++ *
++ * @category   Zend
++ * @package    Zend_Feed
++ * @copyright  Copyright (c) 2005-2007 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++interface Zend_Feed_Interface
++{
++    /**
++     * Returns feed data
++     * 
++     * The returned data must have the following format:
++     * <code>
++     *  array( 
++     *  'title'       => 'title of the feed', //required
++     *  'link'        => 'canonical url to the feed', //required
++     *  'pubDate'     => 'timestamp of the publication date', // required
++     *  'charset'     => 'charset', // required
++     *  'description' => 'short description of the feed', //optional
++     *  'author'      => 'author/publisher of the feed', //optional
++     *  'email'       => 'email of the author', //optional
++     *  'copyright'   => 'copyright notice', //optional
++     *  'image'       => 'url to image', //optional
++     *  'generator'   => 'generator', // optional
++     *  'entries'     => array(
++     *                   array(
++     *                    'title'        => 'title of the feed entry', //required
++     *                    'link'         => 'url to a feed entry', //required
++     *                    'description'  => 'short version of a feed entry', // only text, no html, required
++     *                    'guid'         => 'id of the article, if not given link value will used', //optionnal
++     *                    'content'      => 'long version', // can contain html, optionnal
++     *                    'pubDate'      => 'timestamp of the publication date' // optionnal
++     *                   ),
++     *                   array(
++     *                   //data for the second entry and so on
++     *                   )
++     *                 )
++     * );
++     * </code>
++     * 
++     * @return array
++     */
++    public function getFeedData();
++}
+\ Pas de fin de ligne à la fin du fichier
+
+Modification de propriétés sur Zend/Feed/Interface.php
+___________________________________________________________________
+Nom : svn:keywords
+   + Id Author Revision
+Nom : svn:eol-style
+   + native
+
+Index: Zend/Feed/Abstract.php
+===================================================================
+--- Zend/Feed/Abstract.php	(révision 3132)
++++ Zend/Feed/Abstract.php	(copie de travail)
+@@ -64,10 +64,11 @@
+      *
+      * @throws Zend_Feed_Exception If loading the feed failed.
+      *
+-     * @param string $uri The full URI of the feed to load, or NULL if not retrieved via HTTP.
+-     * @param string $string The feed as a string, or NULL if retrieved via HTTP.
++     * @param string $uri The full URI of the feed to load, or NULL if not retrieved via HTTP or as an array.
++     * @param string $string The feed as a string, or NULL if retrieved via HTTP or as an array.
++     * @param array $array The feed as an array or NULL if retrieved as a string or via HTTP.
+      */
+-    public function __construct($uri = null, $string = null)
++    public function __construct($uri = null, $string = null, $array = null)
+     {
+         if ($uri !== null) {
+             // Retrieve the feed via HTTP
+@@ -78,12 +79,20 @@
+                 throw new Zend_Feed_Exception('Feed failed to load, got response code ' . $response->getStatus());
+             }
+             $this->_element = $response->getBody();
+-        } else {
++            $this->__wakeup();
++        } elseif ($string !== null) {
+             // Retrieve the feed from $string
+             $this->_element = $string;
++            $this->__wakeup();
++        } else {
++            // Generate the feed from the array
++            $this->_checkFeedData($array);
++            $this->_element = new DOMDocument('1.0', $array['charset']);
++            $root = $this->_mapFeedHeaders($array);
++            $this->_mapFeedEntries($root, $array);
++            $this->_element = $root;
++            $this->_buildEntryCache();
+         }
+-
+-        $this->__wakeup();
+     }
+ 
+ 
+@@ -210,4 +219,45 @@
+         return (0 <= $this->_entryIndex && $this->_entryIndex < $this->count());
+     }
+ 
++    /**
++     * Checks the format of the user's data and ensure we can generate a Zend_Feed_Abstract object
++     *
++     * @param array $array the data to check - see Zend_Feed_Interface for array structure
++     * @throws Zend_Feed_Exception
++     */
++    private function _checkFeedData($array)
++    {
++        $mandatory = array('title', 'link', 'lastUpdate', 'charset');
++        foreach ($mandatory as $key) {
++            if (empty($array[$key])) {
++                throw new Zend_Feed_Exception("The key $key can not be empty");
++            }
++        }
++    }
++
++    /**
++     * Generate the header of the feed when working in write mode
++     *
++     * @param array $array the data to use - see Zend_Feed_Interface for array structure
++     * @return DOMElement root node
++     * @internal
++     */
++    abstract protected function _mapFeedHeaders($array);
++
++    /**
++     * Generate the entries of the feed when working in write mode
++     *
++     * @param array $array the data to use - see Zend_Feed_Interface for array structure
++     * @param DOMElement $root the root node to use
++     * @internal
++     */
++    abstract protected function _mapFeedEntries(DOMElement $root, $array);
++
++    /**
++     * Send feed to a http client with the correct header
++     *
++     * @throws Zend_Feed_Exception if headers have already been sent 
++     * @return void
++     */
++    abstract public function send();
+ }
+Index: Zend/Feed/Rss.php
+===================================================================
+--- Zend/Feed/Rss.php	(révision 3132)
++++ Zend/Feed/Rss.php	(copie de travail)
+@@ -67,7 +67,6 @@
+      */
+     protected $_defaultNamespace = 'rss';
+ 
+-
+     /**
+      * Override Zend_Feed_Abstract to set up the $_element and $_entries aliases.
+      */
+@@ -111,4 +110,162 @@
+         }
+     }
+ 
++    /**
++     * Generate the header of the feed when working in write mode
++     *
++     * @param array $array the data to use - see Zend_Feed_Interface for array structure
++     * @return DOMElement root node
++     * @internal
++     */
++    protected function _mapFeedHeaders($array)
++    {
++        $channel = $this->_element->createElement('channel');
++      
++        $title = $this->_element->createElement('title', $array['title']);
++        $channel->appendChild($title);
++        
++        $link = $this->_element->createElement('link', $array['link']);
++        $channel->appendChild($link);
++        
++        $description = isset($array['description']) ? $array['description'] : '';
++        $description = $this->_element->createElement('description', $description);
++        $channel->appendChild($description);
++        
++        $pubdate = isset($array['pubDate']) ? $array['pubDate'] : time();
++        $pubdate = $this->_element->createElement('pubDate', gmdate('r', $pubdate));
++        $channel->appendChild($pubdate);
++        
++        $editor = '';
++        if (!empty($array['email'])) {
++            $editor .= $array['email'];
++        }
++        if (!empty($array['author'])) {
++            $editor .= ' (' . $array['author'] . ')';
++        }
++        $author = $this->_element->createElement('managingEditor', ltrim($editor));
++        $channel->appendChild($author);
++        
++        if (!empty($array['copyright'])) {
++            $copyright = $this->_element->createElement('copyright', $array['copyright']);
++            $channel->appendChild($copyright);
++        }
++        
++        if (!empty($array['image'])) {
++            $image = $this->_element->createElement('image');
++            $url = $this->_element->createElement('url', $array['image']);
++            $image->appendChild($url);
++            $imagetitle = $this->_element->createElement('title', $array['title']);
++            $image->appendChild($imagetitle);
++            $imagelink = $this->_element->createElement('link', $array['link']);
++            $image->appendChild($imagelink);
++            
++            $channel->appendChild($image);
++        }
++        
++        $generator = !empty($array['generator']) ? $array['generator'] : 'Zend_Feed';
++        $generator = $this->_element->createElement('generator', $generator);
++        $channel->appendChild($generator);
++        
++        return $channel;
++    }
++
++    /**
++     * Generate the entries of the feed when working in write mode
++     *
++     * The following nodes are constructed for each feed entry
++     * <item>
++     *    <title>entry title</title>
++     *    <link>url to feed entry</link>
++     *    <guid>url to feed entry</guid>
++     *    <description>short text</description>
++     *    <content:encoded>long version, can contain html</content:encoded>
++     * </item>
++     *
++     * @param array $array the data to use - see Zend_Feed_Interface for array structure
++     * @param DOMElement $root the root node to use
++     * @internal
++     */
++    protected function _mapFeedEntries(DOMElement $root, $array)
++    {
++        if (empty($array['entries'])) {
++            return ;
++        }
++
++        Zend_Feed::registerNamespace('content', 'http://purl.org/rss/1.0/modules/content/');
++        
++        foreach ($array['entries'] as $dataentry) {
++            $item = $this->_element->createElement('item');
++            
++            $title = $this->_element->createElement('title', $dataentry['title']);
++            $item->appendChild($title);
++            
++            $link = $this->_element->createElement('link', $dataentry['link']);
++            $item->appendChild($link);
++            
++            $guid = $this->_element->createElement('guid', isset($dataentry['guid']) ? $dataentry['guid'] : $dataentry['link']);
++            $item->appendChild($guid);
++            
++            $description = $this->_element->createElement('description');
++            $description->appendChild($this->_element->createCDATASection($dataentry['description']));
++            $item->appendChild($description);
++            
++            if (isset($dataentry['content'])) {
++                $content = $this->_element->createElement('content:encoded');
++                $content->appendChild($this->_element->createCDATASection($dataentry['content']));
++                $item->appendChild($content);
++            }
++
++            $pubdate = isset($dataentry['pubDate']) ? $dataentry['pubDate'] : time();
++            $pubdate = $this->_element->createElement('pubDate', gmdate('r', $pubdate));
++            $item->appendChild($pubdate);            
++
++            $root->appendChild($item);
++        }
++    }
++
++    /*
++     * Override Zend_Feed_Element to include <rss> root node
++     * 
++     * @return string
++     */
++    public function saveXML()
++    {
++        // Return a complete document including XML prologue.
++        $doc = new DOMDocument($this->_element->ownerDocument->version,
++                               $this->_element->ownerDocument->actualEncoding);
++        $root = $doc->createElement('rss');
++        
++        // Use rss version 2.0
++        $root->setAttribute('version', '2.0');
++        
++        // Content namespace
++        $root->setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:content', 'http://purl.org/rss/1.0/modules/content/');
++        $root->appendChild($doc->importNode($this->_element, true));
++        
++        // Append root node
++        $doc->appendChild($root);
++        
++        // Format output
++        $doc->formatOutput = true;
++
++        return $doc->saveXML();
++    }
++    
++    /**
++     * Send feed to a http client with the correct header
++     *
++     * @throws Zend_Feed_Exception if headers have already been sent 
++     * @return void
++     */
++    public function send()
++    {        
++        if (headers_sent()) {
++            throw new Zend_Feed_Exception('Cannot send RSS because headers have already been sent.');
++        }
++        
++        header('Content-type: application/rss+xml; charset: ' . $this->_element->ownerDocument->actualEncoding);
++        
++        echo $this->saveXML();
++    } 
++
+ }
+Index: Zend/Http/Client/Adapter/Socket.php
+===================================================================
+--- Zend/Http/Client/Adapter/Socket.php	(révision 3132)
++++ Zend/Http/Client/Adapter/Socket.php	(copie de travail)
+@@ -110,7 +110,12 @@
+                 throw new Zend_Http_Client_Adapter_Exception(
+                     'Unable to Connect to ' . $host . ':' . $port . '. Error #' . $errno . ': ' . $errstr);
+             }
+-            
++
++            // Set the connection timeout
++            if (!stream_set_timeout($this->socket, (int) $this->config['timeout'])) {
++                throw new Zend_Http_Client_Adapter_Exception('Unable to set the connection timeout');
++            }
++
+             // Set the stream timeout
+             if (!stream_set_timeout($this->socket, (int) $this->config['timeout'])) {
+                 throw new Zend_Http_Client_Adapter_Exception('Unable to set the connection timeout');
+@@ -246,7 +251,7 @@
+             
+             $this->close();
+         }
+-         
++
+         return $response;
+     }
+     

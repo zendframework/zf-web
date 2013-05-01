@@ -1,0 +1,157 @@
+Index: Controller/Response/Http.php
+===================================================================
+--- Controller/Response/Http.php	(revision 13454)
++++ Controller/Response/Http.php	(working copy)
+@@ -22,7 +22,12 @@
+ /** Zend_Controller_Response_Abstract */
+ require_once 'Zend/Controller/Response/Abstract.php';
+ 
++/** Zend_Http_CookieJar */
++require_once 'Zend/Http/CookieJar.php';
+ 
++/** Zend_Http_Cookie */
++require_once 'Zend/Http/Cookie.php';
++
+ /**
+  * Zend_Controller_Response_Http
+  *
+@@ -34,4 +39,91 @@
+  */
+ class Zend_Controller_Response_Http extends Zend_Controller_Response_Abstract
+ {
++    /**
++     * cookieJar attached to the response
++     *
++     * @var Zend_Http_CookieJar
++     */
++    protected $_cookieJar;
++
++    /**
++     * Constructor
++     * Creates the cookieJar
++     *
++     */
++    public function __construct()
++    {
++        $this->_cookieJar = new Zend_Http_CookieJar();
++    }
++
++    /**
++     * Send all headers to SAPI layer
++     * Appends cookies to the headers then send them
++     * 
++     * @return Zend_Controller_Response_Http
++     */
++    public function sendHeaders()
++    {
++        $this->_sendCookies();
++        return parent::sendHeaders();        
++    }
++
++    /**
++     * Adds cookies to the response object
++     *
++     * @param array $cookies
++     */
++    public function setCookies(array $cookies)
++    {
++        foreach ($cookie as $c => $v) {
++            if (is_string($c)) {
++                $this->setCookie($c, $v);
++            } else {
++                $this->setCookie($v);
++            }
++        }
++    }
++
++    /**
++     * Adds one cookie to the response object
++     *
++     * @param Zend_Http_Cookie|string $cookie
++     * @param string $value
++     * @return Zend_Controller_Response_Http
++     */
++    public function setCookie($cookie, $value = null)
++    {
++        if ($value !== null) {
++            $value = addslashes(urlencode($value));
++        }
++
++        if ($cookie instanceof Zend_Http_Cookie) {
++            $this->_cookieJar->addCookie($cookie);
++        } elseif (is_string($cookie) && $value !== null) {
++            if (preg_match("/[=,; \t\r\n\013\014]/", $cookie)) {
++                /** @see Zend_Controller_Response_Exception */
++                require_once 'Zend/Controller/Response/Exception.php';
++                throw new Zend_Controller_Response_Exception("Cookie name cannot contain these characters: =,; \t\r\n\013\014 ({$cookie})");
++            }
++            $request = Zend_Controller_Front::getInstance()->getRequest();
++            $uri = $request->getScheme() . '://' . $request->getHttpHost() . $request->getRequestUri();
++            $cookie = Zend_Http_Cookie::fromString("{$cookie}={$value}", $uri);
++            $this->_cookieJar->addCookie($cookie);
++        }
++
++        return $this;
++    }
++
++    /**
++     * Appends the cookies in the cookiejar
++     * to raw headers
++     *
++     */
++    protected function _sendCookies()
++    {
++        if (!$this->_cookieJar->isEmpty()) {
++            $cookstr = $this->_cookieJar->getAllCookies(Zend_Http_CookieJar::COOKIE_STRING_CONCAT);
++            $this->_headersRaw[] = "Cookie: {$cookstr}";
++        }
++    }
+ }
+Index: Http/CookieJar.php
+===================================================================
+--- Http/CookieJar.php	(revision 13454)
++++ Http/CookieJar.php	(working copy)
+@@ -48,7 +48,7 @@
+  * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com/)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+-class Zend_Http_CookieJar
++class Zend_Http_CookieJar implements Countable, IteratorAggregate 
+ {
+     /**
+      * Return cookie(s) as a Zend_Http_Cookie object
+@@ -347,4 +347,34 @@
+         $jar->addCookiesFromResponse($response, $ref_uri);
+         return $jar;
+     }
++
++    /**
++     * required by Countable interface
++     *
++     * @return int
++     */
++    public function count()
++    {
++        return count($this->cookies);
++    }
++
++    /**
++     * Required by IteratorAggregate interface
++     *
++     * @return ArrayIterator
++     */
++    public function getIterator()
++    {
++        return new ArrayIterator($this->cookies);
++    }
++
++    /**
++     * Tells if the jar is empty of any cookie
++     *
++     * @return bool
++     */
++    public function isEmpty()
++    {
++        return count($this) == 0;
++    }
+ }

@@ -1,0 +1,226 @@
+Index: library/Zend/Tool/Framework/Provider/Signature.php
+===================================================================
+--- library/Zend/Tool/Framework/Provider/Signature.php	(revision 18267)
++++ library/Zend/Tool/Framework/Provider/Signature.php	(working copy)
+@@ -289,9 +289,18 @@
+ 
+         $actionableMethods = array();
+         foreach ($methods as $method) {
+-
++            /* @var $method Zend_Reflection_Method */
+             $methodName = $method->getName();
+ 
++            try {
++                $docblock = $method->getDocblock();
++                $shortDescription = $docblock->getShortDescription();
++                $longDescription = $docblock->getLongDescription();
++            } catch(Exception $e) {
++                $shortDescription = "";
++                $longDescription = "";
++            }
++
+             /**
+              * the following will determine what methods are actually actionable
+              * public, non-static, non-underscore prefixed, classes that dont
+@@ -336,7 +345,12 @@
+             // get the action, and create non-existent actions when they dont exist (the true part below)
+             $action = $this->_registry->getActionRepository()->getAction($actionableMethods[$methodName]['actionName']);
+             if ($action == null) {
+-                $action = new Zend_Tool_Framework_Action_Base($actionableMethods[$methodName]['actionName']);
++                $actionOptions = array(
++                    'name' => $actionableMethods[$methodName]['actionName'],
++                    'shortDescription' => $shortDescription,
++                    'longDescription' => $longDescription,
++                );
++                $action = new Zend_Tool_Framework_Action_Base($actionOptions);
+                 $this->_registry->getActionRepository()->addAction($action);
+             }
+             $actionableMethods[$methodName]['action'] = $action;
+Index: library/Zend/Tool/Framework/Action/Base.php
+===================================================================
+--- library/Zend/Tool/Framework/Action/Base.php	(revision 18267)
++++ library/Zend/Tool/Framework/Action/Base.php	(working copy)
+@@ -38,6 +38,16 @@
+      * @var string
+      */
+     protected $_name = null;
++
++    /**
++     * @var string
++     */
++    protected $_shortDescription = "";
++
++    /**
++     * @var string
++     */
++    protected $_longDescription = "";
+     
+     /**
+      * constructor - 
+@@ -49,8 +59,14 @@
+         if ($options !== null) {
+             if (is_string($options)) {
+                 $this->setName($options);
++            } else if (is_array($options)) {
++                foreach($options AS $key => $value) {
++                    $method = "set".ucfirst($key);
++                    if(method_exists($this, $method)) {
++                        $this->$method($value);
++                    }
++                }
+             }
+-            // implement $options here in the future if this is needed
+         }
+     }
+     
+@@ -91,5 +107,24 @@
+         $actionName = substr($className, strrpos($className, '_')+1);
+         return $actionName;
+     }
+-   
++
++    public function setShortDescription($shortDescription)
++    {
++        $this->_shortDescription = $shortDescription;
++    }
++
++    public function setLongDescription($longDescription)
++    {
++        $this->_longDescription = $longDescription;
++    }
++
++    public function getShortDescription()
++    {
++        return $this->_shortDescription;
++    }
++
++    public function getLongDescription()
++    {
++        return $this->_longDescription;
++    }
+ }
+Index: library/Zend/Tool/Framework/Action/Interface.php
+===================================================================
+--- library/Zend/Tool/Framework/Action/Interface.php	(revision 18267)
++++ library/Zend/Tool/Framework/Action/Interface.php	(working copy)
+@@ -29,4 +29,8 @@
+ interface Zend_Tool_Framework_Action_Interface
+ {
+     public function getName();
++
++    public function getShortDescription();
++
++    public function getLongDescription();
+ }
+\ No newline at end of file
+Index: library/Zend/Tool/Framework/Client/Console/ResponseDecorator/Indention.php
+===================================================================
+--- library/Zend/Tool/Framework/Client/Console/ResponseDecorator/Indention.php	(revision 0)
++++ library/Zend/Tool/Framework/Client/Console/ResponseDecorator/Indention.php	(revision 0)
+@@ -0,0 +1,56 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Tool
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++
++require_once "Zend/Tool/Framework/Client/Response/ContentDecorator/Interface.php";
++
++/**
++ * @category   Zend
++ * @package    Zend_Tool
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ */
++class Zend_Tool_Framework_Client_Console_ResponseDecorator_Indention
++    implements Zend_Tool_Framework_Client_Response_ContentDecorator_Interface
++{
++    public function getName()
++    {
++        return 'indention';
++    }
++
++    /**
++     * @param string $content
++     * @param integer $indention
++     */
++    public function decorate($content, $indention)
++    {
++        if(strval(intval($indention)) != $indention) {
++            return $content;
++        }
++
++        $newContent = "";
++        $lines = preg_split('((\r\n|\r|\n)+)', $content);
++        $lineIndention = str_repeat(' ', $indention);
++        foreach($lines AS $line) {
++            $newContent .= $lineIndention.$line.PHP_EOL;
++        }
++        return rtrim($newContent);
++    }
++}
+
+Property changes on: library/Zend/Tool/Framework/Client/Console/ResponseDecorator/Indention.php
+___________________________________________________________________
+Added: svn:keywords
+   + Id
+Added: svn:eol-style
+   + LF
+
+Index: library/Zend/Tool/Framework/Client/Console/HelpSystem.php
+===================================================================
+--- library/Zend/Tool/Framework/Client/Console/HelpSystem.php	(revision 18303)
++++ library/Zend/Tool/Framework/Client/Console/HelpSystem.php	(working copy)
+@@ -191,6 +191,8 @@
+             $providerMetadatasSearch = array_merge($providerMetadatasSearch, array('providerName' => $providerNameFilter));
+         }
+ 
++        $showAdditionalLongDescription = ($actionNameFilter!=null)||($providerNameFilter!=null)||$includeAllSpecialties;
++
+         $actionMetadatasSearch = array(
+             'type'       => 'Tool',
+             'name'       => 'actionName',
+@@ -304,6 +306,15 @@
+                     }
+                 }
+ 
++                if($actionInfo->getShortDescription() != "") {
++                    $helpDescription = $actionInfo->getShortDescription();
++                    if($showAdditionalLongDescription && $actionInfo->getLongDescription()) {
++                        $helpDescription .= "\n\n".$actionInfo->getLongDescription();
++                    }
++
++                    $this->_response->appendContent('    Description: '.$helpDescription);
++                }
++
+                 if (!$includeAllSpecialties && count($actionableGlobalMetadatas) > 1) {
+                     $this->_response->appendContent('    Note: There are specialties, use ', array('color' => 'yellow', 'separator' => false));
+                     $this->_response->appendContent(
+Index: library/Zend/Tool/Framework/Client/Console.php
+===================================================================
+--- library/Zend/Tool/Framework/Client/Console.php	(revision 18267)
++++ library/Zend/Tool/Framework/Client/Console.php	(working copy)
+@@ -125,7 +125,7 @@
+     protected function _preInit()
+     {
+         $config = $this->_registry->getConfig();
+-        
++
+         if ($this->_configOptions != null) {
+             $config->setOptions($this->_configOptions);
+         }

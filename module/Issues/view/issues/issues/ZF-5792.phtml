@@ -1,0 +1,190 @@
+<h2>ZF-5792: Refactor row instantiation in Zend_Db_Table_Abstract and Zend_Db_Table_Rowset</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-15T13:04:30.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:18.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                sebastien crocquesel (cortex)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Row instantion from database is done in the rowset AND in the table class. We have two classes having the responsability to create a row depending on the context (single fetch or multiple fetch).
+I think that the rowset should delegate this task to its table class.</p>
+
+<p>We can add a function to the Table class, say</p>
+
+<pre class="highlight"><code>
+public function createDbRow(array $data)
+    {
+        @Zend_Loader::loadClass($this-&gt;_rowClass);
+        return new $this-&gt;_rowClass($data);
+    }
+</code></pre>
+
+<p>Then, modify the fetchRow function in the table class to use this new function</p>
+
+<pre class="highlight"><code>
+ public function fetchRow($where = null, $order = null)
+    {
+       // code not shown....
+ 
+        $data = array(
+            'table'   =&gt; $this,
+            'data'     =&gt; $rows[0],
+            'readOnly' =&gt; $select-&gt;isReadOnly(),
+            'stored'  =&gt; true
+        );
+        
+        return $this-&gt;createDbRow($data);
+    }
+</code></pre>
+
+<p>And the same for the rowset, in the current() function</p>
+
+<pre class="highlight"><code>
+public function current()
+    {
+        if ($this-&gt;valid() === false) {
+            return null;
+        }
+
+        // do we already have a row object for this position?
+        if (empty($this-&gt;_rows[$this-&gt;_pointer])) {
+            $this-&gt;_rows[$this-&gt;_pointer] = $this-&gt;_table-&gt;createDbRow(
+                array(
+                    'table'    =&gt; $this-&gt;_table,
+                    'data'     =&gt; $this-&gt;_data[$this-&gt;_pointer],
+                    'stored'   =&gt; $this-&gt;_stored,
+                    'readOnly' =&gt; $this-&gt;_readOnly
+                )
+            );
+        }
+
+        // return the row object
+        return $this-&gt;_rows[$this-&gt;_pointer];
+    }
+</code></pre>
+
+<p>That way we can override the new function in derived table class without having to derive rowset and override current.</p>
+
+<p>A scenario like this could then be imagined:</p>
+
+<pre class="highlight"><code>
+// in a derived table class
+public function createDbRow(array $data)
+{
+    // row class comes from the row itself
+    $this-&gt;_rowClass = $data['data']['classname'];
+    return parent::createDbRow(array $data);
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Martin Mayer (martin.mayer) on 2009-02-16T08:23:31.000+0000</p> 
+        <div class="body">
+            <p>There's already method createRow() in Zend_Db_Table_Abstract.</p>
+
+<p>The reason why row isn't instantiated in rowset using table's method is that the rowset can be in disconnected state (after serialization and deserialization) and don't have access to the instance of table. See <a href="http://framework.zend.com/manual/en/zend.db.table.rowset.html#zend.db.table.rowset.serialize">http://framework.zend.com/manual/en/…</a> for more information.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by sebastien crocquesel (cortex) on 2009-02-16T12:35:36.000+0000</p> 
+        <div class="body">
+            <p>createRow do a lot more than just instantiating the row class, maybe a name like instantiateRowClass would be more appropriated than createDbRow.</p>
+
+<p>I agree for disconnected state, maybe using the current code when the $_table is not available and relying on it when it is, could be a solution ?</p>
+
+<pre class="highlight"><code>
+protected function instantiateRowClass(array $data)
+{
+    if(null !== $this-&gt;_table)
+        return $this-&gt;_table-&gt;instantiateRowClass($data);
+    else
+        return new $this-&gt;_rowClass($data);
+}
+
+/**
+     * Return the current element.
+     * Similar to the current() function for arrays in PHP
+     * Required by interface Iterator.
+     *
+     * @return Zend_Db_Table_Row_Abstract current element from the collection
+     */
+    public function current()
+    {
+        if ($this-&gt;valid() === false) {
+            return null;
+        }
+
+        // do we already have a row object for this position?
+        if (empty($this-&gt;_rows[$this-&gt;_pointer])) {
+            $this-&gt;_rows[$this-&gt;_pointer] = $this-&gt;instantiateRowClass(
+                array(
+                    'table'    =&gt; $this-&gt;_table,
+                    'data'     =&gt; $this-&gt;_data[$this-&gt;_pointer],
+                    'stored'   =&gt; $this-&gt;_stored,
+                    'readOnly' =&gt; $this-&gt;_readOnly
+                )
+            );
+        }
+
+        // return the row object
+        return $this-&gt;_rows[$this-&gt;_pointer];
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:18.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

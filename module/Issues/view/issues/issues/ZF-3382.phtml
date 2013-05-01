@@ -1,0 +1,542 @@
+<h2>ZF-3382: Zend_Cache_Backend_File problems under very high load</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-04T05:13:00.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                caval ionut (daniel123)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11342/better_log.txt">better_log.txt</a></li>
+            <li><a href="/issues/secure/attachment/11343/better_log_with_locking.txt">better_log_with_locking.txt</a></li>
+            <li><a href="/issues/secure/attachment/11341/log.txt">log.txt</a></li>
+            <li><a href="/issues/secure/attachment/11344/zend_cache.patch">zend_cache.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When using Zend_Cache and the site is under heavy load it does not use cache anymore. 
+We have tested using ab benchmark software and it seems that Zend_Cache cannot read each time the metadata file which generates a new cache instance so the cache is regenerated</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2008-06-04T08:29:51.000+0000</p> 
+        <div class="body">
+            <p>Seems to be a file locking problem , have you tried such a test with a memory based backend ? (APC, Memcached ...)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by caval ionut (daniel123) on 2008-06-04T08:41:45.000+0000</p> 
+        <div class="body">
+            <p>No we haven't tried that. Unfortunately we cannot use a memory based cached. 
+Are there any other solutions that we might try?
+Thank you</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-06-04T10:13:38.000+0000</p> 
+        <div class="body">
+            <p>following code works under heavy load with apache bench :</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require_once 'Zend/Cache.php';
+
+$frontendOptions = array(
+   'lifetime' =&gt; 7200
+);
+
+$backendOptions = array(
+    'cache_dir' =&gt; '/tmp/' // Directory where to put the cache files
+);
+
+$cache = Zend_Cache::factory('Core', 'File', $frontendOptions, $backendOptions);
+
+if(!$result = $cache-&gt;load('myresult')) {
+    $result='foobar foobar foobar...';
+    $cache-&gt;save($result, 'myresult');
+    echo "NOT CACHED";
+} else {
+    echo "CACHED";
+}
+
+</code></pre>
+
+<p>I tried with "ab -c 50 -n 1000" (50 concurrent request)</p>
+
+<p>I got : "Failed requests:        0"</p>
+
+<p>If you try the same example with a lifetime of 2 seconds for example (to get a NOT CACHED during the test), you have some "Failed requests because of length which is not the same "CACHED" or "NOT CACHED").</p>
+
+<p>So IMHO, File backend works under heavy load.</p>
+
+<p>Have try to activate logging ? If it's a file locking problem (because of specific software or hardware...), you can try to desactivate file locking in backend options ?</p>
+
+<p>Can you try my example on your servers ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by caval ionut (daniel123) on 2008-06-10T02:59:49.000+0000</p> 
+        <div class="body">
+            <p>Hi,
+Sorry for the late response but i was working on other solution of cache. I have tried your solution and the problem persists.
+&lt;<i>&gt;
+I got that too but during that test the cached file was rewritten once/second. Please try you test with more content on the page. I have tested using the the index page of my site which has most resource consuming modules. 
+So the problem is not that i don't get the response back from server, the problem is that sometime the script cannot read the file and therefore  it will generate another cache file.
+Thank you, hope that helps</i></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-06-20T12:55:38.000+0000</p> 
+        <div class="body">
+            <p>no problem for me</p>
+
+<p>please activate logging</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by caval ionut (daniel123) on 2008-06-25T08:25:01.000+0000</p> 
+        <div class="body">
+            <p>I attach the code that i have used too:</p>
+
+<p>$logger = new Zend_Log();
+$writer = new Zend_Log_Writer_Stream(ROOT_DIR . '/cache/log.txt');</p>
+
+<p>$logger-&gt;addWriter($writer);</p>
+
+<p>$logger-&gt;log('&gt;&gt;&gt;&gt;START ' . $session_id, 1);</p>
+
+<p>$frontendOptions = array(
+'lifetime' =&gt; 600000,
+'logging' =&gt; true
+);</p>
+
+<p>$backendOptions = array(
+'cache_dir' =&gt; ROOT_DIR . '/cache/', // Directory where to put the cache files
+'file_locking' =&gt; false
+);</p>
+
+<p>$cache = Zend_Cache::factory('Core', 'File', $frontendOptions, $backendOptions);</p>
+
+<p>if(!$result = $cache-&gt;load('myresult')) {
+    for ($i=0;$i&lt;100000;$i++) {
+        $result .= $i . '<br />';
+    }
+    //$result='foobar foobar foobar...';
+    $cache-&gt;save($result, 'myresult');
+    $logger-&gt;log('NOT CACHED', 1);
+    echo "NOT CACHED";
+    $logger-&gt;log('&lt;&lt;&lt;&lt;END ' . $session_id, 1);
+} else {
+    $logger-&gt;log('CACHED', 1);
+    echo "CACHED";
+    $logger-&gt;log('&lt;&lt;&lt;&lt;END ' . $session_id, 1);
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by caval ionut (daniel123) on 2008-06-25T08:29:23.000+0000</p> 
+        <div class="body">
+            <p>Using the code above I was still getting the following results in ab:</p>
+
+<p>{panel}
+This is ApacheBench, Version 2.0.40-dev &lt;$Revision: 1.146 $&gt; apache-2.0
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, <a href="http://www.zeustech.net/">http://www.zeustech.net/</a>
+Copyright 2006 The Apache Software Foundation, <a href="http://www.apache.org/">http://www.apache.org/</a></p>
+
+<p>Benchmarking <a href="www.intrebari-daniel.ro">www.intrebari-daniel.ro</a> (be patient)
+Completed 100 requests
+Completed 200 requests
+Completed 300 requests
+Completed 400 requests
+Completed 500 requests
+Completed 600 requests
+Completed 700 requests
+Completed 800 requests
+Completed 900 requests
+Finished 1000 requests</p>
+
+<p>Server Software:        Apache/2.2.3
+Server Hostname:        <a href="www.intrebari-daniel.ro">www.intrebari-daniel.ro</a>
+Server Port:            80</p>
+
+<p>Document Path:          /
+Document Length:        6 bytes</p>
+
+<p>Concurrency Level:      50
+Time taken for tests:   51.9509 seconds
+Complete requests:      1000
+Failed requests:        35
+   (Connect: 0, Length: 35, Exceptions: 0)
+Write errors:           0
+Total transferred:      402000 bytes
+HTML transferred:       8000 bytes
+Requests per second:    19.60 [#/sec] (mean)
+Time per request:       2550.476 [ms] (mean)
+Time per request:       51.010 [ms] (mean, across all concurrent requests)
+Transfer rate:          7.68 [Kbytes/sec] received</p>
+
+<p>Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0   17  53.1      0     298
+Processing:    33 2388 7297.9     64   41585
+Waiting:        2 1958 6057.9     61   41583
+Total:         33 2405 7298.0     64   41585</p>
+
+<p>Percentage of the requests served within a certain time (ms)
+  50%     64
+  66%    180
+  75%    941
+  80%   1620
+  90%   4513
+  95%  15133
+  98%  36262
+  99%  38378
+ 100%  41585 (longest request)
+{panel}</p>
+
+<p>I have tried using Sqlite engine and the cache was fine</p>
+
+<p>Thank you</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:12:30.000+0000</p> 
+        <div class="body">
+            <p>I'm definitely seeing the same thing here.</p>
+
+<p>Not entirely sure whats happening, but the file backend is removing metadata and cache files before they expire under high load.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:28:39.000+0000</p> 
+        <div class="body">
+            <p>I can reliably reproduce this using the testcase code using ab and -n 1000 -c 4 (instead of -c 50).</p>
+
+<p>PHP 5.2.6 running as FastCGI</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:30:04.000+0000</p> 
+        <div class="body">
+            <p>Also... using APC 3.0.19</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:35:24.000+0000</p> 
+        <div class="body">
+            <p>Still happens with file_locking turned off.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:45:43.000+0000</p> 
+        <div class="body">
+            <p>Here is a better log, with the actual Zend_Cache_Backend_File logging output</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:48:38.000+0000</p> 
+        <div class="body">
+            <p>Here is another log, this time with file_locking turned on</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T15:55:18.000+0000</p> 
+        <div class="body">
+            <p>The problem still happens with file locking on and both read and write control turned off.</p>
+
+<p>Not sure whats going on here but it basically makes the File Backend completely useless under any kind of load.</p>
+
+<p>pretty standard linux setup, 2.6.18 on an ext3 fs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T16:06:34.000+0000</p> 
+        <div class="body">
+            <p>OK, I've found the problem and a fix.</p>
+
+<p>I will post a patch after I've had a chance to verify it and clean it up.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-25T17:45:10.000+0000</p> 
+        <div class="body">
+            <p>I've attached a patch to fix this issue. apply with patch -p0</p>
+
+<p>Basically there were some implementation details of the reading and writing of files here that were very vulnerable to race conditions.</p>
+
+<p>I have tested this on linux 2.6 and windows, it performs perfectly in both cases.</p>
+
+<p>here is a summary of the changes in the patch:</p>
+
+<ul><li>removed filesize check and fread from _fileGetContents and replaced with stream_get_contents, lessens race vulnerability</li>
+<li>removed flock(LOCK_UN) calls from _fileGetContents/_filePutContents, since fclose releases locks anyway, and they create a tiny and needless race condition between lock release and fclose.</li>
+<li>added third optional parameter to _setMetadatas, to disable writing metadata to disk, eliminating the needless rewriting of metadatas file during _getMetadatas</li>
+<li>changed fopen mode in _filePutContents to ab+ from wb, and added fseek(0) and ftruncate(0) calls after LOCK_EX, This virtually eliminates the race problems due to PHP fopen implementation. see <a href="http://bugs.php.net/bug.php?id=28371">http://bugs.php.net/bug.php?id=28371</a> and <a href="http://www.rooftopsolutions.nl/article/107">http://www.rooftopsolutions.nl/article/107</a> for reasons why this is better</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by caval ionut (daniel123) on 2008-06-26T00:20:11.000+0000</p> 
+        <div class="body">
+            <p>That seems to fix it. I have added the patch to Zend library.</p>
+
+<p>Thanks a lot</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T05:18:13.000+0000</p> 
+        <div class="body">
+            <p>I will get a contributor license agreement sent to Zend today so that the patch can be applied for 1.5.3</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T06:33:18.000+0000</p> 
+        <div class="body">
+            <p>Also, just a quick note, the likely reason Fabian didn't see the problem with his testcase, is the amount of data being cached in his testcase is small enough that it fits in the normal fwrite/fread buffers and thus minimizes the race condition a bit, using Caval's test case will hit the problem every time.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T09:47:25.000+0000</p> 
+        <div class="body">
+            <p>Also this patch improves performance greatly in the case of a php backend that does not have a particular cache id in its internal metadatas array, as it no longer rewrites the metadatas file to disk in this case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-06-26T10:41:59.000+0000</p> 
+        <div class="body">
+            <p>Can't reproduce this even with a 10 MB cache file !</p>
+
+<p>{{</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+require_once 'Zend/Cache.php';
+
+$frontendOptions = array(
+   'lifetime' =&gt; 7200
+);
+
+$backendOptions = array(
+    'cache_dir' =&gt; '/tmp/' // Directory where to put the cache files
+);
+
+$cache = Zend_Cache::factory('Core', 'File', $frontendOptions, $backendOptions);
+
+if(!$result = $cache-&gt;load('myresult')) {
+    $res = '';
+    for ($i = 0 ; $i &lt; 1000000 ; $i++) {
+        $res .= '0123456789';
+    }
+    $cache-&gt;save($res, 'myresult');
+    echo "NOT CACHED";
+} else {
+    echo "CACHED";
+}
+
+?&gt;
+
+ab -c 50 -n 1000 URL
+
+=&gt; no failed request (a "not cached" would produce a length error)
+
+{{</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-06-26T10:50:10.000+0000</p> 
+        <div class="body">
+            <p>some interesting things in the patch anyway</p>
+
+<p>I'm reviewing it</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T11:01:36.000+0000</p> 
+        <div class="body">
+            <p>The ab failed request is not what shows you the bug :-)</p>
+
+<p>activate a logger for the cache and log cached vs not cached in a log file.</p>
+
+<p>What is happening is under load, without my patch, you will get constant cache misses as the metadatas and cache files are trampled due to race conditions. see the log files I have attached to the bug.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T11:04:05.000+0000</p> 
+        <div class="body">
+            <p>2008-06-25T22:46:59+00:00 ALERT (1): &gt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): &gt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): &gt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 WARN (4): Zend_Cache_Backend_File::load() / read_control : stored hash and computed hash do not match
+2008-06-25T22:46:59+00:00 WARN (4): Zend_Cache_Core::save() / write_control : written and read data do not match
+2008-06-25T22:46:59+00:00 ALERT (1): NOT CACHED
+2008-06-25T22:46:59+00:00 ALERT (1): &lt;&lt;&lt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): NOT CACHED
+2008-06-25T22:46:59+00:00 ALERT (1): &lt;&lt;&lt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): &gt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): NOT CACHED
+2008-06-25T22:46:59+00:00 ALERT (1): &lt;&lt;&lt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): NOT CACHED
+2008-06-25T22:46:59+00:00 ALERT (1): &lt;&lt;&lt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): &gt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 ALERT (1): CACHED
+2008-06-25T22:46:59+00:00 ALERT (1): &lt;&lt;&lt;&gt;&gt;&gt;START 
+2008-06-25T22:46:59+00:00 WARN (4): Zend_Cache_Backend_File::load() / read_control : stored hash and computed hash do not match
+2008-06-25T22:46:59+00:00 ALERT (1): &gt;&gt;&gt;&gt;START 
+2008-06-25T22:47:00+00:00 ALERT (1): NOT CACHED</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T11:09:48.000+0000</p> 
+        <div class="body">
+            <p>My test case</p>
+
+<p>{{</p>
+
+<p>&lt;?php</p>
+
+<p>define('ROOT_DIR', '/var/www/test');
+set_include_path(ROOT_DIR . '/lib' . PATH_SEPARATOR . get_include_path());</p>
+
+<p>require 'Zend/Log.php';
+require 'Zend/Log/Writer/Stream.php';
+require 'Zend/Cache.php';</p>
+
+<p>$logger = new Zend_Log();
+$writer = new Zend_Log_Writer_Stream(ROOT_DIR . '/cache/log.txt');</p>
+
+<p>$logger-&gt;addWriter($writer);</p>
+
+<p>$logger-&gt;log('&gt;&gt;&gt;&gt;START ' . $session_id, 1);</p>
+
+<p>$frontendOptions = array(
+    'lifetime' =&gt; 600000,
+    'logging' =&gt; true,
+    'logger' =&gt; $logger
+);</p>
+
+<p>$backendOptions = array(
+    'cache_dir' =&gt; ROOT_DIR . '/cache/', // Directory where to put the cache files
+    'file_locking' =&gt; true
+);</p>
+
+<p>$cache = Zend_Cache::factory('Core', 'File', $frontendOptions, $backendOptions);</p>
+
+<p>if (!$result = $cache-&gt;load('myresult')) {
+    for ($i=0;$i&lt;100000;$i++) { $result .= $i . '<br />'; }
+    $cache-&gt;save($result, 'myresult');
+    $logger-&gt;log('NOT CACHED', 1);
+    echo "NOT CACHED";
+    $logger-&gt;log('&lt;&lt;&lt;&lt;END ' . $session_id, 1);
+} else {
+    $logger-&gt;log('CACHED', 1);
+    echo "CACHED"; $logger-&gt;log('&lt;&lt;&lt;&lt;END ' . $session_id, 1);
+}</p>
+
+<p>}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-06-26T14:03:24.000+0000</p> 
+        <div class="body">
+            <p>The  part of the patch "added third optional parameter to _setMetadatas, to disable writing metadata to disk, eliminating the needless rewriting of metadatas file during _getMetadatas" is commited into the trunk and into the 1.5 branch</p>
+
+<p>Other parts should be commited only into the trunk (for 1.6 release)</p>
+
+<p>Could you try the head of the 1.5 branch to see if the problem is fixed for you ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-06-26T14:11:43.000+0000</p> 
+        <div class="body">
+            <p>other part of the patch commited to the trunk (for 1.6 release)</p>
+
+<p>good job</p>
+
+<p>thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cody Pisto (cpisto) on 2008-06-26T14:27:44.000+0000</p> 
+        <div class="body">
+            <p>Tested 1.5 branch snapshot, definitely helps reduce the problem quite a bit, but does not totally eliminate it as the full patch does.</p>
+
+<p>Thanks a ton for your work, and I really look forward to the next 1.5 release and more so to 1.6!!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:33.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

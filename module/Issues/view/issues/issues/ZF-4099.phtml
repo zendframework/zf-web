@@ -1,0 +1,283 @@
+<h2>ZF-4099: Zend_Db_Adapter_Pdo_Mssql - Order By in Limit Function</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-28T00:57:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-08-24T10:50:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.2 (25/Aug/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Hashaam Siddiq (hashaam83)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-853">ZF-853</a></li>
+            <li><a href="/issues/browse/ZF-5129">ZF-5129</a></li>
+            <li><a href="/issues/browse/ZF-4996">ZF-4996</a></li>
+            <li><a href="/issues/browse/ZF-5680">ZF-5680</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In the Zend_Db_Adapter_Pdo_Mssql-&gt;limit() method there is a critical bug Order By Clause of the outer_tbl. Consider the following code:</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select()
+    -&gt;from( 'TBL', array( 'COL1', 'COL2' ) )
+    -&gt;order( array( 'COL1 ASC', 'COL2 DESC' ) );
+</code></pre>
+
+<p>Will generate following query:</p>
+
+<pre class="highlight"><code>
+SELECT        "TBL"."COL1", "TBL"."COL2"
+FROM            "TBL"
+ORDER BY   "COL1" ASC, "COL2" DESC
+</code></pre>
+
+<p>Now when limitPage is applied:</p>
+
+<pre class="highlight"><code>
+$select = $db-&gt;select()
+    -&gt;from( 'TBL', array( 'COL1', 'COL2' ) )
+    -&gt;order( array( 'COL1 ASC', 'COL2 DESC' ) )
+    -&gt;limitPage( 2, 50 );
+</code></pre>
+
+<p>will generate the following query:</p>
+
+<pre class="highlight"><code>
+SELECT         * 
+FROM             (     
+                            SELECT         TOP 50 * 
+                            FROM             (
+                                                           SELECT          TOP 100 "TBL"."COL1", 
+                                                                                     "TBL"."COL2" 
+                                                           FROM               "TBL" 
+                                                           ORDER BY      "COL1" ASC, 
+                                                                                     "COL2" DESC
+                                                      ) AS inner_tbl 
+                            ORDER BY     "COL1" , 
+                                                     "COL2" ASC
+                         ) AS outer_tbl 
+ORDER BY    "COL1" , 
+                         "COL2" desc
+</code></pre>
+
+<p>Now here is the problem. As you can see in the innermost query the order by section is correct, ASC on COL1 and DESC on COL2 the same should be applied on all the outer tables but in reverse order. By doing this, then only we will get the correct result for the next page.</p>
+
+<p>So, the correct query should be:</p>
+
+<pre class="highlight"><code>
+SELECT         * 
+FROM             (     
+                            SELECT         TOP 50 * 
+                            FROM             (
+                                                           SELECT          TOP 100 "TBL"."COL1", 
+                                                                                     "TBL"."COL2" 
+                                                           FROM               "TBL" 
+                                                           ORDER BY      "COL1" ASC, 
+                                                                                     "COL2" DESC
+                                                      ) AS inner_tbl 
+                            ORDER BY     "COL1" DESC, 
+                                                     "COL2" ASC
+                         ) AS outer_tbl 
+ORDER BY    "COL1"  asc, 
+                         "COL2" desc
+</code></pre>
+
+<p>To fix this issue, I have reviewed the limit function of the Zend_Db_Adapter_Pdo_Mssql class which is:</p>
+
+<pre class="highlight"><code>
+     /**
+     * Adds an adapter-specific LIMIT clause to the SELECT statement.
+     *
+     * @link <a href="http://lists.bestpractical.com/pipermail/rt-devel/2005-June/007339.html">http://lists.bestpractical.com/pipermail/rt-devel/…</a>
+     *
+     * @param string $sql
+     * @param integer $count
+     * @param integer $offset OPTIONAL
+     * @throws Zend_Db_Adapter_Exception
+     * @return string
+     */
+     public function limit($sql, $count, $offset = 0)
+     {
+        $count = intval($count);
+        if ($count &lt;= 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument count=$count is not valid");
+        }
+
+        $offset = intval($offset);
+        if ($offset &lt; 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument offset=$offset is not valid");
+        }
+
+        $orderby = stristr($sql, 'ORDER BY');
+        if ($orderby !== false) {
+            $sort = (stripos($orderby, ' desc') !== false) ? 'desc' : 'asc';
+            $order = str_ireplace('ORDER BY', '', $orderby);
+            $orderInv = str_ireplace( 'asc', 'desc', $orderOrig );
+            $order = trim(preg_replace('/\bASC\b|\bDESC\b/i', '', $order));
+        }
+
+        $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);
+
+        $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+        if ($orderby !== false) {
+            $sql .= ' ORDER BY ' . $order . ' ';
+            $sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
+        }
+        $sql .= ') AS outer_tbl';
+        if ($orderby !== false) {
+            $sql .= ' ORDER BY ' . $order . ' ' . $sort;
+        }
+        
+        return $sql;
+    }
+</code></pre>
+
+<p>// ------------------------------------------------------------------------------</p>
+
+<p>And a fixed version of this function from my side:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Adds an adapter-specific LIMIT clause to the SELECT statement.
+     *
+     * @link <a href="http://lists.bestpractical.com/pipermail/rt-devel/2005-June/007339.html">http://lists.bestpractical.com/pipermail/rt-devel/…</a>
+     *
+     * @param string $sql
+     * @param integer $count
+     * @param integer $offset OPTIONAL
+     * @throws Zend_Db_Adapter_Exception
+     * @return string
+     */
+     public function limit($sql, $count, $offset = 0)
+     {
+        $count = intval($count);
+        if ($count &lt;= 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument count=$count is not valid");
+        }
+
+        $offset = intval($offset);
+        if ($offset &lt; 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument offset=$offset is not valid");
+        }
+
+        $orderOrig  = '';
+        $orderInv   = '';
+        
+        $orderby = stristr($sql, 'ORDER BY');
+        if ($orderby !== false) {
+            $sort = (stripos($orderby, ' desc') !== false) ? 'desc' : 'asc';
+            $order = str_ireplace('ORDER BY', '', $orderby);
+            //$orderInv = str_ireplace( 'asc', 'desc', $orderOrig );
+            //$order = trim(preg_replace('/\bASC\b|\bDESC\b/i', '', $order));
+            
+            $orderOrig  = $order; // order by in original form
+            $orderInv   = $orderOrig; // order by in inverse form (sort orders of each columns will be reversed)
+            
+            $orderInv = str_ireplace( 'DESC',   'DESC1',    $orderInv ); // change DESC to DESC1 so later we can change this to ASC
+            $orderInv = str_ireplace( 'ASC',    'DESC',     $orderInv ); // change ASC to DESC
+            $orderInv = str_ireplace( 'DESC1',  'ASC',      $orderInv ); // change DESC1 to ASC now
+        }
+
+        $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);
+
+        $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+        if ($orderby !== false) {
+            //$sql .= ' ORDER BY ' . $order . ' ';
+            //$sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
+            $sql .= ' ORDER BY ' . $orderInv . ' ';
+        }
+        $sql .= ') AS outer_tbl';
+        if ($orderby !== false) {
+            //$sql .= ' ORDER BY ' . $order . ' ' . $sort;
+            $sql .= ' ORDER BY ' . $orderOrig;
+        }
+        
+        return $sql;
+    }
+</code></pre>
+
+<p>Hope this is resolved in upcoming version of Zend Framework</p>
+
+<p>Thanks,</p>
+
+<p>Hashaam</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-10-05T14:24:07.000+0000</p> 
+        <div class="body">
+            <p>Fixed component assignment</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by old of Satoru Yoshida (yoshida@zend.co.jp) on 2009-05-30T19:45:03.000+0000</p> 
+        <div class="body">
+            <p>I have one question.</p>
+
+<p>If You would use 3 or more orders, your plan could runs good?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-21T06:36:23.000+0000</p> 
+        <div class="body">
+            <p>A fix has been provided in r17706, please test.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-24T10:50:00.000+0000</p> 
+        <div class="body">
+            <p>Fixed in release branch 1.9</p>
+
+        </div>
+    </div>
+    </div>
+

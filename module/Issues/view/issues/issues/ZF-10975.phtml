@@ -1,0 +1,167 @@
+<h2>ZF-10975: Zend_Loader::loadFile() doesn't throw an exception as mentioned when file doesn't exist</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-21T03:24:09.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-02-01T09:52:49.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Strict Coding (strictcoding)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The Zend_Loader::loadFile() is documented as :
+@throws Zend_Exception</p>
+
+<p>But it doesn't throw any exception if the file doesn't exist.
+Instead, PHP just dies with a fatal error.</p>
+
+<p>This is problematic because we can't catch an exception this way:</p>
+
+<p>try {
+  Zend_Loader::loadClass('ExampleController');
+}
+catch (Zend_Exception $e) {
+  ...
+}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-01-22T12:11:42.000+0000</p> 
+        <div class="body">
+            <p>The exception throw is through of the called Zend_Loader::_securityCheck() that validates filename.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-01-22T16:15:52.000+0000</p> 
+        <div class="body">
+            <p>Whilst it indeed validates the file name as being secure, it doesn't check that the file does exist and is readable prior to include it.</p>
+
+<p>Instead, when the class file cannot be found, include() just issues a PHP warning, and no exception is thrown, so we can't catch it to handle this error gracefully!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-01-24T05:01:44.000+0000</p> 
+        <div class="body">
+            <p>In the use case shown in the description, however, you <em>will</em> get an exception, as loadClass() <em>does</em> raise an exception if the class is not found.</p>
+
+<p>We <em>used</em> to throw exceptions within loadFile(). However, it was problematic. In particular, while include will return a boolean false when unable to load the script, if a script is found, and also returns a boolean false, then you get a false negative. This means there is no tried-and-true way to ensure you know whether or not the operation was successful, unless you perform a test against functionality you know the file provides. (This latter is what loadClass() is doing -- it's checking if the class requested is present after a file has been include'd.)</p>
+
+<p>The only meaningful exception we can throw at this time is the security exception for malformed filenames.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-01-24T07:43:52.000+0000</p> 
+        <div class="body">
+            <p>My mistake, the exception is indeed thrown through the class_exists() test.
+However, we still get a PHP warning stating that the file doesn't exist, which breaks the layout in development mode, and fills the log in production mode.</p>
+
+<p>I understand the argument about the return value of include() (although I can't see why a class file would "return false"), so can't we just check if the file is readable prior to include it?</p>
+
+<p>Something like:</p>
+
+<p>function isIncludable($file)
+{
+    $paths = explode(PATH_SEPARATOR, get_include_path());
+    foreach ($paths as $path) {
+        if (is_readable("$path/$file")) return true;<br />
+    }
+    return false;
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-01-24T11:49:03.000+0000</p> 
+        <div class="body">
+            <p>Because that's really, really horrible from a performance perspective. You're guaranteed at least two I/O stat calls for each file you try and load this way -- versus 1 (or 0, if the realpath cache is hit) by include().</p>
+
+<p>I understand your frustration, but with code such as this which executes dozens if not hundreds of times on each request, stat calls get to be an expensive part of the overall process, and negatively impact performance.</p>
+
+<p>For what it's worth, this situation will be fixed for ZF2 -- in fact, it's already fixed in ZF2. However, we can't backport the solution to ZF1 as the solutions are backwards incompatible.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-02-01T08:18:08.000+0000</p> 
+        <div class="body">
+            <p>Thanks for your answer, Matthew. I just supposed that we could have another function to test that manually, just in case we need it, not for every class.</p>
+
+<p>But eventually I figured out how the PHP warnings can be ignored with a simple @ symbol, and everything's working fine!</p>
+
+<p>try {
+    @ Zend_Loader::loadClass($controller, $this-&gt;getFrontController()-&gt;getControllerDirectory());
+}
+catch (Zend_Exception $e) {
+    // ...
+}</p>
+
+<p>Maybe these @ could be included in front of the @include and @include_once in the Zend_Loader::loadFile() method?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2011-02-01T09:07:55.000+0000</p> 
+        <div class="body">
+            <p>No. :)</p>
+
+<p>We used to, but it makes it near-impossible to debug when a class has not been found. Instead, users get a "white screen of death" with no useful information about what caused it. By omitting the silence operators, that situation does not occur.</p>
+
+<p>Additionally, error suppression is really, really expensive at the engine level, particularly with the large number of calls to these particular functions within the framework.</p>
+
+<p>Combined, these are excellent reasons <em>never</em> to use error suppression on these methods -- and they are why we don't today.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Strict Coding (strictcoding) on 2011-02-01T09:52:49.000+0000</p> 
+        <div class="body">
+            <p>Then I'm looking forward to the ZF2 solution!
+Because right now, it's difficult to find a graceful solution when writing our own routing code.
+Keep up the hard work! ;)</p>
+
+        </div>
+    </div>
+    </div>
+

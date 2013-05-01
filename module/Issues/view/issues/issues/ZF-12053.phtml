@@ -1,0 +1,165 @@
+<h2>ZF-12053: The 'Identical' validator on a Form's text element appears to compare filtered to unfiltered value.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-02-11T03:45:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-13T23:47:18.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Rich Peterson (sootsnoot)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+            <li>Zend_Validate</li>
+            <li>zend-form-element</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>We use lowercased email addresses for account names.  Creating a new account involves a form with two text fields for email address, the second one to confirm spelling.  Since we lowercase the names anyway for storage (we don't want to allow different accounts to differ only in alphabetic case), we use the StringToLower filter on both fields.  But when we use the Identical validator on the confirmation field, specifying the token to compare to as the email field, I've verified with Xdebug that the validator compares the filtered value of the token (email) field to the unfiltered value of the confirmation field.  The end result for a user that tends to spell their email address in mixed case is that the validation always fails, but when the form re-displays with the error message, in fact the original field and the confirmation field show as being identical because by that time both have been filtered.  If this isn't a bug in the code, it surely deserves some mention in the documentation...</p>
+
+<p>Here is the code we were using:</p>
+
+<pre class="literal">
+    $email = new Zend_Form_Element_Text('email');
+    $email-&gt;setLabel('Email ');
+    $email-&gt;setOptions(array('class' =&gt; 'field-input-signup'))
+          -&gt;setRequired(true)
+          -&gt;addFilter('StringToLower')
+          -&gt;addFilter('StringTrim')
+          -&gt;addValidator('NotEmpty', true,array(
+            'messages' =&gt; array(
+              Zend_Validate_NotEmpty::IS_EMPTY
+                =&gt; $this-&gt;getView()-&gt;translate("Please enter email address"))))
+          -&gt;addValidator('EmailAddress', true);
+
+    $cemail = new Zend_Form_Element_Text('cemail');
+    $cemail-&gt;setLabel('Confirm Email ');
+    $cemail-&gt;setOptions(array('class' =&gt; 'field-input-signup'))
+           -&gt;setRequired(true)
+           -&gt;addFilter('StringToLower')
+           -&gt;addFilter('StringTrim')
+           -&gt;addValidator('NotEmpty', true,array(
+             'messages' =&gt; array(
+               Zend_Validate_NotEmpty::IS_EMPTY
+                 =&gt; $this-&gt;getView()-&gt;translate("Please enter confirm email address"))))
+           -&gt;addValidator('Identical', false, array(
+             'token' =&gt; 'email',
+             'messages' =&gt; array(
+                Zend_Validate_Identical::NOT_SAME
+                  =&gt; $this-&gt;getView()-&gt;translate(
+                     "'Email' and 'Confirm Email' do not match. Please try again."))));
+</pre>
+
+<p>IMHO, given the name 'Identical', I would expect it always to compare the unfiltered values.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-22T21:38:53.000+0000</p> 
+        <div class="body">
+            <p>I don't have much experience with Zend_Form, so I may be doing it wrong, but I am seeing a different problem against trunk: even identical lowercased value comparisons fail.  When I run this unit test, which is very similar to your reproduction case:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/ElementTest.php
+===================================================================
+--- tests/Zend/Form/ElementTest.php     (revision 24624)
++++ tests/Zend/Form/ElementTest.php     (working copy)
+@@ -2189,6 +2189,27 @@
+         $validator = $username-&gt;getValidator('regex');
+         $this-&gt;assertTrue($validator-&gt;zfBreakChainOnFailure);
+     }
++
++    /**
++     * @group ZF-12053
++     */
++    public function testIdenticalValidatorComparesFilteredFormElementValuesCorrectly()
++    {
++        $f1 = new Zend_Form_Element('f1');
++        $f1-&gt;addFilter('StringToLower');
++
++        $f2 = new Zend_Form_Element('f2');
++        $f2-&gt;addFilter('StringToLower')
++           -&gt;addValidator('Identical', false, array(
++               'token' =&gt; 'f1',
++           ));
++
++        $form = new Zend_Form(array('elements' =&gt; array($f1,$f2)));
++        // Identically-cased values matching filtered result entered in each field
++        $this-&gt;assertTrue($form-&gt;isValid(array('f1'=&gt;'foobar', 'f2'=&gt;'foobar')));
++        // Differently-cased values entered in each field
++        $this-&gt;assertTrue($form-&gt;isValid(array('f1'=&gt;'FooBar', 'f2'=&gt;'FOOBAR')));
++    }
+ }
+
+ class Zend_Form_ElementTest_Decorator extends Zend_Form_Decorator_Abstract
+</code></pre>
+
+<p>I get a failure at the first assert.  Even when I follow the exact example in the manual (<a href="http://framework.zend.com/manual/en/zend.validate.set.html#zend.validate.set.identical.formelements">here</a>) I get the same result.</p>
+
+<p>bq. IMHO, given the name 'Identical', I would expect it always to compare the unfiltered values.</p>
+
+<p>I don't see any mention of it in the manual, but the docblock for Zend_Form_Element::isValid has this:</p>
+
+<pre class="highlight"><code>
+Note: The *filtered* value is validated.
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kristofer Karlsson (grizzm0) on 2012-03-10T08:08:53.000+0000</p> 
+        <div class="body">
+            <p>I just noticed this on my own site and I too found it weird that the identical field is validated against the unfiltered value.
+Using StringToLower as filter and identical validator on field2 I'll add some examples below.</p>
+
+<p>Fails as field2 will be validated as "test" against "TEST" from field1.
+Field1: TEST
+Field2: TEST</p>
+
+<p>Fails as field2 will be validated as "test" against "Test" from field1.
+Field1: Test
+Field2: test</p>
+
+<p>Success as both fields will be "test" during validation.
+Field1: test
+Field2: Test</p>
+
+        </div>
+    </div>
+    </div>
+

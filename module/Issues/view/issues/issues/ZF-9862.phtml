@@ -1,0 +1,199 @@
+<h2>ZF-9862: Zend_Form get/setElementsBelongTo() doing bad</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-05-19T13:09:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-05-21T17:36:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                boris (jer)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9593">ZF-9593</a></li>
+            <li><a href="/issues/browse/ZF-9863">ZF-9863</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I saw this patch [ZF-9593] and something wrong with it</p>
+
+<p>If both form and it's subform set isArray(true)</p>
+
+<pre class="highlight"><code>
+$form = new Zend_Form(array(
+    'name' =&gt; 'main',
+    'isArray' =&gt; true,
+
+    'subforms' =&gt; array(
+        'subform1' =&gt; new Zend_Form_SubForm(array(
+            'name' =&gt; 'sub1',
+            'isArray' =&gt; true,
+
+            'elements' =&gt; array(
+                array(
+                    'text',
+                    'test',
+                    array('required' =&gt; true)
+                )
+            )
+        )
+    ))
+));
+
+$subform2 = new Zend_Form_SubForm(array(
+    'isArray' =&gt; true,
+    'name' =&gt; 'sub2')
+);
+
+$subform2-&gt;addElement(
+    'text',
+    'test',
+    array('required' =&gt; true)
+);
+
+$form
+    -&gt;addSubForm($subform2, 'subform2')
+    -&gt;addDecorator('FormErrors')
+    -&gt;isValid(array())
+;
+
+print '</code></pre><pre><code>';
+print_r($messages = $form-&gt;getMessages());
+// output:
+//    [main] =&gt; Array
+//            [subform1] =&gt; Array
+//                    [test] =&gt; Array
+//                            [isEmpty] =&gt; Value is required and can't be empty
+//            [subform2] =&gt; Array
+//                    [test] =&gt; Array
+//                            [isEmpty] =&gt; Value is required and can't be empty
+// all fine!
+
+print_r($values = $form-&gt;getValues());
+//    [main] =&gt; Array
+//            [subform1] =&gt; Array
+//                    [test] =&gt; ""
+//            [subform2] =&gt; Array
+//                    [sub2] =&gt; Array       // extra level !!!
+//                            [test] =&gt; ""
+
+// formElements decorator calls to setElementsBelongTo() many times
+$form-&gt;renderFormElements();
+
+print_r($messages2 = $form-&gt;getMessages());
+//    [main] =&gt; Array
+//            [main] =&gt; Array       // not a typo - its repeated !!!
+//                    [subform1] =&gt; Array
+//                            [test] =&gt; Array
+//                                    [isEmpty] =&gt; Value is required and can't be empty
+//                    [subform2] =&gt; Array
+//                            [test] =&gt; Array
+//                                    [isEmpty] =&gt; Value is required and can't be empty
+
+print_r($values2 = $form-&gt;getValues());
+//    [main] =&gt; Array
+//            [main] =&gt; Array       // !!!
+//                    [subform1] =&gt; Array
+//                            [test] =&gt; 
+//                    [subform2] =&gt; Array
+//                            [test] =&gt; 
+
+// will render nothing after FormElements decorator cause getMessages() returns garbage
+$form-&gt;renderFormErrors();
+print '</code></pre><code>';
+
+</code>
+
+<p>tested with subforms set isArray(false) - results are the same</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-05-20T15:30:56.000+0000</p> 
+        <div class="body">
+            <p>First problem, the extra array levels fixed in r22217 and merged into 1.10 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-05-21T08:52:08.000+0000</p> 
+        <div class="body">
+            <p>The second, the repeated array keys, is a result of the lines</p>
+
+<pre class="highlight"><code>
+...
+        if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray()) {
+            $messages = $this-&gt;_attachToArray($messages, $this-&gt;getElementsBelongTo());
+        }
+...
+</code></pre>
+
+<p>which after calling renderFormElements cause the returned array to have repeated main keys.</p>
+
+<p>A workaround could be to call $form-&gt;getMessages(null, true) to suppress Array Notation,
+cannot think of an easy solution at the moment.</p>
+
+<p>The questions that arise are:
+- why do you need to set isArray on the main form?
+- why do you have to call renderFormElements before getValues and getMessages?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by boris (jer) on 2010-05-21T12:10:11.000+0000</p> 
+        <div class="body">
+            <ol><li><p>I have 3 main forms on the page which are actually same form with different set of subforms and these are zend_dojo_forms - subforms are rendered in a contentpane decorator (and I can't remove it - I need it for my client-site js) and if subforms have the same name contentpanes have the same id and dojo throws 'duplicate identifier'. To not to invent a new name for the same subform in each main form, I've set main form isArray to prepend all fields with it's name.</p></li>
+<li><p>FormErrors decorator calls to getMeassages(). I've just added it to form, and it was pushed last in decorators chain far after FormElements. And when nothing was rendered I've started to dig to this bug.</p></li>
+</ol>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by boris (jer) on 2010-05-21T12:18:19.000+0000</p> 
+        <div class="body">
+            <p>P.S. anyway even if I've removed a contentpane decorator - elements in subforms would have duplicating ids - so no workaround, only setting different names by any means</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-05-21T17:36:44.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r22238 and merged into release branch</p>
+
+        </div>
+    </div>
+    </div>
+

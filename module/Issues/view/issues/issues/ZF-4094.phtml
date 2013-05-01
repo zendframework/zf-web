@@ -1,0 +1,145 @@
+<h2>ZF-4094: Row count column not found Error</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-08-27T12:52:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-10-10T19:26:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.2 (13/Oct/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Eric Hokanson (pceric)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3809">ZF-3809</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Getting this regression in v1.6.0RC3 in Zend_Paginator with the DbSelect adapter.  Works fine with previous 1.6.0RC versions.</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Paginator_Exception' with message 'Row count column not found' in /var/www/ZendFramework-1.6.0RC3/library/Zend/Paginator/Adapter/DbSelect.php:102 Stack trace: #0 /var/www/ZendFramework-1.6.0RC3/library/Zend/Paginator/Adapter/DbSelect.php(175): Zend_Paginator_Adapter_DbSelect-&gt;setRowCount(Object(Zend_Db_Select)) #1 /var/www/ZendFramework-1.6.0RC3/library/Zend/Paginator.php(702): Zend_Paginator_Adapter_DbSelect-&gt;count() #2 /var/www/ZendFramework-1.6.0RC3/library/Zend/Paginator.php(476): Zend_Paginator-&gt;_calculatePageCount() #3 /var/www/html/working/stones/index.php(73): Zend_Paginator-&gt;setItemCountPerPage(20) #4 {main} thrown in /var/www/ZendFramework-1.6.0RC3/library/Zend/Paginator/Adapter/DbSelect.php on line 102</p>
+
+<p>Sample code:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+    require_once 'Zend/Paginator.php';
+    require_once 'Zend/Db.php';
+
+    try {
+        $db = Zend_Db::factory('Mysqli', array(
+            'host'     =&gt; 'localhost',
+            'username' =&gt; 'name',
+            'password' =&gt; 'pass',
+            'dbname'   =&gt; 'message_stones',
+        ));
+        $db-&gt;getConnection();
+    } catch (Zend_Db_Adapter_Exception $e) {
+        die($e-&gt;getMessage());
+    }
+
+    $select = $db-&gt;select()-&gt;from('messages', array('id', 'name', 'message_line_1', 'wall', 'wall_row', 'wall_column'))-&gt;where("message_line_1 = ?", 'Smith');
+    $paginator = Zend_Paginator::factory($select);
+    $paginator-&gt;setItemCountPerPage(20);
+    $paginator-&gt;setCurrentPageNumber(1);
+    $view-&gt;paginator = $paginator;
+?&gt;
+</code></pre>
+
+<p>UPDATE:  Okay, I had some time to debug it a bit.  It looks like the fix for ZF-4001 broke it (revision 10942).  Your your trying to cast an Zend_Db_Expr Object to a string which is a no go.  Some dirty looking code there, I'm not sure how it works for anyone.  This fixes it:</p>
+
+<pre class="highlight"><code>
+--- ZendFramework-1.6.1/library/Zend/Paginator/Adapter/DbSelect.php     2008-08-22 15:01:20.000000000 -0600
++++ ZendFramework-1.6.1-Fixed/library/Zend/Paginator/Adapter/DbSelect.php       2008-09-18 01:35:04.000000000 -0600
+@@ -92,8 +92,8 @@
+     {
+         if ($rowCount instanceof Zend_Db_Select) {
+             $columns = $rowCount-&gt;getPart(Zend_Db_Select::COLUMNS);
+-
+-            if (false === strpos((string) $columns[0][1], self::ROW_COUNT_COLUMN)) {
++
++            if (false === strpos($columns[0][1]-&gt;__toString(), self::ROW_COUNT_COLUMN)) {
+                 /**
+                  * @see Zend_Paginator_Exception
+                  */
+
+</code></pre>
+
+<p>Ah, the problem is a pre PHP 5.2.0 bug as stated in the PHP docs:
+{quote}
+It is worth noting that before PHP 5.2.0 the __toString  method was only called when it was directly combined with echo() or print().
+{quote}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-08-31T04:11:01.000+0000</p> 
+        <div class="body">
+            <p>Could you provide some sample code?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Luke Visinoni (nozavroni) on 2008-09-09T15:18:17.000+0000</p> 
+        <div class="body">
+            <p>I'm having this same issue. In RC2 I had to specify the from() in the select even if the select came from Zend_Db_Table, then in the final 1.6 release, it throws this exception.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-09-13T02:48:46.000+0000</p> 
+        <div class="body">
+            <p>I seem to be unable to reproduce this issue. Luke, could you perhaps provide some sample code as well?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-09-18T00:26:07.000+0000</p> 
+        <div class="body">
+            <p>Hmm... I must've overlooked the fact that it's a Zend_Db_Expr. Still, casting to a string should call __toString just the same. Anyway, thanks for this. I'll have a look at a fix in about an hour from posting this comment :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-09-18T05:57:14.000+0000</p> 
+        <div class="body">
+            <p>Resolved in revision 11426</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,217 @@
+<h2>ZF-7430: Loading ini-file form reads all data as strings causing error when JSON encoding for zend_dojo_forms</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-07-31T06:15:04.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Max Gordon (mgordon)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Config</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When reading a ini-file the Zend_Config_Ini::_processKey has only a save:</p>
+
+<pre class="highlight"><code>
+$config[$key] = $value;
+</code></pre>
+
+<p>this should be changed to:</p>
+
+<pre class="highlight"><code>
+if (is_numeric($value)){
+    $config[$key] = floatval($value);
+}else{
+    $config[$key] = $value;
+}
+</code></pre>
+
+<p><em>Background</em>
+When using forms loaded from ini-files the options are transformed into JSON:s if they're complex. When strings are converted they create:</p>
+
+<pre class="highlight"><code>
+array(4) {
+  ["min"]=&gt;
+  string(1) "0"
+  ["max"]=&gt;
+  string(1) "4"
+  ["places"]=&gt;
+  string(1) "1"
+  ["pattern"]=&gt;
+  string(9) "##0.## cm"
+}
+string(56) "{"min":"0","max":"4","places":"1","pattern":"##0.## cm"}"
+</code></pre>
+
+<p>After suggested fix:</p>
+
+<pre class="highlight"><code>
+array(4) {
+  ["min"]=&gt;
+  float(0)
+  ["max"]=&gt;
+  float(4)
+  ["places"]=&gt;
+  float(1)
+  ["pattern"]=&gt;
+  string(9) "##0.## cm"
+}
+string(50) "{"min":0,"max":4,"places":1,"pattern":"##0.## cm"}"
+</code></pre>
+
+<p><em>Previous bug report - the code that caused it</em>
+The constraints should look like this for dojo to handle them correctly:
+constraints="{min:0,max:100,places:1}"</p>
+
+<p>Zend_Dojo creates this:
+constraints="{'min':'0','max':'100','places':'1'}"</p>
+
+<p>Places and min work but max is ignored. Here's my test-code:</p>
+
+<pre class="highlight"><code>
+[test_element_form]
+; general form metainformation
+demo.test_element_form.method = "post"
+demo.test_element_form.class = "zend_form"
+
+; number element
+demo.test_element_form.elements.number.type = "NumberTextBox"
+demo.test_element_form.elements.number.options.label = "number"
+demo.test_element_form.elements.number.options.constraints.min = 0
+demo.test_element_form.elements.number.options.constraints.max = 100
+demo.test_element_form.elements.number.options.constraints.places = 1
+demo.test_element_form.elements.number.options.smallDelta = "1"
+demo.test_element_form.elements.number.options.largeDelta = "10"
+
+
+; submit element
+demo.test_element_form.elements.submit.type = "submit"
+demo.test_element_form.elements.submit.name = "save"
+</code></pre>
+
+<pre class="highlight"><code>
+public function testAction(){
+    $config = new Zend_Config_Ini('../config/demo_forms.ini', 'test_element_form');
+    Zend_Loader::loadClass('Zend_Dojo_Form');
+    $form  = new Zend_Dojo_Form($config-&gt;demo-&gt;test_element_form);
+    
+    $this-&gt;view-&gt;form = $form-&gt;render();
+}
+</code></pre>
+
+<p><em>Quick fix</em>
+In <em>Zend_Dojo_View_Helper_Dijit::_prepareDijit(array $attribs, array $params, $type, $dijit = null)</em> change:</p>
+
+<pre class="highlight"><code>
+...
+// Normalize constraints, if present// Normalize constraints, if present
+foreach ($this-&gt;_jsonParams as $param) {
+    if (array_key_exists($param, $params)) {
+        require_once 'Zend/Json.php';
+
+        if (is_array($params[$param])) {
+            $values = array();
+            foreach ($params[$param] as $key =&gt; $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $values[$key] = $value;
+            }
+        } elseif (is_string($params[$param])) {
+            $values = (array) $params[$param];
+        } else {
+            $values = array();
+        }
+        $values = Zend_Json::encode($values);
+        if ($this-&gt;_useDeclarative()) {
+            $values = str_replace('"', "'", $values);
+        }
+        $params[$param] = $values;
+    }
+}
+</code></pre>
+
+<p>to</p>
+
+<pre class="highlight"><code>
+// Normalize constraints, if present
+foreach ($this-&gt;_jsonParams as $param) {
+    if (array_key_exists($param, $params)) {
+        require_once 'Zend/Json.php';
+
+        if (is_array($params[$param])) {
+            $values = array();
+            foreach ($params[$param] as $key =&gt; $value) {
+                if (!is_scalar($value)) {
+                    continue;
+                }
+                $values[$key] = $value;
+            }
+        } elseif (is_string($params[$param])) {
+            $values = (array) $params[$param];
+        } else {
+            $values = array();
+        }
+        $values = Zend_Json::encode($values);
+        if ($this-&gt;_useDeclarative()) {
+            $values = str_replace('"', "'", $values);
+        }
+        if ($param == "constraints"){
+            $values = str_replace('\'', "", $values);
+            $values = str_replace('"', "", $values);
+        }
+        $params[$param] = $values;
+    }
+}
+</code></pre>
+
+<p>I think the if($param == "constraints") probably is unnecessary but I'm a little unsure. I guess the real problem is Zend_Json::encode() but I have no experience of how it works and this fix works although it's not the prettiest</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Max Gordon (mgordon) on 2009-08-01T06:24:28.000+0000</p> 
+        <div class="body">
+            <p>Found the bug, se above for suggested fix</p>
+
+        </div>
+    </div>
+    </div>
+

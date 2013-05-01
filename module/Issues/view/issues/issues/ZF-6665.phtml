@@ -1,0 +1,182 @@
+<h2>ZF-6665: Metadata for tables from a different catalog in MSSQL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-14T19:37:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-02-10T16:18:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alexandre Gomes Gaigalas (alganet)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12167/Mssql.php.patch">Mssql.php.patch</a></li>
+            <li><a href="/issues/secure/attachment/12162/Mssql.php.patch">Mssql.php.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>MSSQL servers can handle queries against multiple databases. Also, MSSQL works with schemas, so the tables could be organized in the following manner:</p>
+
+<p>-Database Foo
+-----Schema Bar
+---------Table Baz
+-Database Sample
+-----Schema Zend
+---------Table Framework</p>
+
+<p>Using any database, presuming you have the appropriate permissions, you can do the following query:</p>
+
+<p>SELECT
+    baz.column
+FROM
+    foo.bar.baz
+INNER JOIN
+    sample.zend.framework
+    ON baz.some_key = framework.some_key</p>
+
+<p>Note that it is not possible to do the following:</p>
+
+<p>sp_columns 'foo.bar.baz'
+sp_columns 'sample.zend.framework'</p>
+
+<p>In order to obtain a list of columns from a table, you have to be on that table original database, like this:</p>
+
+<p>USE foo;
+sp_columns 'baz', 'bar';
+USE sample;
+sp_columns 'framework', 'zend';</p>
+
+<p>I'm currently using workarounds in my applications to circumvent this limitation:</p>
+
+<p>$db-&gt;exec('USE foo;'); //Changes current database
+$barBazTable-&gt;fetchAll(); //Can normally fetch metadata under the right context
+$db-&gt;exec('USE sample;'); 
+$zendFrameworkTable-&gt;fetchAll();</p>
+
+<p>My current approach doesn't work with tables with the same name in different schemas (sales.people, employees.people).</p>
+
+<p>My Zend_Db_Table objects also had they "$_schema" properties with the whole schema identifier, including database name ('foo.bar', 'sample.zend', etc..). These works fine.</p>
+
+<p>I think the "USE" statements should be called while describing the table (sp_columns, sp_pkeys, etc...) inside Zend_Db_Adapter_Pdo_Mssql, and then restored to the original database (specified on connection).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexandre Gomes Gaigalas (alganet) on 2009-08-22T22:48:08.000+0000</p> 
+        <div class="body">
+            <p>Changes in the sp_columns syntax</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-26T07:47:30.000+0000</p> 
+        <div class="body">
+            <p>I think it would be bad practice to execute a USE during the lifetime of an application.  This would effectively be changing the context of the primary adapter.  When other sections of code attempt to execute with the primary adapter, they might be assuming they are still in fact using the schema/database that was outlined in the connection information.  That said, I think its important that whatever schema/database was originally attached to be the adapter's primary context with regard to queries.</p>
+
+<p>So, is it right to assume that you are talking about Zend_Db_Adapter_Pdo_Mssql::describeTable()?  If so, what benefit do we see when using USE prior to calling our describeTable query?  Is there really no way to get the data about a table in another schema without using USE, for example by crafting a different query?</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexandre Gomes Gaigalas (alganet) on 2009-08-26T13:11:17.000+0000</p> 
+        <div class="body">
+            <p>I did some research, and seems to be pretty simple:</p>
+
+<p>Instead of:</p>
+
+<p>sp_columns @table_name = 'the_table_name', @table_owner = 'the_table_owner'</p>
+
+<p>and</p>
+
+<p>sp_pkeys @table_name = 'the_table_name', @table_owner = 'the_table_owner'</p>
+
+<p>Just prefix it with the catalog name and two dots:</p>
+
+<p>catalog_name..sp_columns @table_name = 'the_table_name', @table_owner = 'the_table_owner'
+catalog_name..sp_pkeys @table_name = 'the_table_name', @table_owner = 'the_table_owner'</p>
+
+<p>I tested theses statements in SQL Server 2005. I'm Working on a patch right now...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexandre Gomes Gaigalas (alganet) on 2009-08-26T13:27:32.000+0000</p> 
+        <div class="body">
+            <p>Updating the versions affected</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-26T13:37:28.000+0000</p> 
+        <div class="body">
+            <p>excellent, please post patch when you got one, thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexandre Gomes Gaigalas (alganet) on 2009-08-26T14:22:36.000+0000</p> 
+        <div class="body">
+            <p>Patch attached to the issue. Thanks to <a href="http://framework.zend.com/issues/secure/ViewProfile.jspa?name=jaysonsantos">Jayson Reis</a> for the help creating it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jayson Santos dos Reis (jaysonsantos) on 2009-08-26T14:53:12.000+0000</p> 
+        <div class="body">
+            <p>Another good patch which is left a some time is this <a href="http://framework.zend.com/issues/browse/ZF-6666">http://framework.zend.com/issues/browse/ZF-6666</a>
+I will solve problems between linux and windows drivers.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jayson Santos dos Reis (jaysonsantos) on 2009-08-28T06:49:14.000+0000</p> 
+        <div class="body">
+            <p>Consider just the second one because the first was missing a "." at line 25.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jayson Santos dos Reis (jaysonsantos) on 2009-08-28T07:38:16.000+0000</p> 
+        <div class="body">
+            <p>Strange, files attachment is not incremental, so, the working patch is the first one.</p>
+
+        </div>
+    </div>
+    </div>
+

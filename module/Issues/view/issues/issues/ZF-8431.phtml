@@ -1,0 +1,159 @@
+<h2>ZF-8431: Cache_Backend_TwoLevels: auto_refresh_fast_cache always saves fast backend</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-12-01T07:00:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-12-04T23:51:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Niko Sams (nikosams)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Satoru Yoshida (satoruyoshida)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7972">ZF-7972</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The current behaviour of auto_refresh_fast_cache is that it saves on every load. Saving is much slower (at least for memache) than loading, so this should be avoided whenever possible.</p>
+
+<p>I'd prefer cache misses from time to time for the slow backend and loading from slowBackend over always saving to fastBackend.</p>
+
+<p>Possible solution:</p>
+
+<pre class="highlight"><code>
+Index: /var/www/vpcms/library/zend/1.9.0/Zend/Cache/Backend/TwoLevels.php
+===================================================================
+--- /var/www/vpcms/library/zend/1.9.0/Zend/Cache/Backend/TwoLevels.php  (revision 29934)
++++ /var/www/vpcms/library/zend/1.9.0/Zend/Cache/Backend/TwoLevels.php  (working copy)
+@@ -194,16 +194,18 @@
+     public function load($id, $doNotTestCacheValidity = false)
+     {
+         $res = $this-&gt;_fastBackend-&gt;load($id, $doNotTestCacheValidity);
++        $loadedFromFast = true;
+         if ($res === false) {
+             $res = $this-&gt;_slowBackend-&gt;load($id, $doNotTestCacheValidity);
+             if ($res === false) {
+                 // there is no cache at all for this id
+                 return false;
+             }
++            $loadedFromFast = false;
+         }
+         $array = unserialize($res);
+         // maybe, we have to refresh the fast cache ?
+-        if ($this-&gt;_options['auto_refresh_fast_cache']) {
++        if ($this-&gt;_options['auto_refresh_fast_cache'] &amp;&amp; !$loadedFromFast) {
+             if ($array['priority'] == 10) {
+                 // no need to refresh the fast cache with priority = 10
+                 return $array['data'];
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-12-01T14:46:28.000+0000</p> 
+        <div class="body">
+            <p>Hi, Niko.
+I think You may need refresh only when the fastBackend returns falses though the lowBackend returns true.
+Is it correct for You?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Niko Sams (nikosams) on 2009-12-02T00:56:55.000+0000</p> 
+        <div class="body">
+            <p>Yes, that's what my patch does.</p>
+
+<p>This is especially useful when the fastBackend gets cleaned (memcache-&gt;flush() was called by another cache, server restart) but the slowBackend not.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-12-02T06:10:07.000+0000</p> 
+        <div class="body">
+            <p>I think the load method should set new life time of data in the fastBackend as the data is accessed.</p>
+
+<p>So, I will categorize it won't fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Niko Sams (nikosams) on 2009-12-02T23:51:51.000+0000</p> 
+        <div class="body">
+            <p>So you don't think this extra write is performance wise not optimal?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-12-03T00:18:13.000+0000</p> 
+        <div class="body">
+            <p>If the save method would not update $newFastLifetime at line 217,
+we could change line 206.
+But sadly the change may cause BC problems.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Niko Sams (nikosams) on 2009-12-03T00:32:43.000+0000</p> 
+        <div class="body">
+            <p>What about a new option that enables this to keep BC?
+'auto_extend_fast_lifetime' or something</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-12-04T23:16:33.000+0000</p> 
+        <div class="body">
+            <p>Hi, Niko.</p>
+
+<p>How about to using false for the auto_refresh_fast_cache option?</p>
+
+<p>It might lead your problem to be solved, I think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Niko Sams (nikosams) on 2009-12-04T23:51:13.000+0000</p> 
+        <div class="body">
+            <p>Not in the usecase where slowBackend never gets cleaned and fastBackend does.</p>
+
+<p>I could disable auto_refresh_fast_cache and implement it myself <em>if</em> ZF-8430 was applied.
+The current behaviour simply doesn't use fastBackend anymore if the cache entry is only in slowBackend.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,202 @@
+<h2>ZF-9306: Thew new Zend_Loader::isReadable does not work properly with absolute paths</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-02T07:32:24.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-27T09:46:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Cristian Bichis (avantis)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9263">ZF-9263</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi,</p>
+
+<p>I raised now couple of days a ticket related to autoloading not working properly on 1.10.1 and 1.10.2</p>
+
+<p><a href="http://framework.zend.com/issues/browse/ZF-9263">http://framework.zend.com/issues/browse/ZF-9263</a></p>
+
+<p>As a part of the problem seems to be fixable i am posting here the problem.</p>
+
+<p>The is_readable is producing a PHP warning if the filename is absolute, when checking against all the include paths.
+So, the checking for against include_paths should be done ONLY if the filename is relative path ! Otherwise should be skipped.</p>
+
+<p>Sample below:</p>
+
+<p>Warning: is_readable(): open_basedir restriction in effect. File(D:\wamp\frameworks\ZendFramework-1.10.2/D:_Work\myapp/application/modules\articles/views\helpers/HeadLink.php) is not within the allowed path(s): (D:_Work\;D:\wamp\;C:\Windows\Temp\;c:\php5\pear) in D:\wamp\frameworks\ZendFramework-1.10.2\Zend\Loader.php on line 190</p>
+
+<p>A quick (maybe not the best) fix would be to actually check the parent</p>
+
+<p>public static function isReadable($filename)
+{
+if (is_readable($filename)) { // Return early if the filename is readable without needing the // include_path return true; }</p>
+
+<p>//added the if, basically to skip any absolute filename path
+if(!is_readable(dirname($filename)))
+foreach (self::explodeIncludePath() as $path) {
+if ($path == '.') {
+if (is_readable($filename)) { return true; }
+continue;
+}
+$file = $path . '/' . $filename;
+if (is_readable($file)) { return true; }
+}</p>
+
+<p>return false;
+}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2010-03-17T02:45:30.000+0000</p> 
+        <div class="body">
+            <p>Pasting same error again:</p>
+
+<p>Warning: is_readable() [function.is-readable]: open_basedir restriction in effect. File(D:\wamp\frameworks\ZendFramework-1.10.2/D:/_Work/myapp/application/modules/articles/views\helpers/HeadTitle.php) is not within the allowed path(s): (D:_Work\;D:\wamp\;C:\Windows\Temp\;c:\php5\pear) in D:\wamp\frameworks\ZendFramework-1.10.2\Zend\Loader.php on line 190</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2010-03-17T02:46:26.000+0000</p> 
+        <div class="body">
+            <p>So i think before somehow the error text got screwed before i pasted here.</p>
+
+<p>So the error is still present...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Cristian Bichis (avantis) on 2010-03-19T01:08:01.000+0000</p> 
+        <div class="body">
+            <p>Andrew Ballard posted a sample case on fw-general illustrating the problem (at least on Windows). I was to do myself a sample case but i think Andrew sample case is more than relevant, and very easy to reproduce so i am posting here:</p>
+
+<p>Actually, it turned out to be pretty simple to build a test case:</p>
+
+<p>testcase.php
+&lt;?php
+
+
+define('LIBRARY_PATH', realpath('D:\\Web
+Server\\wwwroot\\lib\\ZendFramework\\library\\1.10.1-no-require'));
+
+// Set the initial include_path. You may need to change this to ensure that
+// Zend Framework is in the include_path; additionally, for performance
+// reasons, it's best to move this to your web server configuration or php.ini
+// for production.
+set_include_path(implode(PATH_SEPARATOR, array(
+    LIBRARY_PATH,
+)));
+
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+
+/** Zend_Loader */
+require_once 'Zend/Loader.php';
+
+// A Windows absolute file path for a file that does not exist
+$file = 'D:\Web
+Server\wwwroot\lib\MyApp\application/controllers/helpers/Redirector.php';
+
+
+$loader = new Zend_Loader();
+$result = $loader-&gt;isReadable($file);
+
+echo '$loader-&gt;isReadable(' . "'" . str_replace('\\', '\\\\', $file) .
+"') === ";
+var_dump($result);
+
+?&gt;</p>
+
+<p>Expected result:
+$loader-&gt;isReadable('D:\Web
+Server\wwwroot\lib\MyApp\application/controllers/helpers/Redirector.php')
+=== bool(false)</p>
+
+<p>Actual result:
+Warning: is_readable() [function.is-readable]: open_basedir
+restriction in effect. File(D:\Web
+Server\wwwroot\lib\ZendFramework\library\1.10.1-no-require/D:\Web
+Server\wwwroot\lib\MyApp\application/controllers/helpers/Redirector.php)
+is not within the allowed path(s): (D:\Web Server) in D:\Web
+Server\wwwroot\lib\ZendFramework\library\1.10.1-no-require\Zend\Loader.php
+ on line 190
+$loader-&gt;isReadable('D:\Web
+Server\wwwroot\lib\MyApp\application/controllers/helpers/Redirector.php')
+=== bool(false)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-27T09:14:24.000+0000</p> 
+        <div class="body">
+            <p>I've verified the reproduce case.</p>
+
+<p>While this is not critical (the script will continue to work), it's clearly going to be an issue if you are running the code in production on a Windows machine. However, making the changes as suggested by the reporter do not remove the warning for me -- the warning remains exactly as before. I'll see if I can find a patch today, but at this point, I'm applying guesswork.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrew Ballard (aballard) on 2010-04-27T09:35:06.000+0000</p> 
+        <div class="body">
+            <p>Matthew,</p>
+
+<p>Does the proposed change I added in my comment on the related issue <a href="http://framework.zend.com/issues/browse/ZF-9263">http://framework.zend.com/issues/browse/ZF-9263</a> help any? Basically, if you know the OS is Windows and the path being tested begins with a drive letter, then you also know that the path being tested is absolute and there is no point in iterating through the include paths.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrew Ballard (aballard) on 2010-04-27T09:38:09.000+0000</p> 
+        <div class="body">
+            <p>These two seem to be the same.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-27T09:46:33.000+0000</p> 
+        <div class="body">
+            <p>Andrew: yes, I found the proposed change on ZF-9263, and that definitely works; as you'll note, I've added a unit test, and applied your fix. :)</p>
+
+        </div>
+    </div>
+    </div>
+

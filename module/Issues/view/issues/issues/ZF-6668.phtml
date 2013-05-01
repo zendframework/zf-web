@@ -1,0 +1,276 @@
+<h2>ZF-6668: Zend_Locale_Data fails creating cache when tmp directory is not writeable</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-14T23:45:50.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-26T13:41:56.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.2 (27/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christiaan Kras (htbaa)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6608">ZF-6608</a></li>
+            <li><a href="/issues/browse/ZF-7136">ZF-7136</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>On our production server it isn't possible for a user to create and write files to the /tmp/ directory.</p>
+
+<p>However, Zend_Locale_Data::getList() tries to create a cache by itself at line 293 when no cache is present. When there's no cache present it uses Zend_Cache_Backend::getTmpDir() to request a directory to write in. When the /tmp/ directory isn't writeable by users an exception gets thrown by Zend_Cache at line 208: cache_dir must be a directory</p>
+
+<p>In 1.7.5 Zend_Locale_Data only used a cache when it was set and didn't try to create one by default. The only way for me to get this to work is setting $_ENV['TMPDIR'] to a custom directory. With multiple websites deployed this is not very desirable.</p>
+
+<p>I think Zend_Locale_Data (and perhaps other components?) shouldn't try to create a cache by default in a temp directory, as you never know if it's actually writeable. Another solution could be that Zend_Cache_Backend checks if the directory from Zend_Cache_Backend::getTmpDir() is actually writeable. If not cancel the creation of the cache and just continue. No need to warn about it either I think.</p>
+
+<p>The priority of this ticket might be a bit too high, but currently I can't savely upgrade to 1.8.1.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-05-15T01:38:12.000+0000</p> 
+        <div class="body">
+            <p>@Fabien:
+Take a look at Zend_File_Transfer_Adapter-&gt;_getTmpDir().
+It has a very good detection and is captable of detecting the tmp path even if no ENV or SERVER is set.</p>
+
+<p>Additionally it checks if the tmp dir is writable and when not, it throws an exception, which is better there than above in Zend_Cache.. for example "No cache_dir given, temporary directory not writeable"</p>
+
+<p>I would propose that you add this method also in your class.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2009-05-16T01:56:55.000+0000</p> 
+        <div class="body">
+            <p>just commited something better into SVN trunk</p>
+
+<p>can you try it ?</p>
+
+<p>(you have only to take the Backend.php file from SVN trunk)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-05-16T02:09:09.000+0000</p> 
+        <div class="body">
+            <p>I'll be able to try it coming Monday (18th). I'll let you know if your fix did the trick. Do you have a revision number for me? Or is it just in trunk?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-05-18T05:53:30.000+0000</p> 
+        <div class="body">
+            <p>Just tried it. It makes no difference. I'm still getting the same exception with the "cache_dir must be a directory" error.</p>
+
+<p>There's no problem in figuring out the temp directory. That goes well, but _isGoodTmpDir()'s attempt with is_writable() seems to fail silently. It just seems to pass the test.</p>
+
+<p>In my personal opinion, caching should always be <em>optional</em>. Currently ZF expects the user always wants to cache data, and personally I believe that decision is up to the user. Not the software.</p>
+
+<p>The current routine to check for the temp directory looks fine to me, but I don't think any ZF component should use auto-cache at all.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-05-18T06:00:13.000+0000</p> 
+        <div class="body">
+            <p>Forgot to add this to my previous comment. As currently stated in the Zend_Locale documentation caching is still optional. No migration notes were added either.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2009-05-20T13:12:16.000+0000</p> 
+        <div class="body">
+            <p>so it's not a Zend_Cache issue but a Zend_Locale one</p>
+
+<p>I remove Zend_Cache as affected component</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrew Ballard (aballard) on 2009-05-20T13:30:28.000+0000</p> 
+        <div class="body">
+            <p>That is what I am seeing as well. Since upgrading to 1.8.0 Zend_Validate_Int is choking on the 'cache_dir must be a directory' exception. Apparently the validator is trying to pull Zend_Locale_Data from Zend_Cache. So instead of the site either being unable to pull the data from cache or simply using default error text without the locale, the site just blows up. I could catch the exception in my code and ignore it, but that won't make the validator function.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-05-24T03:11:42.000+0000</p> 
+        <div class="body">
+            <p>There are 2 solutions:</p>
+
+<ul><li>Use a cache with write permissions
+or</li>
+<li>Disable the cache usage within Zend_Locale</li>
+</ul><p>Second is depreciated but possible as it results in a massive performance decreasement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-05-24T11:53:00.000+0000</p> 
+        <div class="body">
+            <p>I vote for the latter. As described in the documentation, caching with Zend_Locale should be optional and should be up to the user to decide if he/she is going to use it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-05-24T12:31:55.000+0000</p> 
+        <div class="body">
+            <p>Can you point me to the chapter where you read that cache is not set ?</p>
+
+<p>The actual documentation reads:
+{quote}
+When no cache is set, then Zend_Locale will automatically set a cache itself. Sometimes it is wished to prevent that a cache is set, even if this degrades performance. In this case the static disableCache(true) method should be used. It does not only disable the actual set cache, without erasing it, but also prevents that a cache is automatically generated when no cache is set.
+{quote}</p>
+
+<p>So I don't get the reason why you "vote for the latter"...using the option seems the better way for me than voting :-)</p>
+
+<p>PS: But this has nothing to do with the problem that the tempoary path of PHP is not detected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-05-24T12:37:34.000+0000</p> 
+        <div class="body">
+            <p><a href="http://framework.zend.com/manual/en/zend.locale.html#zend.locale.cache">http://framework.zend.com/manual/en/…</a></p>
+
+<p>It clearly says "<em>can be</em> speed up" :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-05-24T12:45:13.000+0000</p> 
+        <div class="body">
+            <p>Using a false cache will also decrease performance or negotate it completly... but I don't think that this should be mentioned into this chapter. Anyone with default knowledge should know this already.</p>
+
+<p>Feel free to propose a better content of this paragraph.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-05-24T13:10:00.000+0000</p> 
+        <div class="body">
+            <p>Documentation should, of course, reflect the actual workings of a module. At what point did you find it saying that it automatically sets a cache? As the link I provided contained the only paragraph I could find about it.</p>
+
+<p>Anyway, I think the way Zend_Locale handles its cache should be reverted to 1.7.5 and that is to let the programmer decide if he/she requires a cache or not. Because the current way comes with some rather annoying compatibility issues, which weren't mentioned in a migration chapter. What are your thoughts about the desired behavior?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-03T04:09:19.000+0000</p> 
+        <div class="body">
+            <p>Closed issue as the problem is already fixed within Zend_Cache.
+As alternative the user can also disable the cache within Zend_Locale as described within the manual.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-06-09T00:19:18.000+0000</p> 
+        <div class="body">
+            <p>I just tried 1.8.2 but the issue still remains. I still gives a "cache_dir must be a directory" error.
+I walked through the getTmpDir() method in Zend/Cache/Backend.php and the following code, starting at line 181 returns me a so called valid directory.</p>
+
+<pre class="highlight"><code>
+        // Attemp to detect by creating a temporary file
+        $tempFile = tempnam(md5(uniqid(rand(), TRUE)), '');
+        if ($tempFile) {
+            $dir = realpath(dirname($tempFile));
+            unlink($tempFile);
+            return $dir;
+        }
+</code></pre>
+
+<p>However, although PHP is allowed to create a file with tempnam() that doesn't mean that the directory is freely writeable by the user. The directory should be checked with _isGoodTmpDir(). When I do so, the check fails. And eventually I get the exception 'Could not determine temp directory, please specify a cache_dir manually'.</p>
+
+<p>I think the code at least needs to be changed to the following:</p>
+
+<pre class="highlight"><code>
+        // Attemp to detect by creating a temporary file
+        $tempFile = tempnam(md5(uniqid(rand(), TRUE)), '');
+        if ($tempFile) {
+            $dir = realpath(dirname($tempFile));
+            unlink($tempFile);
+            if($this-&gt;_isGoodTmpDir($dir)) {
+                return $dir;
+            }
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-06-09T00:38:41.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I messed up the formatting. Can't find any edit button to change it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-09T02:22:47.000+0000</p> 
+        <div class="body">
+            <p>Please comment to the correct issue.</p>
+
+<p>As said before, when the cache should not be used within Zend_Locale then disable the cache usage.</p>
+
+<p>See:
+<a href="http://framework.zend.com/manual/en/zend.locale.html#zend.locale.cache">http://framework.zend.com/manual/en/…</a></p>
+
+<p>Quote:
+"Sometimes it is wished to prevent that a cache is set, even if this degrades performance. In this case the static disableCache(true) method should be used. It does not only disable the actual set cache, without erasing it, but also prevents that a cache is automatically generated when no cache is set."</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christiaan Kras (htbaa) on 2009-06-09T04:34:17.000+0000</p> 
+        <div class="body">
+            <p>Am I not commenting to the correct issue? I accept that the default is now to use a cache by default. But the method in Zend_Cache_Backend still fails to do so. When doing the check with tempname() a call to _isGoodTmpDir() is still required.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-09T05:28:58.000+0000</p> 
+        <div class="body">
+            <p>No you're not at the right issue:</p>
+
+<p>This issue is regarding Zend_Locale.
+You are noting a problem of Zend_Cache which is mentioned in the related issue ZF-6608 ;-)</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,231 @@
+<h2>ZF-9593: Zend_Form getMessages() invalid handling of !$subform-&gt;isArray()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-04-02T00:49:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-05-19T13:10:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.4 (28/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5222">ZF-5222</a></li>
+            <li><a href="/issues/browse/ZF-9862">ZF-9862</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is basically the same as the the previous Patches,
+[ZF-9586], [ZF-9467], [ZF-9584]</p>
+
+<p>i cleaned the method as well for speed.</p>
+
+<p>Uncleaned Before Patch</p>
+
+<pre class="highlight"><code>        if ((null !== $name) &amp;&amp; isset($this-&gt;_elements[$name])) {
+            return $this-&gt;getElement($name)-&gt;getMessages();
+        }
+
+        if ((null !== $name) &amp;&amp; isset($this-&gt;_subForms[$name])) {
+            return $this-&gt;getSubForm($name)-&gt;getMessages(null, true);
+        }
+
+        $arrayKeys = array();
+        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+            $array = $this-&gt;_getArrayName($subForm-&gt;getElementsBelongTo());
+            if (!empty($array)) {
+                if ($name == $array) {
+                    return $subForm-&gt;getMessages(null, true);
+                }
+                $arrayKeys[$key] = $subForm-&gt;getElementsBelongTo();
+            }
+        }
+</code></pre>
+
+<p>Cleaned After Patch</p>
+
+<pre class="highlight"><code>        if (null !== $name) {
+            if (isset($this-&gt;_elements[$name])) {
+                return $this-&gt;getElement($name)-&gt;getMessages();
+            } else if (isset($this-&gt;_subForms[$name])) {
+                return $this-&gt;getSubForm($name)-&gt;getMessages(null, true);
+            }
+            foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+                if ($subForm-&gt;isArray()) {
+                    $belongTo = $subForm-&gt;getElementsBelongTo();
+                    if ($name == $this-&gt;_getArrayName($belongTo)) {
+                        return $subForm-&gt;getMessages(null, true);
+                    }
+                }
+            }
+        }
+</code></pre>
+
+<p>The relevant changes for !$subForm-&gt;isArray() and interferences between
+Name and elementsBelongTo chain</p>
+
+<p>Before Patch</p>
+
+<pre class="highlight"><code>
+         foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+            $fMessages = $subForm-&gt;getMessages(null, true);
+            if (!empty($fMessages)) {
+                if (array_key_exists($key, $arrayKeys)) {
+                    $fMessages = $this-&gt;_attachToArray($fMessages, $arrayKeys[$key]);
+                    $messages = array_merge($messages, $fMessages);
+                } else {
+                    $messages[$key] = $fMessages;
+                }
+         }
+</code></pre>
+
+<p>And After Patch</p>
+
+<pre class="highlight"><code>
+         foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+            $merge = $subForm-&gt;getMessages(null, true);
+            if (!empty($merge)) {
+                if (!$subForm-&gt;isArray()) {
+                    $merge = array($key =&gt; $merge);
+                } else {
+                    $messages[$key] = $fMessages;
+                    $merge = $this-&gt;_attachToArray($merge,
+                                                   $subForm-&gt;getElementsBelongTo());
+                }
+                $messages = array_merge_recursive($messages, $merge);
+             }
+         }
+</code></pre>
+
+<p>And finally the patch</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php    (Revision 21732)
++++ tests/Zend/Form/FormTest.php    (Arbeitskopie)
+@@ -1579,7 +1620,16 @@
+         $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
+     }
+ 
++    public function testGetMessagesWithElementsBelongTo()
++    {
++        $data = $this-&gt;_setup9350();
++        $this-&gt;form-&gt;isValid($data['invalid']);
++        $msgs = $this-&gt;form-&gt;getMessages();
++        $this-&gt;assertTrue(isset($msgs['foo']['foo']['foo']['foo']));
++        $this-&gt;assertTrue(isset($msgs['foo']['zoo']['iek']));
++    }
+ 
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php   (Revision 21732)
++++ library/Zend/Form.php   (Arbeitskopie)
+@@ -2299,22 +2299,19 @@
+      */
+     public function getMessages($name = null, $suppressArrayNotation = false)
+     {
+-        if ((null !== $name) &amp;&amp; isset($this-&gt;_elements[$name])) {
+-            return $this-&gt;getElement($name)-&gt;getMessages();
+-        }
+-
+-        if ((null !== $name) &amp;&amp; isset($this-&gt;_subForms[$name])) {
+-            return $this-&gt;getSubForm($name)-&gt;getMessages(null, true);
+-        }
+-
+-        $arrayKeys = array();
+-        foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+-            $array = $this-&gt;_getArrayName($subForm-&gt;getElementsBelongTo());
+-            if (!empty($array)) {
+-                if ($name == $array) {
+-                    return $subForm-&gt;getMessages(null, true);
++        if (null !== $name) {
++            if (isset($this-&gt;_elements[$name])) {
++                return $this-&gt;getElement($name)-&gt;getMessages();
++            } else if (isset($this-&gt;_subForms[$name])) {
++                return $this-&gt;getSubForm($name)-&gt;getMessages(null, true);
++            }
++            foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
++                if ($subForm-&gt;isArray()) {
++                    $belongTo = $subForm-&gt;getElementsBelongTo();
++                    if ($name == $this-&gt;_getArrayName($belongTo)) {
++                        return $subForm-&gt;getMessages(null, true);
++                    }
+                 }
+-                $arrayKeys[$key] = $subForm-&gt;getElementsBelongTo();
+             }
+         }
+ 
+@@ -2333,14 +2330,15 @@
+         }
+ 
+         foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+-            $fMessages = $subForm-&gt;getMessages(null, true);
+-            if (!empty($fMessages)) {
+-                if (array_key_exists($key, $arrayKeys)) {
+-                    $fMessages = $this-&gt;_attachToArray($fMessages, $arrayKeys[$key]);
+-                    $messages = array_merge($messages, $fMessages);
++            $merge = $subForm-&gt;getMessages(null, true);
++            if (!empty($merge)) {
++                if (!$subForm-&gt;isArray()) {
++                    $merge = array($key =&gt; $merge);
+                 } else {
+-                    $messages[$key] = $fMessages;
++                    $merge = $this-&gt;_attachToArray($merge,
++                                                   $subForm-&gt;getElementsBelongTo());
+                 }
++                $messages = array_merge_recursive($messages, $merge);
+             }
+         }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-04-16T12:52:18.000+0000</p> 
+        <div class="body">
+            <p>Patch applied to trunk and 1.10 release branch</p>
+
+        </div>
+    </div>
+    </div>
+

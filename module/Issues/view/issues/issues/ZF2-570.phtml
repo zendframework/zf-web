@@ -1,0 +1,189 @@
+<h2>ZF2-570: Pgsql adapater has codes related to MySQL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-09-18T20:24:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-10-08T20:12:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michael Ben-Nes (mbn_18)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Db</li>
+            <li>database</li>
+            <li>db</li>
+            <li>pgsql</li>
+            <li>postgresql</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>While trying to connect using:</p>
+
+<pre class="highlight"><code>
+public function getServiceConfig()
+{
+    return array(
+        'factories' =&gt; array(
+            'db_adapter' =&gt;  function($sm) {
+                $config = $sm-&gt;get('Configuration');
+                $dbAdapter = new \Zend\Db\Adapter\Adapter($config['db']);
+                return $dbAdapter;
+            },
+        ),
+    );
+}
+</code></pre>
+
+<pre class="highlight"><code>
+return array(
+    'db' =&gt; array(
+        'driver'    =&gt; 'Pgsql',
+        'database'  =&gt; 'db_name',
+        'username'  =&gt; 'user',
+        'password'  =&gt; 'pass',
+        'hostname'  =&gt; '127.0.0.1',
+    ),
+);
+</code></pre>
+
+<p>I got the following error:
+{quote}
+Fatal error: Uncaught exception 'Zend\Db\Adapter\Exception\RuntimeException' with message 'The Mysqli extension is required for this adapter but the extension is not loaded' in /srv/httpd/brainpop/dev/web/vendor/ZendFramework/library/Zend/ServiceManager/ServiceManager.php on line 697</p>
+
+<p>Zend\Db\Adapter\Exception\RuntimeException: The Mysqli extension is required for this adapter but the extension is not loaded in /srv/httpd/brainpop/dev/web/vendor/ZendFramework/library/Zend/Db/Adapter/Driver/Pgsql/Pgsql.php on line 114
+{quote}</p>
+
+<p>After further check in the code I found out that MySQL code is embedded within the Pgsql adapter in the following files:
+ * library/Zend/Db/Adapter/Driver/Pgsql/Connection.php
+ * library/Zend/Db/Adapter/Driver/Pgsql/Pgsql.php</p>
+
+<p>Tried to hack it a bit but failed as other errors popped updb</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-09-19T06:23:18.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+public function checkEnvironment()
+{
+    if (!extension_loaded('mysqli')) {
+        throw new Exception\RuntimeException('The Mysqli extension is required for this adapter but the extension is not loaded');
+    }
+}
+
+…
+
+public function createStatement($sqlOrResource = null)
+{
+    /*
+    if (is_resource($sqlOrResource) &amp;&amp; !in_array($sqlOrResource, $this-&gt;resources, true)) {
+        $this-&gt;resources[] = $sqlOrResource;
+    }
+    */
+
+    $statement = clone $this-&gt;statementPrototype;
+    if (is_string($sqlOrResource)) {
+        $statement-&gt;setSql($sqlOrResource);
+    }
+
+    /* elseif ($sqlOrResource instanceof \mysqli_stmt) {
+        $statement-&gt;setResource($sqlOrResource);
+    }
+    */
+
+    $statement-&gt;initialize($this-&gt;connection-&gt;getResource());
+    return $statement;
+}
+</code></pre>
+
+<pre class="highlight"><code>
+use mysqli;
+
+…
+
+/**
+ * Constructor
+ *
+ * @param mysqli|array|null $connectionInfo
+ */
+public function __construct($connectionInfo = null)
+{
+    if (is_array($connectionInfo)) {
+        $this-&gt;setConnectionParameters($connectionInfo);
+    } elseif ($connectionInfo instanceof mysqli) {
+        $this-&gt;setResource($connectionInfo);
+    }
+}
+
+…
+
+/**
+ * @param  string $sql
+ * @return resource|\Zend\Db\ResultSet\ResultSetInterface
+ */
+public function execute($sql)
+{
+    if (!$this-&gt;isConnected()) {
+        $this-&gt;connect();
+    }
+
+    $resultResource = pg_query($this-&gt;resource, $sql);
+
+    //var_dump(pg_result_status($resultResource));
+
+    // if the returnValue is something other than a mysqli_result, bypass wrapping it
+    if ($resultResource === false) {
+        throw new Exception\InvalidQueryException(pg_errormessage());
+    }
+
+    $resultPrototype = $this-&gt;driver-&gt;createResult(($resultResource === true) ? $this-&gt;resource : $resultResource);
+    return $resultPrototype;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2012-10-08T20:12:22.000+0000</p> 
+        <div class="body">
+            <p>This issue has been closed on Jira and moved to GitHub for issue tracking.  To continue following the resolution of this issues, please visit: <a href="https://github.com/zendframework/zf2/issues/2595">https://github.com/zendframework/zf2/issues/2595</a></p>
+
+        </div>
+    </div>
+    </div>
+

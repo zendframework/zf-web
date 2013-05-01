@@ -1,0 +1,210 @@
+Index: Zend/Db/Select.php
+===================================================================
+--- Zend/Db/Select.php	(revision 827)
++++ Zend/Db/Select.php	(working copy)
+@@ -62,14 +62,6 @@
+     );
+ 
+     /**
+-     * Tracks which columns are being select from each table and join.
+-     *
+-     * @var array
+-     */
+-    protected $_tableCols = array();
+-
+-
+-    /**
+      * Class constructor
+      *
+      * @param Zend_Db_Adapter_Abstract $adapter
+@@ -99,7 +91,7 @@
+ 
+         // add columns
+         if ($this->_parts['cols']) {
+-            $sql .= implode(",\n\t", $this->_parts['cols']) . "\n";
++            $sql .= $this->_colsToString() . "\n";
+         }
+ 
+         // from these tables
+@@ -104,8 +96,18 @@
+ 
+         // from these tables
+         if ($this->_parts['from']) {
+-            $sql .= "FROM ";
+-            $sql .= implode(", ", $this->_parts['from']) . "\n";
++            $sql .= "FROM ";
++            
++            $tables = array();
++            foreach($this->_parts['from'] as $table){
++                if(is_array($table)){
++                    $table = key($table) . (current($table) ?
++                        ' AS ' . current($table)
++                        : '');
++                }
++                $tables[] = $table;
++            }
++            $sql .= implode(", ", $tables) . "\n";
+         }
+ 
+         // joined to these tables
+@@ -117,8 +119,13 @@
+                 if (! empty($join['type'])) {
+                     $tmp .= strtoupper($join['type']) . ' ';
+                 }
+-                // add the table name and condition
+-                $tmp .= 'JOIN ' . $join['name'];
++                // add the table name and condition
++                if(is_array($join_name = $join['name'])){
++                    $join_name = key($join_name) . (current($join_name) ?
++                        ' AS ' . current($join_name)
++                        : '');
++                }
++                $tmp .= 'JOIN ' . $join_name;
+                 $tmp .= ' ON ' . $join['cond'];
+                 // add to the list
+                 $list[] = $tmp;
+@@ -163,6 +170,26 @@
+ 
+         // add limits, and done
+         return trim($this->_adapter->limit($sql, $count, $offset));
++    }
++    
++    /**
++     * Makes a column part of an SQL query string
++     *
++     * @param string $delim Delimeter for columns
++     * @return string Column part for SQL
++     */
++    protected function _colsToString($delim = ",\n\t"){
++        if(count($this->_parts['cols']) == 1)
++            return implode($delim, current($this->_parts['cols']));
++        
++        $parts = array();
++        foreach($this->_parts['cols'] as $tbl => $cols){
++            $part = array();
++            foreach($cols as $col) $part[] = "$tbl.$col";
++            $parts[] = implode($delim, $part);
++        }
++        
++        return implode($delim, $parts);
+     }
+ 
+ 
+@@ -201,14 +228,16 @@
+      */
+     public function from($name, $cols = '*')
+     {
++        $name = $this->_findAlias($name);
++        
+         // add the table to the 'from' list
+-        $this->_parts['from'] = array_merge(
+-            $this->_parts['from'],
+-            (array) $name
+-        );
+-
++        $this->_parts['from'][] = $name;
++        
++        $tbl = current($name) or $tbl = key($name);
++        
+         // add to the columns from this table
+-        $this->_tableCols($name, $cols);
++        $this->_tableCols($tbl, $cols);
++        
+         return $this;
+     }
+ 
+@@ -229,16 +258,21 @@
+     {
+         if (!in_array($type, array('left', 'inner'))) {
+             $type = null;
+-        }
+-
++        }
++        
++        $name = $this->_findAlias($name);
++        
+         $this->_parts['join'][] = array(
+             'type' => $type,
+             'name' => $name,
+-            'cond' => $cond
+-        );
+-
++            'cond' => $cond
++        );
++        
++        $tbl = current($name) or $tbl = key($name);
++        
+         // add to the columns from this joined table
+-        $this->_tableCols($name, $cols);
++        $this->_tableCols($tbl, $cols);
++        
+         return $this;
+     }
+ 
+@@ -515,6 +549,8 @@
+      */
+     protected function _tableCols($tbl, $cols)
+     {
++        if(!$cols) return;
++        
+         if (is_string($cols)) {
+             $cols = explode(',', $cols);
+         } else {
+@@ -519,11 +555,51 @@
+             $cols = explode(',', $cols);
+         } else {
+             settype($cols, 'array');
+-        }
++        }
++        
++        $tbl = trim($tbl);
+ 
+-        foreach ($cols as $col) {
+-            $this->_parts['cols'][] = trim($col);
++        foreach ($cols as $col) {
++            $this->_parts['cols'][$tbl][] = trim($col);
+         }
++    }
++    
++    /**
++     * Find alias in received table/column names (eg. 'people AS p').
++     * 
++     * This helper doesn't parse the declaration as SQL, so escaped table or column
++     * names that contain the string ' as ' will probably cause this to return wrong results.
++     * However, someone having these kind of names is highly unlikely.
++     *
++     * @param mixed $name Name of a table or column; can be array in form of [name => alias]
++     * @return array Array in form of [name => alias]
++     */
++    protected function _findAlias($name)
++    {
++        if(is_array($name)){
++            if(count($name) != 1 || !is_string(key($name)) || !is_string(current($name)))
++                throw new Zend_Db_Select_Exception('wrong array format for table or column name');
++            
++            // name seems OK, give it back
++            return $name;
++        }
++        elseif(is_string($name)){
++            // this hackish splitting is because we only want to split on a last match
++            $parts = preg_split('/(\s+AS\s+)/i', trim($name), -1, PREG_SPLIT_DELIM_CAPTURE);
++            
++            if(count($parts) > 1){
++                // we have an alias
++                $alias = array_pop($parts);
++                
++                // trash the last delimiter
++                array_pop($parts);
++                
++                return array(implode('', $parts) => $alias);
++            }
++            else # there is no alias
++                return array($name => null);
++        }
++        
++        throw new Zend_Db_Select_Exception('wrong column name: ' . (string) $name);
+     }
+-
+-}
++}
+\ No newline at end of file

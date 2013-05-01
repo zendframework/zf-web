@@ -1,0 +1,62 @@
+Index: tests/Zend/ViewTest.php
+===================================================================
+--- tests/Zend/ViewTest.php	(revision 21037)
++++ tests/Zend/ViewTest.php	(working copy)
+@@ -662,7 +662,7 @@
+         ob_start();
+         echo $view->render('testZf995.phtml');
+         $content = ob_get_flush();
+-        ob_end_clean();
++        // ob_end_clean(); ob_get_flush already closed it
+         $this->assertTrue(empty($content));
+     }
+ 
+Index: tests/Zend/Loader/PluginLoaderTest.php
+===================================================================
+--- tests/Zend/Loader/PluginLoaderTest.php	(revision 21037)
++++ tests/Zend/Loader/PluginLoaderTest.php	(working copy)
+@@ -455,6 +455,30 @@
+             "Zend_View_Helper_" => array("Zend/View/Helper/"),
+         ), $loader2->getPaths());
+     }
++
++    /**
++     * @issue ZF-4697
++     */
++    public function testClassFilesGrabCorrectPathForLoadedClasses()
++    {
++        require_once 'Zend/View/Helper/DeclareVars.php';
++        $reflection = new ReflectionClass('Zend_View_Helper_DeclareVars');
++        $expected   = $reflection->getFileName();
++        
++        $loader = new Zend_Loader_PluginLoader(array());
++        $loader->addPrefixPath('Zend_View_Helper', $this->libPath . '/Zend/View/Helper');
++        $loader->addPrefixPath('ZfTest', dirname(__FILE__) . '/_files/ZfTest');
++        try {
++            // Class in /Zend/View/Helper and not in /_files/ZfTest
++            $className = $loader->load('DeclareVars');
++        } catch (Exception $e) {
++            $paths = $loader->getPaths();
++            $this->fail(sprintf("Failed loading helper; paths: %s", var_export($paths, 1)));
++        }
++        
++        $classPath = $loader->getClassPath('DeclareVars');
++        $this->assertContains($expected, $classPath);
++    }
+ }
+ 
+ // Call Zend_Loader_PluginLoaderTest::main() if this source file is executed directly.
+Index: library/Zend/Loader/PluginLoader.php
+===================================================================
+--- library/Zend/Loader/PluginLoader.php	(revision 21037)
++++ library/Zend/Loader/PluginLoader.php	(working copy)
+@@ -373,6 +373,9 @@
+ 
+             if (class_exists($className, false)) {
+                 $found = true;
++                // Already loaded, and for consistency, grab the path it was loaded from
++                $reflection = new ReflectionClass($className);
++                $loadFile = $reflection->getFileName();
+                 break;
+             }
+ 

@@ -1,0 +1,407 @@
+<h2>ZF-12266: Improving Zend_Db_Table_Abstract::getReference()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-05-30T12:53:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-30T12:53:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marc Barilley (frmarq)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The problem arises when extending classes that manage the same objects. The extension is due to the fact that the classes are run in different contexts and, therefore, their actual functionnalities may change.</p>
+
+<p>When loading the referenced objects of one table off the database, the call to Zend_Db_Table_Abstract::getReference() fails due to a class checking that is - in my opinion - too strong .</p>
+
+<p>Here are the sources I use (maybe the example is simpler but this is what I have) :</p>
+
+<p>These are the base classes. They manage accounts (dbtable account) that may use resources (dbtable resource) through access definitions (dbtable access). The tables are really simple and can be guessed by reading this code (I can provide a schema if necessary).</p>
+
+<pre class="highlight"><code>
+class Application_Model_DbTable_Access extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'access';
+    /**
+     * Links to other tables.
+     * @var array
+     */
+    protected $_referenceMap = array(
+        'Account' =&gt; array (
+            'columns'       =&gt; array('account_id'),
+            'refTableClass' =&gt; 'Application_Model_DbTable_Account',
+            'refColumns'    =&gt; array('account_id'),
+        ),
+        'Resource' =&gt; array(
+            'columns'       =&gt; array('resource_id'),
+            'refTableClass' =&gt; 'Application_Model_DbTable_Resource',
+            'refColumns'    =&gt; array('resource_id'),
+        ),
+    );
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_DbTable_Account extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'account';
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_DbTable_Resource extends Zend_Db_Table_Abstract
+{
+    protected $_name = 'resource';
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_Account
+{
+    /**
+     * The account id.
+     * @var integer
+     */
+    protected $_accountId;
+    /**
+     * The resources that the account may access.
+     * @var array
+     */
+    protected $_authorizedResources;
+
+    /**
+     * Set Id
+     * @param integer _accountId Id
+     * @return Application_Model_Account
+     */
+    public function setAccountId($_accountId)
+    {
+        $this-&gt;_accountId = $_accountId;
+        return $this;
+    }
+
+    /**
+     * Set the authorized resources for this account
+     * @param array _authorizedResources the authorized resources for this account
+     * @return Application_Model_Account
+     */
+    public function setAuthorizedResources($_authorizedResources)
+    {
+        $this-&gt;_authorizedResources = $_authorizedResources;
+        return $this;
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_AccountMapper extends Application_Model_DefaultMapper
+{
+    /**
+     * The table class name associated to the mapper.
+     * @var string
+     */
+    protected $_dbTableClass = 'Application_Model_DbTable_Account';
+
+    /**
+     * Build an object from one database row.
+     * @param Zend_Db_Table_Row_Abstract $row
+     * @return Application_Model_Account
+     */
+    public function buildFromRow(Zend_Db_Table_Row_Abstract $row)
+    {
+        $resourceRows = $row-&gt;findManyToManyRowset(
+            'Application_Model_DbTable_Resource',
+            'Application_Model_DbTable_Access',
+            'Account',
+            'Resource'
+        );
+        $resourceMapper = new Application_Model_ResourceMapper();
+        $resources = $resourceMapper-&gt;buildFromRowset($resourceRows);
+        $account = new Application_Model_Account();
+        $account-&gt;setAccountId($row-&gt;account_id)
+            -&gt;setAuthorizedResources($resources)
+        ;
+        return $account;
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_DefaultMapper
+{
+    /**
+     * The table class name associated to the mapper.
+     * @var string
+     */
+    protected $_dbTableClass = '';
+    /**
+     * The table object associated to the mapper.
+     * @var Zend_Db_Table_Abstract
+     */
+    protected $_dbTable;
+
+    /**
+     * Get the associated table of the object.
+     * @return Zend_Db_Table_Abstract
+     */
+    public function getDbTable()
+    {
+        if (null === $this-&gt;_dbTable) {
+            $this-&gt;setDbTable($this-&gt;_dbTableClass);
+        }
+        return $this-&gt;_dbTable;
+    }
+
+    /**
+     * Set the object's table
+     * @param string|Zend_Db_Table_Abstract $dbTable a class name or a Zend_Db_Table_Abstract object
+     * @return Application_Model_Default
+     * @throws Exception
+     */
+    public function setDbTable($dbTable)
+    {
+        if (is_string($dbTable)) {
+            $dbTable = new $dbTable();
+        }
+        if (!$dbTable instanceof Zend_Db_Table_Abstract) {
+            throw new Exception('Invalid table data gateway provided');
+        }
+        $this-&gt;_dbTable = $dbTable;
+        return $this;
+    }
+
+    /**
+     * Build an object from one database row.
+     * @param Zend_Db_Table_Row_Abstract $row
+     * @return Application_Model_Default
+     */
+    abstract public function buildFromRow(Zend_Db_Table_Row_Abstract $row);
+
+    /**
+     * Load all the objects.
+     * @return array
+     */
+    public function fetchAll($where=null, $order=null, $count=null, $offset=null)
+    {
+        return $this-&gt;buildFromRowset($this-&gt;getDbTable()-&gt;fetchAll($where, $order, $count, $offset));
+    }
+
+    /**
+     * Build an objects array from a rowset.
+     * @return array
+     */
+    public function buildFromRowset(Zend_Db_Table_Rowset_Abstract $rows)
+    {
+        $objects = array();
+        foreach ($rows as $row) {
+            $objects[] = $this-&gt;buildFromRow($row);
+        }
+        return $objects;
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_Resource
+{
+    /**
+     * The identifying number.
+     * @var integer
+     */
+    protected $_resourceId;
+
+    /**
+     * Set Id
+     * @param integer _resourceId Id
+     * @return Application_Model_Resource
+     */
+    public function setResourceId($_resourceId)
+    {
+        $this-&gt;_resourceId = $_resourceId;
+        return $this;
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Application_Model_ResourceMapper extends Application_Model_DefaultMapper
+{
+    /**
+     * The table class name associated to the mapper.
+     * @var string
+     */
+    protected $_dbTableClass = 'Application_Model_DbTable_Resource';
+
+    /**
+     * Build a resource from one database row.
+     * @param Zend_Db_Table_Row_Abstract $row
+     * @return Application_Model_Resource
+     */
+    public function buildFromRow(Zend_Db_Table_Row_Abstract $row)
+    {
+        $resource = new Application_Model_Resource();
+        $resource-&gt;setResourceId($row-&gt;resource_id);
+        return $resource;
+    }
+}
+</code></pre>
+
+<p>The child classes follow. For this example, they don't extend the base-classes functionnalities.</p>
+
+<pre class="highlight"><code>
+class Admin_Model_DbTable_Access extends Application_Model_DbTable_Access
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_DbTable_Account extends Application_Model_DbTable_Account
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_DbTable_Resource extends Application_Model_DbTable_Resource
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_Access extends Application_Model_Access
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_AccessMapper extends Application_Model_AccessMapper
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_Account extends Application_Model_Account
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_AccountMapper extends Application_Model_AccountMapper
+{
+    /**
+     * The table class name associated to the mapper.
+     * @var string
+     */
+    protected $_dbTableClass = 'Admin_Model_DbTable_Account';
+
+    /**
+     * Build an object from one database row.
+     * @param Zend_Db_Table_Row_Abstract $row
+     * @return Admin_Model_Account
+     * @see Application_Model_AccountMapper::buildFromRow()
+     */
+    public function buildFromRow(Zend_Db_Table_Row_Abstract $row)
+    {
+        $account = parent::buildFromRow($row); // This call fails!!!
+        return $account;
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_Resource extends Application_Model_Resource
+{
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class Admin_Model_ResourceMapper extends Application_Model_ResourceMapper
+{
+}
+</code></pre>
+
+<p>When calling the index action of this controller, there is an error in fetchAll(), because it comes from a Admin_Model_AccountMapper but actually executes the parent's method:</p>
+
+<pre class="highlight"><code>
+class Admin_AccountController extends Zend_Controller_Action
+{
+    public function indexAction()
+    {
+        // action body
+        $accountMapper = new Admin_Model_AccountMapper();
+        $this-&gt;view-&gt;entries = $accountMapper-&gt;fetchAll();
+    }
+}
+</code></pre>
+
+<pre class="literal"> 
+Application error
+Exception information:
+
+Message: Reference rule "Account" does not reference table Admin_Model_DbTable_Account 
+
+Stack trace:
+
+#0 /usr/share/php/Zend/Db/Table/Row/Abstract.php(845): Zend_Db_Table_Abstract-&gt;getReference('Admin_Model_DbT...', 'Account')
+#1 /usr/share/php/Zend/Db/Table/Row/Abstract.php(1063): Zend_Db_Table_Row_Abstract-&gt;_prepareReference(Object(Application_Model_DbTable_Access), Object(Admin_Model_DbTable_Account), 'Account')
+...
+</pre>
+
+<p>The rule "Account" that is used here actually references a table of type Application_Model_DbTable_Account, not Admin_Model_DbTable_Account but Admin_Model_AccountMapper want to work with a Admin_Model_DbTable_Account. But because Admin_Model_DbTable_Account is extending Application_Model_DbTable_Account, this call should work, not fail.
+(Am I clearly explaining that? Huh....)</p>
+
+<p>I suggest that the code of Zend_Db_Table_Abstract-&gt;getReference() at line 472 may be changed from:</p>
+
+<pre class="highlight"><code>
+if ($refMap[$ruleKey][self::REF_TABLE_CLASS] != $tableClassname) {
+</code></pre>
+
+<p>to:</p>
+
+<pre class="highlight"><code>
+if (is_a($tableClassname, $refMap[$ruleKey][self::REF_TABLE_CLASS])) {
+</code></pre>
+
+<p>This would allow derived classes to work.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

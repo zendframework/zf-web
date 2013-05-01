@@ -1,0 +1,240 @@
+<h2>ZF-6445: Zend_XmlRpc_Value should support the 64 bits integer data type</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-04-28T01:27:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-11-18T11:37:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.3 (22/Sep/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Stefan Alexandru (acid24)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Lars Strojny (lars)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_XmlRpc_Client</li>
+            <li>Zend_XmlRpc_Server</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11985/ZendXMLRPCBigInt.patch.gz">ZendXMLRPCBigInt.patch.gz</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The Zend_XmlRpc_Value class should support the a 64 bits integer data type.</p>
+
+<p>Suggestion:</p>
+
+<p>Add new constant to Zend_XmlRpc_Value class.</p>
+
+<pre class="highlight"><code>
+const XMLRPC_TYPE_I8 = 'i8';
+</code></pre>
+
+<p>Add the new constant to the switch in the getXmlRpcValue() method (search for self::XMLRPC_TYPE_I8)</p>
+
+<pre class="highlight"><code>
+switch ($type) {
+    case self::AUTO_DETECT_TYPE:
+        // Auto detect the XML-RPC native type from the PHP type of $value
+        return self::_phpVarToNativeXmlRpc($value);
+
+    case self::XML_STRING:
+        // Parse the XML string given in $value and get the XML-RPC value in it
+        return self::_xmlStringToNativeXmlRpc($value);
+
+    case self::XMLRPC_TYPE_I4:
+        // fall through to the next case
+    case self::XMLRPC_TYPE_INTEGER:
+        return new Zend_XmlRpc_Value_Integer($value);
+
+    case self::XMLRPC_TYPE_DOUBLE:
+        return new Zend_XmlRpc_Value_Double($value);
+
+    case self::XMLRPC_TYPE_BOOLEAN:
+        return new Zend_XmlRpc_Value_Boolean($value);
+
+    case self::XMLRPC_TYPE_I8:
+    case self::XMLRPC_TYPE_STRING:
+        return new Zend_XmlRpc_Value_String($value);
+
+    case self::XMLRPC_TYPE_BASE64:
+        return new Zend_XmlRpc_Value_Base64($value);
+
+    case self::XMLRPC_TYPE_NIL:
+        return new Zend_XmlRpc_Value_Nil();
+
+    case self::XMLRPC_TYPE_DATETIME:
+        return new Zend_XmlRpc_Value_DateTime($value);
+
+    case self::XMLRPC_TYPE_ARRAY:
+        return new Zend_XmlRpc_Value_Array($value);
+
+    case self::XMLRPC_TYPE_STRUCT:
+        return new Zend_XmlRpc_Value_Struct($value);
+
+    default:
+        throw new Zend_XmlRpc_Value_Exception('Given type is not a '. __CLASS__ .' constant');
+}
+</code></pre>
+
+<p>Add the new constant to the switch in the _xmlStringToNativeXmlRpc() method (search for self::XMLRPC_TYPE_I8)</p>
+
+<pre class="highlight"><code>
+switch ($type) {
+    // All valid and known XML-RPC native values
+    case self::XMLRPC_TYPE_I4:
+        // Fall through to the next case
+    case self::XMLRPC_TYPE_INTEGER:
+        $xmlrpc_val = new Zend_XmlRpc_Value_Integer($value);
+        break;
+    case self::XMLRPC_TYPE_DOUBLE:
+        $xmlrpc_val = new Zend_XmlRpc_Value_Double($value);
+        break;
+    case self::XMLRPC_TYPE_BOOLEAN:
+        $xmlrpc_val = new Zend_XmlRpc_Value_Boolean($value);
+        break;
+    case self::XMLRPC_TYPE_I8:
+    case self::XMLRPC_TYPE_STRING:
+        $xmlrpc_val = new Zend_XmlRpc_Value_String($value);
+        break;
+    case self::XMLRPC_TYPE_DATETIME:  // The value should already be in a iso8601 format
+        $xmlrpc_val = new Zend_XmlRpc_Value_DateTime($value);
+        break;
+    case self::XMLRPC_TYPE_BASE64:    // The value should already be base64 encoded
+        $xmlrpc_val = new Zend_XmlRpc_Value_Base64($value ,true);
+        break;
+    case self::XMLRPC_TYPE_NIL:    // The value should always be NULL
+        $xmlrpc_val = new Zend_XmlRpc_Value_Nil();
+        break;
+    case self::XMLRPC_TYPE_ARRAY:
+        // If the XML is valid, $value must be an SimpleXML element and contain the  tag
+        if (!$value instanceof SimpleXMLElement) {
+            throw new Zend_XmlRpc_Value_Exception('XML string is invalid for XML-RPC native '. self::XMLRPC_TYPE_ARRAY .' type');
+        } 
+
+        // PHP 5.2.4 introduced a regression in how empty($xml-&gt;value) 
+        // returns; need to look for the item specifically
+        $data = null;
+        foreach ($value-&gt;children() as $key =&gt; $value) {
+            if ('data' == $key) {
+                $data = $value;
+                break;
+            }
+        }
+        
+        if (null === $data) {
+            throw new Zend_XmlRpc_Value_Exception('Invalid XML for XML-RPC native '. self::XMLRPC_TYPE_ARRAY .' type: ARRAY tag must contain DATA tag');
+        }
+        $values = array();
+        // Parse all the elements of the array from the XML string
+        // (simple xml element) to Zend_XmlRpc_Value objects
+        foreach ($data-&gt;value as $element) {
+            $values[] = self::_xmlStringToNativeXmlRpc($element);
+        }
+        $xmlrpc_val = new Zend_XmlRpc_Value_Array($values);
+        break;
+    case self::XMLRPC_TYPE_STRUCT:
+        // If the XML is valid, $value must be an SimpleXML
+        if ((!$value instanceof SimpleXMLElement)) {
+            throw new Zend_XmlRpc_Value_Exception('XML string is invalid for XML-RPC native '. self::XMLRPC_TYPE_STRUCT .' type');
+        }
+        $values = array();
+        // Parse all the memebers of the struct from the XML string
+        // (simple xml element) to Zend_XmlRpc_Value objects
+        foreach ($value-&gt;member as $member) {
+            // @todo? If a member doesn't have a  tag, we don't add it to the struct
+            // Maybe we want to throw an exception here ?
+            if ((!$member-&gt;value instanceof SimpleXMLElement)) {
+                continue;
+                //throw new Zend_XmlRpc_Value_Exception('Member of the '. self::XMLRPC_TYPE_STRUCT .' XML-RPC native type must contain a VALUE tag');
+            }
+            $values[(string)$member-&gt;name] = self::_xmlStringToNativeXmlRpc($member-&gt;value);
+        }
+        $xmlrpc_val = new Zend_XmlRpc_Value_Struct($values);
+        break;
+    default:
+        throw new Zend_XmlRpc_Value_Exception('Value type \''. $type .'\' parsed from the XML string is not a known XML-RPC native type');
+        break;
+}
+</code></pre>
+
+<p>Thank you.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michiel Brandenburg (apex) on 2009-06-05T07:06:50.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>I ran in to the same "problem" and solved it along the same lines.  But instead of casting i8 to string use a (new) Zend_XmlRpc_Value_BigInteger I have attached a diff last svn version.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michiel Brandenburg (apex) on 2009-06-05T07:07:39.000+0000</p> 
+        <div class="body">
+            <p>Patch to support BigInts in the xmlrpc client.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lars Strojny (lars) on 2009-08-22T09:17:11.000+0000</p> 
+        <div class="body">
+            <p>Michiel, the patch looks good. Could you provide some tests for the marshaling?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lars Strojny (lars) on 2009-08-23T07:49:01.000+0000</p> 
+        <div class="body">
+            <p>Please make sure you sign a CLA too so that we can accept your patches: <a href="http://framework.zend.com/community/contribute">http://framework.zend.com/community/contribute</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lars Strojny (lars) on 2009-08-31T13:25:24.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r17933. Handles  as well as the non-standard Apache XML/RPC extension  (<a href="http://ws.apache.org/xmlrpc/">http://ws.apache.org/xmlrpc/</a>)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jan Pieper (jpieper) on 2010-11-18T11:37:46.000+0000</p> 
+        <div class="body">
+            <p>Zend_XmlRpc_Value_BigInteger has been refactored due to some major bugs. See ZF-8898 for more details.</p>
+
+        </div>
+    </div>
+    </div>
+

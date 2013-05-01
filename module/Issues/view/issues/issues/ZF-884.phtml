@@ -1,0 +1,151 @@
+<h2>ZF-884: SQLite: associative array result set contains correlation names in keys</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-02-08T18:08:41.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-03-14T09:32:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 (30/Jun/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>SQLite is unlike other PDO drivers in that when the result set is returned from a SELECT statement as an associative array of columns =&gt; values, and the query contained correlation names, the correlation names are included in the array keys:</p>
+
+<pre class="highlight"><code>
+SELECT f.column1 FROM table1 AS f
+</code></pre>
+
+<p>Returns a result set where the key is "{{f.column1}}" whereas in other RDBMS's the key is "{{column1}}".</p>
+
+<p>ADODB solves this by creating a distinct driver called "sqlitepo" that strips the leading prefix from the array key during the fetch operation.
+<a href="http://www.xaraya.com/documentation/phpxref/nav.html?xaradodb/drivers/adodb-sqlitepo.inc.php.source.html">http://xaraya.com/documentation/phpxref/…</a></p>
+
+<p>We need to do something similar, by extending the following functions in Zend_Db_Adapter_Pdo_Sqlite:
+- {{fetchAssoc()}}
+- {{fetchAll()}} when fetch mode is FETCH_ASSOC</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-02T12:18:56.000+0000</p> 
+        <div class="body">
+            <p>SQLite supports pragma statements to control this behavior.
+See <a href="http://www.sqlite.org/pragma.html">http://www.sqlite.org/pragma.html</a></p>
+
+<p>For example, the following statements should help:</p>
+
+<pre class="highlight"><code>
+PRAGMA full_column_names=0
+PRAGMA short_column_names=1
+</code></pre>
+
+<p>However, there are bug reports that these pragmas don't have the desired effect.  And in fact that's what I'm seeing too in the unit tests.</p>
+
+<p>I'm going to implement the pragma statements in the _connect() method of the Pdo_Sqlite adapter class, knowing that at least in the current version of SQLite, it does not work.  Perhaps in a future version, it will be fixed.</p>
+
+<p>I'm adding unit tests to tests/Zend/Db/Adapter/Pdo/SqliteTest.php for the cases that fail because they insist on returning result sets with keys like "table"."column".</p>
+
+<p>We can't strip the table portion out of the keys as they do in ADODB, because this is a PDO Adapter.  The result set is returned in a PDOStatement, not a Zend_Db_Statement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-02T12:20:40.000+0000</p> 
+        <div class="body">
+            <p>Resolved insofar as we can resolve it, in revision 4667.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-05-25T11:37:20.000+0000</p> 
+        <div class="body">
+            <p>With ZF-1425, we do have a Zend_Db_Statement_Pdo class.  In theory, we could now strip correlation names from the keys in result sets, if the driver's pdoType is 'sqlite'.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-28T21:16:15.000+0000</p> 
+        <div class="body">
+            <p>After upgrading to PHP 5.2.3 the PRAGMA commands are now working.  So I presume that a more recent version of the PDO_SQLite driver is working better with respect to PRAGMA.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by John Coggeshall (coogle) on 2009-06-22T12:19:59.000+0000</p> 
+        <div class="body">
+            <p>This bug still exists in the latest version of Zend Core using the latest version of Zend Framework (HEAD)...</p>
+
+<p>It looks like SQLite has gone back and forth on this issue, where different versions of the library behave differently to these PRAGMAs -- we need to figure out which versions do what and correct it.</p>
+
+<p><a href="http://www.sqlite.org/cvstrac/search?s=short_column_names&amp;t=1&amp;f=1">http://sqlite.org/cvstrac/search/…</a></p>
+
+<p>As far as I can tell if you simply remove this line from the Pdo_Sqlite::_connect() method it works, at least for ZC:</p>
+
+<p>$retval = $this-&gt;_connection-&gt;exec('PRAGMA short_column_names=1');</p>
+
+<p>Based on the bug reports I read from sqlite.org we should be able to simply execute full_column_names=0 and achieve the result we are looking for... but I'm sure there is a BC issue here too.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2009-09-24T17:44:33.000+0000</p> 
+        <div class="body">
+            <p>I removed the fix version as for we obviously won't make fix version 1.0.0 (or is anybody in the house who can actually go back in time and fix the issue? If so, I got a few other ones laying around that I'd prefer having fixed a long time ago :D)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-02-26T18:50:03.000+0000</p> 
+        <div class="body">
+            <p>Does this issue still exist?  If so, could [~coogle]'s suggestion (PRAGMA full_column_names=0) be safely implemented to resolve this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-03-14T09:31:44.000+0000</p> 
+        <div class="body">
+            <p>No response for over a year. I close this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

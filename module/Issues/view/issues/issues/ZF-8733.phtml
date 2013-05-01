@@ -1,0 +1,206 @@
+<h2>ZF-8733: Zend_File_Transfer_Adapter_Abstract should not accept user provided mime time as official mime type</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-06T21:01:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-02-12T03:45:42.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.5 (11/Jan/10)</li>
+            <li>1.9.7 (11/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_File_Transfer</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9133">ZF-9133</a></li>
+            <li><a href="/issues/browse/ZF-8783">ZF-8783</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12590/ZF-8733.patch">ZF-8733.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_File_Transfer_Adapter_Abstract::getMimeType() falls back on the contents of the PHP $_FILES array to inspect a file upload's MIME Type, this is bad behavior.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-06T21:07:56.000+0000</p> 
+        <div class="body">
+            <p>Do not commit, patch under review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-06T23:02:01.000+0000</p> 
+        <div class="body">
+            <p>2 notes:</p>
+
+<p>1.)
+getMimeType() should return the MimeType which is set. When there is no way to autodetect it, due to disabled extensions, it may return the given mimetype from the client. Returning NO mimetype at all is also problematic.</p>
+
+<p>A better solution would be to add a option which allows to select if a fallback should be used or not. Default to not with notice. A notice could also be rised when the clients mimetype is returned.</p>
+
+<p>2.)
+The detection based on the extension which can be seen within the patch is MUCH MORE UNSECURE than just returning the users mimetype. A malcious user can easily change the extension of a file by simply renaming it. But it takes much more time to change the send mimetype (which is normally detected by the browser but could also be changed).</p>
+
+<p>This patch itself is really a security problem!</p>
+
+<p>The described is also the reason why no where, wether within Zend_File nor within Zend_Validate_File such a solution was added.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-06T23:08:48.000+0000</p> 
+        <div class="body">
+            <p>Bah, you are right, what was I thinking.</p>
+
+<p>The current suggestion is not to detect based on filename, but rather to throw an exception.  Do you think a notice is better?  Also, what kind of option/fallback do you envision? The same thing (but opt-in) where it will use the $_FILES['type']?</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-06T23:56:39.000+0000</p> 
+        <div class="body">
+            <p>I would change the following within my component:</p>
+
+<p>*) Add a new option which sets if the clients mimetype should be returned or not... defaults to false (not returned)
+*) Add another option which selects if the users mimetype should be returned instead of the real (this could be useful in combination with the validator to detect attacks)... also defaults to false
+*) Any of those Options to false and no extension available then simply return NULL (empty string)</p>
+
+<p>Optionally:
+*) Option to true return the users mimetype but also raises a notice
+*) Another option could be added which omits the notice (for those using debuggers)</p>
+
+<p>In any case, this change does not only effect getMimeType() but also all other places where $_FILES['type'] is returned like getFileInfo()</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-07T00:00:34.000+0000</p> 
+        <div class="body">
+            <p>I Forgot:
+The first option means "return real mimetype but when not detected return 'type'. This is the fallback. Option: "fallback"</p>
+
+<p>The second option means "return ONLY 'type' and do not detect the real mimetype. This can be used for an attacker detection. Option: "typedetection" or "detection"</p>
+
+<p>The third option means "don't throw notices". Useful for debuggers. Option: "disablenotices" or "notices"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-01-07T04:45:36.000+0000</p> 
+        <div class="body">
+            <p>A few things.</p>
+
+<p>First, the mimetype from $_FILES can be easily spoofed - it take little time. You can do it using Zend_Http_Client in a few short lines of code taking little time, effort, or knowledge. This is why any reliance on $_FILES is inherently insecure - it offers exactly zero assurances.</p>
+
+<p>Second, the method is public which raises an expectation that it can and will be used by end users. At present it performs its detection without any warning about the $_FILES reliance if it comes down to that. The main reason it's a worry is because, at first glance, it's an simple alternative to using the mimetype validators. This means that Debian 4.0, for example, which does not package the finfo extension or mime function is insecure out of the box if this method is relied on. You can add anything else not happy with finfo's record in PECL (prior to inclusion in 5.3 as core) or the mime function's deprecated state. Returning no mimetype is far better than returning one that's easily manipulated and can lead to holes of the bad variety.</p>
+
+<p>The problem with notices is that they don't clearly demonstrate to end users that the behaviour is exceptional (only that their PHP version is somehow incomplete - wrong message!). All it will result in is broken code. Throwing an exception (it is exceptional!) with an appropriate warning message offers the benefit of allowing end users fallback themselves to an exceptional solution - you can find these anywhere running from custom magic file parsers to system commands. Developers have been dealing with $_FILES for a long time.</p>
+
+<p>In a public facing method, the option to return from $_FILES is also questionable (even if opt-in). Is there a valid use case? Can't the user do their own $_FILES lookup if they need it that badly? I'm not completely against it - I simply don't see any value in it other than offering yet one more way for a developer to shoot themselves in the foot. $_FILES just cannot be trusted. If the option is needed internally - then use a protected method.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-07T05:42:35.000+0000</p> 
+        <div class="body">
+            <p>I am against erasing MimeType completly like described by Padraic.</p>
+
+<p>Until now I was said from the devteam that Exceptions are not acceptable. In several components we used therefor user-notices instead of exceptions when we want to note the user of something.</p>
+
+<p>Looking at what I described I see to reason where or why an exception should be raised... please read my description completly.</p>
+
+<p>Related to $_FILES itself there are 2 things to mention:</p>
+
+<p>*) There ARE usecases where someone could be in need of the infos from $_FILES. After the upload these infos would be erased. As said these infos could be used for other ways. And as described they are switched off per default... you have to turn them on by configuration to change this behaviour.</p>
+
+<p>*) It should also be noted that we are speaking of the abstract file transfer adapter. This means that the abstract adapter itself does not rely on $_FILES or HTTP. The internal array has just the same naming. Changing these internal things can add massive problems to the other adapters I am working on. Erasing the $_FILES relation should be done within the HTTP Adapter and not within the abstract class.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-07T08:23:06.000+0000</p> 
+        <div class="body">
+            <p>New patch added.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-01-07T08:45:18.000+0000</p> 
+        <div class="body">
+            <p>Thomas: This is a security issue, plain and simple. There are three factors we need to consider.</p>
+
+<ul><li>ZF must be secure by default. Having options to make the code less secure is a disservice to users, and should never occur.</li>
+<li>Users <em>can</em> catch exceptions and/or extend the filter if they need something that's less secure.</li>
+<li>Exceptions from filters and validators are not ideal; however, they are always allowed for exceptional circumstances. This is an exceptional circumstance.</li>
+</ul><p>With these in mind, it makes zero sense to have options that would lead to insecure code, even if they are not enabled by default. That said, Ralph and I are in agreement with you that the exception should only be raised from the HTTP adapter of Zend_File_Transfer -- not the abstract adapter. This should allow you to keep the flexibility in behavior you need for other adapters, while still eliminating the security vector. Ralph has indicated he can create a patch that does exactly this, and will be posting it shortly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2010-01-07T09:58:46.000+0000</p> 
+        <div class="body">
+            <p>Never suggested erasing getMimeType(), Thomas. My suggestion is a reflection of how the MimeType validators operate - throwing an exception when the mimetype cannot be safely detected. The use cases on needing information from $_FILES are mitigated by the very existence of the superglobal - using an array is not a problem for developers, so the fallback opt-in isn't necessary. As I stated, I'm not completely against it, but I would prefer there was a compelling use case for needing it. The default exception behaviour could be easily adapted in its absence allowing developers manually refer to $_FILES (making it their problem) if a No-Detect form of exception was caught. What I suggested (in case it's needed for the component - not the end user) was that if $_FILES use was needed internally to the component, it could be added as a protected method leaving the public one solely exhibiting the secure behaviour for userland code. This refers only to a $_FILES fallback - not the entire method which you seem to have misinterpreted as my goal.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2010-01-07T14:18:29.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk at r20127.
+Fixed in 1.9 at r20134.
+Fixed in 1.8 at r20135.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-01-08T11:11:07.000+0000</p> 
+        <div class="body">
+            <p>Security fix in trunk with r20141</p>
+
+<p>Notes:
+The provided (and also discussed/agreed) solution
+ * makes ZF more secure
+ * does not use exceptions within getMimeType() (which I said to be unnecessary there)
+ * does add a option to make $_FILES unsecure again (which is necessary as the original data should be able to be logged)</p>
+
+        </div>
+    </div>
+    </div>
+

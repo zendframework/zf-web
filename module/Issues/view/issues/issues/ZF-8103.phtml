@@ -1,0 +1,315 @@
+<h2>ZF-8103: Massive speedup in Zend_Mime::encodeQuotedPrintable()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-10-20T01:04:35.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-03-13T20:55:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Mini Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jonas Wüste (jwueste)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Hodgins (mjh_ca)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mime</li>
+            <li>After1.12.0</li>
+            <li>FixForZF1.12.1</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13513/benchmark.php">benchmark.php</a></li>
+            <li><a href="/issues/secure/attachment/13515/ZF-8103.new.patch">ZF-8103.new.patch</a></li>
+            <li><a href="/issues/secure/attachment/13512/ZF8103.patch">ZF8103.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There is a possibility to have a massive speedup in Zend_Mime::encodeQuotedPrintable().
+If the imap extension in php is enabled, the function imap_8bit() should be used instead of doing it on your own. Here's a little script showing the speedup.</p>
+
+<pre class="highlight"><code>
+$client = new Zend_Http_Client("http://de.wikipedia.org/w/index.php?title=PHP&amp;printable=yes");
+
+$string = $client-&gt;request()-&gt;getBody();
+
+echo "Starting encoding with imap_8bit() (5000 times)\n";
+$startTime = time();
+for ($i = 0; $i &lt; 5000; $i++){
+   imap_8bit($string);
+}
+$durationImap_8bit = time()-$startTime;
+echo "Duration: " . $durationImap_8bit . " seconds\n";
+echo "Starting encoding with Zend_Mime::encodeQuotedPrintable() (5000 times)\n";
+$startTime = time();
+for ($i = 0; $i &lt; 5000; $i++){
+   Zend_Mime::encodeQuotedPrintable($string, Zend_Mime::LINELENGTH, Zend_Mime::LINEEND);
+}
+$durationZendMime = time()-$startTime;
+echo "Duration: " . $durationZendMime . " seconds\n\n";
+
+echo "imap_8bit() is " . ($durationZendMime-$durationImap_8bit) . " seconds faster than Zend_Mime!\n";
+echo "It only needs " . ceil((100/$durationZendMime)*$durationImap_8bit) . "% of time";
+</code></pre>
+
+<p>OUTPUT:</p>
+
+<p>Starting encoding with imap_8bit() (5000 times)
+Duration: 7 seconds
+Starting encoding with Zend_Mime::encodeQuotedPrintable() (5000 times)
+Duration: 273 seconds</p>
+
+<p>imap_8bit() is 266 seconds faster than Zend_Mime!
+It only needs 3% of time</p>
+
+<p>Possible changes for Zend_Mime::encode():</p>
+
+<pre class="highlight"><code>
+public static function encode($str, $encoding, $EOL = self::LINEEND)
+    {
+        switch ($encoding) {
+            case self::ENCODING_BASE64:
+                return self::encodeBase64($str, self::LINELENGTH, $EOL);
+
+            case self::ENCODING_QUOTEDPRINTABLE:
+                if (function_exists('imap_8bit')){
+               return imap_8bit($str);
+                }
+                return self::encodeQuotedPrintable($str, self::LINELENGTH, $EOL);
+
+            default:
+                /**
+                 * @todo 7Bit and 8Bit is currently handled the same way.
+                 */
+                return $str;
+        }
+    }
+</code></pre>
+
+<p>Greetings,
+Jonas</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-10-28T08:06:57.000+0000</p> 
+        <div class="body">
+            <p>Your proposition is very interesting, Jonas.</p>
+
+<p>But I worry whether we would do against rule about extensions if we use IMAP extension.
+The rule was written in PHP Coding Standard (draft).</p>
+
+<p>cf:</p>
+
+<pre class="literal">
+<a href="http://framework.zend.com/wiki/display/ZFDEV/PHP+Coding+Standard+(draft)">http://framework.zend.com/wiki/display/…</a>
+</pre>
+
+<p>The page says, ??Zend Framework components may use an extension only if that extension is enabled by default in the PHP.net binary distribution supported by the current release of Zend Framework.??</p>
+
+<p>Therefore, I think the exptension is not available at present unfortunately. :-(</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Kliewe (mkliewe) on 2009-10-28T10:47:27.000+0000</p> 
+        <div class="body">
+            <p>If the extension is not available, it is not used. There is no problem I think.</p>
+
+<p>I have the same "problem" with the bad performance...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Körner (mkone) on 2009-10-28T11:09:09.000+0000</p> 
+        <div class="body">
+            <p>What about Zend_Db_Adapter_Sqlsrv? This class even uses a 3rd party extension (sqlsrv.dll from Microsoft Corp.) which is currently only available on Win32.</p>
+
+<p>The Coding Standard should not be used in this case because:
+1. it's a draft
+2. there are other classes that don't follow it
+3. the Zend_Mime class will work without the extension enabled furthermore</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nico Edtinger (nico) on 2009-11-05T05:37:33.000+0000</p> 
+        <div class="body">
+            <p>An extension, which is not in the default build may be used as a soft dependency AFAIK. BTW adapters are a bad example, because they invert the dependency (you use an adapter, because you have database X).</p>
+
+<p>As long as imap/c-client doesn't have problems, like different output than build-in methods or platform specific issues, it could be used if the benefit is big enough. The given example doesn't really test a real life issue if the page content is not fetched inside of the loop, so the benefit hasn't been measured yet.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2009-11-18T01:26:50.000+0000</p> 
+        <div class="body">
+            <p>Hi, all ;)</p>
+
+<p>I will be happy if you give me more several weeks for my setting up Unit tests.</p>
+
+<p>The tests should be able to check PHP script when both imap extension exists or not, I think.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jonas Wüste (jwueste) on 2010-03-08T23:48:05.000+0000</p> 
+        <div class="body">
+            <p>Hi Satoru,</p>
+
+<p>can you tell me something about the progress on this issue?
+I would be very happy if I don't have to change code everytime I update the framework ;)</p>
+
+<p>Greetings</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2010-04-19T06:59:26.000+0000</p> 
+        <div class="body">
+            <p>There are new functions available since PHP 5.3: quoted_printable_encode &amp; quoted_printable_decode</p>
+
+<p>php.net:
+- encode
+Returns a quoted printable string created according to » RFC2045, section 6.7.
+This function is similar to imap_8bit(), except this one does not require the IMAP module to work.</p>
+
+<ul><li>decode:
+This function returns an 8-bit binary string corresponding to the decoded quoted printable string (according to » RFC2045, section 6.7, not » RFC2821, section 4.5.2, so additional periods are not stripped from the beginning of line).
+This function is similar to imap_qprint(), except this one does not require the IMAP module to work. </li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Satoru Yoshida (satoruyoshida) on 2010-06-12T06:30:11.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I have been inactive since last April.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jonas Wüste (jwueste) on 2010-08-09T23:07:47.000+0000</p> 
+        <div class="body">
+            <p>Any news on this?
+Or should I ask: Will it ever be fixed?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jonas Wüste (jwueste) on 2010-09-05T23:04:10.000+0000</p> 
+        <div class="body">
+            <p>Hello?!?
+Could anyone please be so kind and put the changes in the trunk?
+Greets</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-02T23:37:49.000+0000</p> 
+        <div class="body">
+            <p>The original patch could use a couple of improvements before going into trunk.  First, the optimization should be applied in Zend_Mime::_encodeQuotedPrintable() because this makes it available for calls to Zend_Mime::encodeQuotedPrintable() as well as ::encode().</p>
+
+<p>Also, Marc Bennewitz noted, PHP5.3 now includes quoted_printable_encode().  I have benchmarked this and it is even faster than using the IMAP extension.  So, IMO the ideal solution here is to test for quoted_printable_encode(), then test for imap_8bit(), then fall back to the existing behavior.  Speed tests from the benchmark (with 5000 iterations):</p>
+
+<pre class="literal">
+imap_8bit() is 145.0137 seconds faster than Zend_Mime!
+It is 42.36 times faster
+
+quoted_printable_encode() is 145.3856 seconds faster than Zend_Mime!
+It is 47.39 times faster
+</pre>
+
+<p>Attaching two files:</p>
+
+<h1><em>Revised benchmark script</em> which includes testing of quoted_printable_encode(), and</h1>
+
+<h1><em>Revised patch</em> which:</h1>
+
+<h2>Moves the fix to Zend_Mime::_encodeQuotedPrintable()</h2>
+
+<h2>Modifies the behavior to try quoted_printable_encode(), then fall back to imap_8bit(), then fall back to existing internal encoding behavior.</h2>
+
+<h2>Adds a note to the documentation about how enabling the IMAP extension on PHP &lt; 5.3 will result in a speedup.</h2>
+
+<h2>Adds a test to <em>tests/Zend/MimeTest.php</em> to ensure that calls optimized to these faster PHP functions as well as the internal ability of Zend_Mime to handle quoted-printable encoding are tested no matter what platform or extensions are active when the tests are run.</h2>
+
+<p>If someone could test this patch by running <em>tests/Zend/MimeTest</em> on PHP5.2 that would be great as I've only tested this on PHP5.3.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-02T23:40:16.000+0000</p> 
+        <div class="body">
+            <p>Targeting for next mini release since the patch is backwards-compatible and fixes a performance bottleneck.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jonas Wüste (jwueste) on 2010-12-03T00:05:09.000+0000</p> 
+        <div class="body">
+            <p>I've noticed a needed modification in this patch.
+Instead of directly returning the result of imap_8bit() or quoted_printable_encode() you have to replace the lineendings "\r\n" by "$EOL, which defaults to "\n". 
+Without this modification the lineends in the mail are "\r\r\n".
+When sending this mail with a SMTP-Server that tries to repair broken lineends (e.g. PowerMTA) the lineends are now "\r\n\r\n". This leads to misformatted (HTML-)mails.
+So the function should look like this</p>
+
+<p>private static function _encodeQuotedPrintable($str)
+     {
+        // PHP or extension functions are much faster, use if available
+        if (function_exists('quoted_printable_encode')) {
+            return str_replace("\r\n", $EOL, quoted_printable_encode($str));
+        } elseif (function_exists('imap_8bit')) {
+            return str_replace("\r\n", $EOL, imap_8bit($str));
+        } else {
+            return self::_encodeQuotedPrintableInternal($str);
+        }
+    }</p>
+
+<p>Greets,
+Jonas</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Hodgins (mjh_ca) on 2010-12-03T03:53:38.000+0000</p> 
+        <div class="body">
+            <p>@Jonas: Good catch.  Hadn't noticed that the PHP methods do the line breaks for you.  This was at odds with how Zend_Mime allows specifying custom lineLength and lineBreak, so I refactored the patch a little more to support it.</p>
+
+<p>Also added a few additional tests that should have been in there to confirm lineLength and lineBreak behavior.</p>
+
+<p>Revised patch is attached.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,278 @@
+<h2>ZF-5319: Zend_Paginator_Adapter_DbSelect-&gt;setRowCount() does not behave as expected.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-12-18T16:15:08.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-08T14:31:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                purple ankh (purpleankh)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Jurrien Stutterheim (norm2782)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Paginator</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>// Method A</p>
+
+<pre class="highlight"><code>
+$rowCount = $db-&gt;select()-&gt;from( 'table' , array( Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN =&gt; 'COUNT(*)' ) );
+print( $rowCount."<br />" );
+$paginator-&gt;getAdapter()-&gt;setRowCount( $rowCount );    // Exception thrown here.
+</code></pre>
+
+<p>// Method B</p>
+
+<pre class="highlight"><code>
+$rowCount = $db-&gt;select()-&gt;from( 'table' )
+            -&gt;reset( Zend_Db_Select::COLUMNS )
+            -&gt;columns( new Zend_Db_Expr( 'COUNT(*) AS '.$db-&gt;quoteIdentifier( Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN ) ) );
+print( $rowCount."<br />" );
+$paginator-&gt;getAdapter()-&gt;setRowCount( $rowCount );    // Works fine.
+</code></pre>
+
+<p>I am using a query for pagination which involves subqueries, unions, grouping and ordering for which I wish to specify a fast row count with the setRowCount method. If I use Method A above, which seems to be the most logical way of specifying the query, I get a 'Row count column not found' Exception thrown from Line 109 of Zend/Paginator/Adapter/DbSelect.php</p>
+
+<p>However, if I use the more convoluted query specification of Method B (which I derived from the source for count() in DbSelect) then no exception is thrown and the pagination works fine.</p>
+
+<p>The results of both the print statements above are identical:</p>
+
+<pre class="highlight"><code>
+    SELECT COUNT(*) AS `zend_paginator_row_count` FROM `table`
+    SELECT COUNT(*) AS `zend_paginator_row_count` FROM `table`
+</code></pre>
+
+<p>Therefore, I would expect that both should work without throwing an exception.</p>
+
+<p>Note: I have not tested this in any version before 1.7.0 as I have only recently discovered Zend Framework and started at 1.7.</p>
+
+<p>Edit (2009-01-01):
+As there is no (apparent) way for me to add a comment, I've added this additional to the description.</p>
+
+<p>The following 4 examples should all work with Zend_Paginator but only B &amp; D do.</p>
+
+<pre class="highlight"><code>
+// Example A
+$rowCount = $db-&gt;select()-&gt;from('table', array(Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN =&gt; 'COUNT(*)'));
+
+// Example B
+$rowCount = $db-&gt;select()-&gt;from('table', new Zend_Db_Expr('COUNT(*) AS '.$db-&gt;quoteIdentifier(Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN)));
+
+// Example C
+$rowCount = $db-&gt;select()-&gt;from('metadata', array(Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN =&gt; 'rowcount'))-&gt;where('tablename=?', 'table');
+
+// Example D
+$rowCount = $db-&gt;select()-&gt;from('metadata', new Zend_Db_Expr($db-&gt;quoteIdentifier('rowcount').' AS '.$db-&gt;quoteIdentifier(Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN)))-&gt;where('tablename=?', 'table');
+</code></pre>
+
+<p>print($rowCount) for the above gives:</p>
+
+<pre class="highlight"><code>
+// Example A
+SELECT COUNT(*) AS `zend_paginator_row_count` FROM `table`
+
+// Example B
+SELECT COUNT(*) AS `zend_paginator_row_count` FROM `table`
+
+// Example C
+SELECT `metadata`.`rowcount` AS `zend_paginator_row_count` FROM `metadata` WHERE (tablename='table')
+
+// Example D
+SELECT `rowcount` AS `zend_paginator_row_count` FROM `metadata` WHERE (tablename='table')
+</code></pre>
+
+<p>The reason that A &amp; C fail is that Zend_Paginator_Adapter_DbSelect doesn't check for column aliases properly. The output below shows how the alias can be stored in two different ways:
+    1) As Array[0][2]
+    2) As part of Array[0][1] if it is a Zend_Db_Expr and contains an 'AS' clause
+print_r($rowCount-&gt;getPart(Zend_Db_Select::COLUMNS)) gives:</p>
+
+<pre class="highlight"><code>
+// Example A
+Array
+(
+    [0] =&gt; Array
+        (
+            [0] =&gt; films
+            [1] =&gt; Zend_Db_Expr Object
+                (
+                    [_expression:protected] =&gt; COUNT(*)
+                )
+            [2] =&gt; zend_paginator_row_count
+        )
+)
+
+// Example B
+Array
+(
+    [0] =&gt; Array
+        (
+            [0] =&gt; films
+            [1] =&gt; Zend_Db_Expr Object
+                (
+                    [_expression:protected] =&gt; COUNT(*) AS `zend_paginator_row_count`
+                )
+            [2] =&gt; 
+        )
+)
+
+// Example C
+Array
+(
+    [0] =&gt; Array
+        (
+            [0] =&gt; metadata
+            [1] =&gt; rowcount
+            [2] =&gt; zend_paginator_row_count
+        )
+)
+
+// Example D
+Array
+(
+    [0] =&gt; Array
+        (
+            [0] =&gt; metadata
+            [1] =&gt; Zend_Db_Expr Object
+                (
+                    [_expression:protected] =&gt; `rowcount` AS `zend_paginator_row_count`
+                )
+            [2] =&gt; 
+        )
+)
+</code></pre>
+
+<p>A possible solution is to modify the setRowCount() function of Zend_Paginator_Adapter_DbSelect to something like the following, which works successfully with the four examples above:</p>
+
+<pre class="highlight"><code>
+    public function setRowCount($rowCount)
+    {
+        if ($rowCount instanceof Zend_Db_Select) {
+            $columns = $rowCount-&gt;getPart(Zend_Db_Select::COLUMNS);
+
+            // The select query can contain only one column
+            if ( count($columns) != 1 ) {
+                /**
+                 * @see Zend_Paginator_Exception
+                 */
+                require_once 'Zend/Paginator/Exception.php';
+
+                throw new Zend_Paginator_Exception('There should only be one column in the SQL provided.');
+            }
+            $column0 = $columns[0];
+            $countColumnPart = $column0[1];
+
+            if ($countColumnPart instanceof Zend_Db_Expr) {
+                $countColumnPart = $countColumnPart-&gt;__toString();
+            }
+
+            // The select query can contain only one column, which should be
+            // the row count column aliased as self::ROW_COUNT_COLUMN. This
+            // can appear in $column0 as either $column0[2], or if $column0[1]
+            // is a Zend_Db_Expr then the $countColumnPart as extracted above.
+            if ((false === strpos($countColumnPart, self::ROW_COUNT_COLUMN))
+                    &amp;&amp; ($column0[2] != self::ROW_COUNT_COLUMN)) {
+                /**
+                 * @see Zend_Paginator_Exception
+                 */
+                require_once 'Zend/Paginator/Exception.php';
+
+                throw new Zend_Paginator_Exception('Row count column not found');
+            }
+
+            $result = $rowCount-&gt;query(Zend_Db::FETCH_ASSOC)-&gt;fetch();
+
+            $this-&gt;_rowCount = count($result) &gt; 0 ? $result[self::ROW_COUNT_COLUMN] : 0;
+        } else if (is_integer($rowCount)) {
+            $this-&gt;_rowCount = $rowCount;
+        } else {
+            /**
+             * @see Zend_Paginator_Exception
+             */
+            require_once 'Zend/Paginator/Exception.php';
+
+            throw new Zend_Paginator_Exception('Invalid row count');
+        }
+
+        return $this;
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-12-23T11:19:50.000+0000</p> 
+        <div class="body">
+            <p>Try something like this:</p>
+
+<pre class="highlight"><code>
+$expression = new Zend_Db_Expr('COUNT(*) AS ' . $rowCount-&gt;getAdapter()-&gt;quoteIdentifier(self::ROW_COUNT_COLUMN));
+$rowCount = $db-&gt;select()-&gt;from('table', $expression);
+
+$adapter = new Zend_Paginator_Adapter_DbSelect($originalSelect);
+$adpater-&gt;setRowCount($rowCount);
+
+$paginator = new Zend_Paginator($adapter);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jurrien Stutterheim (norm2782) on 2008-12-23T11:21:22.000+0000</p> 
+        <div class="body">
+            <p>Doh... sorry... that one obviously doesn't work... should check after copy/pasting stuff from the Paginator adapter:</p>
+
+<pre class="highlight"><code>
+$expression = new Zend_Db_Expr('COUNT(*) AS ' . $db-&gt;quoteIdentifier(Zend_Paginator_Adapter_DbSelect::ROW_COUNT_COLUMN));
+$rowCount = $db-&gt;select()-&gt;from('table', $expression);
+
+$adapter = new Zend_Paginator_Adapter_DbSelect($originalSelect);
+$adpater-&gt;setRowCount($rowCount);
+
+$paginator = new Zend_Paginator($adapter);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-06-08T14:30:11.000+0000</p> 
+        <div class="body">
+            <p>It's unclear that this is a legitimate issue, and the reporter hasn't responded in six months.  Closing as "not an issue".  Purple_ankh, if you've tried the suggested code and it still doesn't work, please feel free to reopen this ticket.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,124 @@
+<h2>ZF-10930: Zend_Db_Adapter_Abstract-&gt;query doesn't cache the prepared statement for a given SQL query</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Performance Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-09T18:16:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-10T00:23:05.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                matthieu (matthieu)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ryan Mauger (bittarman)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <ul><li>Problem</li>
+</ul><p>Calling Zend_Db_Adapter_Abstract-&gt;query() many times (ie. thousands) with the same SQL query string (using bind parameters) results in much wasted time performing instanciation of the same Zend_Db_Statement object. See screenshot 1 from xhprof.</p>
+
+<p>In particular, Zend_Db_Statement::_parseParameters is using preg_split and _stripQuoted which are very costly in time and memory.</p>
+
+<ul><li>Proposed solution</li>
+</ul><p>I have a proposed patch which statically caches the prepared statement for the given SQL string statement:</p>
+
+<pre class="literal">
+Index: libs/Zend/Db/Adapter/Abstract.php
+===================================================================
+--- libs/Zend/Db/Adapter/Abstract.php   (revision 3647)
++++ libs/Zend/Db/Adapter/Abstract.php   (working copy)
+@@ -444,6 +444,9 @@
+      */
+     public function query($sql, $bind = array())
+     {
++       // Let's cache prepared statements to avoid preparing the same query more than once
++       static $cachePreparedStatement = array();
++       
+         // connect to the database if needed
+         $this-&gt;_connect();
+ 
+@@ -464,7 +467,11 @@
+         }
+ 
+         // prepare and execute the statement with profiling
+-        $stmt = $this-&gt;prepare($sql);
++        if(empty($cachePreparedStatement[$sql])) {
++           $cachePreparedStatement[$sql] = $this-&gt;prepare($sql);
++        } 
++        $stmt = $cachePreparedStatement[$sql];
++        
+         $stmt-&gt;execute($bind);
+ 
+         // return the results embedded in the prepared statement object
+@@ -472,6 +479,7 @@
+         return $stmt;
+     }
+</pre>
+
+<ul><li>Conclusion</li>
+</ul><p>Probably we are using zend_db in a very special use case, but this patch saves 10% of execution time of a very large batch script, and avoids allocating a total of 400Mb of memory over the run of our script. Please confirm if it will be included in Zend or I'll have to add the code in our parent classes.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by matthieu (matthieu) on 2011-01-09T18:18:48.000+0000</p> 
+        <div class="body">
+            <p>I wanted to post xhprof screenshots but cant find the feature to upload images on here.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2011-01-10T00:21:56.000+0000</p> 
+        <div class="body">
+            <p>Im closing this as not an issue.</p>
+
+<p>The query method returns an instance of the statement class, which would be your 'cached' query, if you wish to re-use it, then you should re-use the statement returned, rather than forcing this into the adapter.</p>
+
+<p>This behaviour is very similar to the manner in which PDO creates its prepared statements, and so would be expected by the majority of users.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2011-01-10T00:23:05.000+0000</p> 
+        <div class="body">
+            <p>Additionally, in order to upload attachments to issues, or supply patches, you need to sign the CLA</p>
+
+<p>You can find the CLA here: <a href="http://framework.zend.com/wiki/display/ZFPROP/Contributor+License+Agreement">http://framework.zend.com/wiki/display/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

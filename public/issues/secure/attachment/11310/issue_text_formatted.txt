@@ -1,0 +1,55 @@
+
+
+[Based on ZF 1.5.2 code]
+
+Such call => Zend_View_Helper_PartialLoop::partialLoop($viewScript, Zend_Db_Table_Rowset $rowset) will couse this:
+---------
+    public function partialLoop($name = null, $module = null, $model = null)
+    { 
+	// ...
+	// ...	
+        if (is_object($model) && method_exists($model, 'toArray')) {
+            $model = $model->toArray();     
+        }
+--------
+
+to be always true, because Zend_Db_Table_Rowset which is stored in $model here implements toArray() method, whoch does this:
+
+--------
+    public function toArray()  
+    { 
+        // @todo This works only if we have iterated through
+        // the result set once to instantiate the rows.
+        foreach ($this->_rows as $i => $row) {
+            $this->_data[$i] = $row->toArray();
+        }
+        return $this->_data;   
+    } 
+
+--------
+So all rows in rowset are converted to array.
+
+
+The side effect of this behaviour is that:
+$this->partialLoop()->setObjectKey('myObject')->partialLoop($viewScript, Zend_Db_Table_Rowset $rowset);
+won't populate row object inside $this->myObject, which behaviour is in fact implemented in Zend_View_Helper_Partial::partial():
+--------
+        if (!empty($model)) {
+            if (is_array($model)) {
+                $view->assign($model);
+            } elseif (is_object($model)) {
+                if (null !== ($objectKey = $this->getObjectKey())) {
+                    $view->assign($objectKey, $model);              // <== This line is never reached, despite we have called setObjectKey('myObject')
+                } elseif (method_exists($model, 'toArray')) {
+                    $view->assign($model->toArray());
+                } else {
+                    $view->assign(get_object_vars($model));
+                }
+            }
+        }
+
+--------
+
+
+Commentig out line 71 in lib/Zend/View/Helper/PartialLoop.php, it is "$model = $model->toArray();" makes object accessible insiade partial view via $this->myObject.
+

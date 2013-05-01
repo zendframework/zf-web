@@ -1,0 +1,148 @@
+<h2>ZF-10044: Zend_Test_PHPUnit_Db_Operation_Truncate doesn't heed the AUTO_QUOTE_IDENTIFIERS config option</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-23T23:44:14.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-22T06:16:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.3 (01/Feb/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Andrew Sharpe (andrewsharpe79)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Test_PHPUnit</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Test_PHPUnit_Db_Operation_Truncate::truncate() calls Zend_Db_Adapter_Abstract::quoteIdentifier() and doesn't pass the second argument to allow the developer to control identifier quoting.  This results in the truncate operation failing on (at least) Oracle.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Andrew Sharpe (andrewsharpe79) on 2010-07-19T17:06:56.000+0000</p> 
+        <div class="body">
+            <p>I'd still like to retain the truncate operation in the SimpleTester and the workaround I'm using ATM is rather cumbersome.</p>
+
+<p>I have subclassed SimpleTester with the following:</p>
+
+<p>class My_Test_PHPUnit_Db_SimpleTester extends Zend_Test_PHPUnit_Db_SimpleTester {
+    public function __construct(PHPUnit_Extensions_Database_DB_IDatabaseConnection $connection) {
+        parent::__construct($connection);</p>
+
+<pre><code>    $this-&gt;setUpOperation = new PHPUnit_Extensions_Database_Operation_Composite(array(
+        new My_Test_PHPUnit_Db_Operation_Truncate(),
+        new Zend_Test_PHPUnit_Db_Operation_Insert(),
+    ));
+}
+</code></pre>
+
+<p>}</p>
+
+<p>And also the Truncate operation:</p>
+
+<p>class My_Test_PHPUnit_Db_Operation_Truncate extends Zend_Test_PHPUnit_Db_Operation_Truncate {
+    protected function <em>truncate(Zend_Db_Adapter_Abstract $db, $tableName) {
+        // can't pass this through because when quoteIdentifier is called without
+        // the second argument then quoting always happens =&gt; breakage
+//      return parent::_truncate($db, $db-&gt;quoteIdentifier($tableName, true));
+        $tableName = $db-&gt;quoteIdentifier($tableName, true);
+        if($db instanceof Zend_Db_Adapter_Pdo_Sqlite) {
+            $db-&gt;query('DELETE FROM '.$tableName);
+        } else if($db instanceof Zend_Db_Adapter_Db2) {
+            if(strstr(PHP_OS, "WIN")) {
+                $file = tempnam(sys_get_temp_dir(), "zendtestdbibm</em>");
+                file_put_contents($file, "");
+                $db-&gt;query('IMPORT FROM '.$file.' OF DEL REPLACE INTO '.$tableName);
+                unlink($file);
+            } else {
+                $db-&gt;query('IMPORT FROM /dev/null OF DEL REPLACE INTO '.$tableName);
+            }
+        } else if($this-&gt;<em>isMssqlOrOracle</em>($db)) {
+            $db-&gt;query('TRUNCATE TABLE '.$tableName);
+        } else {
+            $db-&gt;query('TRUNCATE '.$tableName);
+        }
+    }</p>
+
+<pre><code>private function _isMssqlOrOracle_($db) {
+    return (
+        $db instanceof Zend_Db_Adapter_Pdo_Mssql ||
+        $db instanceof Zend_Db_Adapter_Sqlsrv ||
+        $db instanceof Zend_Db_Adapter_Pdo_Oci ||
+        $db instanceof Zend_Db_Adapter_Oracle
+    );
+}
+</code></pre>
+
+<p>}</p>
+
+<p>Here is the patch to ZF 1.9.5 to allow this to work (can't upgrade to ZF 10.x due to project priorities):</p>
+
+<h1>Index: php/library/Zend/Test/PHPUnit/Db/Operation/Truncate.php</h1>
+
+<p>--- php/library/Zend/Test/PHPUnit/Db/Operation/Truncate.php     (revision 22559)
++++ php/library/Zend/Test/PHPUnit/Db/Operation/Truncate.php     (working copy)
+@@ -77,7 +77,7 @@
+      */
+     protected function _truncate(Zend_Db_Adapter_Abstract $db, $tableName)
+     {
+-        $tableName = $db-&gt;quoteIdentifier($tableName);
++        $tableName = $db-&gt;quoteIdentifier($tableName, true);
+         if($db instanceof Zend_Db_Adapter_Pdo_Sqlite) {
+             $db-&gt;query('DELETE FROM '.$tableName);
+         } else if($db instanceof Zend_Db_Adapter_Db2) {
+@@ -111,4 +111,4 @@
+             $db instanceof Zend_Db_Adapter_Oracle
+         );
+     }
+-}
+\ No newline at end of file
++}</p>
+
+<p>Unfortunately this system munges the formatting.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-01-22T06:16:36.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r23655 merged to release branch 1.11 r23656 - thanks.</p>
+
+        </div>
+    </div>
+    </div>
+

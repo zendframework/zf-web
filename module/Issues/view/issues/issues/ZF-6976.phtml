@@ -1,0 +1,167 @@
+<h2>ZF-6976: Zend_Controller_Router_Route_Chain doesn't reset pathInfo in request</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-10T07:50:14.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-01-19T15:07:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Edward Surov (zooh)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12421/Chain.patch">Chain.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Let's suppose we're trying to match the following URL:
+/part1/part2/part3a
+And we have the following chains:
+part1-&gt;part2-&gt;part3a
+part1-&gt;part2-&gt;part3b</p>
+
+<p>Last chain tries to match our URL and fails on the last part. Then first chain tries to match... but not the whole URL, because $request-&gt;getPathInfo() returns only part3a now!
+The solution is to call $request-&gt;setPathInfo($path) before returning false from inside the foreach() that iterates the routes, not only after finishing the foreach().</p>
+
+<p>P.S.: I tried to avoid patching the ZF source by extending Zend_Controller_Router_Route_Chain with my custom class, but Zend_Controller_Router_Route_Abstract cannot be tuned to use my class in chain() method - it's hardcoded there.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Edward Surov (zooh) on 2009-11-23T15:29:13.000+0000</p> 
+        <div class="body">
+            <p>Important notice: this bug occurs only if part3b route's getVersion() returns 2 or greater.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Edward Surov (zooh) on 2009-11-23T16:21:19.000+0000</p> 
+        <div class="body">
+            <p>This patch solves the problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Peter Moolenaar (petermoolenaar) on 2010-06-01T06:19:21.000+0000</p> 
+        <div class="body">
+            <p>I'm having the same issue... It affects (at least) version 1.10</p>
+
+<p>Although this patch does fix the problem related to the Chain route, the problem might be more related to modifying the Request_Http object.
+Actually changing the Request_Http object to pass along some modifications seems to be a bit misplaced or am I missing something important??</p>
+
+<p>Using the actual request object in a route (version 2) seems feasible, but it might not be when dealing with chained routes. Any thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Martin Minka (k2s) on 2012-01-19T15:07:20.000+0000</p> 
+        <div class="body">
+            <p>The provided patch solves the problem. The chain class is calling $request-&gt;setPathInfo($path) in case that it finds match, but it doesn't do it when not (places where return false; is calles).</p>
+
+<p>I am providing test where it is shown how evaluating route A is influencing route B evaluation.</p>
+
+<p>Output of this test is:</p>
+
+<pre class="highlight"><code>
+1. test matches, path info=/xxx/too
+B route matches: yes
+2. test fails which is correct, path info=xxx/too
+A route matches: no
+3. test fails which is wrong, reason is that the route A has change path info=too
+B route matches: no
+finished.
+</code></pre>
+
+<p>Source:</p>
+
+<pre class="highlight"><code>
+require_once 'Zend/Controller/Router/Rewrite.php';
+require_once 'Zend/Controller/Dispatcher/Standard.php';
+require_once 'Zend/Controller/Router/Route/Chain.php';
+require_once 'Zend/Controller/Router/Route.php';
+require_once 'Zend/Controller/Router/Route/Module.php';
+require_once 'Zend/Controller/Router/Route/Static.php';
+require_once 'Zend/Controller/Router/Route/Regex.php';
+require_once 'Zend/Controller/Router/Route/Hostname.php';
+
+
+require_once 'Zend/Controller/Request/Http.php';
+
+$prefixRoute = new Zend_Controller_Router_Route('/xxx/');
+
+$_SERVER['HTTP_HOST'] = '<a href="www.test.com">www.test.com</a>';
+$request = new Zend_Controller_Request_Http("http://<a href="www.test.com/xxx/too">www.test.com/xxx/too</a>");
+
+$a = getRouteA($prefixRoute);
+$b = getRouteB($prefixRoute);
+
+echo "1. test matches, path info=".$request-&gt;getPathInfo().PHP_EOL;
+echo "B route matches: ".($b-&gt;match($request) ? "yes" : "no").PHP_EOL;
+echo "2. test fails which is correct, path info=".$request-&gt;getPathInfo().PHP_EOL;
+echo "A route matches: ".($a-&gt;match($request) ? "yes" : "no").PHP_EOL;
+echo "3. test fails which is wrong, reason is that the route A has change path info=".$request-&gt;getPathInfo().PHP_EOL;
+echo "B route matches: ".($b-&gt;match($request) ? "yes" : "no").PHP_EOL;
+die("finished.");
+
+/*** helpers ***/
+function getRouter()
+{
+    $router = new Zend_Controller_Router_Rewrite();
+    $router-&gt;removeDefaultRoutes();
+    return $router;
+}
+
+function getRouteA($prefixRoute)
+{
+    $chain = new Zend_Controller_Router_Route_Chain();
+    $foo = new Zend_Controller_Router_Route_Hostname('<a href="www.zend.com">www.zend.com</a>', array('foo' =&gt; 1));
+    $bar = new Zend_Controller_Router_Route_Static('bar', array('bar' =&gt; 2));
+    $chain-&gt;chain($foo)-&gt;chain($bar);
+    return $prefixRoute-&gt;chain($chain);
+}
+
+function getRouteB($prefixRoute)
+{
+    $too = new Zend_Controller_Router_Route_Static('too', array('ok' =&gt; 1));
+    return $prefixRoute-&gt;chain($too);
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,264 @@
+<h2>ZF-4253: Memcache should support tags</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-11T11:16:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-01T13:48:40.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Lee Eason (leason)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have extended the Memcached backed to implement a tagging system.  I have not yet load tested or extensively bug tested this.  My improvement is for a specific project, but I've adapted my extended class for submission as a potential improvement.  Only a couple of methods are actually over-ridden here.</p>
+
+<p>The basic idea is that you use a cached array to track the keys.  When you save keys you retrieve the cached key array, add the ID being saved as another entry into each tag it is being associated with, and save the updated tag array.  To remove by tag you look up the tag in the global tags array and loop through the entries deleting each one from memcache and updating the cached tag array.</p>
+
+<p>Here is my example implementation:</p>
+
+<pre class="literal">
+class KeyEnabled_Memcached extends Zend_Cache_Backend_Memcached
+{
+
+    private function getTagListId()
+    {
+        return "MyTagArrayCacheKey";
+    }
+    
+    private function getTags()
+    {
+        if(!$tags = $this-&gt;_memcache-&gt;get($this-&gt;getTagListId()))
+        {
+            $tags = array();
+        }
+        return $tags;
+    }
+    
+    private function saveTags($id, $tags)
+    {
+        // First get the tags
+        $siteTags = $this-&gt;getTags();
+        
+        foreach($tags as $tag)
+        {
+            $siteTags[$tag][] = $id;
+        }
+        $this-&gt;_memcache-&gt;set($this-&gt;getTagListId(), $siteTags);        
+    }
+    
+    private function getItemsByTag($tag)
+    {
+        $siteTags = $this-&gt;_memcache-&gt;get($this-&gt;getTagListId());
+        return isset($siteTags[$tag]) ? $siteTags[$tag] : false;
+    }
+
+    /**
+     * Save some string datas into a cache record
+     *
+     * Note : $data is always "string" (serialization is done by the
+     * core not by the backend)
+     *
+     * @param  string $data             Datas to cache
+     * @param  string $id               Cache id
+     * @param  array  $tags             Array of strings, the cache record will be tagged by each string entry
+     * @param  int    $specificLifetime If != false, set a specific lifetime for this cache record (null =&gt; infinite lifetime)
+     * @return boolean True if no problem
+     */
+    public function save($data, $id, $tags = array(), $specificLifetime = false)
+    {
+        $lifetime = $this-&gt;getLifetime($specificLifetime);
+        if ($this-&gt;_options['compression']) {
+            $flag = MEMCACHE_COMPRESSED;
+        } else {
+            $flag = 0;
+        }
+        $result = $this-&gt;_memcache-&gt;set($id, array($data, time()), $flag, $lifetime);
+        if (count($tags) &gt; 0) {
+            $this-&gt;saveTags($id, $tags);
+        }
+        return $result;
+    }
+
+    /**
+     * Clean some cache records
+     *
+     * Available modes are :
+     * 'all' (default)  =&gt; remove all cache entries ($tags is not used)
+     * 'old'            =&gt; remove too old cache entries ($tags is not used)
+     * 'matchingTag'    =&gt; remove cache entries matching all given tags
+     *                     ($tags can be an array of strings or a single string)
+     * 'notMatchingTag' =&gt; remove cache entries not matching one of the given tags
+     *                     ($tags can be an array of strings or a single string)
+     *
+     * @param  string $mode Clean mode
+     * @param  array  $tags Array of tags
+     * @return boolean True if no problem
+     */
+    public function clean($mode = Zend_Cache::CLEANING_MODE_ALL, $tags = array())
+    {
+        if ($mode==Zend_Cache::CLEANING_MODE_ALL) {
+            return $this-&gt;_memcache-&gt;flush();
+        }
+        if ($mode==Zend_Cache::CLEANING_MODE_OLD) {
+            $this-&gt;_log("Zend_Cache_Backend_Memcached::clean() : CLEANING_MODE_OLD is unsupported by the Memcached backend");
+        }
+        if ($mode==Zend_Cache::CLEANING_MODE_MATCHING_TAG) {
+            $siteTags = $newTags = $this-&gt;getTags();
+            if(count($siteTags))
+            {
+                foreach($tags as $tag)
+                {
+                    if(isset($siteTags[$tag]))
+                    {
+                        foreach($siteTags[$tag] as $item)
+                        {
+                            // We call delete directly here because the ID in the cache is already specific for this site
+                            $this-&gt;_memcache-&gt;delete($item);
+                        }
+                        unset($newTags[$tag]);
+                    }
+                }
+                $this-&gt;_memcache-&gt;set($this-&gt;getTagListId(),$newTags);
+            }
+        }
+        if ($mode==Zend_Cache::CLEANING_MODE_NOT_MATCHING_TAG) {
+            $siteTags = $newTags = $this-&gt;getTags();
+            if(count($siteTags))
+            {
+                foreach($siteTags as $siteTag =&gt; $items)
+                {
+                    if(array_search($siteTag,$tags) === false)
+                    {
+                        foreach($items as $item)
+                        {
+                            $this-&gt;_memcache-&gt;delete($item);
+                        }
+                        unset($newTags[$siteTag]);
+                    }
+                }
+                $this-&gt;_memcache-&gt;set($this-&gt;getTagListId(),$newTags);
+            }
+        }
+    }
+}
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2008-09-12T11:06:19.000+0000</p> 
+        <div class="body">
+            <p>tags system for memcache, APC or xcache backends are not reliable because the system can drop any of your record to make some space for other records</p>
+
+<p>so your proposal is good but not reliable</p>
+
+<p>if memcache drop your MyTagArrayCacheKey record, what about CLEANING_MODE_NOT_MATCHING_TAG or CLEANING_MODE_MATCHING_TAG ?</p>
+
+<p>in SVN trunk, there is a completly new backend called "TwoLevels" :
+- the fast level can be memcache backend
+- the slow level (but reliable) can be the file backend</p>
+
+<p>This virtual backend has plenty of advantages and of course support tags (throw the reliable backend)</p>
+
+<p>Please have a look at this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aleksi Ursin (aleksiu) on 2009-06-11T03:19:08.000+0000</p> 
+        <div class="body">
+            <p>The lack of memcached tags support missing should atleast be documented somewhere.</p>
+
+<p>Furthermore, it's a "hack" so to speak to make work for file cache aswell, so i don't see any reason why not to implement for Memcached aswell. However this solution, while rather simple, does not offer good performance.</p>
+
+<p>This proposes one big array for all the keys and their tags, which does not work very well if you use millions upon millions of keys (enough to make /dev/shm/cache based "filecache" to crawl due to huge directory sizes), and would translate to huge amounts of downtime on such systems, due to constant memory over consumption.</p>
+
+<p>Plus, when saving a new key you would need to load that, and save it there, not working therefore.</p>
+
+<p>I propose it should work something along these lines:
+ - tag based index keys, ie. tag1, tag2 have: internal-metadata-tag1, internal-metadata-tag2 index arrays cached
+ - index array for different tags, ie. containing all the tags currently being employed. works if relatively small amount of different tags.</p>
+
+<p>As for the memcached possibly cleaning them away: I doubt because these are constantly accessed, therefore constantly fresh, therefore not going to be emptied. To be certain of this, a temporary directory as a backup for these could be used, or solely for these, ie. file cache. However, that option neither is optimal, unless used against /dev/shm (What's similar for Windows?). If this data disappears, flush all in memcache (make this optional)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tim Hawkins (thawkins) on 2010-05-30T23:47:57.000+0000</p> 
+        <div class="body">
+            <p>there is an alternative way to handle this</p>
+
+<ol><li><p>create a tag record as a key in memcache and set its value (version) initially to '0'</p></li>
+<li><p>for each tagged key you store/retrieve in memcache, get the value of the tag to create a key extension of something like [tagname]<em>[version]</em> ........ .</p></li>
+<li><p>if you want to invalidate all the keys for a particular tag, just increment the value stored in its tag value.</p></li>
+</ol><p>it means that you have to access memcache to get the tag version number for each tagged key read or write, 
+but since its just a single integer it should be very fast. it only needs to be read once for each tag, so reads/writes of keys in the same tag could 
+use a locally cached version number.</p>
+
+<p>example:   if you create a tag called "fred" and store a key called "smith" against it, the key generated would be fred=&gt;0 for the tag and fred_0_smith=&gt;data for the key/value</p>
+
+<p>incrementing the key would result in reads against fred_1_smith which would be the same as invalidating the "smith" key and all others associated with that tag.</p>
+
+<p>Unused values would eventually evict from memcache by lru action. You may have to take special action to stop the tag records from evicting.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Curtis Corliss (ccorliss) on 2011-02-23T14:07:06.000+0000</p> 
+        <div class="body">
+            <p>This proposal also has issues with write concurrency.</p>
+
+<p>ie:
+2 threads are saving at the same time and get the current value of the MyTagArrayCacheKey array.
+Each thread adds tag=&gt;id entries to the array.
+Thread 1 writes the modified MyTagArrayCacheKey array, then thread 2 writes its modified MyTagArrayCacheKey array.
+MyTagArrayCacheKey does not have tag entries from thread 1.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by jon (jskarpet) on 2011-06-01T13:48:39.000+0000</p> 
+        <div class="body">
+            <p>What about the memcached-tag project?</p>
+
+        </div>
+    </div>
+    </div>
+

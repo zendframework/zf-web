@@ -1,0 +1,291 @@
+<h2>ZF-3399: Subclassing Zend_Db_Select/Zend_Db_Table_Select</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-05T14:54:12.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-31T09:07:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Hector Virgen (djvirgen)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+            <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6626">ZF-6626</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Subclasses of Zend_Db_Select cannot be used by Zend_Db_Table_Abstract::select() because it instantiates Zend_Db_Table_Select (which in turn extends Zend_Db_Select).</p>
+
+<p>The only way around this is to first copy/paste the contents of Zend/Db/Table/Select.php and change the class it extends to your custom class. Then, you need to subclass Zend_Db_Table_Abstract and overload Zend_Db_Table_Abstract::select() to instantiate My_Db_Table_Select instead of Zend_Db_Table_Select.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-22T03:50:38.000+0000</p> 
+        <div class="body">
+            <p>Rather than copy/paste, we are using a subclass of Zend_Db_Table, which applies the same approach as is used for the row and rowset subclasses:</p>
+
+<p>New:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Classname for Table Select statement
+     *
+     * @var string
+     */
+    protected $_selectClass = 'Zend_Db_Table_Select';
+</code></pre>
+
+<p>Updated:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Returns an instance of a Zend_Db_Table_Select object.
+     *
+     * @return Zend_Db_Table_Select
+     */
+    public function select()
+    {
+        @Zend_Loader::loadClass($this-&gt;_selectClass);
+        return new $this-&gt;_selectClass($this);
+    }
+</code></pre>
+
+<p>I think this code could be copied straight into Zend_Db_Table_Abstract.</p>
+
+<p>This allows users to override the Table_Select class in the same way they override the row or rowset classes, and would make the class more consistent.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-22T07:43:09.000+0000</p> 
+        <div class="body">
+            <p>_where() might also need to be updated. Currently the class is fixed:</p>
+
+<pre class="highlight"><code>    /**
+     * Generate WHERE clause from user-supplied string or array
+     *
+     * @param  string|array $where  OPTIONAL An SQL WHERE clause.
+     * @return Zend_Db_Table_Select
+     */
+    protected function _where(Zend_Db_Table_Select $select, $where)</code></pre>
+
+<p>If we are allowed to specify our own class, it might not be a sub-class of Zend_Db_Table_Select.</p>
+
+<p>I know that the normal practice would be to subclass Zend_Db_Table_Select and then make any changes necessary, but Zend_Db_Table_Select is a sub-class of Zend_Db_Select and this is also frequently sub-classed (e.g. to support bind variables). I have found it easier to incorporate the functionality I need by sub-classing Zend_Db_Select first (e.g. My_Db_Select extends Zend_Db_Select), and then sub-classing that to inherit the additional functionality at the table level (My_Db_Table_Select extends My_Db_Select).</p>
+
+<p>This means that I have to keep My_Db_Table_Select as a verbatim copy of Zend_Db_Table_Select, except for the extends clause! It would be better if these classes used composition rather than inheritance, but that is another battle! I'm hoping that Zend_Db_Select will be enhanced to bind variables and I can forget about my sub classes.</p>
+
+<p>In any case, for people in my situation who are deliberately using a Table Select that is not sub-classed from Zend_Db_Table_Select, the following might be better:</p>
+
+<pre class="highlight"><code>    /**
+     * Generate WHERE clause from user-supplied string or array
+     *
+     * @param  string|array $where  OPTIONAL An SQL WHERE clause.
+     * @return Zend_Db_Table_Select
+     */
+    protected function _where($select, $where)
+    {
+        if (! $select instanceof $this-&gt;_selectClass) {
+            $type = gettype($select);
+            if ($type == 'object') {
+                $type = 'an object of class ' . get_class($select);
+            }
+            require_once 'Zend/Exception.php';
+            throw new Zend_Exception('Select must be a ' . $this-&gt;_selectClass . ', but it is ' . $type);
+        }
+        
+        $where = (array) $where;
+
+        foreach ($where as $key =&gt; $val) {
+            // is $key an int?
+            if (is_int($key)) {
+                // $val is the full condition
+                $select-&gt;where($val);
+            } else {
+                // $key is the condition with placeholder,
+                // and $val is quoted into the condition
+                $select-&gt;where($key, $val);
+            }
+        }
+
+        return $select;
+    }</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2008-10-23T07:07:46.000+0000</p> 
+        <div class="body">
+            <p>There are other places where a function requires a Zend_Db_Table_Select, e.g. Zend_Db_Table_Row_Abstract-&gt;findDependentRowset, so removing the class requirement and replacing it with the check I suggest above is probably not a good idea as it will be required in many places.</p>
+
+<p>A better approach might be to create Zend_Db_Table_Select_Interface and require that instread. Then our custom classes could just implement the interface.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-04-22T04:58:38.000+0000</p> 
+        <div class="body">
+            <p>Zend_Db_Adapter is similarly affected. It has variables for $_defaultStmtClass and $_defaultProfilerClass but not one for $_defaultSelectClass. It would be better if the select class could also be changed easily.</p>
+
+<p>I think this requires the addition of:</p>
+
+<pre class="literal"> 
+    /**
+     * Default class name for a Select statement.
+     *
+     * @var string
+     */
+    protected $_defaultSelectClass = 'Zend_Db_Select';</pre>
+
+<p>and:</p>
+
+<pre class="literal"> 
+    /**
+     * Get the default select class.
+     *
+     * @return string
+     */
+    public function getSelectClass()
+    {
+        return $this-&gt;_defaultSelectClass;
+    }
+
+    /**
+     * Set the default select class.
+     *
+     * @return Zend_Db_Adapter_Abstract Fluent interface
+     */
+    public function setSelectClass($class)
+    {
+        $this-&gt;_defaultSelectClass = $class;
+        return $this;
+    }</pre>
+
+<p>And updating:</p>
+
+<pre class="literal"> 
+    /**
+     * Creates and returns a new Zend_Db_Select object for this adapter.
+     *
+     * @return Zend_Db_Select
+     */
+    public function select()
+    {
+        return new Zend_Db_Select($this);
+    }</pre>
+
+<p>To:</p>
+
+<pre class="literal"> 
+    /**
+     * Creates and returns a new Zend_Db_Select object for this adapter.
+     *
+     * @return Zend_Db_Select
+     */
+    public function select()
+    {
+        Zend_Loader::loadClass($this-&gt;_defaultSelectClass);
+        return new $this-&gt;_defaultSelectClass($this);
+    }</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-04-22T05:51:21.000+0000</p> 
+        <div class="body">
+            <p>For consistency and completeness we also need getter and setter methods for the $_select in Zend_Db_Table_Abstract:</p>
+
+<pre class="literal">
+    /**
+     * @param  string $classname
+     * @return Zend_Db_Table_Abstract Provides a fluent interface
+     */
+    public function setSelectClass($classname)
+    {
+        $this-&gt;_selectClass = (string) $classname;
+
+        return $this;
+    }
+
+    /**
+     * @return string
+     */
+    public function getSelectClass()
+    {
+        return $this-&gt;_selectClass;
+    }</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-05-13T12:31:50.000+0000</p> 
+        <div class="body">
+            <p>I agree that for such uses cases (that I understand), some interfaces are highly needed.</p>
+
+<p>Zend_Db_Select_Interface should then define all the Zend_Db_Select methods that are actually used by Zend classes which use Zend_Db_Select typed params (all ?)
+The Interface should also define a public function __construct(Zend_Db_Adapter_Abstract $adapter) signature</p>
+
+<p>We should also create a Zend_Db_Table_Select_Interface extending Zend_Db_Select_Interface and adding Zend_Db_Table_Select methods to it for Zend object using Zend_Db_Table_Select objects as input method params</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Claude Duvergier (cduv) on 2009-08-27T06:50:57.000+0000</p> 
+        <div class="body">
+            <p>When extending {{Zend_Db_Select::assemble()}} (to make it able to return only one part of generated SQL SELECT query) I ran into the same problem than Roger Hunwicks's
+{quote}
+I know that the normal practice would be to subclass Zend_Db_Table_Select and then make any changes necessary, but Zend_Db_Table_Select is a sub-class of Zend_Db_Select and this is also frequently sub-classed (e.g. to support bind variables). I have found it easier to incorporate the functionality I need by sub-classing Zend_Db_Select first (e.g. My_Db_Select extends Zend_Db_Select), and then sub-classing that to inherit the additional functionality at the table level (My_Db_Table_Select extends My_Db_Select).</p>
+
+<p>This means that I have to keep My_Db_Table_Select as a verbatim copy of Zend_Db_Table_Select, except for the extends clause! It would be better if these classes used composition rather than inheritance, but that is another battle! I'm hoping that Zend_Db_Select will be enhanced to bind variables and I can forget about my sub classes.
+{quote}
+And copy/pasting {{Zend_Db_Table_Select}} proper code (the one that differs from {{Zend_Db_Select}}) into {{My_Db_Table_Select}} is quite "ugly" but seems to be the only way.</p>
+
+<p>I think using interfaces in {{Zend_Db_Table_Abstract}} instead of concrete classes would be a good step forward.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-09-17T11:16:41.000+0000</p> 
+        <div class="body">
+            <p>I agree, but this type of change would have to wait till 2.0 time as it would be a mostly-complete rewrite that is needed to facilitate this.</p>
+
+        </div>
+    </div>
+    </div>
+

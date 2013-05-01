@@ -1,0 +1,151 @@
+<h2>ZF-7775: Uncaught exception 'ZendX_Console_Process_Exception' with message 'Unable to create SHM segments for process communications'</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-09-04T21:53:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-01-04T14:30:35.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Tuvok (tuvok)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>ZendX_Console_Process_Unix</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6047">ZF-6047</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Calling -&gt;start()  causes an odd error:</p>
+
+<p>[05-Sep-2009 00:20:43] PHP Fatal error:  Uncaught exception 'ZendX_Console_Process_Exception' with message 'Unable to create SHM segments for process communications' in /opt/GR_Encoder/lib/ZendX/Console/Process/Unix.php:211
+Stack trace:</p>
+
+<h1>0 /opt/GR_Encoder/lib/GR_Encoder.php(327): ZendX_Console_Process_Unix-&gt;start()</h1>
+
+<h1>1 {main}</h1>
+
+<p>All environmental requirements are met for this to work. I have all required libs and this is already checked for in the code.</p>
+
+<p>This error is being caused by:</p>
+
+<pre class="highlight"><code>
+if (!$this-&gt;_ipcIsOkay) {
+            require_once 'ZendX/Console/Process/Exception.php';
+            throw new ZendX_Console_Process_Exception('Unable to create SHM segments for process communications');
+}
+</code></pre>
+
+<p>Which is ultimately:</p>
+
+<pre class="highlight"><code>
+if ($this-&gt;_createIpcSegment() &amp;&amp; $this-&gt;_createIpcSemaphore()) {
+ $this-&gt;_ipcIsOkay = true;
+} else {
+ $this-&gt;_ipcIsOkay = false;
+}
+</code></pre>
+
+<p>And for the big finally:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Create IPC semaphore
+     *
+     * @throws ZendX_Console_Process_Exception When semaphore can't be created
+     * @return boolean
+     */
+    private function _createIpcSemaphore()
+    {
+        $this-&gt;_ipcSemFile = realpath(sys_get_temp_dir()) . '/' . rand() . $this-&gt;_name . '.sem';
+        touch($this-&gt;_ipcSemFile);
+
+        $semKey = ftok($this-&gt;_ipcSemFile, 't');
+        if ($semKey === -1) {
+            require_once 'ZendX/Console/Process/Exception.php';
+            throw new ZendX_Console_Process_Exception('Could not create semaphore');
+        }
+
+        $this-&gt;_internalSemKey = @shmop_open($semKey, 'c', 0644, 10);
+
+        if (!$this-&gt;_internalSemKey) {
+            @unlink($this-&gt;_ipcSemFile);
+            return false;
+        }
+
+        return true;
+    }
+</code></pre>
+
+<p>The problem is that this isn't happening:
+        $this-&gt;_internalSemKey = @shmop_open($semKey, 'c', 0644, 10);</p>
+
+<p>I've removed the @ and changed to error_reporting(E_ALL) with no new news.</p>
+
+<p>I'm on Linux 2.6.21.7-2.fc8xen #1 SMP Fri Feb 15 12:39:36 EST 2008 i686 athlon i386 GNU/Linux</p>
+
+<p>Does anyone know the secret ? because I'd like to use this lib. I suspect it may be a system issue related to some junk in /proc/... ? I really don't know.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Andrew Stoltz (andyl56) on 2009-12-17T08:03:59.000+0000</p> 
+        <div class="body">
+            <p>This is caused by some memory leak issues that have existed in this class. See <a href="http://framework.zend.com/issues/browse/ZF-6047#comment_29555_header_letssurf">http://framework.zend.com/issues/browse/…</a> for how to clean up after the mess.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Florian Hoenig (flo) on 2010-01-04T14:30:34.000+0000</p> 
+        <div class="body">
+            <p>I've been looking into this a bit. First of all, you have to cleanly exit the process. Check the issue on isRunning() and fix that first. Then you have to call stop() on the process instance in the parent after all child processes have completed:</p>
+
+<p>$process1 = new MyProcess();
+$process1-&gt;start();</p>
+
+<p>while ($process1-&gt;isRunning()) {
+    echo "waiting and sleeping...\n";
+    sleep(1);
+}</p>
+
+<p>$process1-&gt;stop();
+exit();</p>
+
+<p>Now you can check "ipcs -m" and see that all ipc segments have been free'ed up again.</p>
+
+        </div>
+    </div>
+    </div>
+

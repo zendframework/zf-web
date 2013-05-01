@@ -1,0 +1,178 @@
+<h2>ZF-464: Zend_Db_Select incorrectly splits ORDER string that contain commas</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-10-29T18:02:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.8.0 (21/Feb/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Simon Mundy (peptolab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The Zend_Db_Select() component will try to convert all order criteria into an array to allow multiple ORDER criteria. It will try to convert strings to an array of criteria by exploding the string using the comma as delimiter. Unfortunately an expression such as the following will be incorrectly handled:-</p>
+
+<pre class="highlight"><code>
+$select-&gt;order('IF (myfield IS NOT NULL, 1, 0) DESC');
+</code></pre>
+
+<p>will be transformed into</p>
+
+<pre class="highlight"><code>
+IF (myfield IS NOT NULL DESC, 1 DESC, 0) DESC');
+</code></pre>
+
+<p>and throw an error.</p>
+
+<p>The solution is to alter the logic for string transformation from:</p>
+
+<pre class="highlight"><code>
+        if (is_string($spec)) {
+            $spec = explode(',', $spec);
+        } else {
+            settype($spec, 'array');
+        }
+</code></pre>
+
+<p>to</p>
+
+<pre class="highlight"><code>
+        if (is_string($spec)) {
+            $spec = array($spec);
+        } else {
+            settype($spec, 'array');
+        }
+</code></pre>
+
+<p>It may break some existing apps for developers but will yield far more consistent results and fewer unexpected DB exceptions.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-10-29T23:34:10.000+0000</p> 
+        <div class="body">
+            <p>The code:</p>
+
+<pre class="highlight"><code>if (is_string($spec)) {
+            $spec = array($spec);
+} else {
+            settype($spec, 'array');
+}
+</code></pre>
+
+<p>is equivalent to:</p>
+
+<pre class="highlight"><code>
+
+I think this problem demonstrates yet another effect of a deeper problem in the design of the DB components.  Both group() and order() have the same problem.  These methods assume the user will restrict input to very simple SQL.  They assume the user will not use whitespace other than standard ASCII 32.  They do not check for empty or malformed clauses.  These two methods are inconsistent with other methods in Select.php, as they do not automatically {{quoteInto()}}, disregarding the issue that the various DB driver's support for prepared queries place different limitations on where the placeholder {{?}} may occur.  Also, the quoteInto() method of the adapters also have issues (filed in JIRA).
+
+The mechanism used for specifying ascending or descending order is inconsistent with the "style" of this class, where programmatic means are preferred over raw SQL.
+
+A solution should take into account all of these issues.  Perhaps a simpler approach would work:
+
+</code></pre>
+
+<p>I have started a discussion on quoting issues:  <a href="http://framework.zend.com/wiki/x/RB8">http://framework.zend.com/wiki/x/RB8</a></p>
+
+<p>Basically Zend_Db_Sql would facilitate preserving as much structural and semantic information about the parts of a SQL fragment as possible for as long as possible.  This approach allows for greater control and flexibility manipulating the parts later into the processes of creating genuine (not emulating) prepared queries for supporting Zend_Db_Adapter_*'s, and better control over emulation for other adapters.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-10-29T23:56:32.000+0000</p> 
+        <div class="body">
+            <p>Reducing priority, since the method was never intended to work with SQL expressions (only column names).</p>
+
+<p>Also, a non-intuitive, but simple workaround exists:</p>
+
+<pre class="highlight"><code>
+$select-&gt;order(array('IF (myfield IS NOT NULL, 1, 0) DESC'));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:22:35.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-01-05T17:02:21.000+0000</p> 
+        <div class="body">
+            <p>Recategorize in Zend_Db_Select component.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-07T22:28:09.000+0000</p> 
+        <div class="body">
+            <p>Resolved ambiguous ORDER BY parsing in revision 3288.</p>
+
+<p>Now, one should not pass multi-term order criteria in a single comma-separated string literal.  The following is deprecated usage:</p>
+
+<pre class="highlight"><code>
+$select-&gt;order( 'A, B DESC, C ASC' );
+</code></pre>
+
+<p>Any of the following two forms should be used instead:</p>
+
+<pre class="highlight"><code>
+$select-&gt;order( array('A', 'B DESC', 'C ASC') );
+</code></pre>
+
+<pre class="highlight"><code>
+$select-&gt;order( 'A' );
+$select-&gt;order( 'B DESC' );
+$select-&gt;order( 'C ASC' );
+</code></pre>
+
+<pre class="highlight"><code>
+$select-&gt;order( 'A' )
+       -&gt;order( 'B DESC' )
+       -&gt;order( 'C ASC' );
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

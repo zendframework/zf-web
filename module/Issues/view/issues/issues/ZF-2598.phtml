@@ -1,0 +1,161 @@
+<h2>ZF-2598: regex for wildcard query (single-placeholder) is wrong</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Docs:  Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-02-07T09:15:33.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-17T18:56:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>In Progress</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Stefan Oestreicher (dlx)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+            <li>FixForZF1.12</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If I search for "lebe?" it correctly matches "leber", "leben" etc. But if I search for "le?en" it doesn't match anything. I dumped the used pattern and it seems there is a bug. The pattern generated for "lebe?" is "/^lebe.$/u" which is correct but for "le?en" the generated pattern is "/^.$/u" which is obviously plain wrong. I didn't track it further but my guess would be that the problem is in the QueryParser. 
+It seems to work only if the placeholder is at the start or end of the term but fails if it's in between.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Oestreicher (dlx) on 2008-02-07T09:43:49.000+0000</p> 
+        <div class="body">
+            <p>I found the problem. This happends because the wildcard-term is tokenized but my tokenizer discards tokens smaller than 2 characters. Therefore "le" before the questionmark and "en" after it are discarded and only the questionmark remains.
+But since it's only tokenized to ensure that it's not a phrase I'd say it's an error that the tokens are looped through.</p>
+
+<p>instead of
+$tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()-&gt;tokenize($subPatternL2, $encoding);
+                    if (count($tokens) &gt; 1) {
+                        throw new Zend_Search_Lucene_Search_QueryParserException('Wildcard search is supported only for non-multiple word terms');
+                    }
+                    #var_dump($tokens);
+                    foreach ($tokens as $token) {
+                        $pattern .= $token-&gt;getTermText();
+                    }</p>
+
+<p>do this
+$tokens = Zend_Search_Lucene_Analysis_Analyzer::getDefault()-&gt;tokenize($subPatternL2, $encoding);
+                    if (count($tokens) &gt; 1) {
+                        throw new Zend_Search_Lucene_Search_QueryParserException('Wildcard search is supported only for non-multiple word terms');
+                    }
+                    $pattern .= $subPatternL2;</p>
+
+<p>and it should work as expected</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Oestreicher (dlx) on 2008-02-11T08:55:09.000+0000</p> 
+        <div class="body">
+            <p>i completely forgot to mention, the postet code is in Zend_Search_Lucene_Search_QueryEntry_Term around the line 145</p>
+
+<p>btw, my fix won't work correctly in all cases since any special characters at the start and end of the term won't be discarded as they would be if the tokenized term would be used (punctuation, etc.). I think a better solution would be to allow for disabling the analyzer filters:</p>
+
+<p>$analyzer = Zend_Search_Lucene_Analysis_Analyzer::getDefault();
+$analyzer-&gt;setFiltersEnabled(false);
+$tokens = $analyzer-&gt;tokenize($subPatternL2, $encoding);
+$analyzer-&gt;setFiltersEnabled(true);
+if (count($tokens) &gt; 1) { throw new Zend_Search_Lucene_Search_QueryParserException('Wildcard search is supported only for non-multiple word terms'); }
+foreach ($tokens as $token) { $pattern .= $token-&gt;getTermText(); }</p>
+
+<p>i think this sould work perfectly with the default anaylzers, although it may still be a problem with custom written analyzers?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-02-20T17:59:13.000+0000</p> 
+        <div class="body">
+            <p>Stefan,</p>
+
+<p>Thank you very much for your detailed research of the problem!</p>
+
+<p>It has one additional aspect. Filter are used also for normalizing terms (e.g. converting to lowercase, stemming and so on). Such normalization has to be performed during indexing and query parsing to get correct terms matching.</p>
+
+<p>So we have two types of filters: 1) normalization filters 2) "filtering" filters (e.g. stop words , short words filters).
+That needs more accurate API.</p>
+
+<p>I've decreased issue priority to postpone it to post-1.5 release period.</p>
+
+<p>PS Actually normalization filters may transform term completely (e.g. stemming filters). I am not sure, such filters may be compatible with wildcard searching.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:50.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Corvus Corax (corvuscorax) on 2009-09-02T08:17:32.000+0000</p> 
+        <div class="body">
+            <p>As far as I can see, it still is an issue. But it might not need to be fixed</p>
+
+<p>A possible workaround solution is for the user to use a different analyzer for searching and for indexing.</p>
+
+<p>One example where I did this is the use of synonyme analysers, that provide several alternative tokens for a single word in the original text.
+If all those alternatives end up in the index, its enough to search for a single one of them, since all alternatives are already in the index. (And unless ZF-7738 gets integrated, multiple tokens for a single term raise exceptions in fuzzy and wildcard searches anyway)</p>
+
+<p>Similar with stop word filtering. It makes sense during indexing, but its counter-productive during search.</p>
+
+<p>A stem word filter however may make sense to be applied both during indexing and during search. (though it may affect wildcard searches weirdly)</p>
+
+<p>Since its no problem to switch analyzers between the different tasks I don't think this bug needs to be fixed. It my make more sense to document these effects in the official documentation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Pádraic Brady (padraic) on 2011-08-14T18:41:01.000+0000</p> 
+        <div class="body">
+            <p>Rather than fix this, which seems a bit convoluted, the approach suggested in last comment is sound. Therefore have re-categorised this to a Critical Docs Improvement.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-17T18:56:27.000+0000</p> 
+        <div class="body">
+            <p>Would anyone like to write such a documentation improvement before 1.12 is frozen?</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,173 @@
+<h2>ZF-722: Zend_Cache_Frontend_Function::call() Supporting object methods via callback parameter</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-01-05T17:45:03.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jeremy Giberson (jeremygiberson)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Fabien MARTY (fab)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Currently the Zend_Cache_Frontend_Function::call() function does not support object methods. 
+For two reasons I believe it should support object functions:
+1) Use case for caching object method:</p>
+
+<pre class="highlight"><code>
+// part class
+class part { 
+     private $partnum;
+
+     public function __construct($partnum) {
+        $this-&gt;partnum = $partnum;
+     }
+
+     public function display() {
+         // renders part and part information in elaborate html
+         // relies on super expensive _getPartInfo() for data
+         $info = $this-&gt;cache-&gt;call( array($this, '_getPartInfo') );
+         echo "Part: {$this-&gt;partnum}";
+         print_r($info);
+     }
+
+     private function _getPartInfo() {
+         // query some databases
+         // crunch some numbers
+         // pretify data
+         // ..
+         return $info;
+     }
+
+     public function initCache() {
+         // set up new Zend_Cache_Frontend_Function()
+         // ..
+     }
+}
+
+// main script
+// parts list contains a list of part numbers
+foreach ($partslist as $partnum) {
+     $p = new Part($partnum);
+     $p-&gt;display();
+}
+</code></pre>
+
+<p>2) The Zend_Cache_Frontend_Function::call() documentation specifically states:
+{quote}Using the call() function is the same as using call_user_func_array() in PHP: {quote}</p>
+
+<p>In order to accommodate this functionality the Zend_Cache_Frontend_Function::call() function's first parameter $name needs to allow for callbacks (<a href="http://us2.php.net/manual/en/language.pseudo-types.php#language.types.callback">http://us2.php.net/manual/en/…</a>).  My first implementation resulted in:</p>
+
+<pre class="highlight"><code>
+//Zend/Cache/Frontend/Function.php
+    private function _makeId($name, $parameters)
+    {
+        /** callback handling fix **/
+        if ( is_array($name) &amp;&amp; is_object($name[0]) &amp;&amp; is_string($name[1]) ) {
+            $name = get_class($name[0])."::".$name[1];
+        } else if ( is_array($name) ) {
+            Zend_Cache::throwException('Incorrect callback format');
+        }
+
+        if (!is_string($name)) {
+            Zend_Cache::throwException('Incorrect function name');
+        }
+        if (!is_array($parameters)) {
+            Zend_Cache::throwException('parameters argument must be an array');
+        }
+        return md5($name . serialize($parameters));
+    }
+</code></pre>
+
+<p>While this technically produced working functionality it had the draw back that the cached result was the same for every instance. I believe the cached result should not only be based on parameters passed to the function but also the variables in the scope of the function (which change generally per instance of an object). To achieve the feature I came up with another modification:</p>
+
+<pre class="highlight"><code>
+//Zend/Cache/Frontend/Function.php
+    private function _makeId($name, $parameters)
+    {
+        /** callback handling fix **/
+        $obj = null;
+        if ( is_array($name) &amp;&amp; is_object($name[0]) &amp;&amp; is_string($name[1]) ) {
+            $obj = $name[0];
+            $name = get_class($name[0])."::".$name[1];
+        } else if ( is_array($name) ) {
+            Zend_Cache::throwException('Incorrect callback format');
+        }
+
+        if (!is_string($name)) {
+            Zend_Cache::throwException('Incorrect function name');
+        }
+        if (!is_array($parameters)) {
+            Zend_Cache::throwException('parameters argument must be an array');
+        }
+        if ($obj)
+            return md5($name . serialize($obj) . serialize($parameters));
+        else
+            return md5($name . serialize($parameters));
+    }
+</code></pre>
+
+<p>Thus concludes the new feature. Please forgive me if this does not belong here as it seemed to me the most practical place.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jeremy Giberson (jeremygiberson) on 2007-01-05T17:47:43.000+0000</p> 
+        <div class="body">
+            <p>Fixed code tags</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2007-01-27T05:22:07.000+0000</p> 
+        <div class="body">
+            <p>for the point 1, the Class frontend is not ok for you ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien MARTY (fab) on 2007-02-08T15:32:20.000+0000</p> 
+        <div class="body">
+            <p>no feedback</p>
+
+        </div>
+    </div>
+    </div>
+

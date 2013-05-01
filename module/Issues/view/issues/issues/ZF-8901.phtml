@@ -1,0 +1,219 @@
+<h2>ZF-8901: Zend_Db_Adapter_Sqlsrv - sorting by two or more fields. Method limit work not correctly.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-22T02:43:31.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-04-16T08:13:55.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michal Zylinski (mzylinski)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Juozas Kaziukenas (juokaz)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>class:Zend_Db_Adapter_Sqlsrv
+method: limit
+version:svn trunk
+When data are sorting by two or more fields, method limit work not correctly.</p>
+
+<p>Current method limit:
+     public function limit($sql, $count, $offset = 0)
+     {
+        $count = intval($count);
+        if ($count &lt;= 0) {
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument count=$count is not valid");
+        }</p>
+
+<pre><code>    $offset = intval($offset);
+    if ($offset &lt; 0) {
+        /** @see Zend_Db_Adapter_Exception */
+        require_once 'Zend/Db/Adapter/Exception.php';
+        throw new Zend_Db_Adapter_Exception("LIMIT argument offset=$offset is not valid");
+    }
+
+    $orderby = stristr($sql, 'ORDER BY');
+    if ($orderby !== false) {
+        $sort  = (stripos($orderby, ' desc') !== false) ? 'desc' : 'asc';
+        $order = str_ireplace('ORDER BY', '', $orderby);
+        $order = trim(preg_replace('/\bASC\b|\bDESC\b/i', '', $order));
+    }
+
+    $sql = preg_replace('/^SELECT\s/i', 'SELECT TOP ' . ($count+$offset) . ' ', $sql);
+
+    $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+    if ($orderby !== false) {
+        $sql .= ' ORDER BY ' . $order . ' ';
+        $sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
+    }
+    $sql .= ') AS outer_tbl';
+    if ($orderby !== false) {
+        $sql .= ' ORDER BY ' . $order . ' ' . $sort;
+    }
+
+    return $sql;
+}
+</code></pre>
+
+<p>suggested solution (from Zend_Db_Adapter_Pdo_Mssql):
+     public function limit($sql, $count, $offset = 0)
+     {
+        $count = intval($count);
+        if ($count &lt;= 0) {
+            /** @see Zend_Db_Adapter_Exception */
+            require_once 'Zend/Db/Adapter/Exception.php';
+            throw new Zend_Db_Adapter_Exception("LIMIT argument count=$count is not valid");
+        }</p>
+
+<pre><code>    $offset = intval($offset);
+    if ($offset &lt; 0) {
+        /** @see Zend_Db_Adapter_Exception */
+        require_once 'Zend/Db/Adapter/Exception.php';
+        throw new Zend_Db_Adapter_Exception("LIMIT argument offset=$offset is not valid");
+    }
+
+    $sql = preg_replace(
+        '/^SELECT\s+(DISTINCT\s)?/i',
+        'SELECT $1TOP ' . ($count+$offset) . ' ',
+        $sql
+        );
+
+    if ($offset &gt; 0) {
+        $orderby = stristr($sql, 'ORDER BY');
+
+        if ($orderby !== false) {
+            $orderParts = explode(',', substr($orderby, 8));
+            $pregReplaceCount = null;
+            $orderbyInverseParts = array();
+            foreach ($orderParts as $orderPart) {
+                $orderPart = rtrim($orderPart);
+                $inv = preg_replace('/\s+desc$/i', ' ASC', $orderPart, 1, $pregReplaceCount);
+                if ($pregReplaceCount) {
+                    $orderbyInverseParts[] = $inv;
+                    continue;
+                }
+                $inv = preg_replace('/\s+asc$/i', ' DESC', $orderPart, 1, $pregReplaceCount);
+                if ($pregReplaceCount) {
+                    $orderbyInverseParts[] = $inv;
+                    continue;
+                } else {
+                    $orderbyInverseParts[] = $orderPart . ' DESC';
+                }
+            }
+
+            $orderbyInverse = 'ORDER BY ' . implode(', ', $orderbyInverseParts);
+        }
+
+
+
+
+        $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+        if ($orderby !== false) {
+            $sql .= ' ' . $orderbyInverse . ' ';
+        }
+        $sql .= ') AS outer_tbl';
+        if ($orderby !== false) {
+            $sql .= ' ' . $orderby;
+        }
+    }
+
+    return $sql;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Patrick Figel (patf) on 2010-02-19T08:20:04.000+0000</p> 
+        <div class="body">
+            <p>This can be fixed by simply copy&amp;pasting Zend_Db_Adapter_Pdo_Mssql's limit()-Method to Zend_Db_Adapter_Sqlsrv.</p>
+
+<p>We've been hacking this function into Zend_Db_Adapter_Sqlsrv for quite a while now with each new release, would be nice to see it fixed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Timon Zielonka (zukunft) on 2010-04-08T06:56:09.000+0000</p> 
+        <div class="body">
+            <p>I had the same problem, but it looks to me that in the suggested solution has some formatting problems. I copied the suggested solution, but this caused syntax errors for example at "SELECT $1TOP". So I used this little bit different code:</p>
+
+<p>...
+       $sql = 'SELECT * FROM (SELECT TOP ' . $count . ' * FROM (' . $sql . ') AS inner_tbl';
+        if ($orderby !== false) {
+        // new lines for SQL Server 2005
+        $order_txt = str_ireplace('ORDER BY', '', $orderby);
+        $order_invert = $order_txt;
+        if (stripos($sort, 'asc') !== false) {
+                $order_invert = trim(preg_replace('/ASC/i', 'CSED', $order_invert));
+                $order_invert = trim(preg_replace('/DESC/i', 'ASC', $order_invert));
+                $order_invert = trim(preg_replace('/CSED/i', 'DESC', $order_invert));
+        } else {
+                $order_invert = trim(preg_replace('/DESC/i', 'CSA', $order_invert));
+                $order_invert = trim(preg_replace('/ASC/i', 'DESC', $order_invert));
+                $order_invert = trim(preg_replace('/CSA/i', 'ASC', $order_invert));
+        }
+        $sql .= ' ORDER BY ' . $order_invert . ' ';
+        // removed lines for SQL Server 2005
+        //$sql .= ' ORDER BY ' . $order . ' ';
+        //$sql .= (stripos($sort, 'asc') !== false) ? 'DESC' : 'ASC';
+        }
+        $sql .= ') AS outer_tbl';
+        if ($orderby !== false) {
+        // new lines for SQL Server 2005
+            $sql .= ' ORDER BY ' . $order_txt . ' ';
+        // removed lines for SQL Server 2005
+            //$sql .= ' ORDER BY ' . $order . ' ' . $sort;
+        }
+...</p>
+
+<p>This works as long as you do not have any fields called 'ASC' or 'DESC' ...</p>
+
+<p>But it would be really good to see this but solved in the next framework version</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Juozas Kaziukenas (juokaz) on 2010-04-16T08:13:55.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r21885</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,169 @@
+<h2>ZF-744: getWeekday - bugs, logical type issues, efficiency problems</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-01-12T14:50:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.7.0 (18/Jan/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Gavin (gavin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Date</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There are several similar functions, but since getWeekday() provides a good example to study.</p>
+
+<p>h3. getWeekday() returns a Zend_Date in the range 1 to 7 x number of seconds in day</p>
+
+<p>Why does getWeekday() return 1 to 7, when the normal range for PHP date related functions is 0 to 6, with 0 = Sunday?</p>
+
+<p>For example, the {{date()}} function returns 1 to 7 for "day of the week".</p>
+
+<p>h3. setWeekday() results in incorrect dates</p>
+
+<p>I will soon add a new unit test.  The results of setWeekday() do not match expectations, in that setWeek($digit) does not result in a date matching 1970/01/0 00:00:00.</p>
+
+<p>h3. Logical Typing Issues (timezone information lost)</p>
+
+<p>The result of {{$date-&gt;setWeekday(3);}} is an <em>actual</em> timestamp for the current timezone, not for GMT, but that information is lost after {{$date-&gt;setWeekday(3);}}.
+The {{setWeekday($anInteger)}} method creates an object with a GMT timestamp if {{0}}, and then sets the timestamp to the 3rd weekday of the current local timezone, but no information in $date shows that it was for a particular local timezone.</p>
+
+<pre class="highlight"><code>
+$date1 = new Zend_Date();
+$date2 = new Zend_Date(null, null, true);
+$date1-&gt;settWeekday(3);
+$date2-&gt;setWeekday(3, true);
+</code></pre>
+
+<p>Now $date1 and $date2 have different timestamps, since $date1 should contain the GMT timestamp corresponding to the 3rd day of the week for the local timezone (set by TZ environment variable, or date_default_timezone_set(), or the date.timezone ini option.</p>
+
+<p>So {{$date1-&gt;_Date-&gt;unixtimestamp != $date2-&gt;_Date-&gt;unixtimestamp}}.
+The $date1 object is actually an abstraction representing weekday 3 for the local timezone, but $date2 is an abstraction representing weekday 3 for GMT timezone.
+This difference, this distinction, this information is lost after the calls to setWeekday.  Nothing remains in the instance objects to distinguish the fact that these two object represent the same concept (3rd day of the week), but in different time zones.</p>
+
+<p>Now, a problem happens when developers try to use $date1 and $date2.
+They are different kinds of dates (one in local timezone, the other in GMT timezone).
+If the developer uses them together, bad results will happen, unless they are first converted to the same timezone.</p>
+
+<p>h3. Unecessary Localization</p>
+
+<p>The localization is irrelevant and not needed.  We only need to understand which timezone to use with the timestamp, in order to obtain a numeric weekday.  That number may then be multiplied by 86400 and added tot he current _unixtimestamp.</p>
+
+<p>The getWeekday() method basically converts $this-&gt;_Date-&gt;_unixtimestamp into a localized, textual representation of the weekday name, then converts that back into a timestamp offset that is added to 1970/01/01 00:00:00.</p>
+
+<pre class="highlight"><code>
+    // current SVN code:
+    public function getWeekday($gmt = false, $locale = null)
+    {
+        if ($locale === null) {
+            $locale = $this-&gt;getLocale();
+        }
+
+        return new Zend_Date($this-&gt;get(Zend_Date::WEEKDAY, $gmt, $locale), Zend_Date::WEEKDAY, $gmt, $locale);
+    }
+</code></pre>
+
+<pre class="highlight"><code>
+// the unecessary localization:
+case Zend_Date::WEEKDAY :
+                $weekday = strtolower($this-&gt;_Date-&gt;date('D', $this-&gt;_Date-&gt;getTimestamp(), $gmt));
+                $day = Zend_Locale_Data::getContent($locale, 'day', array('gregorian', 'wide', $weekday));
+                return $day[$weekday];
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-01-12T17:53:06.000+0000</p> 
+        <div class="body">
+            <p>After looking at changeset 2717, I propose:
+* merging Zend_Date and Zend_Date_DateObject by making Zend_Date extend Zend_Date_DateObject
+* eliminating the instance variable Zend_Date::_GMT, and using the instance variable Zend_Date_DateObject::_offset instead</p>
+
+<p>Thus, after making Zend_Date a subclass of Zend_Date_DateObject:</p>
+
+<pre class="highlight"><code>
+$date1 = new Zend_Date();
+$date1-&gt;setTimeZone('America/Los_Angeles');
+$date1-&gt;setWeekday(1);
+
+$date2 = new Zend_Date('Europe/Vienna');
+$date2-&gt;setTimeZone('America/Los_Angeles');
+$date2-&gt;setWeekday(1);
+
+assert($date1-&gt;_timestamp == $date2-&gt;_timestamp);
+assert($date1-&gt;_offset != $date2-&gt;_offset);
+</code></pre>
+
+<p>The $date-&gt;_offset would be different in the two examples above.  The offset would be used by default when outputing weekday names, and nearly all date formats that are not expressed as a GMT/UTC date. When we echo $date1-&gt;toString(), we could make it output the right value for $date1's timezone (according to $date1-&gt;_offset).  Likewise, the same thing for $date2.</p>
+
+<p>All internal calculations could always be done in GMT, but output would be adjusted for $date-&gt;_offset.  Thus, the time zone information would not be "lost" as described above under "logical typing issues"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-01-13T12:55:52.000+0000</p> 
+        <div class="body">
+            <p>API rework will be done by Gavin</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-01-13T14:12:57.000+0000</p> 
+        <div class="body">
+            <p>Gavin has completed the refactor to make Zend_Date a subclass of Zend_Date_DateObject.
+We have 19 unit tests to work on now that do not pass, probably nearly all related to the other refactoring to migrate $gmt out of the parameters of most methods in Zend_Date.</p>
+
+<p>Reassigning remainder of this issue to Thomas.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-01-15T14:50:47.000+0000</p> 
+        <div class="body">
+            <p>API has completly reworked as with SVN 2786.
+All unit tests pass and functions work as expected.</p>
+
+<p>If something does not work as expected please add unit tests showing the problems and add a new issue.</p>
+
+        </div>
+    </div>
+    </div>
+

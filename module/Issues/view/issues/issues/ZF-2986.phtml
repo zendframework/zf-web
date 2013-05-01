@@ -1,0 +1,538 @@
+<h2>ZF-2986: passing get variables as an array</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-28T04:20:26.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-30T02:32:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1895">ZF-1895</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11211/Module.php">Module.php</a></li>
+            <li><a href="/issues/secure/attachment/11209/Module.php">Module.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Please forgive me if someone else came up with this before me. I have searched the issue tracker, but I simply get to many results...</p>
+
+<p>My point is this:
+In ordinary php it is possible to pass an array through the query string in the url:</p>
+
+<p><a href="http://example.com/index.php?var%5B%5D=one&amp;var%5B%5D=two&amp;var%5B%5D=three">http://example.com/index.php/…</a></p>
+
+<p>In index.php $_GET['var'] will now be an array(0 =&gt; 'one', 1 =&gt; 'two', 2 =&gt; 'three')</p>
+
+<p>This is the desired behavior.</p>
+
+<p>Unfortunately, with ZF I cannot write this down as a nice url:</p>
+
+<p><a href="http://example.com/index/index/var%5B%5D/one/var%5B%5D/two/var%5B%5D/three">http://example.com/index/index/…</a></p>
+
+<p>nor can I use:</p>
+
+<p><a href="http://example.com/index/index/var/one/var/two/var/three">http://example.com/index/index/…</a></p>
+
+<p>Of course I can still use the old fashioned url, so the problem is not critical by any means. Or I could use indexing (var1, var2), like I did before. However, it would be nice if this would be compatible with regular php behavior when using nice urls.</p>
+
+<p>Why did I not use getRequest()-&gt;get('var')? I am in a view_helper and I did not yet find access to the controller. I could however set a property on the view to retrieve my array. Maybe that will work.
+It does of course work to set this property and retrieve it inside the view_helper, but it does not put the values in an array.</p>
+
+<p>What I would like to see is
+<a href="http://example.com/index/index/var%5B%5D/one/var%5B%5D/two/var%5B%5D/three">http://example.com/index/index/…</a>
+be translated into an array.</p>
+
+<p>I did confuse things, closed and reopend this issue. I thought I could not even get the array using $this-&gt;getRequest()-&gt;get('var'), but this is possible, provided the querystring is classical, seperated by &amp; and = instead of / and /. One little step forward for me, but still no beautiful url.</p>
+
+<p>The patch proposed in my first comment is not good enough. It introduces another issue, since if only one var/ parameter is passed in the query string, there will not be an array but just a singular value.</p>
+
+<p>In order to distinguish between parameters that are intended to eventually become arrays and regular parameters, you would stil have to write var[]/one/var[]/two etc. instead of var/one/var/two, just as it is with regular php without url rewriting and routing.</p>
+
+<p>So I put in a new proposal here:</p>
+
+<pre class="highlight"><code>    /**
+     * Matches a user submitted path. Assigns and returns an array of variables
+     * on a successful match.
+     *
+     * If a request object is registered, it uses its setModuleName(),
+     * setControllerName(), and setActionName() accessors to set those values.
+     * Always returns the values as an array.
+     *
+     * @param string $path Path used to match against this routing map
+     * @return array An array of assigned values or a false on a mismatch
+     */
+    public function match($path)
+    {
+        $this-&gt;_setRequestKeys();
+
+        $values = array();
+        $params = array();
+        $path   = trim($path, self::URI_DELIMITER);
+
+        if ($path != '') {
+
+            $path = explode(self::URI_DELIMITER, $path);
+
+            if ($this-&gt;_dispatcher &amp;&amp; $this-&gt;_dispatcher-&gt;isValidModule($path[0])) {
+                $values[$this-&gt;_moduleKey] = array_shift($path);
+                $this-&gt;_moduleValid = true;
+            }
+
+            if (count($path) &amp;&amp; !empty($path[0])) {
+                $values[$this-&gt;_controllerKey] = array_shift($path);
+            }
+
+            if (count($path) &amp;&amp; !empty($path[0])) {
+                $values[$this-&gt;_actionKey] = array_shift($path);
+            }
+            
+            if ($numSegs = count($path)) {
+                for ($i = 0; $i &lt; $numSegs; $i = $i + 2) {
+                    $key = urldecode($path[$i]);
+                    $val = isset($path[$i + 1]) ? urldecode($path[$i + 1]) : null;
+                    /*
+                     * check if key is meant as array as in index/index/key[]/one/key[]/two/key[]/three
+                     */
+                    if( substr($key,-2) === '[]' ){
+                        //key is an array index
+                        $index = substr($key,0,strlen($key)-2);
+                        if(array_key_exists($index,$params)){
+                            if(is_array($params[$index])){
+                                //is already an array, add value
+                                $params[$index][] = $val;
+                            }else{
+                                //the key is already registered, it will not be overwritten
+                            }
+                        }else{
+                            //create array at $index and place first value
+                            $params[$index] = array($val);
+                        }   
+                    }else{
+                        //regular key
+                        $params[$key] = $val;
+                    }
+                }
+            }
+        }
+
+        $this-&gt;_values = $values + $params;
+
+        return $this-&gt;_values + $this-&gt;_defaults;
+    }</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-04T16:32:23.000+0000</p> 
+        <div class="body">
+            <p>Zend_Http_Request is not listed in the components list.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-04T18:11:28.000+0000</p> 
+        <div class="body">
+            <p>Below is my proposal for a change of the match function in module.php in the Controller/Router/Route directory. It checks if a parameter key is already registered in the params. If it is, it extracts its value, replaces the value with an array with the original value as its first element. The subsequent parameters with the same name will be placed in order in the new array. This code snippet works.</p>
+
+<p>I will now assign the issue to Mathew, since I cannot yet commit to svn.</p>
+
+<pre class="highlight"><code>   /**
+     * Matches a user submitted path. Assigns and returns an array of variables
+     * on a successful match.
+     *
+     * If a request object is registered, it uses its setModuleName(),
+     * setControllerName(), and setActionName() accessors to set those values.
+     * Always returns the values as an array.
+     *
+     * @param string $path Path used to match against this routing map
+     * @return array An array of assigned values or a false on a mismatch
+     */
+    public function match($path)
+    {
+        $this-&gt;_setRequestKeys();
+
+        $values = array();
+        $params = array();
+        $path   = trim($path, self::URI_DELIMITER);
+
+        if ($path != '') {
+
+            $path = explode(self::URI_DELIMITER, $path);
+
+            if ($this-&gt;_dispatcher &amp;&amp; $this-&gt;_dispatcher-&gt;isValidModule($path[0])) {
+                $values[$this-&gt;_moduleKey] = array_shift($path);
+                $this-&gt;_moduleValid = true;
+            }
+
+            if (count($path) &amp;&amp; !empty($path[0])) {
+                $values[$this-&gt;_controllerKey] = array_shift($path);
+            }
+
+            if (count($path) &amp;&amp; !empty($path[0])) {
+                $values[$this-&gt;_actionKey] = array_shift($path);
+            }
+            
+            if ($numSegs = count($path)) {
+                for ($i = 0; $i &lt; $numSegs; $i = $i + 2) {
+                    $key = urldecode($path[$i]);
+                    $val = isset($path[$i + 1]) ? urldecode($path[$i + 1]) : null;
+                    /*
+                     * check if key is meant as array as in index/index/var/one/var/two/var/three
+                     * or even index/index/var[]/one/var[]/two
+                     */
+                    if(array_key_exists($key,$params)){
+                        if(is_array($params[$key])){
+                            //is already an array, ad value
+                            $params[$key][] = $val;
+                        }else{
+                            //save first element
+                            $first_element = $params[$key];
+                            //replace key value with array with key value as first element
+                            $params[$key] = array($first_element);
+                            //value is next element
+                            $params[$key][] = $val;
+                        }
+                    }else{
+                        //regular key
+                        $params[$key] = $val;
+                    }
+                }
+            }
+        }
+
+        $this-&gt;_values = $values + $params;
+
+        return $this-&gt;_values + $this-&gt;_defaults;
+    }</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-04T18:14:43.000+0000</p> 
+        <div class="body">
+            <p>complete source of module.php from 1.5.1 version.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-05T09:28:51.000+0000</p> 
+        <div class="body">
+            <p>version 2</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:01:26.000+0000</p> 
+        <div class="body">
+            <p>Fixing obviously incorrect Fix Version (Fix Version == Affects Version).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-22T11:56:55.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Martel to evaluate and schedule.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2008-04-22T13:17:03.000+0000</p> 
+        <div class="body">
+            <p>It's doable, for sure. And it could be useful for tagging, e.g.: example.com/show/tag/value1/tag/value2/tag/value3. Yet  for a scheme like that I would rather create my own route class to handle even prettier URLs like 'example.com/tags/value1/value2/value3'. But I digress.</p>
+
+<p>Couple of things to note:</p>
+
+<ol><li><p>It won't be enough to catch parameters in match() method. We have to provide support for passing arrays to assemble method.</p></li>
+<li><p>It has to be supported in every route class - module, route and regex.</p></li>
+<li><p>It would be nice if all routes would handle parameters from the same code base in order to avoid duplicating the logic and to assist in getting parameters in user created routes. So it has to be abstracted in some way. It seems like a Request responsibility at a first glance but it would introduce unnecessary coupling so probably separate class or abstract route would be a better solution.</p></li>
+<li><p>It probably would be nice to allow for array generation in wildcard parameters as well as in declared named parameters. So we have to decide which type of declaration looks or feels better: ':param[]/:param[]/<em>' or ':param/:param/</em>' which results in 'value1/value2/param[]/value3' and 'value1/value2/param/value3' respectively. I, for one, prefer the latter because it looks far less cluttered but is different than standard php parameter handling at the same time.</p></li>
+</ol><p>I can't make the decision myself  - it seems a bit unnecessary and forced to me. There are better ways to handle arrays in URLs in my opinion - standard parameters and totally different route class, for example. I'm leaning towards not supporting this in order not to make routes bloated.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-22T13:27:28.000+0000</p> 
+        <div class="body">
+            <p>It is not only useful for tagging, but also for traversing a tree hierarchy as in node[]/one/node[]/two.</p>
+
+<p>Of course it is possible a present using a regular query string or one's own like in nodes/one~two~three etc.</p>
+
+<p>If you do use param/value instead of param[]/value how are you going to distinguish between regular parameters and array parameters?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-22T13:29:39.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for 2.0; discussion with martel indicates it will be a pretty complicated and large endeavor.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2008-04-22T13:39:17.000+0000</p> 
+        <div class="body">
+            <p>Bart, it's not that hard - if parameter already exists and you want to add next one then you just create an array. I think I saw a similar kind of functionality in the framework code base somewhere 9Zend_Config probably). It gets harder when you do this for special parameters like controller or action.</p>
+
+<p>The other option is confusing too - what do you do in situation like ":param/param[]/*"? It looks easy at first but when you dig deeper it gets interestingly twisted under the hood :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-22T15:50:38.000+0000</p> 
+        <div class="body">
+            <p>Michal,</p>
+
+<p>I thought about that: param and param[] both existing in the same query string. That in itself would not be a problem.  What I thought could be a problem with using param instead of param[] is that if you inadvertedly use something like param/one/param/somethingnew you will end up with an array, while you just accidentally put in the param twice and would expect wether an error or param to have the value "somethingnew" and not {0 =&gt; "one", 1 =&gt; "somethingnew"}.</p>
+
+<p>I agree that param looks prettier, but then, like you pointed out yourself, I would like to stick with something that looks like regular request behavior, just to make it more clear what is happening.</p>
+
+<p>Personally I would not recommend this approach for special parameters like controller or action. That is mainly because I can't immediately spot the purpose of that use.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by James Dempster (letssurf) on 2008-04-23T03:35:51.000+0000</p> 
+        <div class="body">
+            <p>Why not use the ZF for the routing and a normal query string for the params.
+e.g.
+<a href="http://example.com/index/action/?var%5B%5D=one&amp;var%5B%5D=two&amp;var%5B%5D=three">http://example.com/index/action/…</a></p>
+
+<p>This seems to work ok.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-23T14:43:13.000+0000</p> 
+        <div class="body">
+            <p>James: Yes, it works. But I happened not to like the looks of it in a 'pretty' url.  It gets even uglier if you are writing xhtml and have to write &amp;var[]=one&amp;var[]=two.</p>
+
+<p>As a workaround it will do of course.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-04-23T14:44:53.000+0000</p> 
+        <div class="body">
+            <p>that was ment as &amp;amp;var[]/one&amp;amp;var[]/two...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bradley Holt (bradley.holt) on 2008-09-09T15:05:23.000+0000</p> 
+        <div class="body">
+            <p>I'll suggest another possibility that is probably a non-starter but worth mentioning. What if the array notation where in the value not the key? In other words, something like this:</p>
+
+<p><a href="http://www.example.com/index/action/var/%7Bone%7D%7Btwo%7D%7Bthree%7D/">http://example.com/index/action/…</a></p>
+
+<p>Or this (probably better):</p>
+
+<p><a href="http://www.example.com/index/action/var/one,two,three/">http://example.com/index/action/…</a></p>
+
+<p>The obvious problem with this is that I can't think of a character that is guaranteed not to have been used by someone yet in a value and so it would break BC. I guess if I want this, I'm probably better off doing it myself.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2008-09-10T00:03:39.000+0000</p> 
+        <div class="body">
+            <p>The point why I brought this issue here, is not that one could not write something like the above, or just regular &amp;var[]=value pairs in the query string. All of these all valid workarounds of course.</p>
+
+<p>What I mean to say is that the framework claims that you /can/ pass parameters in the form of var/value/var2/value. This does not hold true for var[]/value/var[]/value. However, one would expect it to hold true. I think ZF should try to meet expectations that are this simple, for the sake of simplicity itself. I did not mean to bring in another level of compexity.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-04T15:27:27.000+0000</p> 
+        <div class="body">
+            <p>It looks like there is more discussion on this. Matthew, can you review the new comments and decide if this is something we want to take on before 2.0? If not, let's mark it postponed; otherwise it will sit around for a year or more as unresolved.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Berstein (danielb) on 2009-01-09T07:50:14.000+0000</p> 
+        <div class="body">
+            <p>I suggest a syntax like:</p>
+
+<pre class="highlight"><code>
+/param[;key]/value1[,value2[,valueN]]
+</code></pre>
+
+<p>Where  is the parameter's array key (why limit to "[]"?)</p>
+
+<p>For example:</p>
+
+<pre class="highlight"><code>
+$data = array(
+  'name' =&gt; 'Peter',
+  'email' =&gt; array(
+    'peter@pan.com',
+    'pan@peter.com',
+  ),
+);
+</code></pre>
+
+<p>Can be presented URL-wise by:<br /><a href="http://www.example.com/data;name/Peter/data;email/peter%40pan.com,pan%40peter.com">http://example.com/data;name/Peter/…</a></p>
+
+<p>If a param segment includes ";" or if its value segment makes use of "," (both of these characters in an unencoded form!), then the parameter can be interpreted as being an array.</p>
+
+<p>Looks to me that RFC 2396 allows this: [<a href="http://tools.ietf.org/html/rfc2396#section-3.3">http://tools.ietf.org/html/rfc2396#section-3.3</a>]</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-01-09T08:00:42.000+0000</p> 
+        <div class="body">
+            <p>The original intent of this issue was not add functionality, but to make passing parameters the same as in regular php. If ?param[key] works in php, this is fine with me, but I don't see the point of the semicolon.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Berstein (danielb) on 2009-01-12T02:33:36.000+0000</p> 
+        <div class="body">
+            <p>Bart, semi colons in the URL would serve a similar purpose to what square brackets do in PHP.</p>
+
+<p>I'm not suggesting to add new functionality, I'm just trying to find a non-short sighted solution. One that solves for good the underlying issue using RFC complaint semantics: how to represent in an URL multidimensional data structures without resorting to data serialization. It must be by convention, and I believe the RFCs do provide such convention, no need to reinvent the wheel ;)</p>
+
+<p>When a parameter is a scalar, the key/value pairs works great, but when you need to represent arrays you have at least two vectors to address: the parameter name and an index/key. My reading of RFC 2396 is that a path segment can use a semi colon to denote parameters of said segment, I translate that into the issue at hand as if a path segment is the parameter name, the segment's parameter (separated by semi colons) is the array/hash index.</p>
+
+<p>The difference between URLs (assuming a plain key/value route) "/a/b/" and "/a;/b/" is that the former would be that parameter 'a' in the former would have value (scalar) "b", while the later would be (array) "b".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-01-12T05:51:08.000+0000</p> 
+        <div class="body">
+            <p>The point is that I think the way an array is passed should follow simple conventions and be easy to understand and use.</p>
+
+<p>The philosophy of Zend Framework is to offer simple approaches to complex issues.</p>
+
+<p>No matter how intelligent it may be what you are proposing:
+1. I don't get it
+2. It is not solving this issue.</p>
+
+<p>Let me clearify once more what this issue is about:</p>
+
+<p>Regular url, with regular way of passing parameters:
+index.php?var[]=1&amp;var[]=2</p>
+
+<p>Regular php:
+$_GET['var'] == array('1', '2')</p>
+
+<p>ZF url:
+index/index/var[]/1/var[]/2
+$_GET['var'] == null
+$_GET['var[]'] == '2'</p>
+
+<p>My point is that this is not expected behavior, if your expectations are shaped by how you where using php before there was ZF. Maybe my point is not interesting. Fair enough. But I am certainly not looking for another level of complexity and having to keep track of where I put semicolons.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daniel Berstein (danielb) on 2009-01-12T14:48:58.000+0000</p> 
+        <div class="body">
+            <p>Just to show that I've been on your side of the bench before: I was the one who approached Shahar Evron with a patch that allowed Zend_Uri (and therefore most every HTTP enabled component in ZF) to digest square brackets.</p>
+
+<pre class="highlight"><code>
+ svn diff -c 4690 <a href="http://framework.zend.com/svn/framework/standard/branches/release-1.7/library/Zend/Uri/Http.php">http://framework.zend.com/svn/framework/…</a>
+Index: Http.php
+===================================================================
+--- Http.php    (revision 4689)
++++ Http.php    (revision 4690)
+@@ -70,7 +70,7 @@
+         // are to be used with slash-delimited regular expression strings.
+         $this-&gt;_regex['alphanum']   = '[^\W_]';
+         $this-&gt;_regex['escaped']    = '(?:%[\da-fA-F]{2})';
+-        $this-&gt;_regex['mark']       = '[-_.!~*\'()]';
++        $this-&gt;_regex['mark']       = '[-_.!~*\'()\[\]]';
+         $this-&gt;_regex['reserved']   = '[;\/?:@&amp;=+$,]';
+         $this-&gt;_regex['unreserved'] = '(?:' . $this-&gt;_regex['alphanum'] . '|' . $this-&gt;_regex['mark'] . ')';
+         $this-&gt;_regex['segment']    = '(?:(?:' . $this-&gt;_regex['unreserved'] . '|' . $this-&gt;_regex['escaped']
+</code></pre>
+
+<p>IIRC Shahar said that according to the RFCs square brackets are not permitted in URIs, but I was able to convince Shahar that the general use (mostly in PHP!) made it almost mandatory to have Zend_Uri support it. I think credibility him may have been bigger since we both worked together at Zend Technologies.</p>
+
+<p>I have no authority over ZF at all, and very little experience with the dynamics of the community, but my professional opinion is that encouraging the use of square brackets within path segments may not be the best decision the project can take.</p>
+
+<p>I'm not sure why you think <em>you</em> should keep track of the complexity/semicolons, that is the job of the route's assemble/disassemble methods! Even if your proposal is approved, it would be the route's assemble/disassemble methods that should take care of formatting a nice (RFC-non-compliant-IMO in this case) URL.</p>
+
+<p>I volunteer a bit of my free time to help implement the feature if its approved by the deities. I rest my case and let the ZF Gods (Wil? Matthew?) comment.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2009-01-14T02:14:18.000+0000</p> 
+        <div class="body">
+            <p>You certainly got me here.</p>
+
+<p>This is the first issue I ever reported for ZF. What you made very clear to me here is that I am building url's in a naive way, seen from the perspective of the framework. I type them, using a keyboard.</p>
+
+<p>So I will do several things from here, because you made it impossible for me to ignore the assembler any longer (I did ignore it because I prefer to type url's).</p>
+
+<ul><li>first off, I will look into what the assembler can do for me</li>
+<li>second I will take a whole different approach in addressing the problem that raised the issue. I was looking for a solution to write something like index.php?sub[]=chapter1&amp;sub[]=paragraph2&amp;sub[]/3
+I will now probably write something like /page/3/trail/chapter1~paragraph2 and explode the trail, this will be a lot more effective and look slightly nicer</li>
+<li>third I suggest that passing array's through get is now in your hands and you should try to make it as RFC compliant as possible</li>
+<li>I thank you for waking me up and spending so much time on your valuable comments</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Markus (rockaut) on 2009-05-29T01:27:30.000+0000</p> 
+        <div class="body">
+            <p>I stumbled across this as i searched for arrays in URL Parameters... anything done in 1.8 or is it still upcoming?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-29T05:49:05.000+0000</p> 
+        <div class="body">
+            <p>Please note that this is scheduled for the next <em>major</em> release -- i.e., 2.0. There are significant changes to be made in the router to accomodate the notation, and these would likely necessitate BC breaks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Markus (rockaut) on 2009-05-30T02:31:47.000+0000</p> 
+        <div class="body">
+            <p>You're right -- as most time ;) -- sorry haven't reconized it and the state was "open"... thank you.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,119 @@
+<h2>ZF-10164: assertHeaderContains checks only against the first occurance of a header</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-15T20:49:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alex Sirota (iosart)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Test_PHPUnit</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13215/ZF-10164-fix.php">ZF-10164-fix.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>HTTP spec allows certain header types to appear several times in a response.
+For example:
+Set-Cookie: name1=val1; ...
+Set-Cookie: name2=val2; ...</p>
+
+<p>Similarly to assertQueryContentContains($path, $match) which tests <em>all</em> elements matching '$path' against '$match', 
+assertHeaderContains($header, $match) should test whether '$match' matches any header matching '$header' and not only the first one.
+Currently, the assertHeaderContains assumes that $header is unique, so it matches against the first/random occurrence of that header in the response, which doesn't work with the 'Set-Cookie' example above</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alex Sirota (iosart) on 2010-07-16T01:32:39.000+0000</p> 
+        <div class="body">
+            <p>Looked further into this issue and it seams to go a bit deeper than the assertHeaderContains function itself.
+The sendHeaders method of Zend_Controller_Response_HttpTestCase assumes that there's only one header with a given name in the response:
+        foreach ($this-&gt;_headers as $header) {
+            $name = $header['name'];
+            $key  = strtolower($name);
+            if (array_key_exists($name, $headers)) {
+                if ($header['replace']) {
+                    $headers[$key] = $header['name'] . ': ' . $header['value'];
+                }
+            } else {
+                $headers[$key] = $header['name'] . ': ' . $header['value'];
+            }
+        }</p>
+
+<p>So, if 'replace' is true, the second instance will be used, but if it's false, the first instance is used, rather then <em>both instances</em> of the header, which would be the correct behavior.</p>
+
+<p>BTW, the real Zend_Controller_Response_Abstract class does not have this bug, as it correctly uses the 'header' function, that would output multiple headers of the same type, if 'replace' is 'false':
+       foreach ($this-&gt;_headers as $header) {
+            if (!$httpCodeSent &amp;&amp; $this-&gt;_httpResponseCode) {
+                header($header['name'] . ': ' . $header['value'], $header['replace'], $this-&gt;_httpResponseCode);
+                $httpCodeSent = true;
+            } else {
+                header($header['name'] . ': ' . $header['value'], $header['replace']);
+            }
+        }</p>
+
+<p>As this looks like a major bug in Zend_Test, bumping the ticket from 'enhancement' to 'bug'</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alex Sirota (iosart) on 2010-07-16T02:27:14.000+0000</p> 
+        <div class="body">
+            <p>Attaching a proposed fix (sorry for not creating a proper patch, didn't have time to tweak all the affected places under Zend_Test_*</p>
+
+<p>The proposed fix:</p>
+
+<p>1) in Zend_Controller_Response_HttpTestCase::sendHeaders 
+   * when $header['replace'] is false, instead of ignoring the header, the entry $headers[$key] becomes an array instead of a string
+   * also, there seems to be a bug in the main 'if':
+      if (array_key_exists($name, $headers)) 
+     should be
+      if (array_key_exists($key, $headers))</p>
+
+<p>2) in Zend_Test_PHPUnit_Constraint_ResponseHeader::_headerRegex and similar methods
+    * call $this-&gt;_getHeader as usual to find the header entry
+    * if a scalar is returned (current functionality), just treat as today
+    * if an array is returned (this fix), go over all the elements of the returned array and try to match against each one</p>
+
+<p>Hope all this makes sense :)</p>
+
+        </div>
+    </div>
+    </div>
+

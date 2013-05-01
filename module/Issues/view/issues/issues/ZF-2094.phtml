@@ -1,0 +1,152 @@
+<h2>ZF-2094: Bad performance of Zend_Db_Adapter_Oracle::describeTable()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-10-24T02:18:10.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-12-01T13:23:35.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.0 (17/Nov/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Andrey Lebedev (kedder)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Oracle</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5085">ZF-5085</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>{{Zend_Db_Adapter_Oracle::describeTable()}} method is terribly slow on my system. Single call to that method can take about  10-15 sec. to complete on Celeron 2.6GHz with 768 Mb RAM on Oracle 10g. This causes problems even when schema caching is enabled, especially during development, since caches should be cleaned after almost each actual schema change.</p>
+
+<p>The problem with this method is that it uses rather complex query and do not give Oracle a chance to use its indexes or reuse already prepared statement.</p>
+
+<p>I've found the solution that can improve performace of that method by several orders of magnitude:</p>
+
+<h1>{{UPPER()}} functions should be removed from WHERE clause (and letting Oracle use indexes, table and schema names are stored all uppercase in oracle anyway)</h1>
+
+<h1>Binded arguments should be used for variable substitution to let Oracle reuse prepared statements.</h1>
+
+<p>Here is the patch that implements above suggestions:</p>
+
+<pre class="highlight"><code>
+--- lib/Zend/Db/Adapter/Oracle.php      (revision 1262)
++++ lib/Zend/Db/Adapter/Oracle.php      (revision 1263)
+@@ -295,14 +295,15 @@
+                 ON (CC.CONSTRAINT_NAME = C.CONSTRAINT_NAME AND CC.TABLE_NAME = C.TABLE_NAME AND C.CONSTRAINT_TYPE = 'P'))
+               ON TC.TABLE_NAME = CC.TABLE_NAME AND TC.COLUMN_NAME = CC.COLUMN_NAME
+             JOIN ALL_TABLES TB ON (TB.TABLE_NAME = TC.TABLE_NAME AND TB.OWNER = TC.OWNER)
+-            WHERE "
+-            . $this-&gt;quoteInto('UPPER(TC.TABLE_NAME) = UPPER(?)', $tableName);
++            WHERE TC.TABLE_NAME = :TABNAME";
++        $bind = array('TABNAME'=&gt;strtoupper($tableName));
+         if ($schemaName) {
+-            $sql .= $this-&gt;quoteInto(' AND UPPER(TB.OWNER) = UPPER(?)', $schemaName);
++            $sql .= ' AND TB.OWNER = :SCHEMANAME';
++            $bind['SCHEMANAME'] = strtoupper($schemaName);
+         }
+         $sql .= ' ORDER BY TC.COLUMN_ID';
+ 
+-        $stmt = $this-&gt;query($sql);
++        $stmt = $this-&gt;query($sql, $bind);
+ 
+         /**
+          * Use FETCH_NUM so we are not dependent on the CASE attribute of the PDO connection
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:05:29.000+0000</p> 
+        <div class="body">
+            <p>This issue should have been fixed for the 1.5 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:55.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:12:02.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-09-13T00:56:44.000+0000</p> 
+        <div class="body">
+            <p>{quote}table and schema names are stored all uppercase in oracle anyway{quote}</p>
+
+<p>In Oracle you can do this:</p>
+
+<pre class="highlight"><code>
+create table "foo"  (
+   "bar"  VARCHAR2(50)  not null,
+   "baz"  VARCHAR2(50)  not null
+);
+</code></pre>
+
+<p>By requesting ALL_TAB_COLUMNS or ALL_TABLES, you will obtain in lowercase:</p>
+
+<pre class="highlight"><code>
+TABLE_NAME                     
+------------------------------ 
+foo
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2008-10-04T01:47:24.000+0000</p> 
+        <div class="body">
+            <p>SVN11667: use prepared statement instead of statement without modifications on case.
+Application to Zend_Db_Adapter_Pdo_Oci.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:10:26.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

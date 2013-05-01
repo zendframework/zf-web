@@ -1,0 +1,413 @@
+<h2>ZF-8377: Issues on Modular Bootstrapping</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-23T17:17:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:08.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Bruno Pirajá Moyle (brunitto)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Application</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>As defined in the section 4.6.4 of reference guide, the Modules resource ({{Zend_Application_Resource_Modules}}), by design creates a modular resource autoloader ({{Zend_Application_Modules_Autoloader}}) automatically. A deeper look in the components code shows that the {{Zend_Application_Module_Bootstrap}} have a property ({{$_resourceLoader}}) that define a resource autoloader ({{Zend_Application_Module_Autoloader}}). Chasing the calls stack:</p>
+
+<h1>{{Zend_Application_Module_Bootstrap}} calls {{initResourceLoader()}} that proxies to {{getResourceLoader()}};</h1>
+
+<h1>{{getResourceLoader()}} creates a new {{Zend_Application_Module_Autoloader}} object;</h1>
+
+<h1>{{Zend_Application_Module_Autoloader}} constructor calls it's parent ({{Zend_Loader_Autoloader_Resource}}) constructor and pass the same options received from {{Zend_Application_Module_Bootstrap}} {{getResourceLoader()}} call;</h1>
+
+<h1>After that, the {{Zend_Application_Module_Autoload}} {{initDefaultResourceTypes()}} method is called, which initialize autoloading specifications - as plugins, models, etc.</h1>
+
+<p>Although this looks nice, when using a module bootstrap (a {{Admin_Bootstrap extends Zend_Application_Module_Bootstrap}}), the module resource autoloader doesn't seems to be properly initialized - it's not possible to load, for example, models without having to define a autoloader within a resource method or plugin.</p>
+
+<p>I only got modular bootstrapping working by:</p>
+
+<h1>Specifying a {{Zend_Application_Bootstrap_Bootstrap}} bootstrap object for the default module - it doesn't work with a {{Zend_Application_Module_Bootstrap}};</h1>
+
+<h1>Specifying a resource autoloader as resource method in the default module bootstrap;</h1>
+
+<h1>Specifying a {{Zend_Application_Module_Bootstrap}} bootstrap object for non default modules.</h1>
+
+<p>I think that using {{Zend_Application_Module_Bootstrap}} should be mandatory for modular bootstrapping - and have the resource autoloader working as well. This can be a simple approach to avoid the current complexity of modular bootstrapping.</p>
+
+<p>Last but not least, the section in reference guide looks very poor for a subject like modular bootstrapping and is insufficient to have a modular application working at a glance.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-11-24T04:46:11.000+0000</p> 
+        <div class="body">
+            <p>It took me quite some time to understand exactly what you were trying to explain, which was quite simply: extending Zend_Application_Module_Bootstrap in the default module does not work as expected.</p>
+
+<p>There are some workarounds/strategies you can use now to have this work. The easiest is to:</p>
+
+<h1>Put all modules, including the default module, under a "modules" directory:</h1>
+
+<pre class="highlight"><code>
+application/
+    modules/
+        default/
+        blog/
+        news/
+</code></pre>
+
+<h1>Tell Zend_Application where to find the default module's bootstrap, and what it's named:</h1>
+
+<pre class="highlight"><code>
+bootstrap.path = APPLICATION_PATH "/modules/default/Bootstrap.php"
+bootstrap.class = "Default_Bootstrap"
+</code></pre>
+
+<h1>Have Default_Bootstrap extend Zend_Application_Module_Bootstrap</h1>
+
+<p>This strategy utilizes modules appropriately. Because the module bootstrap is now in a directory named after the module, the module namespace will be set properly (to "Default_"), which will allow the various resources to load under that namespace.</p>
+
+<p>We plan to make this easier for 1.10 already, but have to be careful to ensure we do not create a BC break.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bruno Pirajá Moyle (brunitto) on 2009-11-24T11:21:39.000+0000</p> 
+        <div class="body">
+            <p>Sorry about the fuzzy explanation.</p>
+
+<p>I had tried the workaround, but got the following error:</p>
+
+<p>{quote}
+Fatal error: Uncaught exception 'Zend_Application_Bootstrap_Exception' with message 'No default controller directory registered with front controller' in /usr/local/php5/include/Zend/Application/Bootstrap/Bootstrap.php:71 Stack trace: #0 /usr/local/php5/include/Zend/Application.php(358): Zend_Application_Bootstrap_Bootstrap-&gt;run() #1 /var/www/intranet/public/index.php(32): Zend_Application-&gt;run() #2 {main} thrown in /usr/local/php5/include/Zend/Application/Bootstrap/Bootstrap.php on line 71
+{quote}</p>
+
+<p>That's what I did:</p>
+
+<h1>Used a modular directory:</h1>
+
+<pre class="literal">
+application/
+    default/
+        Bootstrap.php // Default_Bootstrap extends Zend_Application_Module_Bootstrap
+    blog/
+        Bootstrap.php // Blog_Bootstrap extends Zend_Application_Module_Bootstrap
+    news/
+        Bootstrap.php // News_Bootstrap extends Zend_Application_Module_Bootstrap
+</pre>
+
+<h1>Modified the {{application.ini}} file:</h1>
+
+<pre class="literal">
+; Bootstrap
+bootstrap.path = APPLICATION_PATH "/modules/default/Bootstrap.php"
+bootstrap.class = "Default_Bootstrap"
+
+; Resources (FrontController)
+resources.frontController.moduleDirectory = APPLICATION_PATH "/modules"
+</pre>
+
+<h1>Requested {{<a href="http://zend-app/default/index/index">http://zend-app/default/index/index</a>}};</h1>
+
+<h1>Got the error.</h1>
+
+<p>This exception is trowed in the {{Zend_Application_Bootstrap_Bootstrap}} at line 71. Looks like the Front Controller is having some problems in it's initialization, but I noticed that the Front Controller is registered in {{Zend_Application_Module_Bootstrap}} at line 74.</p>
+
+<p>Last, I tried this:</p>
+
+<pre class="literal">
+; Resources (FrontController)
+resources.frontController.controllerDirectory.default = APPLICATION_PATH "/modules/default/controllers"
+resources.frontController.controllerDirectory.admin = APPLICATION_PATH "/modules/admin/controllers"
+</pre>
+
+<p>It didn't work...</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ashley Broadley (theashman) on 2009-12-01T01:54:15.000+0000</p> 
+        <div class="body">
+            <p>As far as i can see there is one other config option you need for modular applications to work:</p>
+
+<pre class="highlight"><code>
+
+these are all you should need for a modular layout to work:
+in your application.ini
+{{resources.modules = ""
+resources.frontController.moduleDirectory = APPLICATION_PATH "/modules"}}
+and in your Application bootstrap class:
+</code></pre>
+
+<pre><code>protected function _initAutoloader ()
+{
+    $autoloader = new Zend_Application_Module_Autoloader(array(
+        'namespace' =&gt; 'Default_',
+        'basePath' =&gt; APPLICATION_PATH.'/modules/default'
+    ));
+    return $autoloader;
+}
+</code></pre>
+
+<p>```</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bruno Pirajá Moyle (brunitto) on 2009-12-01T03:00:20.000+0000</p> 
+        <div class="body">
+            <p>Thanks Ashley...</p>
+
+<p>I omitted the option {{resources.modules[]=""}} but it is defined in the configuration file as well.</p>
+
+<p>In the reference guide and in the code of the {{Zend_Application_Module_Bootstrap}} creates an autoloader automatically, but this is not working as expected.</p>
+
+<p>Try doing the same that I did above (using the {{resources.modules=[]}} ), do not define {{_initAutoloader}} resources methods and will check that it do not work as expected.</p>
+
+<p>If we extends {{Zend_Application_Module_Bootstrap}} in our default bootstrap, an uncaught exception is throwed:</p>
+
+<p>{quote}
+Fatal error: Uncaught exception 'Zend_Application_Bootstrap_Exception' with message 'No default controller directory registered with front controller' in /usr/local/php5/lib/php/Zend/Application/Bootstrap/Bootstrap.php:71 Stack trace: #0 /usr/local/php5/lib/php/Zend/Application.php(358): Zend_Application_Bootstrap_Bootstrap-&gt;run() #1 /var/www/intranet/public/index.php(25): Zend_Application-&gt;run() #2 {main} thrown in /usr/local/php5/lib/php/Zend/Application/Bootstrap/Bootstrap.php on line 71
+{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bruno Pirajá Moyle (brunitto) on 2009-12-15T09:14:58.000+0000</p> 
+        <div class="body">
+            <p>Reporting some evolution in my research for this issue:</p>
+
+<ul><li>Started a clean Zend application (with zf create project);</li>
+<li>Created the modular directories structure:</li>
+</ul><pre class="literal">
+application/
+    configs/
+    modules/
+        default/
+            controllers/
+            models/
+            views/
+            Bootstrap.php # Default_Bootstrap extends Zend_Application_Module_Bootstrap
+        admin/
+            controllers/
+            models/
+            views/
+            Bootstrap.php # Admin_Bootstrap extends Zend_Application_Module_Bootstrap
+    scripts/
+    ...
+</pre>
+
+<ul><li>Updated configuration file to use a default modular bootstrap class:</li>
+</ul><pre class="literal">
+bootstrap.path  = APPLICATION_FILE "/modules/default/Bootstrap.php"
+bootstrap.class = "Default_Bootstrap"
+</pre>
+
+<ul><li>Updated configuration file to use the {{Modules}} resource:</li>
+</ul><pre class="literal">
+resources.modules = ""
+</pre>
+
+<ul><li>Tried <a href="http://localhost/zend-modular/public">http://localhost/zend-modular/public</a> and got the same error as above:</li>
+</ul><p>{quote}
+Fatal error: Uncaught exception 'Zend_Application_Bootstrap_Exception' with message 'No default controller directory registered with front controller' in /usr/local/php5/lib/php/Zend/Application/Bootstrap/Bootstrap.php:71 Stack trace: #0 /usr/local/php5/lib/php/Zend/Application.php(358): Zend_Application_Bootstrap_Bootstrap-&gt;run() #1 /var/www/intranet/public/index.php(25): Zend_Application-&gt;run() #2
+Unknown macro: {main}
+thrown in /usr/local/php5/lib/php/Zend/Application/Bootstrap/Bootstrap.php on line 71
+{quote}</p>
+
+<ul><li>After a deeper research within involved components code, I noticed that this exception is throw in {{Zend_Application_Bootstrap_Bootstrap}} at line <em>74</em>. In this line, the class check if the Front Controller has a default controller directory:</li>
+</ul><pre class="literal">
+if (null === $front-&gt;getControllerDirectory($default)) {
+    throw new Zend_Application_Bootstrap_Exception(
+        'No default controller directory registered with front controller'
+    );
+}
+</pre>
+
+<ul><li><p>Although this method was defined {{Zend_Application_Bootstrap_Bootstrap}}, it's called from {{Zend_Application_Module_Bootstrap}} - as it doesn't overwrite it.</p></li>
+<li><p>This error only occurs when the {{Zend_Application_Module_Bootstrap}} is used. If the {{Zend_Application_Bootstrap_Bootstrap}} is used this exception isn't throwed. Thus, I will constrain that the problem is originated in the {{Zend_Application_Module_Bootstrap}} class.</p></li>
+<li><p>I tried a simple fix by adding one line in the {{Zend_Application_Bootstrap_Bootstrap}} and the exception stopped being throwed:</p></li>
+</ul><pre class="literal">
+//...
+$front   = $this-&gt;getResource('FrontController');
+$default = $front-&gt;getDefaultModule();
+
+// I've added this line
+$front-&gt;setControllerDirectory(APPLICATION_PATH . '/modules/default' . '/controllers', $default);
+        
+if (null === $front-&gt;getControllerDirectory($default)) {
+    throw new Zend_Application_Bootstrap_Exception(
+        'No default controller directory registered with front controller'
+    );
+}
+
+//...
+</pre>
+
+<ul><li>In addition, the resource autoloader created automatically by {{Zend_Application_Module_Bootstrap}} worked. Maybe the {{Zend_Application_Module_Bootstrap}} isn't instantiating the Front Controller properly.</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-12-15T10:12:33.000+0000</p> 
+        <div class="body">
+            <p>Do you have the following in your INI?</p>
+
+<pre class="highlight"><code>
+resources.frontcontroller.controllerDirectory = APPLICATION_PATH "/modules/default/controllers"
+</code></pre>
+
+<p>If you don't specify a controller directory during configuration or in a bootstrap resource, then you'll get the error reported.</p>
+
+<p>Also, you should use array notation for the "modules" key:</p>
+
+<pre class="highlight"><code>
+resources.modules[] = 
+</code></pre>
+
+<p>as this will properly initialize configuration for that resource.</p>
+
+<p>Finally, you can replace the controllerDirectory configuration with moduleDirectory:</p>
+
+<pre class="highlight"><code>
+resources.frontcontroller.moduleDirectory = APPLICATION_PATH "/modules"
+</code></pre>
+
+<p>This will ensure that the modules are passed to the front controller; if you have a "default" module, it will also be defined, and that bootstrap run.</p>
+
+<p>Without knowing the exact contents of your configuration, I'm primarily conjecturing here, however.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bruno Pirajá Moyle (brunitto) on 2009-12-15T10:36:37.000+0000</p> 
+        <div class="body">
+            <p>I misspelled the Modules resource options line:</p>
+
+<pre class="literal">
+resources.modules[] = ""
+</pre>
+
+<p>And forgot to include the Front Controller resource options:</p>
+
+<pre class="literal">
+resources.frontController.moduleDirectory = APPLICATION_PATH "/modules"
+</pre>
+
+<p>This was the correct setup in the last message, sorry.</p>
+
+<p>The exception is still being throwed.</p>
+
+<p>This is my full configuration file:</p>
+
+<pre class="literal">
+[production]
+; PHP settings and autoloading
+phpSettings.display_startup_errors = 0
+phpSettings.display_errors = 0
+includePaths.library = APPLICATION_PATH "/../library"
+
+; Bootstrap
+bootstrap.path = APPLICATION_PATH "/modules/default/Bootstrap.php"
+bootstrap.class = "Default_Bootstrap"
+
+; Resources (FrontController)
+resources.frontController.moduleDirectory = APPLICATION_PATH "/modules"
+
+; Resources (Modules)
+resources.modules[] = ""
+
+[staging : production]
+
+[testing : production]
+; PHP settings and autoloading
+phpSettings.display_startup_errors = 1
+phpSettings.display_errors = 1
+
+[development : production]
+; PHP settings and autoloading
+phpSettings.display_startup_errors = 1
+phpSettings.display_errors = 1
+</pre>
+
+<p>This is my default bootstrap class:</p>
+
+<pre class="literal">
+&lt;?php
+
+/**
+ * Default bootstrap class.
+ *
+ * @package default
+ * @author  Bruno
+ */
+class Default_Bootstrap extends Zend_Application_Module_Bootstrap
+{
+}
+</pre>
+
+<p>And this one is my admin module bootstrap:</p>
+
+<pre class="literal">
+&lt;?php
+
+/**
+ * Admin module bootstrap class.
+ *
+ * @package admin
+ * @author  Bruno
+ */
+class Admin_Bootstrap extends Zend_Application_Module_Bootstrap
+{
+}
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:08.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

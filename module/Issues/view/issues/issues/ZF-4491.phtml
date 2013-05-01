@@ -1,0 +1,181 @@
+<h2>ZF-4491: Support the new Microsoft URL Rewrite Module for IIS 7.0</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-10-05T10:21:15.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-14T17:23:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Erwin Derksen (erwind)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+            <li>FixForZF1.12</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Microsoft  has recently released its own rewrite module for IIS7.0. (See: <a href="http://learn.iis.net/page.aspx/460/using-url-rewrite-module/">http://learn.iis.net/page.aspx/460/…</a>). I was trying to get it to work with your quick start application and found out that it is not completely working as expected. This because this new module uses the HTTP_X_ORIGINAL_URL header instead of the HTTP_X_REWRITE_URL header as used by the isapi_rewrite extension. As a consequence I always got the index controller and action for every request made and thus never got the error page for calls to bogus controllers/actions. Exception: when using the <a href="http://localhost/myapplication/index.php/controller/action">http://localhost/myapplication/index.php/…</a> syntax, it already works fine.</p>
+
+<p>As a newbie to the Zend framework I have no idea if what I did is correct and works in all cases, but as an experienced developer I managed to get it to work by doing a global  search for all uses of HTTP_X_REWRITE_URL and adding an additional if branch for the HTTP_X_ORIGINAL_URL as well:</p>
+
+<p>Find results:
+Zend\Controller\Request\Apache404.php(50):            if (isset($_SERVER['HTTP_X_REWRITE_URL'])) { // check this first so IIS will catch
+Zend\Controller\Request\Apache404.php(51):                $requestUri = $_SERVER['HTTP_X_REWRITE_URL'];
+Zend\Controller\Request\Http.php(381):     * $_SERVER['HTTP_X_REWRITE_URL'], or $_SERVER['ORIG_PATH_INFO'] + $_SERVER['QUERY_STRING'].
+Zend\Controller\Request\Http.php(389):            if (isset($_SERVER['HTTP_X_REWRITE_URL'])) { // check this first so IIS will catch
+Zend\Controller\Request\Http.php(390):                $requestUri = $_SERVER['HTTP_X_REWRITE_URL'];
+Zend\OpenId.php(110):        if (isset($_SERVER['HTTP_X_REWRITE_URL'])) {
+Zend\OpenId.php(111):            $url .= $_SERVER['HTTP_X_REWRITE_URL'];</p>
+
+<p>Changes made (this is for OpenId.php, other files have similar changes) (basically add an if elseif for the new HTTP_X_ORIGINAL_URL header):
+        if (isset($_SERVER['HTTP_X_ORIGINAL_URL'])) { // check this first so IIS will catch
+            $url .= $_SERVER['HTTP_X_ORIGINAL_URL'];
+        } elseif  (isset($_SERVER['HTTP_X_REWRITE_URL'])) { // check this first so IIS will catch</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Brian Reich (breich) on 2009-03-16T09:41:47.000+0000</p> 
+        <div class="body">
+            <p>The simplest way that I've found to get around this issue is to add the following lines to my bootstrap file, prior to any calls to Zend_Controller_Front::getInstance():</p>
+
+<p>/*
+ * For IIS 7.0 Rewrite Module - allows use of "clean" URL syntax instead of
+ * index.php/controller/action/ by copying original URL value set by the rewrite
+ * module to the server variable expected by the Rewrite Router.
+ */
+if (isset($_SERVER['HTTP_X_ORIGINAL_URL'])) {</p>
+
+<pre><code>$_SERVER['HTTP_X_REWRITE_URL'] = $_SERVER['HTTP_X_ORIGINAL_URL'];
+</code></pre>
+
+<p>}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bruno B B Magalhães (brunobbmagalhaes) on 2009-08-12T09:23:03.000+0000</p> 
+        <div class="body">
+            <p>To fix this issue, the method setRequestUri within Zend_Controller_Request_Http class must be changed as this (line 383):</p>
+
+<pre class="highlight"><code> 
+    /**
+     * Set the REQUEST_URI on which the instance operates
+     *
+     * If no request URI is passed, uses the value in $_SERVER['REQUEST_URI'],
+     * $_SERVER['HTTP_X_ORIGINAL_URL'], or $_SERVER['HTTP_X_REWRITE_URL'], or $_SERVER['ORIG_PATH_INFO'] + $_SERVER['QUERY_STRING'].
+     *
+     * @param string $requestUri
+     * @return Zend_Controller_Request_Http
+     */
+    public function setRequestUri($requestUri = null)
+    {
+        if ($requestUri === null) {
+            if (isset($_SERVER['HTTP_X_ORIGINAL_URL'])) { // check IIS 7.x with Microsoft Rewrite Module
+                $requestUri = $_SERVER['HTTP_X_ORIGINAL_URL'];
+            elseif (isset($_SERVER['HTTP_X_REWRITE_URL'])) { // check IIS with ISAPI_Rewrite, etc
+                $requestUri = $_SERVER['HTTP_X_REWRITE_URL'];
+            } elseif (isset($_SERVER['REQUEST_URI'])) {
+                $requestUri = $_SERVER['REQUEST_URI'];
+                // Http proxy reqs setup request uri with scheme and host [and port] + the url path, only use url path
+                $schemeAndHttpHost = $this-&gt;getScheme() . '://' . $this-&gt;getHttpHost();
+                if (strpos($requestUri, $schemeAndHttpHost) === 0) {
+                    $requestUri = substr($requestUri, strlen($schemeAndHttpHost));
+                }
+            } elseif (isset($_SERVER['ORIG_PATH_INFO'])) { // IIS 5.0, PHP as CGI
+                $requestUri = $_SERVER['ORIG_PATH_INFO'];
+                if (!empty($_SERVER['QUERY_STRING'])) {
+                    $requestUri .= '?' . $_SERVER['QUERY_STRING'];
+                }
+            } else {
+                return $this;
+            }
+        } elseif (!is_string($requestUri)) {
+            return $this;
+        } else {
+            // Set GET items, if available
+            if (false !== ($pos = strpos($requestUri, '?'))) {
+                // Get key =&gt; value pairs and set $_GET
+                $query = substr($requestUri, $pos + 1);
+                parse_str($query, $vars);
+                $this-&gt;setQuery($vars);
+            }
+        }
+
+        $this-&gt;_requestUri = $requestUri;
+        return $this;
+    }
+</code></pre>
+
+<p>I've already tested it in a development server running Windows Server 2003 SP3  + IIS 7.0 + Rewrite Module, and worked as expercted.</p>
+
+<p>Best Regards,
+Bruno B B Magalhães</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-08-15T13:57:52.000+0000</p> 
+        <div class="body">
+            <p>Reopening, as no patch has been applied. :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ian Unruh (iunruh) on 2012-05-31T16:05:23.000+0000</p> 
+        <div class="body">
+            <p>This needs to be fixed. IIS 7.0+ is default in Windows Server 2003, Server 2008, Server 2008 R2, and Windows 7. This issue affects anyone using those operating systems with IIS and the URL Rewrite module.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Evan Coury (evan.pro) on 2012-06-13T16:57:37.000+0000</p> 
+        <div class="body">
+            <p>This is fixed in ZF2 with <a href="https://github.com/zendframework/zf2/pull/1424">PR 1424</a>.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-06-14T17:22:47.000+0000</p> 
+        <div class="body">
+            <p>Fixed in svn <a href="http://framework.zend.com/code/revision.php?repname=Zend+Framework&amp;rev=24842">r24842</a> by rob (Rob Allen).</p>
+
+        </div>
+    </div>
+    </div>
+

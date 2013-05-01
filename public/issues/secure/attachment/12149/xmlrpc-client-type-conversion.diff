@@ -1,0 +1,158 @@
+Index: tests/Zend/XmlRpc/ClientTest.php
+===================================================================
+--- tests/Zend/XmlRpc/ClientTest.php	(revision 17681)
++++ tests/Zend/XmlRpc/ClientTest.php	(working copy)
+@@ -157,7 +157,13 @@
+         $response = $this->xmlrpcClient->getLastResponse();
+ 
+         $this->assertSame($expectedMethod, $request->getMethod());
+-        $this->assertSame($expectedParams, $request->getParams());
++        $params = $request->getParams();
++        $this->assertSame(count($expectedParams), count($params));
++        $this->assertSame($expectedParams[0], $params[0]->getValue());
++        $this->assertSame($expectedParams[1], $params[1]->getValue());
++        $this->assertSame($expectedParams[2], $params[2]->getValue());
++        $this->assertSame($expectedParams['foo'], $params['foo']->getValue());
++
+         $this->assertSame($expectedReturn, $response->getReturnValue());
+         $this->assertFalse($response->isFault());
+     }
+@@ -178,11 +184,13 @@
+ 
+         $request  = $this->xmlrpcClient->getLastRequest();
+ 
+-        $this->assertSame($expectedParams, $request->getParams());
++        $params = $request->getParams();
++        $this->assertSame(count($expectedParams), count($params));
++        $this->assertSame($expectedParams[0], $params[0]->getValue());
+     }
+     
+     /**
+-     * Test for ZF-1412
++     * @see ZF-1412
+      * 
+      * @return void
+      */
+@@ -205,7 +213,10 @@
+         $response = $this->xmlrpcClient->getLastResponse();
+ 
+         $this->assertSame($expectedMethod, $request->getMethod());
+-        $this->assertSame($expectedParams, $request->getParams());
++        $params = $request->getParams();
++        $this->assertSame(count($expectedParams), count($params));
++        $this->assertSame($expectedParams[0], $params[0]->getValue());
++        $this->assertSame($expectedParams[1], $params[1]);
+         $this->assertSame($expectedReturn, $response->getReturnValue());
+         $this->assertFalse($response->isFault());
+     }
+@@ -237,7 +248,7 @@
+         $this->assertFalse($response->isFault());
+     }
+ 
+-    /**#@+
++    /**
+      * @see ZF-2978
+      */
+     public function testSkippingSystemCallDisabledByDefault()
+@@ -245,6 +256,30 @@
+         $this->assertFalse($this->xmlrpcClient->skipSystemLookup());
+     }
+ 
++    /**
++     * @see ZF-6993
++     */
++    public function testWhenPassingAStringAndAnIntegerIsExpectedParamIsConverted()
++    {
++        $this->mockIntrospector();
++        $this->mockedIntrospector->expects($this->exactly(2))
++                           ->method('getMethodSignature')
++                           ->with('test.method')
++                           ->will($this->returnValue(array(array('parameters' => array('int')))));
++
++        $expect = 'test.method response';
++        $this->setServerResponseTo($expect);
++
++        $this->assertSame($expect, $this->xmlrpcClient->call('test.method', array('1')));
++        $params = $this->xmlrpcClient->getLastRequest()->getParams();
++        $this->assertSame(1, $params[0]->getValue());
++
++        $this->setServerResponseTo($expect);
++        $this->assertSame($expect, $this->xmlrpcClient->call('test.method', '1'));
++        $params = $this->xmlrpcClient->getLastRequest()->getParams();
++        $this->assertSame(1, $params[0]->getValue());
++    }
++
+     public function testAllowsSkippingSystemCallForArrayStructLookup()
+     {
+         $this->xmlrpcClient->setSkipSystemLookup(true);
+@@ -623,6 +658,19 @@
+                          );
+         return implode("\r\n", $headers) . "\r\n\r\n$data\r\n\r\n";
+     }
++
++    public function mockIntrospector()
++    {
++        $this->mockedIntrospector = $this->getMock(
++            'Zend_XmlRpc_Client_ServerIntrospection',
++            array(),
++            array(),
++            '',
++            false,
++            false
++        );
++        $this->xmlrpcClient->setIntrospector($this->mockedIntrospector);
++    }
+ }
+ 
+ // Call Zend_XmlRpc_ClientTest::main() if this source file is executed directly.
+Index: library/Zend/XmlRpc/Client.php
+===================================================================
+--- library/Zend/XmlRpc/Client.php	(revision 17681)
++++ library/Zend/XmlRpc/Client.php	(working copy)
+@@ -314,24 +314,31 @@
+                 $success = false;
+             }
+             if ($success) {
++                $validTypes = array(
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_ARRAY,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_BASE64,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_BOOLEAN,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_DATETIME,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_DOUBLE,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_I4,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_INTEGER,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_NIL,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_STRING,
++                    Zend_XmlRpc_Value::XMLRPC_TYPE_STRUCT,
++                );
++                $params = (array)$params;
+                 foreach ($params as $key => $param) {
+-                    if (is_array($param) && empty($param)) {
+-                        $type = 'array';
+-                        foreach ($signatures as $signature) {
+-                            if (!is_array($signature)) {
+-                                continue;
+-                            }
+-                            if (array_key_exists($key + 1, $signature)) {
+-                                $type = $signature[$key + 1];
+-                                $type = (in_array($type, array('array', 'struct'))) ? $type : 'array';
+-                                break;
+-                            }
++                    $type = Zend_XmlRpc_Value::AUTO_DETECT_TYPE;
++                    foreach ($signatures as $signature) {
++                        if (!is_array($signature)) {
++                            continue;
+                         }
+-                        $params[$key] = array(
+-                            'type'  => $type,
+-                            'value' => $param
+-                        );
++                        if (isset($signature['parameters'][$key])) {
++                            $type = $signature['parameters'][$key];
++                            $type = in_array($type, $validTypes) ? $type : Zend_XmlRpc_Value::AUTO_DETECT_TYPE;
++                        }
+                     }
++                    $params[$key] = Zend_XmlRpc_Value::getXmlRpcValue($param, $type);
+                 }
+             }
+         }

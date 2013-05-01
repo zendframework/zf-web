@@ -1,0 +1,302 @@
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Fault.php Polycast_XmlWriter/XmlRpc/Fault.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Fault.php	2009-10-08 12:16:27.000000000 +0200
++++ Polycast_XmlWriter/XmlRpc/Fault.php	2009-12-03 22:19:59.000000000 +0100
+@@ -283,17 +283,18 @@ class Zend_XmlRpc_Fault
+             'faultCode'   => $this->getCode(),
+             'faultString' => $this->getMessage()
+         );
+-        $value = Zend_XmlRpc_Value::getXmlRpcValue($faultStruct);
+-        $valueDOM = new DOMDocument('1.0', $this->getEncoding());
+-        $valueDOM->loadXML($value->saveXML());
++        
++        $value = Zend_XmlRpc_Value::getXmlRpcValue($faultStruct)->saveXML();
+ 
+-        // Build response XML
+-        $dom  = new DOMDocument('1.0', $this->getEncoding());
+-        $r    = $dom->appendChild($dom->createElement('methodResponse'));
+-        $f    = $r->appendChild($dom->createElement('fault'));
+-        $f->appendChild($dom->importNode($valueDOM->documentElement, 1));
+-
+-        return $dom->saveXML();
++        $xml = new XmlWriter();
++        $xml->openMemory();
++        $xml->startDocument('1.0', $this->getEncoding());
++        $xml->startElement('methodResponse');
++        $xml->startElement('fault');
++        $xml->writeRaw($value);
++        $xml->endElement(); // fault
++        $xml->endElement(); // methodResponse
++        return $xml->flush();
+     }
+ 
+     /**
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Request.php Polycast_XmlWriter/XmlRpc/Request.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Request.php	2009-10-08 12:16:27.000000000 +0200
++++ Polycast_XmlWriter/XmlRpc/Request.php	2009-12-03 22:19:59.000000000 +0100
+@@ -406,24 +406,28 @@ class Zend_XmlRpc_Request
+         $args   = $this->_getXmlRpcParams();
+         $method = $this->getMethod();
+ 
+-        $dom = new DOMDocument('1.0', $this->getEncoding());
+-        $mCall = $dom->appendChild($dom->createElement('methodCall'));
+-        $mName = $mCall->appendChild($dom->createElement('methodName', $method));
+-
++        $xml = new XmlWriter();
++        $xml->openMemory();
++        $xml->startDocument('1.0', $this->getEncoding());
++        $xml->startElement('methodCall');
++        $xml->startElement('methodName');
++        $xml->text($method);
++        $xml->endElement(); // methodName
++        
+         if (is_array($args) && count($args)) {
+-            $params = $mCall->appendChild($dom->createElement('params'));
++            $xml->startElement('params');
+ 
+             foreach ($args as $arg) {
+                 /* @var $arg Zend_XmlRpc_Value */
+-                $argDOM = new DOMDocument('1.0', $this->getEncoding());
+-                $argDOM->loadXML($arg->saveXML());
+-
+-                $param = $params->appendChild($dom->createElement('param'));
+-                $param->appendChild($dom->importNode($argDOM->documentElement, 1));
++                $xml->startElement('param');
++                $xml->writeRaw($arg->saveXML());
++                $xml->endElement(); // param    
+             }
++            $xml->endElement(); // params
+         }
+-
+-        return $dom->saveXML();
++        $xml->endElement(); // methodCall
++        
++        return $xml->flush();
+     }
+ 
+     /**
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Response.php Polycast_XmlWriter/XmlRpc/Response.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Response.php	2009-12-03 22:20:22.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Response.php	2009-12-03 22:19:59.000000000 +0100
+@@ -223,18 +223,17 @@ class Zend_XmlRpc_Response
+      */
+     public function saveXML()
+     {
+-        $value = $this->_getXmlRpcReturn();
+-        $valueDOM = new DOMDocument('1.0', $this->getEncoding());
+-        $valueDOM->loadXML($value->saveXML());
+-
+-        $dom      = new DOMDocument('1.0', $this->getEncoding());
+-        $response = $dom->appendChild($dom->createElement('methodResponse'));
+-        $params   = $response->appendChild($dom->createElement('params'));
+-        $param    = $params->appendChild($dom->createElement('param'));
+-
+-        $param->appendChild($dom->importNode($valueDOM->documentElement, true));
+-
+-        return $dom->saveXML();
++        $xml = new XmlWriter();
++        $xml->openMemory();
++        $xml->startDocument('1.0', $this->getEncoding());
++        $xml->startElement('methodResponse');
++        $xml->startElement('params');
++        $xml->startElement('param');
++        $xml->writeRaw($this->_getXmlRpcReturn()->saveXML());
++        $xml->endElement(); // param
++        $xml->endElement(); // params
++        $xml->endElement(); // methodResponse
++        return $xml->flush();
+     }
+ 
+     /**
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Array.php Polycast_XmlWriter/XmlRpc/Value/Array.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Array.php	2009-12-03 22:20:22.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Value/Array.php	2009-12-03 22:19:59.000000000 +0100
+@@ -56,20 +56,24 @@ class Zend_XmlRpc_Value_Array extends Ze
+     public function saveXML()
+     {
+         if (!$this->_as_xml) {   // The XML code was not calculated yet
+-            $dom   = new DOMDocument('1.0');
+-            $value = $dom->appendChild($dom->createElement('value'));
+-            $array = $value->appendChild($dom->createElement('array'));
+-            $data  = $array->appendChild($dom->createElement('data'));
+-
++            
++            $xml = new XmlWriter();
++            $xml->openMemory();
++            $xml->startDocument('1.0', 'UTF-8');
++            $xml->startElement('value');
++            $xml->startElement('array');
++            $xml->startElement('data');
++            
+             if (is_array($this->_value)) {
+-                foreach ($this->_value as $val) {
++                foreach ($this->_value as $name => $val) {
+                     /* @var $val Zend_XmlRpc_Value */
+-                    $data->appendChild($dom->importNode($val->getAsDOM(), true));
++                    $xml->writeRaw($val->saveXML());
+                 }
+             }
+-
+-            $this->_as_dom = $value;
+-            $this->_as_xml = $this->_stripXmlDeclaration($dom);
++            $xml->endElement(); // data
++            $xml->endElement(); // array
++            $xml->endElement(); // value
++            $this->_as_xml = $this->_stripXmlDeclaration($xml->flush());
+         }
+ 
+         return $this->_as_xml;
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Base64.php Polycast_XmlWriter/XmlRpc/Value/Base64.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Base64.php	2009-12-03 22:20:22.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Value/Base64.php	2009-12-03 22:19:59.000000000 +0100
+@@ -73,15 +73,15 @@ class Zend_XmlRpc_Value_Base64 extends Z
+      */
+     public function saveXML()
+     {
+-        if (! $this->_as_xml) {   // The XML was not generated yet
+-            $dom   = new DOMDocument('1.0', 'UTF-8');
+-            $value = $dom->appendChild($dom->createElement('value'));
+-            $type  = $value->appendChild($dom->createElement($this->_type));
+-            $type->appendChild($dom->createTextNode($this->_value));
+-
+-            $this->_as_dom = $value;
+-            $this->_as_xml = $this->_stripXmlDeclaration($dom);
+-        }
++        $xml = new XmlWriter();
++        $xml->openMemory();
++        $xml->startDocument('1.0', 'UTF-8');
++        $xml->startElement('value');
++        $xml->startElement($this->_type);
++        $xml->text($this->_value);
++        $xml->endElement(); // type
++        $xml->endElement(); // value
++        $this->_as_xml = $this->_stripXmlDeclaration($xml->flush());
+ 
+         return $this->_as_xml;
+     }
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Boolean.php Polycast_XmlWriter/XmlRpc/Value/Boolean.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Boolean.php	2009-12-03 22:20:22.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Value/Boolean.php	2009-12-03 22:19:59.000000000 +0100
+@@ -69,13 +69,16 @@ class Zend_XmlRpc_Value_Boolean extends 
+     public function saveXML()
+     {
+         if (! $this->_as_xml) {   // The XML was not generated yet
+-            $dom   = new DOMDocument('1.0', 'UTF-8');
+-            $value = $dom->appendChild($dom->createElement('value'));
+-            $type  = $value->appendChild($dom->createElement($this->_type));
+-            $type->appendChild($dom->createTextNode($this->_value));
+-
+-            $this->_as_dom = $value;
+-            $this->_as_xml = $this->_stripXmlDeclaration($dom);
++            
++            $xml = new XmlWriter();
++            $xml->openMemory();
++            $xml->startDocument('1.0', 'UTF-8');
++            $xml->startElement('value');
++            $xml->startElement($this->_type);
++            $xml->text($this->_value);
++            $xml->endElement(); // type
++            $xml->endElement(); // value
++            $this->_as_xml = $this->_stripXmlDeclaration($xml->flush());
+         }
+ 
+         return $this->_as_xml;
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Scalar.php Polycast_XmlWriter/XmlRpc/Value/Scalar.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Scalar.php	2009-12-03 22:20:22.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Value/Scalar.php	2009-12-03 22:19:59.000000000 +0100
+@@ -45,13 +45,16 @@ abstract class Zend_XmlRpc_Value_Scalar 
+     public function saveXML()
+     {
+         if (!$this->_as_xml) {   // The XML code was not calculated yet
+-            $dom   = new DOMDocument('1.0');
+-            $value = $dom->appendChild($dom->createElement('value'));
+-            $type  = $value->appendChild($dom->createElement($this->_type));
+-            $type->appendChild($dom->createTextNode($this->getValue()));
+-
+-            $this->_as_dom = $value;
+-            $this->_as_xml = $this->_stripXmlDeclaration($dom);
++            
++            $xml = new XmlWriter();
++            $xml->openMemory();
++            $xml->startDocument('1.0', 'UTF-8');
++            $xml->startElement('value');
++            $xml->startElement($this->_type);
++            $xml->text($this->getValue());
++            $xml->endElement(); // type
++            $xml->endElement(); // value
++            $this->_as_xml = $this->_stripXmlDeclaration($xml->flush());
+         }
+ 
+         return $this->_as_xml;
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Struct.php Polycast_XmlWriter/XmlRpc/Value/Struct.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Value/Struct.php	2009-12-03 22:20:22.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Value/Struct.php	2009-12-03 22:19:59.000000000 +0100
+@@ -47,7 +47,6 @@ class Zend_XmlRpc_Value_Struct extends Z
+         parent::__construct($value);
+     }
+ 
+-
+     /**
+      * Return the XML code that represent struct native MXL-RPC value
+      *
+@@ -56,21 +55,27 @@ class Zend_XmlRpc_Value_Struct extends Z
+     public function saveXML()
+     {
+         if (!$this->_as_xml) {   // The XML code was not calculated yet
+-            $dom    = new DOMDocument('1.0');
+-            $value  = $dom->appendChild($dom->createElement('value'));
+-            $struct = $value->appendChild($dom->createElement('struct'));
+-
++            
++            $xml = new XmlWriter();
++            $xml->openMemory();
++            $xml->startDocument('1.0', 'UTF-8');
++            $xml->startElement('value');
++            $xml->startElement('struct');
++            
+             if (is_array($this->_value)) {
+                 foreach ($this->_value as $name => $val) {
+                     /* @var $val Zend_XmlRpc_Value */
+-                    $member = $struct->appendChild($dom->createElement('member'));
+-                    $member->appendChild($dom->createElement('name', $this->_escapeXmlEntities($name)));
+-                    $member->appendChild($dom->importNode($val->getAsDOM(), 1));
++                    $xml->startElement('member');
++                    $xml->startElement('name');
++                    $xml->text($name);
++                    $xml->endElement(); // name
++                    $xml->writeRaw($val->saveXML());
++                    $xml->endElement(); // member
+                 }
+             }
+-
+-            $this->_as_dom = $value;
+-            $this->_as_xml = $this->_stripXmlDeclaration($dom);
++            $xml->endElement(); // struct
++            $xml->endElement(); // value
++            $this->_as_xml = $this->_stripXmlDeclaration($xml->flush());
+         }
+ 
+         return $this->_as_xml;
+diff --exclude .git --exclude .svn -rup ZendFramework-1.9.3PL1/Zend/XmlRpc/Value.php Polycast_XmlWriter/XmlRpc/Value.php
+--- ZendFramework-1.9.3PL1/Zend/XmlRpc/Value.php	2009-12-03 15:27:12.000000000 +0100
++++ Polycast_XmlWriter/XmlRpc/Value.php	2009-12-03 22:19:59.000000000 +0100
+@@ -119,7 +119,7 @@ abstract class Zend_XmlRpc_Value
+     public function getAsDOM()
+     {
+         if (!$this->_as_dom) {
+-            $doc = new DOMDocument('1.0');
++            $doc = new DOMDocument('1.0', 'UTF-8');
+             $doc->loadXML($this->saveXML());
+             $this->_as_dom = $doc->documentElement;
+         }
+@@ -127,9 +127,9 @@ abstract class Zend_XmlRpc_Value
+         return $this->_as_dom;
+     }
+ 
+-    protected function _stripXmlDeclaration(DOMDocument $dom)
++    protected function _stripXmlDeclaration($xml)
+     {
+-        return preg_replace('/<\?xml version="1.0"( encoding="[^\"]*")?\?>\n/u', '', $dom->saveXML());
++        return preg_replace('/<\?xml version="1.0"( encoding="[^\"]*")?\?>\n/u', '', $xml);
+     }
+ 
+     /**

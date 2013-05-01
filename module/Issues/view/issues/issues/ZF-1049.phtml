@@ -1,0 +1,336 @@
+<h2>ZF-1049: Problem with Zend_Locale_Format and setlocale()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-14T05:26:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-11-15T13:56:00.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.3 (30/Nov/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Guillaume Millet (gmillet)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1061">ZF-1061</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I've had some troubles using Zend_Locale_Format ::toFloat() along with setlocale().</p>
+
+<p>Here is a sample code to illustrate the issue :</p>
+
+<pre class="highlight"><code>
+require_once('Zend/Loader.php');
+
+Zend_Loader::loadClass('Zend_Locale');
+
+// setlocale(LC_ALL, 'fr_FR@euro');
+$locale_fr = new Zend_Locale('fr_FR');
+$locale_en = new Zend_Locale('en_US');
+$params_fr = array('precision' =&gt; 2, 'locale' =&gt; $locale_fr);
+$params_en = array('precision' =&gt; 2, 'locale' =&gt; $locale_en);
+$myFloat = 1234.5;
+$test1 = Zend_Locale_Format::toFloat($myFloat, $params_fr);
+$test2 = Zend_Locale_Format::toFloat($myFloat, $params_en);
+var_dump($test1);
+var_dump($test2);
+</code></pre>
+
+<p>The problem comes from the setlocale() call : if it is not present, everything goes fine but when I set PHP's locale to French, I can't get toFloat() to work.</p>
+
+<p>Output <em>without</em> setlocale() :</p>
+
+<pre class="highlight"><code>
+string(9) "1 234,50" string(8) "1,234.50"
+</code></pre>
+
+<p>Output <em>with</em> setlocale() :</p>
+
+<pre class="highlight"><code>
+string(4) "0,00" string(4) "0.00"
+</code></pre>
+
+<p>The server I work on is a Linux box (Debian stable), and AFAIK, the standard locale is 'C'. I'm using PHP version 5.2.1 with the BCmath extension enabled. Regarding the framework, I had this problem while I was using the 0.8.0 version and it is still present in the 3912 SVN version.</p>
+
+<p>Last thing, I quote a short part of Thomas' last answer on the mailing list :</p>
+
+<p>??So toNumberFormat does not have to parse for the decimal point, because the input is not a string but a integer/float value.??</p>
+
+<p>Are you 100% positive about that ? I'm saying that because when I see a piece of code like the following :</p>
+
+<pre class="highlight"><code>
+// get number parts
+if (iconv_strpos($value, '.') !== false) {
+</code></pre>
+
+<p>in toNumberFormat(), my first guess would be that you are actually looking for the decimal separator in the input value.</p>
+
+<p>This seems to be confirmed by a short trace I ran on this part of code :</p>
+
+<pre class="highlight"><code>
+--- Format.php.orig 2007-03-14 09:48:00.000000000 +0100
++++ Format.php  2007-03-14 10:37:43.000000000 +0100
+@@ -385,10 +385,12 @@
+                     $precstr = $precstr . str_pad("0", ($options['precision'] - iconv_strlen($precstr)), "0");
+                 }
+             }
++           die('strpos true : ' . $precstr);
+         } else {
+             if ($options['precision'] &gt; 0) {
+                 $precstr = str_pad("0", ($options['precision']), "0");
+             }
++           die('strpos false : ' . $precstr);
+         }
+         if ($options['precision'] === null) {
+             if (isset($precstr)) {
+</code></pre>
+
+<p>Output <em>without</em> setlocale() :</p>
+
+<pre class="highlight"><code>
+strpos true : 50
+</code></pre>
+
+<p>Output <em>with</em> setlocale() :</p>
+
+<pre class="highlight"><code>
+strpos false : 00
+</code></pre>
+
+<p>Behaviour of this part of code is different whether the locale is set to French or not.</p>
+
+<p>Hopefully there's enough information in this description, if not just let me know :)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-14T07:50:27.000+0000</p> 
+        <div class="body">
+            <p>I am sure.</p>
+
+<p>Please try this code so we can see if iconv_strpos works on your system:</p>
+
+<pre class="highlight"><code>
+$value = 12345.50;
+print "\n".$value;
+print "\n".iconv_strpos($value, '.');   
+    setlocale(LC_ALL, 'fr_FR@euro');
+print "\n".$value;
+print "\n".iconv_strpos($value, '.');   
+</code></pre>
+
+<p>I see 2 possible problems:
+1.) setLocale has false settings on your OS.
+2.) BCMath is set to precision 0 within php.ini.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guillaume Millet (gmillet) on 2007-03-14T09:11:07.000+0000</p> 
+        <div class="body">
+            <p>Just tried your code, here is the result :</p>
+
+<pre class="highlight"><code>
+
+12345.5
+5
+12345,5
+</code></pre>
+
+<p>You were also right, bcmath's scale was indeed set to 0. My sysadmin changed it to 10 but the output stayed the same.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-14T09:37:08.000+0000</p> 
+        <div class="body">
+            <p>I know...</p>
+
+<p>You have 2 problems.
+One which your sysadmin fixed. And one which I will fix ;-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-14T11:23:57.000+0000</p> 
+        <div class="body">
+            <p>I just committed a new version which should solve your problem if the php.ini settings are correct. (maximum precision settings)
+Please try SVN 3926 or higher.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guillaume Millet (gmillet) on 2007-03-15T05:51:50.000+0000</p> 
+        <div class="body">
+            <p>I just tried with SVN version 3953.</p>
+
+<p>Problem seems to be fixed, at least for the part in toNumberFormat(). However, I still can't get it to work when the locale is set to French.</p>
+
+<p>I ran a few tests and it seems to me that Gavin's new implementation of the Zend_Locale_Math::round() method, which is called in toNumber(), may have broken your fix. For example, the value of $op1 after this block :</p>
+
+<pre class="highlight"><code>
+if (($decPos = strpos($op1, '.')) === false) {
+            $op1 .= '.0';
+            $decPos = $length;
+            $length += 2;
+}
+</code></pre>
+
+<p>is 1234,5.0 with setlocale() and 1234.5 without and this is the value that is used in toNumberFormat().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-15T06:19:42.000+0000</p> 
+        <div class="body">
+            <p>I know this... I've seen the problem after gavin changed my "tiny" ;-) implementation.
+I already wrote gavin about his fault... he will change it to work the same way like the old implementation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-15T06:21:50.000+0000</p> 
+        <div class="body">
+            <p>Fix has been broken due to changes for ZF-1054.
+Please fix your fix.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-15T11:02:39.000+0000</p> 
+        <div class="body">
+            <p>The Zend_Locale_Math class is not locale-aware, nor should it be locale-aware.
+The Zend_Locale_Math class is a simple proxy between PHP functions and BCMath.
+BCMath is not locale-aware, and does not support thousands separator characters, or decimal separator characters other than a period ('.').</p>
+
+<p>The previous implementation of Zend_Locale_Math::round() method failed on many cases (see unit test).
+The new implementation produces correct results for more than 200,000 test cases I tried.</p>
+
+<p>Also, usually we should add a unit test before closing an issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-03-15T15:45:06.000+0000</p> 
+        <div class="body">
+            <p>Problem not reproducable.</p>
+
+<p>Probably fixed with 3972. Changed internal handling of toNumber/-Format.
+See previous additionally comments from the devteam.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-15T18:09:25.000+0000</p> 
+        <div class="body">
+            <p>Reproducible on the <a href="http://framework.zend.com/wiki/display/ZFDEV/Sandbox">ZF Community Server</a>.
+Post request to fw-server@lists.zend.com to obtain an account.</p>
+
+<p>Unit test testToFloatSetlocale() committed to FormatTest.php</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-15T18:13:37.000+0000</p> 
+        <div class="body">
+            <p>{quote}$ php AllTests.php
+X-Powered-By: PHP/5.1.6
+Content-type: text/html</p>
+
+<p>PHPUnit 3.0.0 by Sebastian Bergmann.</p>
+
+<p>.......................F.</p>
+
+<p>Time: 00:08</p>
+
+<p>There was 1 failure:</p>
+
+<p>1) testToFloatSetlocale(Zend_Locale_FormatTest)
+Failed asserting that &lt;string:1Â 234,50&gt; is equal to &lt;string:0,00&gt;.
+/var/www/html/zftrunk/tests/Zend/Locale/FormatTest.php:758
+/var/www/html/zftrunk/tests/Zend/Locale/AllTests.php:44
+/var/www/html/zftrunk/tests/Zend/Locale/AllTests.php:60</p>
+
+<p>FAILURES!
+Tests: 25, Failures: 1.</p>
+
+<p>zfdev Locale 701$ svn update
+At revision 3991.</p>
+
+<p>zfdev Locale 702$ uname -a
+Linux <a href="www.zfdev.com">www.zfdev.com</a> 2.6.9-42.EL #1 Wed Jul 12 23:16:43 EDT 2006 i686 i686 i386 GNU/Linux</p>
+
+<p>zfdev Locale 703$ php -v
+PHP 5.1.6 (cgi-fcgi) (built: Oct 24 2006 19:38:28)
+Copyright (c) 1997-2006 The PHP Group
+Zend Engine v2.1.0, Copyright (c) 1998-2006 Zend Technologies
+{quote}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-16T12:44:50.000+0000</p> 
+        <div class="body">
+            <p>Guillaume Millet, would you have time to test the patch attached to ZF-1061?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Guillaume Millet (gmillet) on 2007-03-19T04:50:57.000+0000</p> 
+        <div class="body">
+            <p>I can, but which version should I apply the patch on ?</p>
+
+<p>Anyway, I gave a try at the SVN version 4108 and now the output of my test file changes from :</p>
+
+<pre class="highlight"><code> *without* setlocale() to :
+</code></pre>
+
+<p><em>with</em> setlocale().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2007-07-21T06:11:45.000+0000</p> 
+        <div class="body">
+            <p>Problems are solved with SVN 5806.</p>
+
+<p>Could you please verify if it's working for you ?</p>
+
+        </div>
+    </div>
+    </div>
+

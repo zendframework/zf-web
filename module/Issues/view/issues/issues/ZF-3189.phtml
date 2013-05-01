@@ -1,0 +1,341 @@
+<h2>ZF-3189: Zend_Http_Client_Adapter_Proxy::connectHandshake ignores useragent set in headers</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-05-02T12:09:51.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-28T19:07:33.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Chris Abernethy (brownoxford)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Gdata</li>
+            <li>FixForZF1.12</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14673/ZF-3189.patch">ZF-3189.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If the user-agent is specified in the headers, as opposed to via setConfig(), the default UA of Zend_Http_Client is used for CONNECT requests by the proxy adapter.</p>
+
+<p>I'm not too familiar with proxy servers, but there could be issues if the CONNECT request uses one UA and the actual request uses another. It seems like setting the UA via setHeaders should overwrite the useragent config item.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-06-09T13:32:44.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and fix/categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-17T15:10:19.000+0000</p> 
+        <div class="body">
+            <p>Do you have any code to demonstrate this issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-07T02:34:34.000+0000</p> 
+        <div class="body">
+            <p>In tracing through the code, I noticed the following:  Zend_Http_Client::request() calls Zend_Http_Client::_prepareHeaders(), which returns a numerically-indexed array of headers in 'name: value' format.  That array is then passed to the adapter via an argument to it's connect() method.  However, Zend_Http_Client_Adapter_Proxy::connect() treats $headers as an associative array of HeaderName=&gt;HeaderValue pairs.</p>
+
+<p>Did I miss something there, or is that actually the case?  If it is, then Zend_Http_Client_Adapter_Proxy needs to be reworked to reflect that, as it uses $headers as an associative array in many places.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-07T03:06:07.000+0000</p> 
+        <div class="body">
+            <p>It looks to me that the culprit is here:</p>
+
+<pre class="highlight"><code>
+// Add the user-agent header
+if (isset($this-&gt;config['useragent'])) {
+    $request .= "User-agent: " . $this-&gt;config['useragent'] . "\r\n";
+}
+</code></pre>
+
+<p>The config key 'useragent' always exists, as it has a default defined in Zend_Http_Client.  In the connectHandshake() snippet above, the User-agent header will be set up with that default value (Zend_Http_Client) regardless of what might be set in $headers, as none of those headers are sent during the CONNECT handshake.  As the original poster says, this may cause the CONNECT handshake and the subsequent request to have different UAs.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-04T15:31:23.000+0000</p> 
+        <div class="body">
+            <p>Test to reproduce the issue:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Http/Client/ProxyAdapterTest.php
+===================================================================
+--- tests/Zend/Http/Client/ProxyAdapterTest.php (revision 24490)
++++ tests/Zend/Http/Client/ProxyAdapterTest.php (working copy)
+@@ -118,4 +118,73 @@
+          * the TRACE response
+          */
+     }
++
++    /**
++     * @group ZF-3189
++     */
++    public function testConnectHandshakeSendsCustomUserAgentHeader()
++    {
++        // Change the adapter
++        $this-&gt;config['adapter'] = 'ZF3189_ProxyAdapter';
++        $this-&gt;config['useragent'] = 'ZendTest';
++        parent::setUp();
++
++        $base = preg_replace("/^http:/", "https:", $this-&gt;baseuri);
++        $this-&gt;client-&gt;setUri($base . 'testSimpleRequests.php');
++
++        // Ensure we're proxying a HTTPS request
++        $this-&gt;assertEquals('https', $this-&gt;client-&gt;getUri()-&gt;getScheme());
++
++        // Perform the request
++        $this-&gt;client-&gt;request();
++
++        $this-&gt;assertContains(
++            "User-agent: {$this-&gt;config['useragent']}",
++            $this-&gt;client-&gt;getAdapter()-&gt;getLastConnectHandshakeRequest()
++        );
++    }
++
++    /**
++     * @group ZF-3189
++     */
++    public function testConnectHandshakeSendsCustomUserAgentHeaderWhenSetInHeaders()
++    {
++        // Change the adapter
++        $this-&gt;config['adapter'] = 'ZF3189_ProxyAdapter';
++        parent::setUp();
++
++        $base = preg_replace("/^http:/", "https:", $this-&gt;baseuri);
++        $this-&gt;client-&gt;setUri($base . 'testSimpleRequests.php');
++        $this-&gt;client-&gt;setHeaders('User-Agent', 'ZendTest');
++
++        // Ensure we're proxying a HTTPS request
++        $this-&gt;assertEquals('https', $this-&gt;client-&gt;getUri()-&gt;getScheme());
++
++        // Perform the request
++        $this-&gt;client-&gt;request();
++        print_r($this-&gt;client-&gt;getAdapter()-&gt;getLastConnectHandshakeRequest());
++        $this-&gt;assertContains(
++            "User-agent: ZendTest",
++            $this-&gt;client-&gt;getAdapter()-&gt;getLastConnectHandshakeRequest()
++        );
++    }
++
+ }
++
++/**
++ * Exposes internal variable connectHandshakeRequest for test purposes
++ * @see ZF-3189
++ */
++class ZF3189_ProxyAdapter extends Zend_Http_Client_Adapter_Proxy
++{
++
++    /**
++     * Retrieve the request data from last CONNECT handshake
++     * @return string
++     */
++    public function getLastConnectHandshakeRequest()
++    {
++        return $this-&gt;connectHandshakeRequest;
++    }
++
++}
+\ No newline at end of file
+Index: library/Zend/Http/Client/Adapter/Proxy.php
+===================================================================
+--- library/Zend/Http/Client/Adapter/Proxy.php  (revision 24490)
++++ library/Zend/Http/Client/Adapter/Proxy.php  (working copy)
+@@ -75,6 +75,13 @@
+      * @var boolean
+      */
+     protected $negotiated = false;
++
++    /**
++     * Stores the last CONNECT handshake request
++     *
++     * @var string
++     */
++    protected $connectHandshakeRequest;
+
+     /**
+      * Connect to the remote server
+@@ -217,6 +224,9 @@
+         }
+
+         $request .= "\r\n";
++
++        // @see ZF-3189
++        $this-&gt;connectHandshakeRequest = $request;
+
+         // Send the request
+         if (! @fwrite($this-&gt;socket, $request)) {
+</code></pre>
+
+<p>The first test ({{testConnectHandshakeSendsCustomUserAgentHeader}}) will pass, as setting the user agent in the client configuration works as expected.  However, the second test ({{testConnectHandshakeSendsCustomUserAgentHeaderWhenSetInHeaders}}) currently fails for the reason the OP suggested: {{connectHandshake}} does not check to see if {{$headers}}} defines a user agent header.</p>
+
+<p>My reproduction test required a slight modification to {{Zend_Http_Client_Adapter_Proxy}} so that it would record the request headers sent during the {{connectHandshake}} method call.  Rather than change the public API of {{Zend_Http_Client_Adapter_Proxy}}, I added a protected variable to store the request, then created a test-specific adapter class ({{ZF3189_ProxyAdapter}}) to expose it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-10-04T15:56:14.000+0000</p> 
+        <div class="body">
+            <p>Suggested fix:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Http/Client/Adapter/Proxy.php
+===================================================================
+--- library/Zend/Http/Client/Adapter/Proxy.php  (revision 24490)
++++ library/Zend/Http/Client/Adapter/Proxy.php  (working copy)
+@@ -136,10 +136,20 @@
+         }
+
+         // Add Proxy-Authorization header
+-        if ($this-&gt;config['proxy_user'] &amp;&amp; ! isset($headers['proxy-authorization'])) {
+-            $headers['proxy-authorization'] = Zend_Http_Client::encodeAuthHeader(
+-                $this-&gt;config['proxy_user'], $this-&gt;config['proxy_pass'], $this-&gt;config['proxy_auth']
+-            );
++        if ($this-&gt;config['proxy_user']) {
++            // Check to see if one already exists
++            $hasProxyAuthHeader = false;
++            foreach ($headers as $k =&gt; $v) {
++                if ($k == 'proxy-authorization' || preg_match("/^proxy-authorization:/i", $v) ) {
++                    $hasProxyAuthHeader = true;
++                    break;
++                }
++            }
++            if (!$hasProxyAuthHeader) {
++                $headers[] = 'Proxy-authorization: ' . Zend_Http_Client::encodeAuthHeader(
++                    $this-&gt;config['proxy_user'], $this-&gt;config['proxy_pass'], $this-&gt;config['proxy_auth']
++                );
++            }
+         }
+
+         // if we are proxying HTTPS, preform CONNECT handshake with the proxy
+@@ -204,18 +214,18 @@
+         $request = "CONNECT $host:$port HTTP/$http_ver\r\n" .
+                    "Host: " . $this-&gt;config['proxy_host'] . "\r\n";
+
+-        // Add the user-agent header
+-        if (isset($this-&gt;config['useragent'])) {
+-            $request .= "User-agent: " . $this-&gt;config['useragent'] . "\r\n";
++        // Process provided headers, including important ones to CONNECT request
++        foreach ( $headers as $k=&gt;$v ) {
++            switch ( strtolower(substr($v,0,strpos($v,':'))) ) {
++                case 'proxy-authorization':
++                    // break intentionally omitted
++                case 'user-agent':
++                    $request .= $v . "\r\n";
++                    break;
++                default:
++                    break;
++            }
+         }
+-
+-        // If the proxy-authorization header is set, send it to proxy but remove
+-        // it from headers sent to target host
+-        if (isset($headers['proxy-authorization'])) {
+-            $request .= "Proxy-authorization: " . $headers['proxy-authorization'] . "\r\n";
+-            unset($headers['proxy-authorization']);
+-        }
+-
+         $request .= "\r\n";
+
+         // Send the request
+</code></pre>
+
+<p>Two things here:
+ * Rejig the authorization header processing {{Zend_Http_Client_Adapter_Proxy::write}} to properly detect an existing Proxy-Authorization header (old method assumed that $headers was a header=&gt;value associative array, which it isn't. 
+ * Update {{Zend_Http_Client_Adapter_Proxy::connectHandshake}} to pass User-Agent and Proxy-Authorization headers through to CONNECT request.</p>
+
+<p>I've also added a third test to enforce that {{Zend_Http_Client_Adapter_Proxy::write}} does indeed properly detect a preexisting Proxy-Authorization header:</p>
+
+<pre class="highlight"><code>
+    /**
+     * @group ZF-3189
+     */
+    public function testProxyAdapterDoesNotOverwriteExistingProxyAuthorizationHeader()
+    {      
+        // Change the adapter
+        $this-&gt;config['adapter'] = 'ZF3189_ProxyAdapter';
+        parent::setUp();
+        
+        $base = preg_replace("/^http:/", "https:", $this-&gt;baseuri);
+        $this-&gt;client-&gt;setUri($base . 'testSimpleRequests.php');
+        $this-&gt;client-&gt;setHeaders('Proxy-Authorization', 'FooBarBaz');
+
+        // Ensure we're proxying a HTTPS request
+        $this-&gt;assertEquals('https', $this-&gt;client-&gt;getUri()-&gt;getScheme());
+        
+        // Perform the request
+        $this-&gt;client-&gt;request();
+        print_r($this-&gt;client-&gt;getAdapter()-&gt;getLastConnectHandshakeRequest());
+        
+        $resp = $this-&gt;client-&gt;getAdapter()-&gt;getLastConnectHandshakeRequest();
+        $this-&gt;assertEquals(1, preg_match_all('/\r\nProxy-Authorization: ([^\r\n]+)\r\n/i', $resp, $matches));
+        $this-&gt;assertEquals('FooBarBaz', $matches[1][0]);
+    }
+</code></pre>
+
+<p>Thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-12T19:40:31.000+0000</p> 
+        <div class="body">
+            <p>I would like to have this fixed in ZF 1.12.0.  Could someone with a proxy setup already in place test out this patch to ensure it works as expected?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-05-28T18:50:04.000+0000</p> 
+        <div class="body">
+            <p>Fixed in svn r24818.</p>
+
+        </div>
+    </div>
+    </div>
+

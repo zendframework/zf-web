@@ -1,0 +1,242 @@
+<h2>ZF-3144: Cascading db operations do not work when 'refColumns' is not explicity set inside $_referenceMap.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-18T04:28:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-05-28T21:13:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Piotr Czachur (zimnyx)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+            <li>FixForZF1.12</li>
+            <li>state:patch-ready-for-review</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14666/ZF-3144_fix.patch">ZF-3144_fix.patch</a></li>
+            <li><a href="/issues/secure/attachment/14661/ZF-3144_reproduce.patch">ZF-3144_reproduce.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+&lt;?php
+class Files extends Zend_Db_Table
+{
+    protected $_name = 'files';
+    protected $_rowClass = 'File';
+    protected $_referenceMap = array(
+        'Email' =&gt; array(
+            'columns'           =&gt; 'emailId',
+            'refTableClass'     =&gt; 'Emails',
+            // Without next row CASCADE doesn't work despite id is PK, and should be retrieved automaticaly
+            // Manual says that if refColumns is not set it will be be discovered from table schema as PK
+            'refColumns'        =&gt; 'id',
+            'onDelete'          =&gt; self::CASCADE,
+        ),
+}
+</code></pre>
+
+<p>Btw I noticed, that without  'refColumns'  set to 'id' CASCADE query looks like "DELETE FROM files WHERE phoneId = 0" - this is just wrong.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:20:28.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-12-04T13:17:29.000+0000</p> 
+        <div class="body">
+            <p>Reassigning to Ralph since he's the new maintainer of Zend_Db</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-10T11:58:12.000+0000</p> 
+        <div class="body">
+            <p>Will evaluate within 2 weeks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2009-04-10T03:48:01.000+0000</p> 
+        <div class="body">
+            <p>Is this forgotten issue?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-05-19T12:29:47.000+0000</p> 
+        <div class="body">
+            <p>can you describe the 2 tables and/or produce a small script (you can use sqlite ::memory:: to accomplish this) that will demonstrate the problem?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2009-05-21T00:59:24.000+0000</p> 
+        <div class="body">
+            <p>Ralph, here you go:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE `products` (
+  `id` tinyint(4) NOT NULL auto_increment,
+  PRIMARY KEY  (`id`)
+);
+
+CREATE TABLE `files` (
+  `id` tinyint(4) NOT NULL auto_increment,
+  `productId` tinyint(4) NOT NULL,
+  PRIMARY KEY  (`id`)
+);
+
+INSERT INTO products values (1),(2);
+INSERT INTO files values (7,2),(8,2);
+</code></pre>
+
+<pre class="highlight"><code>
+class Default_Model_DbTable_Files extends Zend_Db_Table
+{
+    protected $_name = 'files';
+    protected $_referenceMap = array(
+        'Product' =&gt; array(
+            'columns'           =&gt; 'productId',
+            'refTableClass'     =&gt; 'Default_Model_DbTable_Products',
+           // 'refColumns'        =&gt; 'id',    
+            'onDelete'          =&gt; self::CASCADE,
+        ),
+    );
+} 
+
+class Default_Model_DbTable_Products extends Zend_Db_Table
+{ 
+    protected $_name = 'products';  
+    protected $_dependentTables = array('Default_Model_DbTable_Files');
+
+} 
+
+$productsTable = new Default_Model_DbTable_Products;
+$productsTable-&gt;find(2)-&gt;current()-&gt;delete();
+</code></pre>
+
+<pre class="highlight"><code>
+/trunk/lib/Zend/Db/Table/Abstract.php:1085 'Undefined index:  refColumns'
+DELETE FROM `files` WHERE (`productId` = 0)
+DELETE FROM `products` WHERE (`products`.`id` = 2)
+</code></pre>
+
+<p>Uncommenting  // 'refColumns'        =&gt; 'id',  fixes problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-02-17T15:03:19.000+0000</p> 
+        <div class="body">
+            <p>Is the suggestion here to throw an exception when refColumns is not present? Seems that should be the behavior because if you don't explicitly say what the reference column is, Zend_Db_Table shouldn't make an assumption about what it's related to (it could technically be another column, not the PK).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Piotr Czachur (zimnyx) on 2011-03-15T04:18:55.000+0000</p> 
+        <div class="body">
+            <p>Ralph,</p>
+
+<p>I quit using ZF almost 2 years ago. Please decide on your own.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bento Vilas Boas (bento.vilas.boas) on 2011-07-27T04:12:23.000+0000</p> 
+        <div class="body">
+            <p>Ralph,</p>
+
+<p>According to official documentation, if refColumns is not present, pk will be used. <a href="http://framework.zend.com/manual/en/zend.db.table.relationships.html">http://framework.zend.com/manual/en/…</a></p>
+
+<p>This issue was fixed somewhere along the way.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-09-23T14:50:36.000+0000</p> 
+        <div class="body">
+            <p>Implemented Piotr's reproduction code as a unit test (patch attached).  The result is still the same as he found:</p>
+
+<pre class="highlight"><code>
+2) Zend_Db_Table_Pdo_SqliteTest::testCascadingOperationReferenceColumnFallsBackToPrimaryKeyWhenNotSpecified
+Undefined index: refColumns
+
+/usr/local/apache2/htdocs/lib/zfdev/trunk/library/Zend/Db/Table/Abstract.php:1205
+/usr/local/apache2/htdocs/lib/zfdev/trunk/library/Zend/Db/Table/Row/Abstract.php:620
+/usr/local/apache2/htdocs/lib/zfdev/trunk/tests/Zend/Db/Table/TestCommon.php:1683
+</code></pre>
+
+<p>Ralph has said that refColumns should be explicitly specified, and the current implementation doesn't try to "autodiscover" the reference columns.  However, the ZF manual says the opposite.  Should we change the implementation or the manual?</p>
+
+<p>As this issue has been around since at least 1.5.1, anyone using cascading operations would already have specified their reference columns, so I would vote for updating the manual page to note that specifying 'refColumns' is required for cascade operations to work.  I would also change the implementation to throw an exception if 'refColumns' is not specified.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-09-26T19:39:51.000+0000</p> 
+        <div class="body">
+            <p>After discussion with [~ralph] on IRC, it was decided that the manual should be updated to display a note saying that as of 1.11.11 the refColumns key is required, and an exception should be thrown if it is not present.  Attached is a patch implementing these changes.</p>
+
+<p>Comments?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-05-11T01:09:01.000+0000</p> 
+        <div class="body">
+            <p>Reflecting on this, is throwing an exception the best course of action?  With pre-1.12, any applications that use referenceMap without refColumns emit a notice and the cascade fails (<a href="http://framework.zend.com/issues/browse/ZF-3144?focusedCommentId=31206&amp;page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-31206">see here above</a>), but after this patch is applied it will throw an exception that will halt the entire application unless it's caught  Would it be better to silently ignore the referenceMap entry if it doesn't have a refColumns key?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-05-28T19:36:30.000+0000</p> 
+        <div class="body">
+            <p>Updated manual to better reflect reality in svn r24820.
+Do not through an exception as this will cause a B/C break for no real benefit at this stage in ZF1's lifecycle.</p>
+
+        </div>
+    </div>
+    </div>
+

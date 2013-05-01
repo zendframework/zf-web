@@ -1,0 +1,231 @@
+<h2>ZF-3084: Zend_Translate throws an error trying to translate a Zend_Form array with optgroup</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-04-09T13:20:37.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-08-06T10:09:25.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Tobias Schifftner (milchbazi)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Translate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>By passing the array</p>
+
+<pre class="highlight"><code>Array
+(
+    [4] =&gt; At End of List
+    [1] =&gt; At Beginning of List
+    [Add after] =&gt; Array
+        (
+            [2] =&gt; My First Visit
+            [3] =&gt; My second visit
+        )
+)
+</code></pre>
+
+<p>to $form-&gt;visits_order-&gt;setMultiOptions() the following error occured:</p>
+
+<pre class="highlight"><code>Warning:  array_key_exists() [function.array-key-exists]: The first argument should be either a string or an integer in D:\xampp\htdocs\projekte\zend\library\Zend\Translate\Adapter.php on line 460
+</code></pre>
+
+<p>The error disappears (quick &amp; dirty solution!) by editing line 460 in Zend/Translate/Adapter.php into:</p>
+
+<pre class="highlight"><code>
+(is_array($this-&gt;_translate[$locale]) and array_key_exists("$messageId", $this-&gt;_translate[$locale]))) { 
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-04-09T13:43:03.000+0000</p> 
+        <div class="body">
+            <p>The line 460 is an empty line between two functions in version 1.5.1.
+With the actual version 1.5.1 the error is not reproducable.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justin Hendrickson (toxygene) on 2008-05-01T07:37:27.000+0000</p> 
+        <div class="body">
+            <p>I can confirm this is still an issue with 1.5.1.</p>
+
+<p>Line 460 of Zend/Translate/Adapter.php is the correct location of the error, but the source of the problem is that  _translateOption() is not optgroup-aware, so it's passing arrays as messageIds to be translated.</p>
+
+<p>The following should fix the problem:</p>
+
+<pre><code>/**
+ * Translate an option
+ *
+ * @param  string $option
+ * @param  string $value
+ * @return bool
+ */
+protected function _translateOption($option, $value)
+{
+    if (!isset($this-&gt;_translated[$option])
+        &amp;&amp; (null !== ($translator = $this-&gt;getTranslator())))
+    {
+        if (is_array($value)) {
+            if (!$translator-&gt;isTranslated($option)) {
+                return false;
+            } else {
+                $this-&gt;options[$translator-&gt;translate($option)] = $value;
+            }
+        } else {
+            if (!$translator-&gt;isTranslated($value)) {
+                return false;
+            } else {
+                $this-&gt;options[$option] = $translator-&gt;translate($value);
+                $this-&gt;_translated[$option] = true;
+                return true;
+            }
+
+        }
+    }
+
+    return false;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justin Hendrickson (toxygene) on 2008-05-01T07:43:08.000+0000</p> 
+        <div class="body">
+            <p>The above code doesn't work, but the following should work.</p>
+
+<pre><code>protected function _translateOption($option, $value)
+{
+    if (!isset($this-&gt;_translated[$option])
+        &amp;&amp; (null !== ($translator = $this-&gt;getTranslator())))
+    {
+        if (is_array($value)) {
+            if (!$translator-&gt;isTranslated($option)) {
+                return false;
+            } else {
+                unset($this-&gt;options[$option]);
+                $this-&gt;options[$translator-&gt;translate($option)] = $value;
+                $this-&gt;_translated[$translator-&gt;translate($option)] = true;
+                return true;
+            }
+        } else {
+            if (!$translator-&gt;isTranslated($value)) {
+                return false;
+            } else {
+                $this-&gt;options[$option] = $translator-&gt;translate($value);
+                $this-&gt;_translated[$option] = true;
+                return true;
+            }
+
+        }
+    }
+
+    return false;
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Justin Hendrickson (toxygene) on 2008-08-06T09:52:32.000+0000</p> 
+        <div class="body">
+            <p>Issues still exists as of 1.5.3.</p>
+
+<p>New code to fix the problem:
+<code>    /**
+     * Translate an option
+     *
+     * @param  string $option
+     * @param  string $value
+     * @return bool
+     */
+    protected function _translateOption($option, $value)
+    {
+        if (!isset($this-&gt;_translated[$option])) {
+            if (is_array($value)) {
+                if (null === ($translator = $this-&gt;getTranslator())) {
+                    return false;
+                } else {
+                    unset($this-&gt;options[$option]);
+                    $this-&gt;options[$translator-&gt;translate($option)] = $this-&gt;_translateValue($value);</code></p>
+
+<pre><code>                if ($this-&gt;options[$translator-&gt;translate($option)] = $value) {
+                    return false;
+                }
+
+                $this-&gt;_translated[$translator-&gt;translate($option)] = true;
+                return true;
+            }
+        } else {
+            $this-&gt;options[$option] = $this-&gt;_translateValue($value);
+            if ($this-&gt;options[$option] === $value) {
+                return false;
+            }
+            $this-&gt;_translated[$option] = true;
+            return true;
+        }
+    }
+
+    return false;
+}&lt;code&gt;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2008-08-06T10:09:24.000+0000</p> 
+        <div class="body">
+            <p>And still I see no problem with Zend_Translate.</p>
+
+<p>Zend_Translate and all it's subclasses do not provide a method "_translateOptions".
+Line 460 of actual Zend_Translate reads:</p>
+
+<pre class="highlight"><code>
+        if (!Zend_Locale::isLocale($locale, true)) {
+</code></pre>
+
+<p>which is in method translate and returns boolean... no problem here.
+Also array_key_exists is not used within Zend_Translate in the actual release.</p>
+
+        </div>
+    </div>
+    </div>
+

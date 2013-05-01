@@ -1,0 +1,193 @@
+Index: tests/Zend/View/Helper/FormTest.php
+===================================================================
+--- tests/Zend/View/Helper/FormTest.php	(revision 23552)
++++ tests/Zend/View/Helper/FormTest.php	(working copy)
+@@ -90,16 +90,9 @@
+         $form = $this->helper->form('<&foo');
+         $this->assertContains($this->view->escape('<&foo'), $form);
+     }
+-
+-    public function testPassingIdAsAttributeShouldRenderIdAttribAndNotName()
+-    {
+-        $form = $this->helper->form('foo', array('action' => '/foo', 'method' => 'get', 'id' => 'bar'));
+-        $this->assertRegexp('/<form[^>]*(id="bar")/', $form);
+-        $this->assertNotRegexp('/<form[^>]*(name="foo")/', $form);
+-    }
+-
++    
+     /**
+-     * @see ZF-3832
++     * @group ZF-3832
+      */
+     public function testEmptyIdShouldNotRenderIdAttribute()
+     {
+@@ -108,6 +101,72 @@
+         $form = $this->helper->form('', array('action' => '/foo', 'method' => 'get', 'id' => null));
+         $this->assertNotRegexp('/<form[^>]*(id="")/', $form);
+     }
++    
++    /**
++     * @group ZF-10791
++     */
++    public function testPassingNameAsAttributeShouldOverrideFormName()
++    {
++        $form = $this->helper->form('OrigName', array('action' => '/foo', 'method' => 'get', 'name' => 'SomeNameAttr'));
++        $this->assertNotRegexp('/<form[^>]*(name="OrigName")/', $form);
++        $this->assertRegexp('/<form[^>]*(name="SomeNameAttr")/', $form);
++    }
++    
++    /**
++     * @group ZF-10791
++     */
++    public function testNotSpecifyingFormNameShouldNotRenderNameAttrib()
++    {
++        $form = $this->helper->form('', array('action' => '/foo', 'method' => 'get'));
++        $this->assertNotRegexp('/<form[^>]*(name=".*")/', $form);
++    }
++    
++    /**
++     * @group ZF-10791
++     */
++    public function testSpecifyingFormNameShouldRenderNameAttrib()
++    {
++        $form = $this->helper->form('FormName', array('action' => '/foo', 'method' => 'get'));
++        $this->assertRegexp('/<form[^>]*(name="FormName")/', $form);
++    }
++    
++    /**
++     * @group ZF-10791
++     */
++    public function testPassingEmptyNameAttributeToUnnamedFormShouldNotRenderNameAttrib()
++    {
++        $form = $this->helper->form('', array('action' => '/foo', 'method' => 'get', 'name' => NULL));
++        $this->assertNotRegexp('/<form[^>]*(name=".*")/', $form);
++    }
++    
++    /**
++     * @group ZF-10791
++     */
++    public function testPassingEmptyNameAttributeToNamedFormShouldNotOverrideNameAttrib()
++    {
++        $form = $this->helper->form('RealName', array('action' => '/foo', 'method' => 'get', 'name' => NULL));
++        $this->assertRegexp('/<form[^>]*(name="RealName")/', $form);
++    }
++        
++    /**
++     * @group ZF-10791
++     */
++    public function testNameAttributeShouldBeOmittedWhenUsingXhtml1Strict()
++    {
++        $this->view->doctype('XHTML1_STRICT');
++        $form = $this->helper->form('FormName', array('action' => '/foo', 'method' => 'get'));
++        $this->assertNotRegexp('/<form[^>]*(name="FormName")/', $form);
++    }
++        
++    /**
++     * @group ZF-10791
++     */
++    public function testNameAttributeShouldBeOmittedWhenUsingXhtml11()
++    {
++        $this->view->doctype('XHTML11');
++        $form = $this->helper->form('FormName', array('action' => '/foo', 'method' => 'get'));
++        $this->assertNotRegexp('/<form[^>]*(name="FormName")/', $form);
++    }    
+ }
+ 
+ // Call Zend_View_Helper_FormTest::main() if this source file is executed directly.
+Index: library/Zend/View/Helper/Form.php
+===================================================================
+--- library/Zend/View/Helper/Form.php	(revision 23552)
++++ library/Zend/View/Helper/Form.php	(working copy)
+@@ -55,9 +55,20 @@
+         if (array_key_exists('id', $attribs) && empty($attribs['id'])) {
+             unset($attribs['id']);
+         }
++        
++        if (!empty($name) && !($this->_isXhtml() && $this->_isStrictDoctype())) {
++            $name = ' name="' . $this->view->escape($name) . '"';
++        } else {
++            $name = '';
++        }
++        
++        if ( array_key_exists('name', $attribs) && empty($attribs['id'])) {
++            unset($attribs['id']);
++        }
+ 
+         $xhtml = '<form'
+                . $id
++               . $name
+                . $this->_htmlAttribs($attribs)
+                . '>';
+ 
+Index: library/Zend/View/Helper/FormElement.php
+===================================================================
+--- library/Zend/View/Helper/FormElement.php	(revision 23552)
++++ library/Zend/View/Helper/FormElement.php	(working copy)
+@@ -146,6 +146,16 @@
+             $info['id'] = trim(strtr($info['name'],
+                                      array('[' => '-', ']' => '')), '-');
+         }
++        
++        // Remove NULL name attribute override
++        if (array_key_exists('name', $attribs) && is_null($attribs['name'])) {
++        	unset($attribs['name']);
++        }
++        
++        // Override name in info if specified in attribs
++        if (array_key_exists('name', $attribs) && $attribs['name'] != $info['name']) {
++            $info['name'] = $attribs['name'];
++        }
+ 
+         // Determine escaping from attributes
+         if (array_key_exists('escape', $attribs)) {
+Index: library/Zend/View/Helper/Doctype.php
+===================================================================
+--- library/Zend/View/Helper/Doctype.php	(revision 23554)
++++ library/Zend/View/Helper/Doctype.php	(working copy)
+@@ -189,6 +189,24 @@
+     {
+         return (stristr($this->getDoctype(), 'xhtml') ? true : false);
+     }
++
++    /**
++     * Is doctype strict?
++     *
++     * @return boolean
++     */
++    public function isStrict()
++    {
++        switch ( $this->getDoctype() )
++        {
++            case self::XHTML1_STRICT:
++            case self::XHTML11:
++            case self::HTML4_STRICT:
++                return true;
++            default: 
++                return false;
++        }
++    }
+     
+     /**
+      * Is doctype HTML5? (HeadMeta uses this for validation)
+Index: library/Zend/View/Helper/HtmlElement.php
+===================================================================
+--- library/Zend/View/Helper/HtmlElement.php	(revision 23552)
++++ library/Zend/View/Helper/HtmlElement.php	(working copy)
+@@ -76,6 +76,17 @@
+     }
+ 
+     /**
++     * Is doctype strict?
++     *
++     * @return boolean
++     */
++    protected function _isStrictDoctype()
++    {
++        $doctype = $this->view->doctype();
++        return $doctype->isStrict();
++    }
++    
++    /**
+      * Converts an associative array to a string of tag attributes.
+      *
+      * @access public

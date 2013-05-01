@@ -1,0 +1,100 @@
+<h2>ZF-10035: S3_Stream implementation broken</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-06-22T16:05:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-07-17T17:50:07.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.7 (28/Jul/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Florian Hoenig (flo)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Torio Farazdagi (torio)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Service_Amazon</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>fread from a s3 stream always downloads the whole file. This is due to outdated API implementation. Check here for the latest:</p>
+
+<p><a href="http://docs.amazonwebservices.com/AmazonS3/latest/dev/index.html?RESTObjectGET.html">http://docs.amazonwebservices.com/AmazonS3/latest/…</a></p>
+
+<p>Here is the new stream_read function which resolve the 1) wrong range header and 2) wrong check for 200 http code:</p>
+
+<p>{{
+    public function stream_read($count)
+    {
+        if (!$this-&gt;_objectName) {
+            return false;
+        }</p>
+
+<pre><code>    $range_start = $this-&gt;_position;
+    $range_end = $this-&gt;_position+$count;
+
+    // Only fetch more data from S3 if we haven't fetched any data yet (postion=0)
+    // OR, the range end position is greater than the size of the current object
+    // buffer AND if the range end position is less than or equal to the object's
+    // size returned by S3
+    if (($this-&gt;_position == 0) || (($range_end &gt; strlen($this-&gt;_objectBuffer)) &amp;&amp; ($range_end &lt;= $this-&gt;_objectSize))) {
+
+        $headers = "Range:bytes=$range_start-$range_end";
+
+        $response = $this-&gt;_s3-&gt;_makeRequest('GET', $this-&gt;_objectName, null, $headers);
+        $status = (string)$response-&gt;getStatus();
+        if (strpos($status, "20") === 0) {
+            $this-&gt;_objectBuffer .= $response-&gt;getBody();
+        }
+    }
+
+    $data = substr($this-&gt;_objectBuffer, $this-&gt;_position, $count);
+    $this-&gt;_position += strlen($data);
+    return $data;
+}
+</code></pre>
+
+<p>}}</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Torio Farazdagi (torio) on 2010-07-17T17:50:04.000+0000</p> 
+        <div class="body">
+            <p>Due to <a href="http://bugs.php.net/21641">http://bugs.php.net/21641</a> stream_read() always gets 8292 bytes as count, so although on client side (fread) everything works fine, actual stream read step is fixed. But within this step, partial data is requested and returned by Amazon as expected.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,160 @@
+<h2>ZF-1664: Quote properly strings that contain digits</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-07-02T09:29:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-01-23T18:42:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.2 (25/Sep/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Loris Candylaftis (loloziberlo)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-1935">ZF-1935</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have noticed a bug that was not present in version 1.0.0 RC1. This is the code I use:</p>
+
+<pre class="highlight"><code>
+$overduesDb = Zend_Registry::get('overduesDb'); // loads the db connection
+$select = $overduesDb-&gt;select();
+        
+$select-&gt;from(array('n'=&gt;'notes'), 'n.*');
+$select-&gt;join(array('o'=&gt;'overduesNotes'), 'n.id = o.noteId', array());
+$select-&gt;where('o.invoiceId = ?', $this-&gt;_invoiceId);
+        
+if ($type != null) $select-&gt;where('n.type = ?', $type);
+$select-&gt;order('messageDate DESC');
+</code></pre>
+
+<p>when I print out the query it creates with "$select-&gt;__toString()", I obtain:</p>
+
+<p>with version 1.0.0 RC1:</p>
+
+<pre class="highlight"><code>
+SELECT "n".* FROM "notes" AS "n" INNER JOIN "overduesNotes" AS "o" ON n.id = o.noteId 
+WHERE (o.invoiceId = '041990') ORDER BY "messageDate" DESC
+</code></pre>
+
+<p>with version 1.0.0:</p>
+
+<pre class="highlight"><code>
+SELECT "n".* FROM "notes" AS "n" INNER JOIN "overduesNotes" AS "o" ON n.id = o.noteId 
+WHERE (o.invoiceId = 041990) ORDER BY "messageDate" DESC
+</code></pre>
+
+<p>As you can see, the string 041990 is not quoted anymore in the last release, and this ends giving an error upon fetching the results, as it tries to convert the varchar value to a column of data type int.</p>
+
+<p>Is this normal? Am I using the method correctly or is it suppose to <em>escape</em> quotes only?
+I am asking because the behaviour of this method has changed from version 1.0.0 RC1 to version 1.0.0.</p>
+
+<p>Thank you for your cooperation,
+Loris Candylaftis</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-02T10:38:36.000+0000</p> 
+        <div class="body">
+            <p>I apologize for this regression failure.</p>
+
+<p>I had to change this behavior of the _quote() methods because they broke under Oracle and DB2 when numeric values were quoted and then compared to numeric columns or expressions. That is, the following makes Oracle and DB2 unhappy:</p>
+
+<pre class="highlight"><code>
+WHERE integerColumn = '1234'
+</code></pre>
+
+<p>So the change allows strings containing digits to remain unquoted.  The reason this change was necessary is that Oracle and DB2 return numeric values as strings of digit characters, and then Zend_Db_Table uses the {{quote()}} method when constructing WHERE clauses.  I had previously used {{is_int($value) || is_float($value)}} in the {{_quote()}} method, but this didn't work for Oracle and DB2.</p>
+
+<p>You are use a string of digits that passes the is_numeric() test yet it must be interpreted as a string.
+Let's try to identify a temporary workaround and we'll figure out a better solution for ZF 1.0.1:</p>
+
+<p>Edit or extend the Zend_Db_Adapter class(es) you use, and revert the logic in the _quote() method. Change this:</p>
+
+<pre class="highlight"><code>
+if (is_numeric($value)) {
+</code></pre>
+
+<p>to this:</p>
+
+<pre class="highlight"><code>
+if (is_int($value) || is_float($value)) {
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-20T15:53:09.000+0000</p> 
+        <div class="body">
+            <p>Fix committed in the trunk in revision 5800.</p>
+
+<p>All unit tests pass, including those for Oracle and DB2, which are intolerant of comparing strings to int columns.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-25T14:30:08.000+0000</p> 
+        <div class="body">
+            <p>I have changed the solution and implemented it in revision 5845.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-07-26T17:57:15.000+0000</p> 
+        <div class="body">
+            <p>Fixes commited in ZF 1.0.1 branch in revision 5867.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-08-01T20:09:17.000+0000</p> 
+        <div class="body">
+            <p>Improve wording of summary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-01-23T18:42:10.000+0000</p> 
+        <div class="body">
+            <p>Updating Fix Version to follow issue tracker conventions.</p>
+
+        </div>
+    </div>
+    </div>
+

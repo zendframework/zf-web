@@ -1,0 +1,262 @@
+<h2>ZF-8193: Zend_Controller_Action-&gt;getInvokeArg('bootstrap') doesn't work under the unit testing environment</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Unit Tests: Problem</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-10-30T12:22:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-01-21T16:06:56.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ben Yan (ben_yan)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Test_PHPUnit</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-12508">ZF-12508</a></li>
+            <li><a href="/issues/browse/ZF-7373">ZF-7373</a></li>
+            <li><a href="/issues/browse/ZF-8797">ZF-8797</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+class IndexController extends Zend_Controller_Action
+{
+    public function indexAction()
+    {
+        var_dump($this-&gt;getInvokeArg('bootstrap')); // It should NOT output NULL, but an instance of class "Zend_Application_Bootstrap_Bootstrap" under the unit testing environment
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+class IndexControllerTest extends Zend_Test_PHPUnit_ControllerTestCase
+{
+
+    public $application;
+
+    public function setUp()
+    {
+        $this-&gt;application = new Zend_Application(
+            APPLICATION_ENV,
+            APPLICATION_PATH . '/configs/application.ini'
+        );
+
+        $this-&gt;bootstrap = array($this, 'appBootstrap');
+        parent::setUp();
+    }
+
+    public function appBootstrap()
+    {
+        $this-&gt;application-&gt;bootstrap();
+    }
+
+    public function testIndexAction() {
+        $this-&gt;dispatch('/');
+        $this-&gt;assertType('Zend_Application_Bootstrap_Bootstrap', $this-&gt;_frontController-&gt;getParam('bootstrap')); // FAILURE
+    }
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Brian Reich (breich) on 2009-12-15T07:48:08.000+0000</p> 
+        <div class="body">
+            <p>I've worked around this issue by applying the following patch to my Bootstrap:</p>
+
+<p><code>
+&lt;?php</code></p>
+
+<p>/**
+ * This file contains the Bootstrap class, which bootstraps resources for the
+ * SUN Tech Web Services application.
+ * 
+ * SUN Tech Web Services
+ * PHP 5.2.9, Zend Framework 1.7.5, ExtJS 2.0
+ *
+ * @author    Brian Reich <a href="mailto:breich@sun-tech.org">breich@sun-tech.org</a>
+ * @copyright 2008 (C) SUN Area Technical Institute
+ * @category  Public
+ * @package   Public
+ * @version   2.0
+ */</p>
+
+<p>/**
+ * Bootstrap extends Zend_Application_Bootstrap_Bootstrap.
+ */
+require_once 'Zend/Application/Bootstrap/Bootstrap.php';</p>
+
+<p>class Bootstrap extends Zend_Application_Bootstrap_Bootstrap
+{
+    // ...</p>
+
+<pre><code>/**
+ * Initializes the Front Controller
+ * 
+ * @return Zend_Controller_Front Returns the Front Controller
+ */
+protected function _initFrontController()
+{
+    $front = Zend_Controller_Front::getInstance();
+
+    // ...
+
+    /*
+    * Fix for ZF-8193
+    * Zend_Controller_Action-&gt;getInvokeArg('bootstrap') doesn't work
+    * under the unit testing environment.
+    */
+    if($front-&gt;getParam('bootstrap') === null)
+    {
+    $front-&gt;setParam('bootstrap', $this);
+    }
+
+    return $front;
+}
+</code></pre>
+
+<p>}
+</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Turland (elazar) on 2009-12-29T10:55:54.000+0000</p> 
+        <div class="body">
+            <p>The issue is that Zend_Test_PHPUnit_ControllerTestCase doesn't call Zend_Application::run() anywhere. That method is responsible for calling Zend_Application_Bootstrap_Bootstrap::run(), which in turn calls Zend_Controller_Front::setParam() to store a reference to the bootstrap in the front controller as an invoking parameter. I believe Zend_Test_PHPUnit_ControllerTestCase should be modified, likely either in its bootstrap() method or its dispatch() method, to handle this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-01-13T08:19:05.000+0000</p> 
+        <div class="body">
+            <p>Resolved in trunk with r20256.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by miholeus (miholeus) on 2010-10-28T00:37:54.000+0000</p> 
+        <div class="body">
+            <p>Not resolved in last release versions</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-10-28T05:38:35.000+0000</p> 
+        <div class="body">
+            <p>Actually, it is. Based on what you reported in ZF-10607, you were setting up your testing bootstrap incorrectly.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2011-04-07T16:04:16.000+0000</p> 
+        <div class="body">
+            <p>I'm checking with ZF 1.11.3 and seems that the issue is still present. Here my code of testing:</p>
+
+<pre class="highlight"><code>
+class ControllerTestCase
+extends Zend_Test_PHPUnit_ControllerTestCase {
+  
+  protected $application;
+  
+  public function setUp() 
+  {
+    $this-&gt;bootstrap= array($this, 'appBootstrap');
+    parent::setUp();
+  }
+
+  public function appBootstrap()
+  {
+    $this-&gt;application= new Zend_Application(
+      APPLICATION_ENV,
+      APPLICATION_PATH.'/configs/application.ini'
+    );
+    $this-&gt;application-&gt;bootstrap();
+  }
+}
+</code></pre>
+
+<p>and the following testCase:</p>
+
+<pre class="highlight"><code>
+class IndexControllerTest extends ControllerTestCase
+{
+  public function testBootstrap()
+  {
+    $this-&gt;dispatch('/');
+    $this-&gt;assertType('Zend_Application_Bootstrap_Bootstrap', $this-&gt;_frontController-&gt;getParam('bootstrap'));
+  }
+}
+</code></pre>
+
+<p>That fails.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-05-08T21:20:30.000+0000</p> 
+        <div class="body">
+            <p>This issue seems to be triggered by this blog post (possibly among others): <a href="http://ailoo.net/2009/04/set-up-a-zend-framework-application-using-zend_application-including-phpunit-setup/">http://ailoo.net/2009/04/…</a></p>
+
+<p>I commented on that post hoping that Matthias will adjust the example.</p>
+
+<p>A correct setup for your tests looks like this:</p>
+
+<pre class="highlight"><code>
+    public function setUp()
+    {
+        $this-&gt;bootstrap = new Zend_Application(
+            APPLICATION_ENV,
+            APPLICATION_PATH . '/configs/application.ini'
+        );
+
+        parent::setUp();
+    }
+</code></pre>
+
+<p>This is taken from Matthew's example in the related issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-05-08T21:21:28.000+0000</p> 
+        <div class="body">
+            <p>This is no issue, so I close it.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,165 @@
+<h2>ZF-5734: addControllerDirectory() does not add more than one directory per module</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-10T12:27:57.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-07-05T01:09:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Matthew Ratzloff (mratzloff)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/11740/zf-5734.patch">zf-5734.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>addControllerDirectory() doesn't really seem to live up to its name, as it will only set a single controller directory per module.</p>
+
+<p>This is a problem in situations where you need to add more than one controller directory per module.  This is necessary if you have an application built on a platform and you wish to have both a "local" (application) controller path and a platform controller path fallback.  Currently, this functionality is impossible to achieve unless you have one module for the platform and another for the application, and you change every single route in the application-specific configuration.  Not very maintainable.</p>
+
+<p>In summary, this:</p>
+
+<pre class="highlight"><code>
+public function addControllerDirectory($path, $module = null)
+{
+    // module set to 'default', etc.
+
+    $this-&gt;_controllerDirectory[$module] = $path;
+    return $this;
+}
+</code></pre>
+
+<p>should be this:</p>
+
+<pre class="highlight"><code>
+public function addControllerDirectory($path, $module = null)
+{
+    // module set to 'default', etc.
+
+    $this-&gt;_controllerDirectory[$module][] = $path;
+    return $this;
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-02-10T14:02:46.000+0000</p> 
+        <div class="body">
+            <p>Here's a patch for how I resolved this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2009-02-10T14:06:26.000+0000</p> 
+        <div class="body">
+            <p>This patch does however break BC?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Ratzloff (mratzloff) on 2009-02-10T14:37:56.000+0000</p> 
+        <div class="body">
+            <p>It could easily be modified not to.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Russ Howard (falcondfw69) on 2009-02-26T08:44:56.000+0000</p> 
+        <div class="body">
+            <p>I would think addControllerDirectory would ADD to a list of directories to search for controllers, not overwrite the previous entry. Isn't that what SETControllerDirectory is for?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-26T09:03:56.000+0000</p> 
+        <div class="body">
+            <p>The behavior has been this way since the very beginning. Changing it at this point would be a very big BC break and WTF factor. It may be worth considering for 2.0, but not before.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Russ Howard (falcondfw69) on 2009-02-26T12:18:21.000+0000</p> 
+        <div class="body">
+            <p>Matthew,
+1. who would it break backward compatibility for? People who used it improperly in the first place?
+2. This is not added functionality, this is a bug and should be fixed.
+3. As an alternative, how about adding an appendControllerDirectory method and having it do what addControllerDirectory should have and then changing the dispatch routines to check an array of directories, instead of a single directory? That should not be very tough to implement and then you can do what you want with addControllerDirectory, as long as it is well documented.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-07-04T11:52:07.000+0000</p> 
+        <div class="body">
+            <p>Russ -- sorry, for not responding earlier.</p>
+
+<p>addControllerDirectory() allows two arguments. The first indicates the directory to add, the second a module name. The assumption is that you can call it multiple times, but that calling with the same module name will overwrite.</p>
+
+<p>The BC break occurs when:</p>
+
+<ul><li>The developer suddenly discovers that routes that shouldn't route now are. As an example, in the following configuration:</li>
+</ul><pre class="highlight"><code>
+$front-&gt;addControllerDirectory($pathOne, 'foo'); // Contains 'bar' and 'baz' controllers
+$front-&gt;addControllerDirectory($pathTwo, 'foo'); // Contains 'bar' and 'bat' controllers
+</code></pre>
+
+<p>Calls to /foo/baz/... currently will be considered 404s. Making the change now will result in that route being valid -- which may not be what was intended.
+* A developer has two directories that have controllers of the same name. Now, whichever is added last wins; if we make the change, which one wins?</p>
+
+<p>Your second assertion "this is not added functionality, this is a bug and should be fixed" is actually false. When we created the ability to add multiple controller directories, we specifically chose <em>not</em> to do a stack -- for the reasons outlined above. Implementing a stack becomes complicated, particularly when it comes to educating users about the expected behavior; additionally, we then start to get requests from some users wanting to change the order in which the stack resolves, etc -- which feeds into your third point. While we can document it, the fact is that users will have differing expectations of how the stack should work, and make additional requirements. This makes the framework harder to maintain.</p>
+
+<p>For 2.0, I would like to make it easier for you to slipstream your own implementations. Thus, if you have a requirement for using controller directory stacks, you can implement it yourself, and simply inject it. (You can do this now, actually, but it requires that you make a variety of changes in the dispatcher.)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrea Franceschini (morpheu5) on 2010-07-05T01:09:29.000+0000</p> 
+        <div class="body">
+            <p>Hi Matthew, thanks for clarifying the issues with this request. However I think they're not so hard to overcome.</p>
+
+<p>Regarding the BC break
+* Actually that route should be valid, and I believe this is the central point because this issue was opened. At first, I tried the addControllerDirectory method to actually get that very behaviour, because in my application I have a number of third-party controllers that are likely to be deployed separately from the application. Now, I can mimic that behaviour maybe using controller plugins, a modified dispatcher or whatever, but it'd be much more convenient to have ZF do it for me. And again, that should be clearly documented.
+* The rule of thumb, as I always assumed it, is that two controllers with the same name are only allowed within two separate modules. If we stick to this rule, I don't see any problem -- except one between keyboard and chair :) but again, documentation is the key.</p>
+
+<p>Regarding the expected behaviour, I think we all agree that "add controller directory" implicitly suggests that you get controllers from all the directories you have added. And that's the expectation that's violated by the current behaviour.
+Your other point about stack resolution order... well, a stack has a single resolution order by definition, otherwise it's a priority queue. However I don't see this as a big problem: you can either say "that' a stack, that's the way it works" or say "hey, let's make it a priority queue and give users the ability to change priorities". I personally prefer the first way. Moreover if we apply the rule of thumb about multiple controllers with the same name, there's no such problem at all. And let me stress this once again: documentation.</p>
+
+        </div>
+    </div>
+    </div>
+

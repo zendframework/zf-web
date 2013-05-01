@@ -1,0 +1,247 @@
+<h2>ZF-10715: Zend_Json_Server does not handle invalid JSON requests properly</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-19T11:51:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-06-28T15:31:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Joshua Johnson (jsjohns2)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Json_Server</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14425/ZF-10715.patch">ZF-10715.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>According to the JSON-RPC 2.0 spec: "When a remote procedure call fails, the Procedure Return object MUST contain the error member...". Additionally, the spec lists -32700 as the code for JSON parsing errors.</p>
+
+<p>Zend_Json_Server does not conform to this part of the spec...if invalid JSON is sent to the server, a PHP error is returned rather than a proper JSON error message. This is what you get:
+Fatal error: Uncaught exception 'Zend_Json_Exception' with message 'Decoding failed: Syntax error' in /usr/share/pear/Zend/Json.php:93
+Stack trace:</p>
+
+<h1>0 /usr/share/pear/Zend/Json/Server/Request.php(251): Zend_Json::decode('this is invalid JSON')</h1>
+
+<h1>1 /usr/share/pear/Zend/Json/Server/Request/Http.php(53): Zend_Json_Server_Request-&gt;loadJson('this is invalid JSON')</h1>
+
+<h1>2 /usr/share/pear/Zend/Json/Server.php(250): Zend_Json_Server_Request_Http-&gt;__construct()</h1>
+
+<h1>3 /usr/share/pear/Zend/Json/Server.php(505): Zend_Json_Server-&gt;getRequest()</h1>
+
+<h1>4 /usr/share/pear/Zend/Json/Server.php(191): Zend_Json_Server-&gt;_handle()</h1>
+
+<h1>5 /root/dvat/public/rpc/test.php(22): Zend_Json_Server-&gt;handle()</h1>
+
+<h1>6 {main}</h1>
+
+<p>thrown in /usr/share/pear/Zend/Json.php on line 93</p>
+
+<p>But what you should get is:
+{"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error."}, "id": 123}</p>
+
+<p>On line 251 of Json/Server/Request.php, a call to Zend_Json::decode() is made on the received data. If decode() throws an exception, it is not caught by any of the consuming code. Zend_Json_Server needs to catch the exception, and call $this-&gt;fault('Parse Error', -32700).</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Oleg Lobach (bladeofsteel) on 2010-12-17T04:09:56.000+0000</p> 
+        <div class="body">
+            <p>I broken my mind when try to write test for this bug.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-28T15:25:25.000+0000</p> 
+        <div class="body">
+            <p>@Oleg: Me too.  Use of {{Zend_Json_Server_Request_Http}} is hard-coded into {{Zend_Json_Server::getRequest}}, and that class reads from STDIN in it's constructor, so it's extremely difficult to capture the issue's behavior in a unit test without modifying the SUT.  So that's what i've done:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Json/ServerTest.php
+===================================================================
+--- tests/Zend/Json/ServerTest.php      (revision 24159)
++++ tests/Zend/Json/ServerTest.php      (working copy)
+@@ -440,6 +440,18 @@
+         $server-&gt;loadFunctions($functions);
+         $this-&gt;assertEquals($functions-&gt;toArray(), $server-&gt;getFunctions()-&gt;toArray());
+     }
++
++    /**
++     * @group ZF-10715
++     */
++    public function testServerHandlesInvalidJsonResponseProperly()
++    {
++        $server = new Zend_Json_ServerTest_Server();
++        $server-&gt;setClass('Zend_Json_ServerTest_Foo')
++               -&gt;setAutoEmitResponse( false );
++
++        $response = $server-&gt;handle();
++    }
+ }
+
+ /**
+@@ -481,6 +493,53 @@
+     return true;
+ }
+
++/**
++ * Invalid Request implementation
++ * @see ZF-10715
++ */
++class Zend_Json_ServerTest_Request_Invalid extends Zend_Json_Server_Request
++{
++    protected $_rawJson = null;
++
++    /**
++     * Constructor
++     */
++    public function __construct()
++    {
++        $this-&gt;_rawJson = 'This is invalid JSON';
++        $this-&gt;loadJson($this-&gt;_rawJson);
++    }
++
++    /**
++     * Retrieve raw JSON string
++     * @return string
++     */
++    public function getRawJson()
++    {
++        return $this-&gt;_rawJson;
++    }
++}
++
++/**
++ * Zend_Json_Server w/ getRequest() which injects test request object
++ * @see ZF-10715
++ */
++class Zend_Json_ServerTest_Server extends Zend_Json_Server
++{
++    /**
++     * Get JSON-RPC request object
++     *
++     * @return Zend_Json_Server_Request
++     */
++    public function getRequest()
++    {
++        if (null === ($request = $this-&gt;_request)) {
++            $this-&gt;setRequest(new Zend_Json_ServerTest_Request_Invalid());
++        }
++        return $this-&gt;_request;
++    }
++}
++
+ // Call Zend_Json_ServerTest::main() if this source file is executed directly.
+ if (PHPUnit_MAIN_METHOD == "Zend_Json_ServerTest::main") {
+     Zend_Json_ServerTest::main();
+</code></pre>
+
+<p>The gist is I override {{Zend_Json_Server}} and redefine {{getRequest}} to create a new instance of {{Zend_Json_ServerTest_Request_Invalid}} instead of {{Zend_Json_Server_Request_Http}}, and this new Request class triggers the proper error in a reproducible way.  When I run the test suite I now get:</p>
+
+<pre class="highlight"><code>
+1) Zend_Json_ServerTest::testServerHandlesInvalidJsonResponseProperly
+Zend_Json_Exception: Decoding failed: Syntax error
+
+/tmp/zf/trunk/library/Zend/Json.php:93
+/tmp/zf/trunk/library/Zend/Json/Server/Request.php:251
+/tmp/zf/trunk/tests/Zend/Json/ServerTest.php:510
+/tmp/zf/trunk/tests/Zend/Json/ServerTest.php:537
+/tmp/zf/trunk/library/Zend/Json/Server.php:504
+/tmp/zf/trunk/library/Zend/Json/Server.php:191
+/tmp/zf/trunk/tests/Zend/Json/ServerTest.php:453
+</code></pre>
+
+<p>Which equates to an exception thrown from the same location as the OP experienced.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-28T15:27:10.000+0000</p> 
+        <div class="body">
+            <p>My suggested fix:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Json/Server.php
+===================================================================
+--- library/Zend/Json/Server.php        (revision 24159)
++++ library/Zend/Json/Server.php        (working copy)
+@@ -188,10 +188,14 @@
+         }
+
+         // Handle request
+-        $this-&gt;_handle();
++        $handleResponse = $this-&gt;_handle();
+
+         // Get response
+-        $response = $this-&gt;_getReadyResponse();
++        if ($handleResponse instanceof Zend_Json_Server_Error) {
++            $response = $this-&gt;getResponse()-&gt;setError($handleResponse);
++        } else {
++            $response = $this-&gt;_getReadyResponse();
++        }
+
+         // Emit response?
+         if ($this-&gt;autoEmitResponse()) {
+@@ -501,7 +505,11 @@
+      */
+     protected function _handle()
+     {
+-        $request = $this-&gt;getRequest();
++        try {
++            $request = $this-&gt;getRequest();
++        } catch (Zend_Json_Exception $ex) {
++            return $this-&gt;fault('Parse Error', -32768);
++        }
+
+         if (!$request-&gt;isMethodError() &amp;&amp; (null === $request-&gt;getMethod())) {
+             return $this-&gt;fault('Invalid Request', -32600);
+</code></pre>
+
+<p>I've attached the entire patch, including unit tests, to this issue as well.</p>
+
+<p>Thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-06-28T15:31:20.000+0000</p> 
+        <div class="body">
+            <p>One thing to note:  I don't have much experience with Zend_Json_Server, but it appears that it doesn't implement JSON-RPC 2.0.  {{Zend_Json_Server_Error}} defines the error code for a parse error as -32768, so my patch abides by that value.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,218 @@
+<h2>ZF-11524: Fast cache is inadvertently saved with infinite lifetime</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-05T15:26:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-03-05T18:31:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Reopened</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.10 (04/Aug/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                David Fuhr (davidfuhr)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Bennewitz (private) (mabe)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-needsexpert</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The division in Zend_Cache_Backend_TwoLevels::_getFastLifetime() may return 0. For example if $lifetime = 1 and $priority = 8...</p>
+
+<p>{{$fastLifetime = (int) ($lifetime / (11 - $priority));}}</p>
+
+<p>...which results in infinite lifetime for Memcached (<a href="http://php.net/memcached.set">http://php.net/memcached.set</a>), APC (<a href="http://php.net/apc_store">http://php.net/apc_store</a>) and XCache.</p>
+
+<p>This is breaks tests which use cache lifetime of 1 and also can cause problems with auto_refresh_fast_cache where 1 can be passed as remaining cache lifetime.</p>
+
+<p>This patch addresses both issues:</p>
+
+<pre class="literal">
+Index: library/Zend/Cache/Backend/TwoLevels.php
+===================================================================
+--- library/Zend/Cache/Backend/TwoLevels.php    (Revision 24185)
++++ library/Zend/Cache/Backend/TwoLevels.php    (Arbeitskopie)
+@@ -241,7 +241,7 @@
+             $newFastLifetime = $this-&gt;_getFastLifetime($array['lifetime'], $array['priority'], time() - $array['expire']);
+             // we have the time to refresh the fast cache
+             $usage = $this-&gt;_getFastFillingPercentage('loading');
+-            if (($array['priority'] &gt; 0) &amp;&amp; (10 * $array['priority'] &gt;= $usage)) {
++            if (($array['priority'] &gt; 0) &amp;&amp; (10 * $array['priority'] &gt;= $usage) &amp;&amp; ($newFastLifetime != 0 || $array['lifetime'] == 0)) {
+                 // we can refresh the fast cache
+                 $preparedData = $this-&gt;_prepareData($array['data'], $array['lifetime'], $array['priority']);
+                 $this-&gt;_fastBackend-&gt;save($preparedData, $id, array(), $newFastLifetime);
+@@ -481,12 +481,13 @@
+      */
+     private function _getFastLifetime($lifetime, $priority, $maxLifetime = null)
+     {
+-        if ($lifetime === null) {
++        if ($lifetime === null || $lifetime == 0) {
+             // if lifetime is null, we have an infinite lifetime
+             // we need to use arbitrary lifetimes
+             $fastLifetime = (int) (2592000 / (11 - $priority));
+         } else {
+-            $fastLifetime = (int) ($lifetime / (11 - $priority));
++            // prevent computed infinite lifetime (0) by ceil
++            $fastLifetime = ceil($lifetime / (11 - $priority));
+         }
+         if (($maxLifetime !== null) &amp;&amp; ($maxLifetime &gt;= 0)) {
+             if ($fastLifetime &gt; $maxLifetime) {
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-07-18T18:49:30.000+0000</p> 
+        <div class="body">
+            <p>use noformat to format patch
+assigned to me</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-07-18T19:36:35.000+0000</p> 
+        <div class="body">
+            <p>fixed in r24250</p>
+
+<p>I'll merge it to 1.11 branch at the end of this week</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2011-07-22T12:06:22.000+0000</p> 
+        <div class="body">
+            <p>merged to 1.11 branch in r24254</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Anton Stöckl (flytony) on 2011-10-13T15:29:05.000+0000</p> 
+        <div class="body">
+            <p>This fix has not made it into 1.11.11.
+Is that intended?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Anton Stöckl (flytony) on 2011-10-13T16:39:47.000+0000</p> 
+        <div class="body">
+            <p>Hm, maybe my comment is wrong.
+Seems that another error which leads to an infinite lifetime was introduced then:</p>
+
+<pre class="highlight"><code>
+...
+if ($maxLifetime &gt;= 0 &amp;&amp; $fastLifetime &gt; $maxLifetime) {
+    return $maxLifetime;
+}
+...
+</code></pre>
+
+<p>The save() function in TwoLevels cache always calls _getFastLifetime() without 3rd parameter, so it is always null, so if there is a $lifetime &gt; 0 supplied, which is normally the case, it always returns null. Which is an infinite lifetime at least in Memcached.</p>
+
+<p>So this bit which seemed to be there in your patch does work (for me at least):</p>
+
+<pre class="highlight"><code>
+if (($maxLifetime !== null) &amp;&amp; ($maxLifetime &gt;= 0)) {
+    if ($fastLifetime &gt; $maxLifetime) {
+        return $maxLifetime;
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Anton Stöckl (flytony) on 2011-10-14T07:39:54.000+0000</p> 
+        <div class="body">
+            <p>Hm, there is another issue that has a strong relation to this one.</p>
+
+<p>I use File as the slow store and Memcached as the fast store.
+With this setup I can not change the priority that is used in Zend_Cache_Backend_TwoLevels::_getFastLifetime() so I end up with one third of the lifetime in the fast store that the slow store gets and I definitely want to set the same on both!</p>
+
+<p>Here's what's happening:</p>
+
+<p>I'm using "Class" as a frontend and I can set the priority there (even if it would be nice to be able to set it via options).
+So Zend_Cache_Frontend_Class::setPriority() works.</p>
+
+<p>But:</p>
+
+<pre class="highlight"><code>
+$this-&gt;_backendCapabilities = $this-&gt;_backend-&gt;getCapabilities();
+</code></pre>
+
+<pre class="highlight"><code>
+...
+if (($this-&gt;_extendedBackend) &amp;&amp; ($this-&gt;_backendCapabilities['priority'])) {
+    $result = $this-&gt;_backend-&gt;save($data, $id, $tags, $specificLifetime, $priority);
+} else {
+    $result = $this-&gt;_backend-&gt;save($data, $id, $tags, $specificLifetime);
+}
+...
+</code></pre>
+
+<pre class="highlight"><code>
+public function getCapabilities()
+{
+    $slowBackendCapabilities = $this-&gt;_slowBackend-&gt;getCapabilities();
+    return array(
+        'automatic_cleaning' =&gt; $slowBackendCapabilities['automatic_cleaning'],
+        'tags' =&gt; $slowBackendCapabilities['tags'],
+        'expired_read' =&gt; $slowBackendCapabilities['expired_read'],
+        'priority' =&gt; $slowBackendCapabilities['priority'],
+        'infinite_lifetime' =&gt; $slowBackendCapabilities['infinite_lifetime'],
+        'get_list' =&gt; $slowBackendCapabilities['get_list']
+    );
+}
+</code></pre>
+
+<p>So it always reads the priority capability from the slow store. Never from the fast store, but in
+Zend_Cache_Backend_TwoLevels::_getFastLifetime() the lifetime of the fast store IS changed.</p>
+
+<p>So to be able to keep the original lifetime in the fast store currently I'd need a SLOW store with the priority capability, which does not make much sense for me.</p>
+
+<p>A quick workaround would be to set the the default for the priority parameter in 
+Zend_Cache_Backend_TwoLevels::save() to 10 instead of 8, which makes the most sense for me anyway.
+Why would I want to lower the lifetime to one third in the fast store by default (without beeing able to change this)?</p>
+
+<p>I don't know if there are other bits that would break with this quick fix, maybe something with auto_refresh_fast_cache and load() ...?</p>
+
+<p>At the end of the day a user needs to be able to set the lifetime in both stores to the same value, that's what counts.</p>
+
+        </div>
+    </div>
+    </div>
+

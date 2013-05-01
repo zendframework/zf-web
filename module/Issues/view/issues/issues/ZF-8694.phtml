@@ -1,0 +1,363 @@
+<h2>ZF-8694: Zend_Form_Decorator_Label Attempts to Translate Labels Twice</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-01-03T04:59:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2013-01-22T12:08:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.2 (25/Feb/13)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Brad Gushurst (bradgman)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Frank Brückner (frosch)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-8764">ZF-8764</a></li>
+            <li><a href="/issues/browse/ZF-9010">ZF-9010</a></li>
+            <li><a href="/issues/browse/ZF-10066">ZF-10066</a></li>
+            <li><a href="/issues/browse/ZF-10300">ZF-10300</a></li>
+            <li><a href="/issues/browse/ZF-9371">ZF-9371</a></li>
+            <li><a href="/issues/browse/ZF-10050">ZF-10050</a></li>
+            <li><a href="/issues/browse/ZF-11332">ZF-11332</a></li>
+            <li><a href="/issues/browse/ZF-9442">ZF-9442</a></li>
+            <li><a href="/issues/browse/ZF-8713">ZF-8713</a></li>
+            <li><a href="/issues/browse/ZF-11999">ZF-11999</a></li>
+            <li><a href="/issues/browse/ZF-10128">ZF-10128</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14333/ZF-8694.patch">ZF-8694.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There exists an issue with Zend_Form translating labels which becomes apparent when Zend_Translate logging is enabled.</p>
+
+<p>When a form is rendered the form loops through the decorators running their render method. The following code is called as a result of rendering the label.</p>
+
+<p>Zend_Form_Decorator_Label Line #253</p>
+
+<pre class="highlight"><code>
+        $label = $element-&gt;getLabel();
+        $label = trim($label);
+
+        if (empty($label)) {
+            return '';
+        }
+
+        if (null !== ($translator = $element-&gt;getTranslator())) {
+            $label = $translator-&gt;translate($label);
+        }
+</code></pre>
+
+<p>The above code retrieves the label from the element object and the runs validation methods and then proceeds to translate the message. Below is the code for the $element-&gt;getLabel() method.</p>
+
+<p>Zend_Form_Element Line #606</p>
+
+<pre class="highlight"><code>
+    public function getLabel()
+    {
+        $translator = $this-&gt;getTranslator();
+        if (null !== $translator) {
+            return $translator-&gt;translate($this-&gt;_label);
+        }
+
+        return $this-&gt;_label;
+    }
+</code></pre>
+
+<p>As you can see this method ALSO translates the text before sending it back to the decorator. This means the Element object is returning translated text back to the decorator which then is attempting to translate already translated text. This causes the Zend_Translate class to log a notice in its log file notifying the user it is missing a translation.</p>
+
+<p>The fix is an obvious one, simply removing the duplicate code from the Zend_Form_Decorator_Label dealing with translation will solve the problem as their corresponding elements should already be translating the content for them.</p>
+
+<p>Please note this also is affecting the Submit button and I have not been able to trace which decorator is causing that problem, although I assume the problem is the same. You will probably want to check through all of the decorators to check if any others are doing the same.</p>
+
+<p>Brad</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by purple ankh (purpleankh) on 2010-01-20T05:06:40.000+0000</p> 
+        <div class="body">
+            <p>With reference to the final note about the Submit button, this has been reported as <a href="http://framework.zend.com/issues/browse/ZF-8764">ZF-8764</a>.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ivan Krechetov (ikr) on 2010-02-17T07:08:44.000+0000</p> 
+        <div class="body">
+            <p>For us this issue is very important, as far as we have an interactive translation mode. It allows to change the site texts right where you see them in the graphical user interface. To do this we have to append stuff to translated strings on the runtime. Like this:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+set_include_path(
+    implode(
+        PATH_SEPARATOR,
+        array(dirname(__FILE__) . '/library', get_include_path())
+    )
+);
+
+require_once 'Zend/Loader/Autoloader.php';
+
+Zend_Loader_Autoloader::getInstance()-&gt;registerNamespace('Zend_');
+
+class TrickyAdapter extends Zend_Translate_Adapter_Array {
+    public function translate($messageId, $locale = null) {
+        return parent::translate($messageId, $locale) . '[XY]';
+    }
+}
+
+Zend_Registry::set(
+    'Zend_Translate',
+    new Zend_Translate('TrickyAdapter', array('en' =&gt; array()))
+);
+
+function simple_form() {
+    return new Zend_Form(
+        array(
+            'method' =&gt; 'post',
+            
+            'elements' =&gt; array(
+                'title' =&gt; array(
+                    'type' =&gt; 'text',
+                    
+                    'options' =&gt; array(
+                        'label' =&gt; 'Bug title',
+                    )
+                ),
+                
+                'submit' =&gt; array(
+                    'type' =&gt; 'button',
+                    'options' =&gt; array(
+                        'label' =&gt; 'Send',
+                        'type' =&gt; 'submit',
+                    )
+                ),
+            )
+        )
+    );
+}
+
+echo "\n" . simple_form()-&gt;render(new Zend_View()) . "\n\n";
+</code></pre>
+
+<p>Under ZF 1.9.7 the code above outputs:</p>
+
+<pre class="highlight"><code>
+</code></pre><code>Bug title[XY]
+
+
+ 
+Send[XY]
+</code>
+
+<p>While under ZF 1.10.0 and 1.10.1 it's:</p>
+
+<pre class="highlight"><code>
+</code></pre><code>Bug title[XY][XY]
+
+
+ 
+Send[XY][XY]
+</code>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joakim Nygård (jokke) on 2010-08-09T06:51:21.000+0000</p> 
+        <div class="body">
+            <p>The question is whether the translation should be restricted to the element's or the Label decorator's getLabel() method. I think it makes the most sense to place the translation in the decorator - as close to the user as possible, but I am not sure if this change will break anything depending on the element doing the translation.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tomáš Fejfar (tomas.fejfar@gmail.com) on 2010-12-27T04:05:18.000+0000</p> 
+        <div class="body">
+            <p>The only legitimate place to translate the value is where the value is received - i.e. in element's getLabel() method. Decorator's purpose is to receive some value and wrap it around the current content. Not tu modify it in any way.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicolae Dima (nicolaedima) on 2011-02-06T07:12:36.000+0000</p> 
+        <div class="body">
+            <p>This can be fixed fast, by commenting these lines</p>
+
+<ul><li>Zend_Form_Element_Submit - Line 80 to 83 &lt;-- These most be also commented since you already call the parent method get label, which will result in a double translation from Zend_Form_Element</li>
+<li>Zend_Form_Decorator_Label - Line 260 to 263 &lt;-- Decorator should not be used for translation, it is out of purpose</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Holger Schletz (hschletz) on 2011-05-28T08:27:05.000+0000</p> 
+        <div class="body">
+            <p>OK, it's bug hunt days again. Time to bump this issue. Any chance to see it fixed this time? It's been around for ages, as well as the proposed simple fix, like in the previous comment.</p>
+
+<p>BTW, the issue with Zend_Form_Element_Submit has been silently fixed in the meantime, but it still occurs with Zend_Form_Decorator_Label.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kim Blomqvist (kblomqvist) on 2011-05-28T08:50:25.000+0000</p> 
+        <div class="body">
+            <p>Patch attached. Holger - where did you check that the issue with {{Zend_Form_Element_Submit}} has been already fixed. It wasn't in my trunk.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Holger Schletz (hschletz) on 2011-05-28T09:36:19.000+0000</p> 
+        <div class="body">
+            <p>It has not been fixed in Zend_Form_Element_Submit itself - in fact, removing the translate() call there would result in an untranslated label. Something else in the code path has changed so that now only Zend_Form_Decorator_Label is still affected.</p>
+
+<p>I don't know where this change has been made and whether the new behavior is intentional or just happened to stop the bug from occurring. The facts are: with the current implementation, the label gets translated once for Zend_Form_Element_Submit::getLabel() (correct) and twice for Zend_Form_Decorator_Label::getLabel() (incorrect). This might need more investigation, but removing the translate() call from Zend_Form_Decorator_Label::getLabel() would at least be an interim solution that actually works. It could easily be reverted if it turns out to be the wrong place for the fix.</p>
+
+<p>The fix has been proposed and known to work flawlessly by several users for a long time, so I think it would be safe to provide it as a working solution. There are already discussions about restructuring and where translations should actually be done, but that's more of a long term goal.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Holger Schletz (hschletz) on 2011-09-12T10:34:19.000+0000</p> 
+        <div class="body">
+            <p>Somewhere between 1.11.7 and 1.11.10, a change to Zend_Form_Element_Submit was introduced. The label no longer gets translated if the patch to Zend_Form_Decorator_Label is applied. If that patch is reverted, the problem with the double-translated labels shows up again.</p>
+
+<p>An updated patch that works for 1.11.10 is available at <a href="http://svn.savannah.nongnu.org/viewvc/*checkout*/trunk/development/Zend.diff?root=braintacle">http://svn.savannah.nongnu.org/viewvc/<em>checkout</em>/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Sebastian (basty) on 2011-10-11T19:09:50.000+0000</p> 
+        <div class="body">
+            <p>The updated patch of Holger works also fine for me in v1.11.11. Thanks!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Boke (michael.boke@gmail.com) on 2011-11-29T15:56:52.000+0000</p> 
+        <div class="body">
+            <p>Got an entire day wasted figuring out why my label is translated into the wrong text.</p>
+
+<p>For example we got a tag english "or"
+Translated to dutch to "of"
+Got translated again english "of" to "van"</p>
+
+<p>Please fix this with the remove translate from the decorator label. 
+That seems to be the right solution.</p>
+
+<p>btw the latest svn revision 24561 still has this problem</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rafael Tavares Amorim (dextervip) on 2012-01-17T02:52:27.000+0000</p> 
+        <div class="body">
+            <p>Removing the translate code block from:
+Form/Decorator/Label.php
+Form/Decorator/Description.php
+Form/Element/Submit.php</p>
+
+<p>Since translate happen in Form/Element.php, It works fine in my application and solve this issue in v1.11.11 i believe</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rafael Tavares Amorim (dextervip) on 2012-08-07T05:30:19.000+0000</p> 
+        <div class="body">
+            <p>No updates??</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2012-09-04T16:06:54.000+0000</p> 
+        <div class="body">
+            <p>Any updates? The bug is still existent in 1.12.0</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2012-09-04T16:17:38.000+0000</p> 
+        <div class="body">
+            <p>@[~ice-breaker]
+The patch needs a review by the cr-team.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by François-Régis (frej) on 2012-11-15T08:24:25.000+0000</p> 
+        <div class="body">
+            <p>Hi,</p>
+
+<p>While it's still under review, I would propose the following fix for the Zend_Form_Element Class.</p>
+
+<h1>The below allows to pass an arg (named "translation_params" in the proposed fix) through the "attribs" property of the form element that will be used as the variables within the label. In our case, this was necessary because labels may depend on some vars, so we needed a way to pass this vars to the the translator. As the translator doesn't handle vars per default, I had to use the view helper which already handles that.</h1>
+
+<pre><code>public function getLabel()
+{
+    // if there is a label to translate,
+    // then we check for a valid translator to perform the translation
+    if ( $this-&gt;_label !== null
+            &amp;&amp; null !== ($translator = $this-&gt;getTranslator())) {
+        return $this-&gt;getView()-&gt;translate(
+                $this-&gt;_label,
+                $this-&gt;getAttrib('translation_params')
+            );
+    }
+
+    return $this-&gt;_label;
+</code></pre>
+
+<h1>    }</h1>
+
+<p>Regards,
+Frej.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-01-22T12:02:36.000+0000</p> 
+        <div class="body">
+            <ul><li>{{Zend_Form_Element_Submit}} was fixed with ZF-8764.</li>
+<li>{{Zend_Form_Element}} contains no translation in the {{getDescription()}} method.</li>
+<li>Only {{Zend_Form_Decorator_Label}} needs an update.</li>
+</ul>
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Frank Brückner (frosch) on 2013-01-22T12:07:52.000+0000</p> 
+        <div class="body">
+            <p>Fixed on trunk (25242) and release-1.12 (25243)</p>
+
+<p>(Unit test for Description decorator included.)</p>
+
+        </div>
+    </div>
+    </div>
+

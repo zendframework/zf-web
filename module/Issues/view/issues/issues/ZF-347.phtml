@@ -1,0 +1,182 @@
+<h2>ZF-347: PDO:  expressions with colon character interpreted as PDO named parameter</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-08-31T13:50:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:19.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC2 (08/Jun/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Patrik Henningsson (patrik)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+$db = Zend_Db::factory('pdo_mysql', array (
+        'host'     =&gt; $config-&gt;database-&gt;host,
+        'username' =&gt; $config-&gt;database-&gt;username,
+        'password' =&gt; $config-&gt;database-&gt;password,
+        'dbname'   =&gt; $config-&gt;database-&gt;name)
+);
+</code></pre>
+
+<p>Running this query works:</p>
+
+<pre class="highlight"><code>
+$db-&gt;query("SELECT * FROM kund WHERE foretag REGEXP '.*a+[[:space:]]*b.*' ");
+</code></pre>
+
+<p>But this doesn't:</p>
+
+<pre class="highlight"><code>
+$db-&gt;query("SELECT * FROM kund WHERE foretag REGEXP '.*a+[[:space:]]*ö.*' ");
+</code></pre>
+
+<p>An exeption is being thrown ..
+Message: SQLSTATE[HY093]: Invalid parameter number: no parameters were bound
+File: /home/test/lib/ZendFramework/library/Zend/Db/Adapter/Abstract.php:156</p>
+
+<p>I'm running version 1020 from SVN.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-08-31T15:02:56.000+0000</p> 
+        <div class="body">
+            <p>Would you have time to poke around a little in the code and trouble shoot this Patrik?
+I would also be curious if the same problem occurs when using PDO directly (no ZF).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrik Henningsson (patrik) on 2006-09-01T03:42:57.000+0000</p> 
+        <div class="body">
+            <p>Sure, what do you want me to do?</p>
+
+<p>Seems to work when using PDO directly, I've tried the code below and it works.</p>
+
+<p>try {
+   $dbh = new PDO('mysql:host=localhost;dbname=test', 'user', 'pass');
+   foreach ($dbh-&gt;query("SELECT * FROM kund WHERE foretag REGEXP '.a+[[:space:]]*ö.' ") as $row) {
+     print_r($row);
+   }
+   $dbh = null;
+} catch (PDOException $e) {
+   print "Error!: " . $e-&gt;getMessage() . "<br />";
+   die();
+}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Patrik Henningsson (patrik) on 2006-10-18T01:46:36.000+0000</p> 
+        <div class="body">
+            <p>Little more information ..</p>
+
+<p>The following queries works:
+UPDATE foo SET title='Övrigt arbete' WHERE id=1
+UPDATE foo SET title='Xvrigt arbete', dt='2006-09-28 10:00:00' WHERE id=1</p>
+
+<p>The following query doesn't works:
+UPDATE foo SET title='Övrigt arbete', dt='2006-09-28 10:00:00' WHERE id=1</p>
+
+<p>So it seems like the ':' in the date is handled as a placeholder, but
+only if the query contains "Ö"?
+Could it be any regex with "a-z" somewhere in the code that mess things up?
+Maybe Zend_Db_Statement::_prepSql ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-10-18T11:43:32.000+0000</p> 
+        <div class="body">
+            <p>Zend_Db_Adapter_Abstract::query() forces all input to pass through PDO's prepare() .
+However, the example you give have no bound parameters, yet uses colons.
+If you try using PDO natively, but first pass your SQL string to PDO's prepare(),
+I expect you will receive the same error.</p>
+
+<p>Thus, either query() needs a mechanism to disable use of prepare(),
+or the ZF needs a different function to pass SQL code directly to the adapter,
+or you can use getConnection() to retrieve the PDO object and then directly
+use the PDO object to execute() your SQL.  Frankly, I am not sure what
+value Zend_Db* is providing to you beyond what is already available using
+PHP's PDO functions directly.</p>
+
+<p>I suppose some will want to dynamically choose a database (e.g. MySQL, SQLite, etc.),
+and then directly issue portable SQL code against that Zend DB adapter,
+so we will probably need to provide an alternative to the existing query() in
+Zend_Db_Adapter_Abstract.  Patch suggestions are welcomed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:14:33.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-06T18:11:22.000+0000</p> 
+        <div class="body">
+            <p>Reformatted description, restated summary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-06T18:13:01.000+0000</p> 
+        <div class="body">
+            <p>One workaround could be to use a parameter for the string that contains colon characters:</p>
+
+<pre class="highlight"><code>
+$db-&gt;query('SELECT * FROM kund WHERE foretag REGEXP ?', array('.*a+[[:space:]]*b.*' ));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-06-11T19:11:52.000+0000</p> 
+        <div class="body">
+            <p>In revision 5065, I added logic to the parsing of SQL statements.  Parameter placeholders inside quoted strings or delimited identifiers should no longer be noted as parameters.</p>
+
+        </div>
+    </div>
+    </div>
+

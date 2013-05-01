@@ -1,0 +1,313 @@
+<h2>ZF2-268: AmazonS3 service broken</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-04-17T08:53:49.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-07-19T12:12:22.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Andrey (special)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Duccio Gasparri (dgasparri)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend\Cloud</li>
+            <li>amazon</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/15024/http-client-set-auth.patch">http-client-set-auth.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>
+$s = new \Zend\Service\Amazon\S3\S3($amazonKey,$amazonSecret);
+$s-&gt;getBuckets();
+</code></pre>
+
+<p>result:
+bq. Warning: Missing argument 2 for Zend\Http\Client::setAuth(), called in /vendor/ZendFramework/library/Zend/Service/Amazon/S3/S3.php on line 624 and defined in /vendor/ZendFramework/library/Zend/Http/Client.php on line 635</p>
+
+<p>And exception: 
+bq. The username and the password cannot be empty</p>
+
+<p>Because</p>
+
+<pre class="highlight"><code>
+Zend\Service\Amazon\S3\S3
+624 $client-&gt;setAuth(false);
+
+Zend\Http\Client
+635 public function setAuth($user, $password, $type = self::AUTH_BASIC)
+</code></pre>
+
+<p>Please check this service.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by simon liu (simonliu) on 2012-04-18T05:12:39.000+0000</p> 
+        <div class="body">
+            <p>$client-&gt;setAuth(false); means disable http auth, but Zend\Http\Client does not support it yet, I create a patch to support it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by simon liu (simonliu) on 2012-04-18T05:13:49.000+0000</p> 
+        <div class="body">
+            <p>support setAuth(false)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrey (special) on 2012-04-18T06:32:37.000+0000</p> 
+        <div class="body">
+            <p>Thank you, Simon Liu!
+But apparently, this class Zend\Service\Amazon\S3 has not yet upgraded to ZF2.</p>
+
+<p>Because the line 651</p>
+
+<pre class="highlight"><code>
+651 $response = $client-&gt;request($method);
+</code></pre>
+
+<p>But new class Zend\Http\Client don't have method request(), although the old class Zend_Http_Client have request() method.</p>
+
+<p>Can you finish this S3 class? Or when it is planned to be done?</p>
+
+<p>Thank you!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Enrico Zimuel (zimuel) on 2012-04-18T06:47:56.000+0000</p> 
+        <div class="body">
+            <p>We have to refactor the Zend\Service\Amazon component with the new Zend\Http\Client. We will do that in the next beta (not beta4).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Andrey (special) on 2012-04-18T06:56:05.000+0000</p> 
+        <div class="body">
+            <p>Enrico, thanks for the info!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Windell (outeredge) on 2012-05-01T10:38:33.000+0000</p> 
+        <div class="body">
+            <p>Can we have confirmation this will be fixed in beta4, this prevents usage of the S3 component and shouldn't be included if not working at all.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duccio Gasparri (dgasparri) on 2012-05-09T10:21:34.000+0000</p> 
+        <div class="body">
+            <p>This line appears to be useless because two rows above in S3::_makeRequest() there is $client-&gt;resetParameters():</p>
+
+<p>622        $client-&gt;resetParameters();
+623        $client-&gt;setUri($endpoint);
+624        $client-&gt;setAuth(false);</p>
+
+<p>resetParameters already resets the Auth.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duccio Gasparri (dgasparri) on 2012-05-09T10:40:59.000+0000</p> 
+        <div class="body">
+            <p>Closely related to this bug, on the next line there's</p>
+
+<pre><code>    // Work around buglet in HTTP client - it doesn't clean headers
+    // Remove when ZHC is fixed
+    $client-&gt;setHeaders(array('Content-MD5'              =&gt; null,
+                              'Expect'                   =&gt; null,
+                              'Range'                    =&gt; null,
+                              'x-amz-acl'                =&gt; null,
+                              'x-amz-copy-source'        =&gt; null,
+                              'x-amz-metadata-directive' =&gt; null));
+
+    $client-&gt;setHeaders($headers);
+</code></pre>
+
+<p>The first setHeaders raises an exception. setHeader now replaces the old headers, so it is safe to take away the first setHeader and just leave the $client-&gt;setHeaders($headers);</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-05-09T10:47:40.000+0000</p> 
+        <div class="body">
+            <p>If you think that you can fix this submit a patch to Github (<a href="https://github.com/zendframework/zf2/">https://github.com/zendframework/zf2/</a>)</p>
+
+<p>Also could be very interesting provide a unit test for this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duccio Gasparri (dgasparri) on 2012-05-09T10:49:06.000+0000</p> 
+        <div class="body">
+            <p>Sorry, but one small bug after another, I believe I fixed it.</p>
+
+<p><a href="https://github.com/zendframework/zf2/pull/1173">https://github.com/zendframework/zf2/pull/1173</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duccio Gasparri (dgasparri) on 2012-05-09T10:58:56.000+0000</p> 
+        <div class="body">
+            <p>I've never written a unit test for a http-based service. To your knowledge, is there other examples that could be used as a starting point?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-05-09T11:07:08.000+0000</p> 
+        <div class="body">
+            <p>Any of this <a href="https://github.com/zendframework/zf2/tree/master/tests/Zend/Service/Amazon">https://github.com/zendframework/zf2/…</a> can help you.</p>
+
+<p>For example, if you want add the test to <a href="https://github.com/zendframework/zf2/blob/master/tests/Zend/Service/Amazon/S3/StreamTest.php">https://github.com/zendframework/zf2/…</a></p>
+
+<p>then create a function like this 'public function testXXXXX()' and put in the body something like this:</p>
+
+<p>$s3 = new S3();
+...</p>
+
+<p>$actual = s3-&gt;getXXX();
+$expects = 'Foo';</p>
+
+<p>$this-&gt;assertEqual($expects, $actual);</p>
+
+<p>As you can see the first part is test the function, then you storage the result in a var and finally you test if the result is the same of you expects.</p>
+
+<p>This can help you <a href="http://www.phpunit.de/manual/3.6/en/writing-tests-for-phpunit.html">http://phpunit.de/manual/3.6/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Duccio Gasparri (dgasparri) on 2012-05-10T16:31:44.000+0000</p> 
+        <div class="body">
+            <p>I tested it for a couple of days and put the relevant changes to pull #1194 <a href="https://github.com/zendframework/zf2/pull/1194">https://github.com/zendframework/zf2/pull/1194</a></p>
+
+<p>Thank you Maks for the info on unit test. I know more or less how to write a unit test, but I don't know what's the standard for writing a unit test based on an external service: unless you create a fake in-out stream (is it possible? isn't it crazy?), or anyway a test-repo on S3 or a public sandbox by the service owner, results will be always variable depending on the status of the external service.</p>
+
+<p>However, it appears that there's already a neatly written test for the S3 service <a href="https://github.com/zendframework/zf2/blob/master/tests/Zend/Service/Amazon/S3/OnlineTest.php">https://github.com/zendframework/zf2/…</a> . At a first glance it should work, but I haven't run it yet.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-05-10T17:57:20.000+0000</p> 
+        <div class="body">
+            <p>To avoid unexpected responses from a external service you should create a Mockup (<a href="http://www.phpunit.de/manual/current/en/test-doubles.html">http://phpunit.de/manual/current/…</a>)
+Is a little more complex to learn how to use but I tell you the idea behind this.</p>
+
+<p>I will guess the following scenario (I don't know the internals of S3)
+You request an authorization and S3 transform your request in a Http response</p>
+
+<p>User/Pass &lt;=&gt; S3::auth($parameters) &lt;=&gt; Zend\Http\Client::send($request)</p>
+
+<p>The goal here is that when Http\Client receive $request you already know if S3::auth() do his works correctly.</p>
+
+<p>Then we want convert Http\Client in a mockup object and then you setup something as following (pseudocode):</p>
+
+<p>$mock = createMockup(Zend\Http\Client)
+$mock -&gt; method(send)
+$mock -&gt; expects($request = <a href="http://amazon/?u=User&amp;p=Pass">http://amazon/?u=User&amp;p=Pass</a>)
+$mock -&gt; return(the expected Http result to use inside of S3)</p>
+
+<p>Now we need inject our mockup inside of S3 class. We need something like S3::setHttpClient($mock)</p>
+
+<p>Then when you execute the test you can be sure about the functionality.</p>
+
+<p>Of course we are talking about Unit Tests where the scope is limited to test the code of the function. Other tests are Functional Tests where we don't use mockups and we do direct connections to AWS servers (OnlineTests.php)</p>
+
+<p>You can enter to the IRC if you need more help. #zftalk.2 in freenode.net</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-05-11T13:10:03.000+0000</p> 
+        <div class="body">
+            <p>Fixed with <a href="https://github.com/zendframework/zf2/pull/1194">https://github.com/zendframework/zf2/pull/1194</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-05-11T14:47:30.000+0000</p> 
+        <div class="body">
+            <p>I wrote a small test to verify the responses for getBuckets() this test not verify the auth issue described above but could give you an example about how works the mockups.</p>
+
+<p><a href="https://github.com/zendframework/zf2/pull/1203">https://github.com/zendframework/zf2/pull/1203</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Boris (boristm) on 2012-07-17T11:18:00.000+0000</p> 
+        <div class="body">
+            <p>After upgrading from beta4 to beta5 the S3 service stopped working: all the operations (for example, getBuckets) leads to an error in the response of the service: ‘The request signature we calculated does not match the signature you provided. Check your key and signing method.’</p>
+
+<p>In beta4 it works.</p>
+
+<p>I’ve checked the difference between beta4 and beta5 and found the calculating of signature was changed in addSignature method of S3 class.</p>
+
+<p>In beta4 it was:</p>
+
+<pre class="highlight"><code>
+$signature = base64_encode(Hmac::compute($this-&gt;_getSecretKey(), 'sha1', utf8_encode($sig_str), Hmac::OUTPUT_BINARY));
+</code></pre>
+
+<p>In beta5 it is:</p>
+
+<pre class="highlight"><code>
+$signature = base64_encode(Hmac::compute($this-&gt;_getSecretKey(), 'sha1', utf8_encode($sig_str), true));
+</code></pre>
+
+<p>Could you please explain why the last argument of Hmac::compute was changed in this way?
+Or if it was made by mistake could you roll back this?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Maks 3w (maks3w) on 2012-07-19T11:50:31.000+0000</p> 
+        <div class="body">
+            <p>Hi [~boristm] could you open your issue in a new one?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Boris (boristm) on 2012-07-19T12:12:22.000+0000</p> 
+        <div class="body">
+            <p>here is:
+<a href="http://framework.zend.com/issues/browse/ZF2-409">http://framework.zend.com/issues/browse/ZF2-409</a></p>
+
+        </div>
+    </div>
+    </div>
+

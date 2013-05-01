@@ -1,0 +1,145 @@
+<h2>ZF-3451: Inconsistencies in the Zend_Auth_Adapter.. api</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-12T02:38:12.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-02-08T06:14:11.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Postponed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Ashley Kitson (akzincdig)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Auth</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>There are inconsistencies across the various supplied adapters for Zend_Auth.  In particular the naming conventions for getting and setting usernames and password/credentials do not match up across the different adapters.  In code I have recently developed I have need to 'if statement' certain aspects e.g.</p>
+
+<p>1/ when setting credentials</p>
+
+<pre><code>        //because the zend supplied adapters don't all have the same interface
+        //we need to check for existence of functions before calling them
+        //@todo - raise bug with ZF and change when fixed
+        if (self::$_authType=='digest' || self::$_authType=='ldap') {
+                    self::$_authHandler-&gt;setUsername($username)
+                               -&gt;setPassword($password);
+           } else {
+                        self::$_authHandler-&gt;setIdentity($username)
+                               -&gt;setCredential($password);
+        }
+</code></pre>
+
+<p>2/ when retrieving the username:</p>
+
+<pre><code>public function getIdentity(Zend_Auth_Result $res) {
+    $id = $res-&gt;getIdentity();
+    if (self::$_authType=='digest') {
+        return $id['username'];
+    } else {
+        return $id;
+    }
+}
+</code></pre>
+
+<p>I think that the Zend_Auth_Adapter_Interface specification needs to be extended and all child adapters made to conform to it.  I might suggest that at a minimum it needs to include:</p>
+
+<p>public function authenticate(); //already there
+public function authenticateWithCredentials($username,$password);
+public function setUsername(string $username);
+public function setPassword(string $password);
+public function getUsername();
+public function getPassword();
+public function setOptions(array $options);  //set adapter specific options
+public function getOptions();</p>
+
+<p>Also Zend_Auth_Result should be extended by adding a getUsername() method to return just the username used to authenticate, in addition to the getIdentity() method which can continue to return the full identity array.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michael B Allen (miallen) on 2008-08-26T13:47:48.000+0000</p> 
+        <div class="body">
+            <p>Assuming credentials are always a username and password is a common mistake in web applications. Credential can be a domain+username+password, a PKI certificate, a base 64 encoded blob (e.g. SPNEGO Single Sign-On), etc.</p>
+
+<p>I think the following would be better:</p>
+
+<p>public function authenticate($credential = null);
+public function setCredential($credential);
+public function getCredential();</p>
+
+<p>So using the LDAP adapter might look like:</p>
+
+<p>$ldap-&gt;authenticate(array($username, $password));</p>
+
+<p>But I would allow adapters to provide adapter specific methods (e.g. setUsername(), setPassword()).</p>
+
+<p>Also, I don't think Zend_Auth::getIdentity() should return anything but a string that uniquely identifies the user across all adapters used by the application. If you want more info about the user there could be a Zend_Auth::getAccount() method that returned an object with account related methods like setPassword(), etc. Of course that's beyond the scope of the current ZF effort but I'm just thinking ahead.</p>
+
+<p>I've explained this approach in more detail on the ZF mailing list in the past:</p>
+
+<p><a href="http://www.nabble.com/Re:-Storing-additional-authentication-data-with-Zend_Auth_Adapter_OpenId-p16225178s16154.html">http://nabble.com/Re:-Storing-additional-authentic…</a></p>
+
+<p>Of course this is all just one man's opinion.</p>
+
+<p>Mike</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bryce Lohr (gearhead) on 2009-02-07T08:54:47.000+0000</p> 
+        <div class="body">
+            <p>With respect to the credentials problem, the standard OO answer is "encapsulate what varies". Since we know credentials take many varied forms, we could introduce a "Zend_Auth_Credentials_Interface", then add a "setCredentials(Zend_Auth_Credentials_Interface $creds)" method to Zend_Auth_Adapter_Interface. Each auth adapter would then provide its own concrete implementation of the credentials interface to represent any kind of credentials it needs. Of course, the application would have be prepared to provide all the correct credentials, whatever form they take. But in situations like the reported issue where you want to use two different adapters, both based on a username and password, you could do something like this:</p>
+
+<p>// MyCredentialsFactory would know (perhaps from application configuration) which concrete adapter is being used
+$creds = MyCredentialsFactory-&gt;create($username, $password);</p>
+
+<p>$authAdapter-&gt;setCredentials($creds);
+$result = $authAdapter-&gt;authenticate();</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-02-08T06:12:20.000+0000</p> 
+        <div class="body">
+            <p>The approach you outline regarding credentials is actually how the adapter implementation works currently, more or less. You instantiate your adapter, and typically pass the credentials in the constructor <em>or</em> pass them to appropriate concrete methods in the speciific adapter. This is in part because credentials do not need to consist necessarily of a username and password.</p>
+
+<p>To a degree, I like the idea of a credential interface, but I think it's overkill, as credentialling was part of the design of the authentication adapters. That said, I think there are some benefits to making the shipped adapters more consistent -- but it will have to be something that waits until we can break backwards compatibility.</p>
+
+        </div>
+    </div>
+    </div>
+

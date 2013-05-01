@@ -1,0 +1,354 @@
+<h2>ZF-1125: Zend_Controller_Route_Module::match()</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-23T19:38:41.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:59.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Gavin (gavin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In Zend_Controller_Route_Module::match():</p>
+
+<pre class="highlight"><code>
+.
+.
+if ($this-&gt;_dispatcher &amp;&amp; $this-&gt;_dispatcher-&gt;isValidModule($path[0])) {
+.
+.
+</code></pre>
+
+<p>There should be a way for userland to define when a module (i.e. "{{$path[0]}}") is valid, without having to pre-configure all of their applications' modules via setControllerDirectory(), before calling dispatch() on the front controller.</p>
+
+<p>Disclaimer: This is my opinion, and does not necessarily represent the opinions of anyone else.  There have been very few reports of developers currently using multiple modules in the same application, so I expect very few will be concerned by this issue at the moment.  However, I expect modules will eventually catch on and become more popular as examples of good application designs are published using support for modules in the ZF.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Simon Mundy (peptolab) on 2007-03-23T20:08:11.000+0000</p> 
+        <div class="body">
+            <p>This is more out of pure interest (because I'm also a developer who doesn't yet use multiple modules) but what sort of scenario would require the application to dynamically validate/invalidate modules and module paths?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-24T23:17:20.000+0000</p> 
+        <div class="body">
+            <p>What sort of scenario should require the application to specify all the module paths for every request?  Note that there is overhead (e.g. directory tests) for every path added.</p>
+
+<p>I suggest that most will have a standard layout, with module dirs grouped under a common parent directory thus making the current approach required for userland code not DRY.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-26T15:12:33.000+0000</p> 
+        <div class="body">
+            <p>Well, as for the overhead you're obviously right, Gavin. But that's not relevant to module route. The problem is the check for directory existence is made too early on in the dispatcher. I guess this check should be made while actually dispatching (to a certain controller, when user has already specified which module and controller he wish to get to). This will make the overhead of specifying modules insignificant as well as will reduce the number of directory existence checks to one (instead of O(n)). And yes, I know the check in addDirectory makes it easier to spot an error since you get the error sooner but let's face it - you are going to write some controllers for the module anyway, so when you write your first one you will certainly check if it works. And  then you will get your error anyway.</p>
+
+<p>Now, to get back on topic. I don't like this check for module existence in the Module route at all. Router is a request filter now which means it takes place before the dispatching process and simply modifies the data dispatcher is going to operate on. So, basically, it shouldn't be asking the dispatcher of anything as it should not be aware of it. This check in the route just seems hackish to my eyes because of this and I would like to get rid of it completely. But that's not my call.</p>
+
+<p>And I have to admit I don't get your DRY remark. What does "Don't Repeat Yourself " have to do with module directory grouping?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-03-26T15:39:23.000+0000</p> 
+        <div class="body">
+            <p>Martel --
+If we don't have the check for module existence in the module route, then we can't match /:controller/:action/* versus /:module/:controller/:action/* -- the latter becomes the only possible route, as the route has no idea if the first path segment is a module or not.</p>
+
+<p>If we make the module route <em>not</em> do this, then it leads to worse hacks in the dispatcher, as the dispatcher then has to determine if a module is valid or not, and, if not, has to reset controller, action, and parameters.</p>
+
+<p>If you can come up with a better way to do it, be my guest -- I tried a number of options, but this was the cleanest I could find.</p>
+
+<p>Gavin --
+What alternative do you suggest to isValidModule() other than checking the controller directory module =&gt; directory pairs? I cannot determine what you suggest as a plan of action for this issue -- what needs to change?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-26T15:53:56.000+0000</p> 
+        <div class="body">
+            <p>Regarding DRY, it should be possible to specify a simple layout pattern once (e.g. "$applicationDir/$module/controllers"), for those creating applications that consistently follow the same layout.  In this use case, there is no need to write special code (e.g. one line for every module), nor is there a need to test the directories of all the unused modules for every request.</p>
+
+<p>In the current ZF SVN, without changing either the Dispatcher or the line of code above in {{Zend_Controller_Route_Module::match():}}, it is very difficult to make this portion of developers' applications DRY (if they can use a standard rule with a standard layout as described above).</p>
+
+<p>The line of code in the issue description above executes before the Dispatcher.</p>
+
+<p>I agree with you regarding finding the errors.</p>
+
+<p>{quote}I don't like this check for module existence in the Module route at all. Router is a request filter now which means it takes place before the dispatching process and simply modifies the data dispatcher is going to operate on. So, basically, it shouldn't be asking the dispatcher of anything as it should not be aware of it. This check in the route just seems hackish to my eyes because of this and I would like to get rid of it completely.{quote}
+I find no reason to disagree with you, so I created this issue documenting how it (the coupling of {{Zend_Controller_Route_Module}} to the Dispatcher) prevents userland code from easily implementing a simple rule/pattern for where to find controllers.  I would not object at all if the Router did not have this dependency on the Dispatcher (and controller dirs provided to the dispatcher by the front controller).</p>
+
+<p>If nobody has any reasons to keep this check in the router, then I hope we can obtain consensus approval to remove it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-03-26T16:03:50.000+0000</p> 
+        <div class="body">
+            <p>Perhaps I'm missing the boat, but: could you please, succinctly, describe the use case in code so I can better understand what you want to do, and why the current solution does not work?</p>
+
+<p>As for the dependency on the dispatcher, as mentioned previously, without this check, there can be no determination as to whether the first path segment refers to a controller or a module; thus, without it, you would be forced to specify the module in every request -- which is not optimal, and actually negates the basic routing functionality that has been with the framework from day one.</p>
+
+<p>Again, if anyone can provide a patch that keeps the existing functionality but doesn't utilize the dispatcher or front controller, I'd be happy to consider it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-26T16:30:34.000+0000</p> 
+        <div class="body">
+            <p>If there was "a way for userland to define when a module (i.e. "$path[0]") is valid," then we can imagine something like a callback:</p>
+
+<pre class="highlight"><code>
+userland:
+isValidModule($moduleName)
+{
+     return is_dir($applicationPath . $moduleName . DIRECTORY_SEPARATOR . 'controllers');
+}
+</code></pre>
+
+<p>Then in a userland front controller plugin with a {{preDispatch()}}:</p>
+
+<pre class="highlight"><code>
+$frontController-&gt;setControllerDirectory(array($applicationPath . $moduleName . DIRECTORY_SEPARATOR . 'controllers'))
+</code></pre>
+
+<p>Thus, we have DRY and O(1).  There might be some tweaks needed in the Dispatcher or elsewhere to support this.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-26T16:35:34.000+0000</p> 
+        <div class="body">
+            <p>So, the approach above does not work now, because of the line of code in the description of this issue.  That line of code runs before preDispatch(), and chokes, because there are no controller directories set yet.  However, we can not set it sooner, because the router must complete first, in order to learn the module.  Chicken and egg.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-26T16:39:35.000+0000</p> 
+        <div class="body">
+            <p>I was incorrect in thinking that Michael was the author or maintainer of Zend_Controller_Route_Module.
+Reassigning to Matthew.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-26T17:25:55.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+Regarding DRY, it should be possible to specify a simple layout pattern once (e.g. "$applicationDir/$module/controllers"), for those creating applications that consistently follow the same layout. In this use case, there is no need to write special code (e.g. one line for every module), nor is there a need to test the directories of all the unused modules for every request.
+{quote}</p>
+
+<p>This is the way Mojavi operates (so is Symphony as it's based on Mojavi) and it has some drawbacks. This way you're putting some constraints on the user for starters. And with our current solution user can keep his controllers anywhere he wishes, even outside the application root. This freedom of choice is what the framework is famous for, so I would think twice before removing it.</p>
+
+<p>{quote}
+Martel -
+If we don't have the check for module existence in the module route, then we can't match /:controller/:action/* versus /:module/:controller/:action/* - the latter becomes the only possible route, as the route has no idea if the first path segment is a module or not.
+{quote}</p>
+
+<p>Matthew, I know. We talked numerous times about this issue. I guess the decision must be made here - do we wish to keep current behavior or force the user to specify the module every time (even if it's a default one).</p>
+
+<p>{quote}
+I was incorrect in thinking that Michael was the author or maintainer of Zend_Controller_Route_Module.
+{quote}</p>
+
+<p>I heavily modified the class after Matthew created it and committed to svn. I can make all the changes, Gavin. No problem. It's just I don't feel like making decisions on your (I mean Zend's) behalf.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-03-26T17:33:23.000+0000</p> 
+        <div class="body">
+            <p>I am not voting to remove the existing capabilities. Flexibility is good.  I am only asking everyone to consider supporting the use case above :), because I think most developers will have a common directory layout for their modules.</p>
+
+<p>Ah ok, I was out of the loop about who did what to which files.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-04-11T09:19:51.000+0000</p> 
+        <div class="body">
+            <p>Okay, guys, I think some decision has to be made here.</p>
+
+<ul><li>Do we provide a way for defining a callback as proposed by Gavin? Should this callback have a default of some sorts? </li>
+<li>Do we refactor the code to make the directory check O(1)?</li>
+<li>Or maybe we leave it as is? </li>
+</ul><p>I think this matter should be decided prior to framework release, don't you agree? We have a lingering issue which is not even agreed to.</p>
+
+<p>Matthew?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-04-12T12:02:06.000+0000</p> 
+        <div class="body">
+            <p>Here are the issues as I see them:</p>
+
+<p>h3. Directory check optimizations
+Currently, it happens during addControllerDirectory() in the front controller. This could be moved to the dispatcher, but the idea was to bail as early as possible should the directory not exist. Moving this to the dispatcher would be 1-2 hours work to implement and test. The benefit is fewer stat calls on directories to determine if they exist.</p>
+
+<p>h3. Router checking for modules
+First off, it doesn't query the dispatcher, as Martel suggests, but rather the front controller. As mentioned before, removing the check means that we would not be able to trivially support our use case of /:controller/:action/* as the base URL, and this is a requirement; that route will always be supported.</p>
+
+<p>If we have the front controller register the controller directory stack with the request object and/or router object, we risk it getting stale. We either need to keep it as is or come up with another solution.</p>
+
+<p>h3. isValidModule()
+The current method reads as follows:</p>
+
+<pre class="highlight"><code>
+public function isValidModule($module) 
+{
+    $controllerDir = $this-&gt;getControllerDirectory();
+    return ((null!== $module) &amp;&amp; ('default' != $module) &amp;&amp; isset($controllerDir[$module]));
+}
+</code></pre>
+
+<p>getControllerDirectory() merely returns the controller directory stack from the front controller.</p>
+
+<p>The methodology is very compact, and could be easily overridden in an extension to do as Gavin suggests.</p>
+
+<p>To place a plugin hook at this location begs the question of where else they should be placed: isDispatchable() is another good candidate, as are getDefaultControllerClass(), loadClass(), getActionMethod(), getControllerDirectory(), and getControllerClass(). In each of these cases, we'd need to call the plugin hook, and, if a value is returned, return directly instead of continuing processing. This seems like a fragile approach.</p>
+
+<p>h3. Possible solution
+Considering that all of these issues surround the following questions:</p>
+
+<ul><li>What makes a valid module?</li>
+<li>What makes a valid controller?</li>
+<li>What makes a valid action?</li>
+<li>How do we load controllers?</li>
+<li>How can we optimize file system calls?</li>
+</ul><p>My inclination is that we need a new interface to handle these issues which would be used by the dispatcher and router. I'd call it Zend_Controller_Loader_Interface, with a '_Standard' implementation.</p>
+
+<p>This interface would handle the following:</p>
+
+<ul><li>Registering and retrieving controller paths
+** setDirectories()
+** getDirectory($module = null)
+** addDirectory($dir, $module = 'default')</li>
+<li>Offering validation routines:
+** isValidModule($module)
+** isValidController($controller, $module = 'default')
+** isValidAction($action, $controller = 'index', $module = 'default')</li>
+<li>Handling default values:
+** (set|get)DefaultMethod
+** (set|get)DefaultController()
+** (set|get)DefaultAction()</li>
+<li>Retrieving the controller class</li>
+<li>Retrieving the action method</li>
+</ul><p>The front controller's set/add/getControllerDirectory() methods would proxy to this object, and the object itself would be passed to each of the router, and dispatcher, and available via an accessor in the front controller. The router would pass it in to each route object as well. An accessor in the front controller would allow passing in an alternative object instance -- for instance, if you wanted to subclass and add your own functionality.</p>
+
+<p>Doing this would streamline the dispatcher quite a bit by moving code not directly related to dispatching into another location that could be subclassed; the dispatcher could continue as normal, only expecting that the paradigm of instantiating a controller and calling a method on it be followed. Additionally, by passing it into the router and route objects, we can have more elegant solutions, particularly in custom route objects.</p>
+
+<p>The downside is additional overhead of a new class, and added complexity for (advanced) users to learn.</p>
+
+<p>It also does not directly solve the problem of a callback as suggested by Gavin. However, by subclassing the loader, he'd be able to introduce the functionality he desires.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (GIATA mbH) (mben) on 2007-04-12T14:38:35.000+0000</p> 
+        <div class="body">
+            <pre class="highlight"><code>
+public function isValidModule($module) 
+{
+    $controllerDir = $this-&gt;getControllerDirectory();
+    return ((null!== $module) &amp;&amp; ('default' != $module) &amp;&amp; isset($controllerDir[$module]));
+}
+</code></pre>
+
+<p>Why the default module is not valid ?</p>
+
+<p><a href="http://host/basePath/index/index">http://host/basePath/index/index</a>
+    -&gt; moduleName = 'default'
+    -&gt; ControllerName = 'index'
+    -&gt; ActionName = 'index'</p>
+
+<p>but</p>
+
+<p><a href="http://host/basePath/default/index/index">http://host/basePath/default/index/index</a>
+    -&gt; throw exception "Invalid controller specified (default)"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2007-04-13T16:40:51.000+0000</p> 
+        <div class="body">
+            <p>If there are too many complications to adding support for a one-liner in preDispatch():</p>
+
+<pre class="highlight"><code>
+$frontController-&gt;setControllerDirectory(array($moduleName =&gt; Zend_Registry::get('applicationDir') . $moduleName . DIRECTORY_SEPARATOR . 'controllers'));
+
+// or another one-liner in the form of a userland callback, where error checking is done in controller code, and not userland:
+
+getModuleDirectory($moduleName)
+{
+   return Zend_Registry::get('appDir') . $moduleName . DIRECTORY_SEPARATOR . 'controllers';
+} 
+</code></pre>
+
+<p>then adding hard-coded support for a particular layout (named by the community as "Conventional Modular Layout"), would suffice for many who always precisely follow the directory organization assumed below:</p>
+
+<pre class="highlight"><code>
+// assumes that each module's controllers are found in these subdirectories:
+//  Zend_Registry::get('applicationDir') . $moduleName . DIRECTORY_SEPARATOR . 'controllers'
+$frontController-&gt;setModuleDirectory(Zend_Registry::get('applicationDir'));
+</code></pre>
+
+<p>This eliminates the need for developers to iterate through all modules every request, setting directories in the bootstrap, before "{{Zend_Controller_Front::dispatch()}}".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-05-15T13:09:21.000+0000</p> 
+        <div class="body">
+            <p>Per internal discussion, resolved by performing the following:</p>
+
+<ul><li>controller directory validation moved to dispatcher, during class loading process (saves on stat calls)</li>
+<li>added addModuleDirectory() method to front controller; allows specifying a directory with modules; directory names become module names, controllers subdirectory becomes module controller directory path. Customize the controllers subdirectory name using setModuleControllerDirectoryName().</li>
+</ul><p>Revision 4806 commits all changes, as well as documentation and tests.</p>
+
+        </div>
+    </div>
+    </div>
+

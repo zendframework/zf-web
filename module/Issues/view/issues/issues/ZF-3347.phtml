@@ -1,0 +1,151 @@
+<h2>ZF-3347: findParentRow when column is NULL</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-05-28T23:18:21.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-26T07:17:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Niko Sams (nikosams)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3486">ZF-3486</a></li>
+            <li><a href="/issues/browse/ZF-4166">ZF-4166</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When for a table where a optional (can be NULL) reference findParentRow is called
+the column is NULL i get this sql error:
+SQLSTATE[HY093]: Invalid parameter number: no parameters were bound</p>
+
+<p>Because this sql is executed:
+SELECT <code>clubs</code>.* FROM <code>clubs</code> WHERE (<code>id</code> = ?)</p>
+
+<p>Possible solution:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Db/Table/Row/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Row/Abstract.php      (revision 9566)
++++ library/Zend/Db/Table/Row/Abstract.php      (working copy)
+@@ -879,6 +879,7 @@
+         for ($i = 0; $i &lt; count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+             $dependentColumnName = $db-&gt;foldCase($map[Zend_Db_Table_Abstract::COLUMNS][$i]);
+             $value = $this-&gt;_data[$dependentColumnName];
++            if (is_null($value)) return null;
+             // Use adapter from parent table to ensure correct query construction
+             $parentDb = $parentTable-&gt;getAdapter();
+             $parentColumnName = $parentDb-&gt;foldCase($map[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-06-09T09:54:31.000+0000</p> 
+        <div class="body">
+            <p>Please evaluate and fix/categorize as necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-05-22T11:07:41.000+0000</p> 
+        <div class="body">
+            <p>I've worked on this, I have a patch as well as some clarification:</p>
+
+<p>First, it is possible to have a compound/composite key that also has a NULLABLE value.  For that reason, I dont think the patch as supplied would work, I would suggest this:</p>
+
+<pre class="highlight"><code>
+Index: library/Zend/Db/Table/Row/Abstract.php
+===================================================================
+--- library/Zend/Db/Table/Row/Abstract.php      (revision 15675)
++++ library/Zend/Db/Table/Row/Abstract.php      (working copy)
+@@ -971,16 +971,28 @@
+ 
+         $map = $this-&gt;_prepareReference($this-&gt;_getTable(), $parentTable, $ruleKey);
+ 
++        // iterate the map, creating the proper wheres
+         for ($i = 0; $i &lt; count($map[Zend_Db_Table_Abstract::COLUMNS]); ++$i) {
+             $dependentColumnName = $db-&gt;foldCase($map[Zend_Db_Table_Abstract::COLUMNS][$i]);
+             $value = $this-&gt;_data[$dependentColumnName];
++            
+             // Use adapter from parent table to ensure correct query construction
+             $parentDb = $parentTable-&gt;getAdapter();
+             $parentColumnName = $parentDb-&gt;foldCase($map[Zend_Db_Table_Abstract::REF_COLUMNS][$i]);
+             $parentColumn = $parentDb-&gt;quoteIdentifier($parentColumnName, true);
+             $parentInfo = $parentTable-&gt;info();
+-            $type = $parentInfo[Zend_Db_Table_Abstract::METADATA][$parentColumnName]['DATA_TYPE'];
+-            $select-&gt;where("$parentColumn = ?", $value, $type);
++            
++            // determine where part
++            $type     = $parentInfo[Zend_Db_Table_Abstract::METADATA][$parentColumnName]['DATA_TYPE'];
++            $nullable = $parentInfo[Zend_Db_Table_Abstract::METADATA][$parentColumnName]['NULLABLE'];
++            if ($value === null &amp;&amp; $nullable == true) {
++                $select-&gt;where("$parentColumn IS NULL");
++            } elseif ($value === null &amp;&amp; $nullable == false) {
++                return null;
++            } else {
++                $select-&gt;where("$parentColumn = ?", $value, $type);
++            }
++            
+         }
+ 
+         return $parentTable-&gt;fetchRow($select);
+</code></pre>
+
+<p>I think this same logic might have to be applied to the DependentRowset as well?
+I need to find a way to test this behavior, but, i think I'll have a solution soon.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-07-17T08:58:26.000+0000</p> 
+        <div class="body">
+            <p>Fixed as part of r16733, if not, please reopen.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stanislav Anisimov (satanistlav) on 2009-11-26T07:17:32.000+0000</p> 
+        <div class="body">
+            <p>I think the same fixes should be applied to findDependentRowset and findManyToManyRowset</p>
+
+        </div>
+    </div>
+    </div>
+

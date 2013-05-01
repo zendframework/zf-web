@@ -1,0 +1,271 @@
+<h2>ZF-9407: Zend_Form::getValidValues() does not respect ElementsBelongTo</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-11T14:26:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-03-31T09:32:58.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4370">ZF-4370</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Form getValidValues is not aware of elementsBelongTo and therefor
+does not return the values from Elements which are appended to a SubForm
+which has set elementsBelongTo.</p>
+
+<p>This patch is a combination of ZF-9348 (!$form-&gt;isArray()),
+ZF-9361 (setDefaults() with ElementsBelongTo), and the 
+working getValues() method, where i copied the _attachToArray() method from</p>
+
+<p>This patch fixes the issue, Unit Test included</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21667)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1473,7 +1473,26 @@
+         $this-&gt;assertTrue($this-&gt;form-&gt;isValid($data));
+     }
+ 
++    public function testGetValidValuesWithElementsBelongTo()
++    {
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
++                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')
++                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
++                        -&gt;foo-&gt;setIsArray(false)
++                             -&gt;addElement('text', 'foo')
++                             -&gt;foo-&gt;addValidator('Identical',
++                                                 false,
++                                                 array('foo Value'));
+ 
++        $foo = array('foo' =&gt;
++                     array('foo' =&gt;
++                           array('foo' =&gt;
++                                 array('foo' =&gt; 'foo Value'))));
++
++        $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($foo), $foo);
++    }
++
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21667)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -1323,10 +1323,14 @@
+      * values to persist them.
+      *
+      * @param  array $data
++     * @param  bool $suppressArrayNotation
+      * @return array
+      */
+-    public function getValidValues($data)
++    public function getValidValues($data, $suppressArrayNotation = false)
+     {
++        if ($this-&gt;isArray()) {
++            $data = $this-&gt;_dissolveArrayValue($data, $this-&gt;getElementsBelongTo());
++        }
+         $values = array();
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+             if (isset($data[$key])) {
+@@ -1336,10 +1340,16 @@
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+-            if (isset($data[$key])) {
++            if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
+                 $values[$key] = $form-&gt;getValidValues($data[$key]);
++            } else {
++                $fValues = $this-&gt;_attachToArray($form-&gt;getValidValues($data, true), $form-&gt;getElementsBelongTo());
++                $values = array_merge($values, $fValues);
+             }
+         }
++        if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray()) {
++            $values = $this-&gt;_attachToArray($values, $this-&gt;getElementsBelongTo());
++        }
+ 
+         return $values;
+     }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-29T07:14:58.000+0000</p> 
+        <div class="body">
+            <p>Updated the Test, included checks against !$form-&gt;isArray() and equal-Name-Chain
+like learned in ZF-9348.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-29T08:31:04.000+0000</p> 
+        <div class="body">
+            <p>Extending the TestCase a bit revealed another problem, namely that getValidValues()
+with the above patch returns empty SubForm Arrays with keys from ElementsBelongTo or
+the name of the SubForm, i guess this is not wanted, so here is the updated Patch.</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21667)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -1473,7 +1473,58 @@
+         $this-&gt;assertTrue($this-&gt;form-&gt;isValid($data));
+     }
+ 
++    public function _setup9350()
++    {
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
++                   -&gt;foo-&gt;setElementsBelongTo('foo[foo]')
++                        -&gt;addSubForm(new Zend_Form_SubForm(), 'foo')
++                        -&gt;foo-&gt;setIsArray(false)
++                             -&gt;addElement('text', 'foo')
++                             -&gt;foo-&gt;addValidator('Identical',
++                                                 false,
++                                                 array('foo Value'));
+ 
++        $this-&gt;form-&gt;foo-&gt;addSubForm(new Zend_Form_SubForm(), 'baz')
++                   -&gt;baz-&gt;setIsArray(false)
++                        -&gt;addSubForm(new Zend_Form_SubForm(), 'baz')
++                        -&gt;baz-&gt;setElementsBelongTo('baz[baz]')
++                             -&gt;addElement('text', 'baz')
++                             -&gt;baz-&gt;addValidator('Identical',
++                                                 false,
++                                                 array('baz Value'));
++
++        $data = array('valid' =&gt; array('foo' =&gt;
++                                       array('foo' =&gt;
++                                             array('foo' =&gt;
++                                                   array('foo' =&gt; 'foo Value'),
++                                                   'baz' =&gt; 
++                                                   array('baz' =&gt; 
++                                                         array('baz' =&gt;
++                                                               array('baz' =&gt; 'baz Value')))))),
++                      'invalid' =&gt; array('foo' =&gt;
++                                         array('foo' =&gt;
++                                               array('foo' =&gt;
++                                                     array('foo' =&gt; 'foo Invalid'),
++                                                     'baz' =&gt; 
++                                                     array('baz' =&gt; 
++                                                           array('baz' =&gt;
++                                                                 array('baz' =&gt; 'baz Value')))))),
++                      'partial' =&gt; array('foo' =&gt;
++                                       array('foo' =&gt;
++                                             array('baz' =&gt; 
++                                                   array('baz' =&gt; 
++                                                         array('baz' =&gt;
++                                                               array('baz' =&gt; 'baz Value')))))));
++        return $data;
++    }
++
++    public function testGetValidValuesWithElementsBelongTo()
++    {
++        $data = $this-&gt;_setup9350();
++        $this-&gt;assertSame($this-&gt;form-&gt;getValidValues($data['invalid']), $data['partial']);
++    }
++
++
+     // Display groups
+ 
+     public function testCanAddAndRetrieveSingleDisplayGroups()
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21667)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -1323,10 +1323,14 @@
+      * values to persist them.
+      *
+      * @param  array $data
++     * @param  bool $suppressArrayNotation
+      * @return array
+      */
+-    public function getValidValues($data)
++    public function getValidValues($data, $suppressArrayNotation = false)
+     {
++        if ($this-&gt;isArray()) {
++            $data = $this-&gt;_dissolveArrayValue($data, $this-&gt;getElementsBelongTo());
++        }
+         $values = array();
+         foreach ($this-&gt;getElements() as $key =&gt; $element) {
+             if (isset($data[$key])) {
+@@ -1336,10 +1340,22 @@
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+-            if (isset($data[$key])) {
+-                $values[$key] = $form-&gt;getValidValues($data[$key]);
++            if (isset($data[$key]) &amp;&amp; !$form-&gt;isArray()) {
++                $tmp = $form-&gt;getValidValues($data[$key]);
++                if (!empty($tmp)) {
++                    $values[$key] = $tmp;
++                }
++            } else {
++                $tmp = $form-&gt;getValidValues($data, true);
++                if (!empty($tmp)) {
++                    $fValues = $this-&gt;_attachToArray($tmp, $form-&gt;getElementsBelongTo());
++                    $values = array_merge($values, $fValues);
++                }
+             }
+         }
++        if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray() &amp;&amp; !empty($values)) {
++            $values = $this-&gt;_attachToArray($values, $this-&gt;getElementsBelongTo());
++        }
+ 
+         return $values;
+     }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-03-31T09:32:58.000+0000</p> 
+        <div class="body">
+            <p>Patch (from comment) applied to trunk and 1.10 release branch.</p>
+
+        </div>
+    </div>
+    </div>
+

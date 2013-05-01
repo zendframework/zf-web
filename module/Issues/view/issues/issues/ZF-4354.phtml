@@ -1,0 +1,279 @@
+<h2>ZF-4354: Custom array-handling strategies</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-09-22T17:31:55.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:37.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christopher Vogt (cvogt)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter_Input</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6766">ZF-6766</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Filter_Input handles an associative array of input values. If one of these values is again an array then Zend_Filter_Input traverses the array and applies the filter or validator to every element. (It linearly traverses the first level and does not recursively traverse the array, in case it has multiple dimensions.) This behavior might make sense for common use cases, but it is only one way to handle arrays, which is hard-coded and forced. It does not allow fine-grained array handling and also does not allow to filter or validate array keys.</p>
+
+<p>I propose a new boolean option called 'traverseArray' (or similar) that enables or disables the traversal. It defaults to true for backwards compatibility. Setting it to false makes Zend_Filter_Input pass values to validators or filters as they are, even if they are arrays. This allows array handling in the validator or filter. Common array-handling strategies, such as the default strategy described above, can be implemented using special meta validators and filters that decorate normal validators or filters as proposed by Bryce Lohr in <a href="http://www.nabble.com/Zend_Filter_Input-and-Arrays-td17131495.html">http://nabble.com/Zend_Filter_Input-and-Arrays-td1…</a> .</p>
+
+<p>I already implemented the new feature based on ZF 1.6.1:</p>
+
+<pre class="highlight"><code>
+Index: C:/xampp/htdocs/snk/kalender.scoutnet.de/lib/ZendFramework/library/Zend/Filter/Input.php
+===================================================================
+--- C:/xampp/htdocs/snk/kalender.scoutnet.de/lib/ZendFramework/library/Zend/Filter/Input.php    (revision 11474)
++++ C:/xampp/htdocs/snk/kalender.scoutnet.de/lib/ZendFramework/library/Zend/Filter/Input.php    (working copy)
+@@ -60,6 +60,7 @@
+     const PRESENCE_REQUIRED = 'required';
+     const RULE              = 'rule';
+     const RULE_WILDCARD     = '*';
++    const TRAVERSE_ARRAY    = 'traverseArray';
+     const VALIDATE          = 'validate';
+     const VALIDATOR         = 'validator';
+     const VALIDATOR_CHAIN   = 'validatorChain';
+@@ -134,7 +135,8 @@
+         self::ESCAPE_FILTER       =&gt; 'HtmlEntities',
+         self::MISSING_MESSAGE     =&gt; "Field '%field%' is required by rule '%rule%', but the field is missing",
+         self::NOT_EMPTY_MESSAGE   =&gt; "You must give a non-empty value for field '%field%'",
+-        self::PRESENCE            =&gt; self::PRESENCE_OPTIONAL
++        self::PRESENCE            =&gt; self::PRESENCE_OPTIONAL,
++        self::TRAVERSE_ARRAY      =&gt; true
+     );
+ 
+     /**
+@@ -516,7 +518,8 @@
+                 case self::BREAK_CHAIN:
+                 case self::MISSING_MESSAGE:
+                 case self::NOT_EMPTY_MESSAGE:
+-                case self::PRESENCE:
++                case self::PRESENCE:
++                case self::TRAVERSE_ARRAY:
+                     $this-&gt;_defaults[$option] = $value;
+                     break;
+                 default:
+@@ -565,7 +568,10 @@
+             if (!isset($filterRule[self::FIELDS])) {
+                 $filterRule[self::FIELDS] = $ruleName;
+             }
+-
++            if (!isset($filterRule[self::TRAVERSE_ARRAY])) {
++                $filterRule[self::TRAVERSE_ARRAY] = $this-&gt;_defaults[self::TRAVERSE_ARRAY];
++            }
++            
+             /**
+              * Load all the filter classes and add them to the chain.
+              */
+@@ -604,7 +610,7 @@
+         if (!array_key_exists($field, $this-&gt;_data)) {
+             return;
+         }
+-        if (is_array($this-&gt;_data[$field])) {
++        if ($filterRule[self::TRAVERSE_ARRAY] &amp;&amp; is_array($this-&gt;_data[$field])) {
+             foreach ($this-&gt;_data[$field] as $key =&gt; $value) {
+                 $this-&gt;_data[$field][$key] = $filterRule[self::FILTER_CHAIN]-&gt;filter($value);
+             }
+@@ -708,6 +714,9 @@
+             if (!isset($validatorRule[self::PRESENCE])) {
+                 $validatorRule[self::PRESENCE] = $this-&gt;_defaults[self::PRESENCE];
+             }
++            if (!isset($validatorRule[self::TRAVERSE_ARRAY])) {
++                $validatorRule[self::TRAVERSE_ARRAY] = $this-&gt;_defaults[self::TRAVERSE_ARRAY];
++            }
+             if (!isset($validatorRule[self::ALLOW_EMPTY])) {
+                 $validatorRule[self::ALLOW_EMPTY] = $this-&gt;_defaults[self::ALLOW_EMPTY];
+             }
+@@ -828,8 +837,8 @@
+             }
+         } else {
+             $failed = false;
+-            foreach ($data as $fieldKey =&gt; $field) {
+-                if (!is_array($field)) {
++            foreach ($data as $fieldKey =&gt; $field) {
++               if (!$validatorRule[self::TRAVERSE_ARRAY] || !is_array($field)) {
+                     $field = array($field);
+                 }
+                 foreach ($field as $value) {
+</code></pre>
+
+<pre class="highlight"><code>
+class Zend_Filter_ArrayRecurse implements Zend_Filter_Interface{
+    var $childFilter;
+    public function __construct( $childFilter ){
+        $this-&gt;childFilter = $childFilter;
+    }
+    public function filter( $value ){
+        if( !is_array($value) ){
+            return $this-&gt;childFilter-&gt;filter( $value );
+        } else {
+            foreach( $value as $key =&gt; $item ){
+                $value[$key] = $this-&gt;filter( $item );
+            }
+            return $value;
+        }
+    }
+}
+
+class Zend_Filter_ArrayRecurseKeys implements Zend_Filter_Interface{
+    var $childFilter;
+    public function __construct( $childFilter ){
+        $this-&gt;childFilter = $childFilter;
+    }
+    public function filter( $value ){
+        if( !is_array($value) ){
+            return $value;
+        } else {
+            $new_value = array();
+            foreach( $value as $key =&gt; $item ){
+                $new_value[ $this-&gt;childFilter-&gt;filter($key) ] = $this-&gt;filter( $item );
+            }
+            return $new_value;
+        }
+    }
+}
+</code></pre>
+
+<pre class="highlight"><code>
+/**
+ * Filter for test purposes
+ */
+class FilterType implements Zend_Filter_Interface{
+    public function filter( $value ){
+        return gettype( $value );
+    }
+}
+
+// input used in tests
+$input = array( 'test' =&gt; array('a'=&gt;array('a1')) );
+
+// typical filter definition
+$filters = array(
+    'test' =&gt; array(new FilterType)
+);
+
+// Testing traverseArray enabled (default)
+$i = new Zend_Filter_Input( $filters, array(), $input );
+$expected_result = array(
+    'test' =&gt; array( 'a' =&gt; 'array' )
+);
+assert( $expected_result == $i-&gt;getEscaped() );
+
+// Testing traverseArray disabled
+$i = new Zend_Filter_Input( $filters, array(), $input, array('traverseArray' =&gt; false) );
+$expected_result = array(
+    'test' =&gt; 'array'
+);
+assert( $expected_result == $i-&gt;getEscaped() );
+
+// Testing recursive strategy filtering values
+$filters = array(
+    'test' =&gt; array( new Zend_Filter_ArrayRecurse(new FilterType) )
+);
+$i = new Zend_Filter_Input( $filters, array(), $input, array('traverseArray' =&gt; false) );
+$expected_result = array(
+    'test' =&gt; array( 'a' =&gt; array('string') )
+);
+assert( $expected_result == $i-&gt;getEscaped() );
+
+// Testing recursive strategy filtering keys
+$filters = array(
+    'test' =&gt; array( new Zend_Filter_ArrayRecurseKeys(new FilterType) )
+);
+$i = new Zend_Filter_Input( $filters, array(), $input, array('traverseArray' =&gt; false) );
+$expected_result = array(
+    'test' =&gt; array( 'string' =&gt; array('integer' =&gt; 'a1') )
+);
+assert( $expected_result == $i-&gt;getEscaped() );
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ota Mares (ota) on 2009-08-26T07:40:44.000+0000</p> 
+        <div class="body">
+            <p>Any news with this?
+Traversing the values of an array makes working with arrays unfeasible, as example you cant serialize an input array without nesting it into a dummy array.
+The documentation does not state that values are traversed, is there a special reason for it?</p>
+
+<p>The best solution would be to implement the option posted in the OP. or to remove the traversing logic completely.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ota Mares (ota) on 2009-08-26T07:43:13.000+0000</p> 
+        <div class="body">
+            <p>Btw. <a href="http://framework.zend.com/issues/browse/ZF-6766">http://framework.zend.com/issues/browse/ZF-6766</a> is a duplicate of this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-08-26T07:55:21.000+0000</p> 
+        <div class="body">
+            <p>As you can see I took over all Zend_Filter_Input issues 6 days ago...</p>
+
+<p>Sorry to say that but I can not fix 80 issues within 6 days... ;-)
+You will have to wait, as I am looking one after the other, into all of these issues.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ota Mares (ota) on 2009-08-26T08:22:30.000+0000</p> 
+        <div class="body">
+            <p>Ah, thats great. I didnt look at the assignment date but encountered the problem a few hours ago and it took me a moment to find the culprit and thought i should report it, yada yada.
+Anyway i am watching this issue now :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christopher Vogt (cvogt) on 2009-08-28T04:46:31.000+0000</p> 
+        <div class="body">
+            <p>I think this is a pretty important issue. Nice to know there is going to be some progress. Thank you Thomas for taking over the assignment and looking into it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:37.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

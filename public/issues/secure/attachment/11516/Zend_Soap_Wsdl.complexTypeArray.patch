@@ -1,0 +1,80 @@
+Index: Wsdl.php
+===================================================================
+--- Wsdl.php	(revision 11217)
++++ Wsdl.php	(working copy)
+@@ -430,12 +430,75 @@
+             default:
+                 if (class_exists($type) && $this->_extractComplexTypes)
+                     return $this->addComplexType($type);
++
++                if (substr($type, -1) == ']' and $this->_extractComplexTypes)
++                    return $this->addComplexTypeArray($type);
+                 else
+                     return 'xsd:anyType';
+             }
+     }
+ 
+     /**
++     * Add a {@link http://www.w3.org/TR/wsdl#_types types} data type definition (for arrays)
++     *
++     * Supports specifying minOccurs and maxOccurs. Ex: "string[5,*]"
++     *
++     * @param string $type Name of the array type to be specified, including []
++     * @return string XSD Type for the given PHP type
++     */
++    public function addComplexTypeArray($type)
++    {
++        if (preg_match('/^(.*)\[(?:([\d*])(?:,([\d*]))?)?\]$/i', $type, $matches)) {
++
++            $singulartype = $this->getType($matches[1]);
++
++            if (isset($matches[2]))
++                $minOccurs = ($matches[2] == '*') ? 0 : $matches[2];
++            else
++                $minOccurs = 0;
++
++            if (isset($matches[3]))
++                $maxOccurs = ($matches[3] == '*') ? 'unbounded' : $matches[3];
++            else
++                $maxOccurs = 'unbounded'; //($minOccurs == 0) ? 'unbounded' : $minOccurs;
++
++            list (,$stripped) = explode(':', $singulartype, 2);
++
++            $rangeType = '';
++            if ($minOccurs > 0 or $maxOccurs != 'unbounded')
++                $rangeType = $minOccurs .'to' . ($maxOccurs == 'unbounded' ? 'Many' : $maxOccurs);
++
++            $wsdltype = $stripped  . $rangeType . 'Array';
++
++            if (in_array($type, $this->_includedTypes)) {
++                return "tns:$wsdltype";
++            }
++
++            $complexType = $this->_dom->createElement('xsd:complexType');
++            $complexType->setAttribute('name', $wsdltype);
++
++            $sequence = $this->_dom->createElement('xsd:sequence');
++
++            $element = $this->_dom->createElement('xsd:element');
++            $element->setAttribute('name', 'item');
++            $element->setAttribute('type', $singulartype);
++            $element->setAttribute('minOccurs', $minOccurs);
++            $element->setAttribute('maxOccurs', $maxOccurs);
++            $sequence->appendChild($element);
++
++            $complexType->appendChild($sequence);
++            $this->_schema->appendChild($complexType);
++
++            $this->_includedTypes[] = $type;
++
++            return "tns:$wsdltype";
++
++        }
++
++        return "xsd:anyType";
++    }
++
++    /**
+      * Add a {@link http://www.w3.org/TR/wsdl#_types types} data type definition
+      *
+      * @param string $type Name of the class to be specified

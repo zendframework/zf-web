@@ -1,0 +1,150 @@
+<h2>ZF-11223: Zend_Filter_StringTrim breaks UTF-8 string if last character is uppercased Cyrillic 'Р'</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-03-24T17:21:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-09-25T09:06:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Edward Surov (zooh)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10891">ZF-10891</a></li>
+            <li><a href="/issues/browse/ZF-11752">ZF-11752</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The filter tears away last byte of two-byte Cyrillic symbol 'Р' (U+0420, 0xD0|0xA0 sequence in UTF-8) when it's placed in the end of UTF-8 string (for example, in abbreviation 'ЮАР'), thus making the filtered UTF-8 string invalid.</p>
+
+<p>The last byte (0xA0) corresponds to non-breaking space (U+00A0) in Latin-1, that's the reason why it gets trimmed. I think that trying to perform UTF-8 trimming without complete decoding UTF-8 to Unicode sequence will fail again and again in similar cases.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Edward Surov (zooh) on 2011-03-24T20:15:19.000+0000</p> 
+        <div class="body">
+            <p>I've worked out a solution that works. It's rather a hack than beautiful piece of code, but at least it works.</p>
+
+<p>First, we check for empty string to avoid all the processing if there's nothing to trim from. Second, we add 'u' modifier to the pattern. Now, we're starting to get error in preg_replace sometimes (on Cyrillic string 'Ром', for example). If we face such error, we delegate the task of trimming to a slower procedure.</p>
+
+<pre class="highlight"><code>
+    protected function _unicodeTrim($value, $charlist = '\\\\s')
+    {
+        if ('' == $value) {
+            return $value;
+        }
+
+        $chars = preg_replace(
+            array( '/[\^\-\]\\\]/S', '/\\\{4}/S', '/\//'),
+            array( '\\\\\\0', '\\', '\/' ),
+            $charlist
+        );
+
+        $pattern = '^[' . $chars . ']*|[' . $chars . ']*$';
+        $result = preg_replace("/$pattern/usSD", '', $value);
+
+        if (null === $result) {
+            $result = $this-&gt;_slowUnicodeTrim($value, $chars);
+        }
+
+        return $result;
+    }
+</code></pre>
+
+<p>In slower method we split the UTF-8 string into an array of single UTF-8 characters (using a simple hack with iconv() - UTF-32 characters are always 4 bytes long). Then we match separate characters against simple pattern that won't generate an internal error and remove them if necessary. In the end we just join the array again and return it.</p>
+
+<pre class="highlight"><code>
+    protected function _slowUnicodeTrim($value, $chars) {
+        $utfChars = $this-&gt;_splitUtf8($value);
+        $pattern = '/^[' . $chars . ']$/usSD';
+
+        while ($utfChars &amp;&amp; preg_match($pattern, $utfChars[0])) {
+            array_shift($utfChars);
+        }
+
+        while ($utfChars &amp;&amp; preg_match($pattern, $utfChars[count($utfChars) - 1])) {
+            array_pop($utfChars);
+        }
+
+        return implode('', $utfChars);
+    }
+
+    protected function _splitUtf8($value)
+    {
+        $utfChars = str_split(iconv('UTF-8', 'UTF-32BE', $value), 4);
+        array_walk($utfChars, create_function('&amp;$char', '$char = iconv("UTF-32BE", "UTF-8", $char);'));
+        return $utfChars;
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-24T20:52:20.000+0000</p> 
+        <div class="body">
+            <p>This issue duplicates ZF-10891</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-24T20:52:46.000+0000</p> 
+        <div class="body">
+            <p>This issue has been fixed with GH-107</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-07-24T23:10:17.000+0000</p> 
+        <div class="body">
+            <p>@thomas some problem in apply this issue to next mini release (merges to branch 1.11) ;)?</p>
+
+<p>Greetings
+Ramon</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-25T19:53:42.000+0000</p> 
+        <div class="body">
+            <p>Feel free to backport the fix from ZF2 to ZF1.</p>
+
+        </div>
+    </div>
+    </div>
+

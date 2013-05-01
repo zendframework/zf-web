@@ -1,0 +1,216 @@
+<h2>ZF-10190: Zend_Cache::_isReadable() and Zend_Loader::isReadable() refactoring</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-20T17:02:14.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-04-29T07:00:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Devis Lucato (devisl)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Bennewitz (private) (mabe)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Cache</li>
+            <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Both Zend_Cache::_isReadable() and Zend_Loader::isReadable() code/performance could be improved using the new PHP 5.3.2 stream_resolve_include_path() function.</p>
+
+<p>Zend_Cache::_isReadable() can be particularly slow due to error suppression so</p>
+
+<pre class="highlight"><code>
+    private static function _isReadable($filename)
+    {
+        if (!$fh = @fopen($filename, 'r', true)) {
+            return false;
+        }
+        @fclose($fh);
+        return true;
+    }
+</code></pre>
+
+<p>could be rewritten to:</p>
+
+<pre class="highlight"><code>
+    private static function _isReadable($filename)
+    {
+        return is_string(stream_resolve_include_path($filename));
+    }
+</code></pre>
+
+<p>or, for backward compatibility:</p>
+
+<pre class="highlight"><code>
+    private static function _isReadable($filename)
+    {
+        if (function_exists('stream_resolve_include_path')) {
+            return is_string(stream_resolve_include_path($filename));
+        }
+
+        if (!$fh = @fopen($filename, 'r', true)) {
+            return false;
+        }
+        @fclose($fh);
+        return true;
+    }
+</code></pre>
+
+<p>Something similar applies to Zend_Loader</p>
+
+<pre class="highlight"><code>
+    public static function isReadable($filename)
+    {
+        // NEW CODE
+
+        if (function_exists('stream_resolve_include_path')) {
+            return is_string(stream_resolve_include_path($filename));
+        }
+        
+        // OLD CODE
+
+        [....]
+
+        foreach (self::explodeIncludePath() as $path) {
+            if ($path == '.') {
+                if (is_readable($filename)) {
+                    return true;
+                }
+                continue;
+            }
+            $file = $path . '/' . $filename;
+            if (is_readable($file)) {
+                return true;
+            }
+        }
+        return false;
+    }
+</code></pre>
+
+<p>so that the foreach loop can be avoided with PHP 5.3.2.</p>
+
+<p>Zend_Cache method comes from Zend_Loader (see #ZF-2891 for details) so it would make sense to extrapolate the code in a separate class, taking into consideration to use Zend_Loader code instead of the error suppression, something like this (comments removed for brevity):</p>
+
+<pre class="highlight"><code>
+    class Zend_File
+    {
+        public static function isReadable($filename)
+        {
+            if (function_exists('stream_resolve_include_path')) {
+                return is_string(stream_resolve_include_path($filename));
+            }
+
+            if (is_readable($filename)) {
+                return true;
+            }
+
+            if (strtoupper(substr(PHP_OS, 0, 3)) == 'WIN'
+                &amp;&amp; preg_match('/^[a-z]:/i', $filename)
+            ) {
+                return false;
+            }
+
+            foreach (Zend_Application::getIncludePathArray() as $path) {
+                if ($path == '.') {
+                    if (is_readable($filename)) {
+                        return true;
+                    }
+                    continue;
+                }
+                $file = $path . '/' . $filename;
+                if (is_readable($file)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+</code></pre>
+
+<p>adding this to Zend_Application:</p>
+
+<pre class="highlight"><code>
+    /**
+     * explodeIncludePath() method renamed to getIncludePathArray()
+     * Todo: Cache the result ?
+     */
+    public static function getIncludePathArray($path = null)
+    {
+        if (null === $path) {
+            $path = get_include_path();
+        }
+
+        if (PATH_SEPARATOR == ':') {
+            $paths = preg_split('#:(?!//)#', $path);
+        } else {
+            $paths = explode(PATH_SEPARATOR, $path);
+        }
+        return $paths;
+    }
+</code></pre>
+
+<p>To avoid confusion with PHP is_readable() function, why not renaming isReadable() to isAccessible() deprecating the old methods with a trigger_error('...', E_USER_NOTICE) ?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2010-07-21T05:27:05.000+0000</p> 
+        <div class="body">
+            <p>Unfortunately, this cannot be a solution until 2.0 at the earliest; the 1.X branch has a minimum required version of PHP 5.2.4, meaning we cannot use PHP 5.3-specific solutions.</p>
+
+<p>I'm marking the improvement as for "next major version".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Devis Lucato (devisl) on 2010-07-21T14:45:03.000+0000</p> 
+        <div class="body">
+            <p>As a performance improvement, would it be possible to address the error suppression on ZF 1.x ?</p>
+
+<p>It seems to be just a matter of copying the code from Zend_Loader::isReadable to Zend_Cache::_isReadable (as the PHP Doc in Zend_Cache says)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2010-12-21T11:07:38.000+0000</p> 
+        <div class="body">
+            <p>created pull request <a href="https://github.com/zendframework/zf2/issues#issue/94">https://github.com/zendframework/zf2/…</a></p>
+
+        </div>
+    </div>
+    </div>
+

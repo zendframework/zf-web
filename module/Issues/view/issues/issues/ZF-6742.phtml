@@ -1,0 +1,139 @@
+<h2>ZF-6742: ArrayOfTypeSequence strategy doesn't support complex types</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-20T05:55:40.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-21T14:55:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.0 (31/Jul/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Fabien Crespel (fcrespel)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Benjamin Eberlei (beberlei)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Soap_Wsdl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-6875">ZF-6875</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12016/ArrayOfTypeSequence.php">ArrayOfTypeSequence.php</a></li>
+            <li><a href="/issues/secure/attachment/12017/Zend_Soap_Wsdl_Strategy_ArrayOfTypeSequence-ComplexTypes-v2.diff">Zend_Soap_Wsdl_Strategy_ArrayOfTypeSequence-ComplexTypes-v2.diff</a></li>
+            <li><a href="/issues/secure/attachment/11937/Zend_Soap_Wsdl_Strategy_ArrayOfTypeSequence-ComplexTypes.diff">Zend_Soap_Wsdl_Strategy_ArrayOfTypeSequence-ComplexTypes.diff</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The {{ArrayOfTypeSequence}} WSDL strategy can only add arrays of <em>basic xsd types</em> like int, string, etc. Currently it is not possible to use it with <em>singular complex types</em> or <em>arrays of complex types</em>.</p>
+
+<p>I know there is also an {{ArrayOfTypeComplex}} strategy, but it uses {{soap-enc:Array}} arrays while {{ArrayOfTypeSequence}} uses a sequence containing an <em>unbounded element</em>. The latter is WS-I Basic Profile 1.1 compliant, the former isn't but still commonly used, so it makes sense to have both. Additionally, {{ArrayOfTypeSequence}} supports <em>multi-dimensional</em> arrays (like {{MyComplexType[][]}}) while {{ArrayOfTypeComplex}} doesn't.</p>
+
+<p>The <em>patch</em> attached to this issue adds support for complex types in {{ArrayOfTypeSequence}} the same way {{ArrayOfTypeComplex}} does: by extending the {{DefaultComplexType}} strategy and calling {{parent::addComplexType($type)}} when appropriate.</p>
+
+<p>Now, I'm not sure this patch is the best way to do things... Ideally I think there should be 2 kinds of strategies in {{Zend_Soap_Wsdl}}: one for singular complex types, and one for arrays. But as it is, this patch is the easiest solution and it imitates what already exists in {{ArrayOfTypeComplex}}. Comments are welcome :)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-05-29T10:42:53.000+0000</p> 
+        <div class="body">
+            <p>Assigned to me</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin Nuut (kevinnuut) on 2009-06-16T16:32:12.000+0000</p> 
+        <div class="body">
+            <p>I really appreciate that this patch was added.  It has been working great for acheiving WS-I compliance.  Things work great when defining arrays of simpleTypes and complexTypes, such as:</p>
+
+<p>@param string[]
+@param Zend_SomeMadeUpClass[]</p>
+
+<p>However, for double nested arrays to work, a patch must be made, such as:</p>
+
+<p>@param string[][]
+@param Zend_SomeMadeUpClass[][]</p>
+
+<p>The problem is that each array creates a complex type of 'ArrayofString' or 'ArrayofZend_SomeMadeUpClass' with the appropriate 'xsd:string' or 'tns:Zend_SomeMadeUpClass' type, but when complex types of those complex types are made, the setAttribute('type', $childTypeName); on line 136 does not prepend 'tns:' for 'ArrayofString' or 'ArrayofZend_SomeMadeUpClass'.</p>
+
+<p>Basically, I made it so the function prepends 'tns:' when child exists in the context type list.</p>
+
+<pre><code>protected function _addElementFromWsdlAndChildTypes($arrayType, $childTypeName)
+{
+    if (!in_array($arrayType, $this-&gt;getContext()-&gt;getTypes())) {
+        // IF STATEMENT ADDED FOR PATCH
+        if (in_array($childTypeName, $this-&gt;getContext()-&gt;getTypes())) {
+            $childTypeName = 'tns:' . $childTypeName;
+        }
+
+        $dom = $this-&gt;getContext()-&gt;toDomDocument();
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin Nuut (kevinnuut) on 2009-06-16T16:36:16.000+0000</p> 
+        <div class="body">
+            <p>I also want to add that this makes it possible to do as many array nestings as you like.</p>
+
+<p>I ran tests through SoapUI with tenth level nested arrays of complextypes (because who doesn't want that).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Fabien Crespel (fcrespel) on 2009-06-16T17:35:20.000+0000</p> 
+        <div class="body">
+            <p>Oh you're right, I hadn't taken that case into account - thanks for testing!</p>
+
+<p>Here is an updated version of my patch with a different fix.</p>
+
+<p>Given that {{_getTypeNameBasedOnNestingLevel()}} returns a prefixed type when it's singular, I thought it would be better to make its behavior consistent and return a prefixed {{ArrayOf}} type (with "tns:").</p>
+
+<p>In consequence, I added a {{substr()}} to remove any prefix from {{$complexTypeName}} in {{addComplexType()}} (line 40). This way, {{_addElementFromWsdlAndChildTypes()}} is always given the correct parameters without having to check/modify them.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Kevin Nuut (kevinnuut) on 2009-06-16T20:21:31.000+0000</p> 
+        <div class="body">
+            <p>Great work Fabien.  All testing on my end works like a charm with your patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Benjamin Eberlei (beberlei) on 2009-07-21T14:55:43.000+0000</p> 
+        <div class="body">
+            <p>I applied the patch to trunk, it should be included in version 1.9</p>
+
+        </div>
+    </div>
+    </div>
+

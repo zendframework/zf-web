@@ -1,0 +1,180 @@
+<h2>ZF-6576: Zend_Filter_File_Rename getNewName parameters (Bit of Zend_Transfer_Adapter_Http too)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-08T00:47:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-06-11T05:13:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.1 (12/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Harro van der Klauw (oximoron)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In 1.8.0 Beta you would get the original filename in the getNewName function, in the 1.8.0 release it was changed to the temporary name.</p>
+
+<p>So currently we have extended the Zend_Filter_File_Rename because we want to apply our own naming scheme to the uploaded files, But we still need to know the original files extension to do this. Before we got the original filename and could use that, now we get the temporary name, which on Windows includes a .tmp extension and on linux doesn't have an extension at all.</p>
+
+<p>At the point where the function get's called (in the Zend_Transfer_Adapter_Http line 163) the $this-&gt;_files property hasn't been set yet. We could do it in a hackish way and get the information from $_FILES, but I much rather have all the information available to the function at that point.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-05-08T02:14:46.000+0000</p> 
+        <div class="body">
+            <p>According to API the getNetName() returns the new name of a filtered file without moving it.
+It's an undocumented internal method and a preparation for an improvement of this filter.</p>
+
+<p>Another point is, that Zend_Filter_File_Rename does not know about original, new or old names.
+This informations are stored within Zend_File_Transfer.</p>
+
+<p>To get the old name simply call getFileName() BEFORE calling getValues() or receive().
+Calling it afterwards return the new set filename.</p>
+
+<p>The filter is definetly the wrong point to get file informations.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Harro van der Klauw (oximoron) on 2009-05-08T02:16:52.000+0000</p> 
+        <div class="body">
+            <p>Never mind.. I'm an idiot !</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2009-06-11T02:56:11.000+0000</p> 
+        <div class="body">
+            <p>Hello Thomas,</p>
+
+<p>I Am facing the same issue as Haro will trying to move from <em>ZF</em> <em>1.6</em>  to <em>1.8</em> 
+I had extended  <em>Zend_Filter_File_Rename</em> because I wanted my own naming scheme.</p>
+
+<p>But now <em>Zend_Transfer_Adapter_Http</em> line 163 call the  Zend_Filter_File_Rename::getNewName() with the temp name. Why such change ?</p>
+
+<p>And I 'cant use the solution you describe above because I'm using Zend_Form and everything is seamless handle by Zend_Form</p>
+
+<p>So right now I'm stuck. The only solution I found is patching Zend_Transfer_Adapter_Http. which is not nice. 
+What do you suggest ?</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2009-06-11T03:40:45.000+0000</p> 
+        <div class="body">
+            <p>Ok,</p>
+
+<p>I found that even if my filter is named Mmx_Filter_File_AutoRename, it get catch by Zend_Transfer_Adapter_Http::getFilter('Rename') on line 161
+Or if it wasn't catch <em>$filename = $rename-&gt;getNewName($content['tmp_name']);</em> wouldn't be called directly and my AutoRename will work has usual.</p>
+
+<p>I see 2 solutions :</p>
+
+<p><em>1)</em> So what about to be more restrictive on the regex line 1468 in Zend_Transfer_Adapter_Abstract::_getFilterIdentifier($name) so Mmx_Filter_File_Rename would match and not Mmx_Filter_File_AutoRename</p>
+
+<p>this change will do the trick</p>
+
+<pre class="highlight"><code>
+      foreach (array_keys($this-&gt;_filters) as $test) {
+            if (preg_match('/_' . preg_quote($name) . '$/i', $test)) {
+                return $test;
+            }
+        }
+</code></pre>
+
+<p>And it could also avoid some weird thing</p>
+
+<p><em>2)</em>  after  get Zend_Transfer_Adapter_Http::getFilter('Rename') called make sure the filter is Zend_Filter_File_Rename  like so</p>
+
+<pre class="highlight"><code>
+           $rename   = $this-&gt;getFilter('Rename');
+                if ($rename !== null &amp;&amp; 'Zend_Filter_File_Rename' == get_class($rename)) {
+                    $filename = $rename-&gt;getNewName($content['tmp_name']);
+                    $key      = array_search(get_class($rename), $this-&gt;_files[$file]['filters']);
+                    unset($this-&gt;_files[$file]['filters'][$key]);
+                }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-06-11T03:42:22.000+0000</p> 
+        <div class="body">
+            <p>When you have the same problem as Harro then also the solution is the same.</p>
+
+<p>To get the original name you have to store it before calling the rename filter.
+Before the rename filter is called the original name is returned by getFileName, afterwards the new filename is returned.</p>
+
+<p>According to Zend_Filter_File_Rename: This feature was integrated with 1.8 to allow the rename filter to be integrated with Zend_File_Transfer. Otherwise Zend_File_Transfer would have no way to know how the rename filter wants to rename the files. There were several bugs related to this.</p>
+
+<p>PS: Zend_Transfer does not exist.</p>
+
+<p>Extending Zend_Filter_File_Rename correct would work. But patching Zend_File_Transfer_Adapter_Http to 1.6 again is the wrong way. This introduces again several bugs which have been fixed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent Melmoux (laurent melmoux) on 2009-06-11T05:13:24.000+0000</p> 
+        <div class="body">
+            <p>{quote}
+When you have the same problem as Harro then also the solution is the same.
+{quote}
+Well, my question is different (how about with zend_form ?) so i guess the solution could be different.</p>
+
+<p>{quote}
+To get the original name you have to store it before calling the rename filter.
+Before the rename filter is called the original name is returned by getFileName, afterwards the new filename is returned.
+{quote}</p>
+
+<p>So I need to do all kind of tricking stuff to have it working with Zend_Form and it is not what I want.</p>
+
+<p>{quote}
+Extending Zend_Filter_File_Rename correct would work.
+{quote}
+Yes it would work but right now it won't if the filter name end by "Rename" (AutoRename, MyCustomeRename, etc...)
+have you consider one of my fix in my previous message for that ?</p>
+
+<p>Thanks</p>
+
+        </div>
+    </div>
+    </div>
+

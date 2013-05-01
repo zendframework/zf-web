@@ -1,0 +1,176 @@
+<h2>ZF-3629: Lucene result highlighting</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-07-11T12:58:39.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-08-31T08:42:46.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marcus Lorenz (shockshell)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3626">ZF-3626</a></li>
+            <li><a href="/issues/browse/ZF-6041">ZF-6041</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello,</p>
+
+<p>i have a problem with the lucene result highlighting.
+The highlighted words or even fragments were nothing i've searched for.</p>
+
+<p>It seems to me that the dom-function TextNode-&gt;splitText is not multibyte-save. Is that right?</p>
+
+<p>I make this assumption because when i do this:</p>
+
+<p>echo mb_substr($node-&gt;wholeText,$token-&gt;getStartOffset(),$token-&gt;getEndOffset()-$token-&gt;getStartOffset(),'UTF-8');</p>
+
+<p>just before the splitting in (Document/Html.php) i get the correct text, but the main splitting is made somewhere else in the text.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gerard van Helden (drm) on 2009-11-11T13:20:07.000+0000</p> 
+        <div class="body">
+            <p>Has to do with <a href="http://bugs.php.net/bug.php?id=46335">http://bugs.php.net/bug.php?id=46335</a></p>
+
+<p>I have written a workaround for it, but it depends on mb_substr(). I'm not sure if it's ok for lucene to depend on multibyte. If not a problem, I'll submit the patch.</p>
+
+<p>Btw, I have only tested this on a debian lenny with php 5.2.6, so I'm not entirely sure the bug still exists in PHP at all. If not, this issue could be resolved anyway.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stéphane (stephane) on 2009-11-20T06:29:56.000+0000</p> 
+        <div class="body">
+            <p>Just a quick comment to let you know that a pretty bad workaround is just to create an instance of the parser manually:</p>
+
+<pre class="literal"> 
+// Builds a list of words from the search terms
+$words = explode(' ', mb_strtolower($search));
+
+// Initializes the Lucene parser and tokenizes the excerpt
+$analyzer = new Zend_Search_Lucene_Analysis_Analyzer_Common_Utf8_CaseInsensitive();
+$analyzer-&gt;setInput($content, "utf-8");
+
+// Initializes a list of tokens for the search terms
+$tokens = array();
+
+// Retrieves the first token from the excerpt
+$token = $analyzer-&gt;nextToken();
+
+// Parses each token and processes only the ones corresponding to the
+// search terms
+while ($token !== null) {
+  // Stores any token found matching a search term
+  if (array_value_exists($token-&gt;getTermText(), $words)) {
+    $tokens[] = $token;
+  }
+  
+  $token = $analyzer-&gt;nextToken();
+}
+
+// Defines a padding to be able to compute the real position of each 
+// token whenever some 'strong' tags is added to the excerpt
+$pad = 0;
+
+foreach ($tokens as $token) {
+  // Retrieves the position of the search term thanks to the token
+  $start = $token-&gt;getStartOffset() + $pad;
+  $end = $token-&gt;getEndOffset() + $pad;
+  
+  // Highlights the search term
+  $content = mb_substr($content, 0, $start) . "<strong>" . mb_substr($content, $start, $end - $start) . "</strong>" . mb_substr($content, $end);
+  
+  // Increases the padding
+  $pad += mb_strlen("<strong></strong>"); 
+}
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gerard van Helden (drm) on 2009-11-24T04:46:40.000+0000</p> 
+        <div class="body">
+            <p>My fix can be implemented with iconv too. Since that is an essential dependency of Zend_Search_Lucene anyway, I will submit a patch for it asap.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Nicolas Huguet (nicolas.huguet) on 2010-09-17T08:08:57.000+0000</p> 
+        <div class="body">
+            <p>I have the same problem.
+The following changes to the file Zend/Search/Lucene/Document/Html.php seems to fix this problem in my case :</p>
+
+<pre class="literal"> 
+
+--- old 2010-09-17 17:02:04.000000000 +0200
++++ new 2010-09-17 17:03:43.000000000 +0200
+@@ -306,11 +306,20 @@
+         $matchedTokens = array_reverse($matchedTokens);
+
+         foreach ($matchedTokens as $token) {
++
++            // Convert characters offset to bytes offsets
++            // Because splitText() bellow does not handle multibytes characters
++            // see <a href="http://bugs.php.net/bug.php?id=46335">http://bugs.php.net/bug.php?id=46335</a>
++            $startOffset = $token-&gt;getStartOffset();
++            $endOffset = $token-&gt;getEndOffset();
++            $bytesStartOffset = strlen(mb_substr($node-&gt;wholeText, 0, $startOffset, 'UTF-8'));
++            $bytesEndOffset = strlen(mb_substr($node-&gt;wholeText, 0, $endOffset, 'UTF-8'));
++
+             // Cut text after matched token
+-            $node-&gt;splitText($token-&gt;getEndOffset());
++            $node-&gt;splitText($bytesEndOffset);
+
+             // Cut matched node
+-            $matchedWordNode = $node-&gt;splitText($token-&gt;getStartOffset());
++            $matchedWordNode = $node-&gt;splitText($bytesStartOffset);
+
+             // Retrieve HTML string representation for highlihted word
+             $fullCallbackparamsList = $params;
+
+
+</pre>
+
+        </div>
+    </div>
+    </div>
+

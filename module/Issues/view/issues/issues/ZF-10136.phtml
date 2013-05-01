@@ -1,0 +1,197 @@
+<h2>ZF-10136: Wrong arrays union in Zend_Loader_Autoloader::getClassAutoloaders</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-12T00:35:27.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-04-30T18:22:52.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.6 (05/May/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Tsisaruk Vladimir (gidis)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Loader</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10779">ZF-10779</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13864/zf-10136.patch">zf-10136.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Wrong arrays union in Zend_Loader_Autoloader::getClassAutoloaders, if $autoloaders isn't empty array.
+See last comment at <a href="http://www.php.net/manual/en/language.operators.array.php#86379">http://php.net/manual/en/…</a>
+Example:</p>
+
+<pre class="literal">
+&lt;?php
+
+include "Zend/Loader/Autoloader.php";
+
+$zend_loader = Zend_Loader_Autoloader::getInstance();
+
+class Loader implements Zend_Loader_Autoloader_Interface
+{
+    public function autoload($class)
+    {
+         /* do something */
+    }
+}
+
+
+$zend_loader-&gt;
+    registerNamespace('Test')-&gt;
+    pushAutoloader(new Loader());
+
+var_dump(count($zend_loader-&gt;getClassAutoloaders('Test_Class')));
+</pre>
+
+<p>Output (only Zend_Loader_Autoloader instance):</p>
+
+<pre class="literal"> 
+int(1)
+</pre>
+
+<p>Must be (Zend_Loader_Autoloader and Loader instances):</p>
+
+<pre class="literal"> 
+int(2)
+</pre>
+
+<p>Patch for fix:</p>
+
+<pre class="literal"> 
+--- Autoloader.php      2010-07-12 14:13:33.000000000 +0700
++++ Autoloader.new.php  2010-07-12 14:14:12.000000000 +0700
+@@ -338,7 +338,7 @@
+             }
+             if (0 === strpos($class, $ns)) {
+                 $namespace   = $ns;
+-                $autoloaders = $autoloaders + $this-&gt;getNamespaceAutoloaders($ns);
++                $autoloaders = array_merge($autoloaders, $this-&gt;getNamespaceAutoloaders($ns));
+                 break;
+             }
+         }
+@@ -353,7 +353,7 @@
+         }
+ 
+         // Add non-namespaced autoloaders
+-        $autoloaders = $autoloaders + $this-&gt;getNamespaceAutoloaders('');
++        $autoloaders = array_merge($autoloaders, $this-&gt;getNamespaceAutoloaders(''));
+ 
+         // Add fallback autoloader
+         if (!$namespace &amp;&amp; $this-&gt;isFallbackAutoloader()) {
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Hendy Irawan (ceefour) on 2010-10-07T05:29:40.000+0000</p> 
+        <div class="body">
+            <p>This issue still exists in ZF 1.10.8 and even on trunk today.</p>
+
+<p>Maintainers, please commit this patch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Robert Goldsmith (far-blue) on 2010-10-29T08:57:37.000+0000</p> 
+        <div class="body">
+            <p>This issue actually also exists in the 1.11 RC1 release. The effective result of this bug is that it is not possible to register multiple autoloaders with either the same namespace or namespaces with the same starting string (e.g. 'account' and 'accountAdmin').</p>
+
+<p>the patch supplied for the fix, however, is slightly incorrect in that it does not remove the break on line 342 so the foreach on line 335 doesn't loop and fill additional autoloaders into the array.</p>
+
+<p>additional patch:</p>
+
+<pre class="literal">
+--- Autoloader.php      2010-07-12 14:13:33.000000000 +0700
++++ Autoloader.new.php  2010-07-12 14:14:12.000000000 +0700
+@@ -338,7 +338,7 @@
+             }
+             if (0 === strpos($class, $ns)) {
+                 $namespace   = $ns;
+                $autoloaders = array_merge($autoloaders, $this-&gt;getNamespaceAutoloaders($ns));
+ -                break;
+             }
+         }
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wadim Grasza (wadim.grasza) on 2010-12-05T10:24:40.000+0000</p> 
+        <div class="body">
+            <p>That's not all.</p>
+
+<p>The effective result of this bug is also that you cannot chain an autoloader for an empty namespace.</p>
+
+<p>To reproduce:
+1. Register 'My_' namespace with the autoloader.
+2. Invoke pushAutoloader for an empty namespace.
+3. Try to autoload a class that starts with 'My_'.</p>
+
+<p>Result:
+The autoloader pushed in 2. is not added to the list of tried autoloaders.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Aron Rotteveel (arondeparon) on 2011-02-03T02:45:36.000+0000</p> 
+        <div class="body">
+            <p>This bug still exists in 1.11.2.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-04-23T21:38:33.000+0000</p> 
+        <div class="body">
+            <p>Exists a problem with array_merge and numeric indexes see:
+<a href="http://pastebin.com/0CHBYRSj">http://pastebin.com/0CHBYRSj</a>, by this that this solution work fine.</p>
+
+<p>Attach a patch with tests.</p>
+
+<p>Greetings
+Ramon</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-04-30T18:22:52.000+0000</p> 
+        <div class="body">
+            <p>Fix in trunk r23907 merged to branch release 1.11 r23908 - thanks.</p>
+
+        </div>
+    </div>
+    </div>
+

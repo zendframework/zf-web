@@ -1,0 +1,737 @@
+<h2>ZF-1743: Zend_Session_Namespace does not persist new slice data</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-07-20T00:35:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-02-04T11:06:16.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Shekar Reddy (zendfw)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-800">ZF-800</a></li>
+            <li><a href="/issues/browse/ZF-1385">ZF-1385</a></li>
+            <li><a href="/issues/browse/ZF-1828">ZF-1828</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I'm having an issue with Zend_Session on PHP 5.1.6:</p>
+
+<pre class="highlight"><code>
+////////////////////////////////////////////////
+$auth = new Zend_Session_Namespace( 'auth' );
+...
+...
+...
+</code></pre>
+
+<p>The Auth namespace above works well and so far, so good. Its values get reloaded on subsequent page loads. Session is setup properly and it works.</p>
+
+<p>However, getting another slice (page) of the session does not persist the new slice on the next page load (the auth slice still works fine). Hence, a new value is getting generated for each page-load:</p>
+
+<pre class="highlight"><code>
+////////////////////////////////////////////////
+if ( ! $value = getPage( $key ))      // Always fails
+{ 
+   $value = generatePageValue();      // And a new value is generated
+   setPage( $key, $value );           // Save to session (but it does not get saved as it does not reload on next page)
+}
+ 
+////////////////////////////////////////////////
+function getPage( $key )
+////////////////////////////////////////////////
+{
+   $page =  new Zend_Session_Namespace( 'page' );
+   //
+   if ( isset( $page-&gt;$key ))
+   {
+      $key = $page-&gt;$key;
+      //
+      if ( isset( $key[ 'value' ] )
+           return $key[ 'value' ]
+   }
+   //
+   return '';
+}
+ 
+////////////////////////////////////////////////
+function setPage( $key, $value )
+////////////////////////////////////////////////
+{
+   $page = new Zend_Session_Namespace( 'page' );
+   $data = ( isset( $page-&gt;$key ) ? $page-&gt;$key : array()); 
+   //
+   $data[ 'value' ] = $value;
+   $page-&gt;$key = $data;
+}
+</code></pre>
+
+<p>In the above 'page' namespace, it is always returning an empty value on getPage() and hence saving a new value to the session on every page load. We even tried the Zend_Session_Namespace::SINGLE_INSTANCE mode, too but no luck. Here is the old code that used to work well without a problem:</p>
+
+<pre class="highlight"><code>
+////////////////////////////////////////////////
+function getPage( $key )
+////////////////////////////////////////////////
+{
+   if ( isset( $_SESSION[ 'page' ][ $key ][ 'value' ] ))
+        return $_SESSION[ 'page' ][ $key ][ 'value' ];
+   //
+   return '';
+}
+ 
+ 
+////////////////////////////////////////////////
+function setPage( $key, $value )
+////////////////////////////////////////////////
+{
+   $_SESSION[ 'page' ][ $key ][ 'value' ] = $value;
+}
+</code></pre>
+
+<p>I guess I used a version-safe syntax on namespace component. The updated documentation reads the issue with PHP version, like so:</p>
+
+<p>Version Pre-5.2 syntax (works on all versions):</p>
+
+<pre class="highlight"><code>
+if ( isset( $page-&gt;$key )) 
+{
+   $key = $page-&gt;$key;
+   //
+   if ( isset( $key[ 'value' ] )
+        return $key[ 'value' ]
+}
+</code></pre>
+
+<p>Version 5.2+ syntax (does not work under 5.2):</p>
+
+<pre class="highlight"><code>
+if ( isset( $page-&gt;$key[ 'value' ] )) 
+{
+     return $page-&gt;$key[ 'value' ]
+}
+</code></pre>
+
+<p>I used the version pre-5.2 syntax on both - auth and page slices. It works on auth slice gracefully but fails on the page slice.</p>
+
+<p>I tested it on a temporary installation of PHP 5.2.3 (another machine) and it works fine. But I really need to make this work on 5.1.6 as our dev environment would take ages to upgrade to 5.2.x. I don't see why this should not work on 5.1.6 given that I am using pre-5.2 syntax that is supposed to work on all versions.</p>
+
+<p>On another note, I've noticed if I set the option as under:</p>
+
+<pre class="highlight"><code>
+    Zend_Session::setOptions( array(
+      'name'    =&gt; 'MySID' )
+    );
+</code></pre>
+
+<p>but not set the session.name inside php.ini, the first session name is generated as PHPSESSID and subsequent names are generated as per the above setting (MySID). I was able to see the session_name for each namespace object created by doing:</p>
+
+<p>echo session_name();</p>
+
+<p>However, if I set the value in php.ini, session name is generated properly for each namespace. And so, I ended up setting the name in the ini file. Don't know if this is an issue with 5.1.6 or Zend_Session and thought you might like to take a look at this one, too.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-07-31T13:51:26.000+0000</p> 
+        <div class="body">
+            <p>Shekar,
+  I am trying to build a testable testcase for this so that i can apply it to all verisons of php supported by zend framework.. does this look like it describes the problem well?</p>
+
+<pre class="highlight"><code>
+&lt;?
+
+// set path for all php versions
+set_include_path('.:/usr/share/<a>php5:/usr/share/php</a>');
+
+// e-strict it
+error_reporting(E_ALL | E_STRICT);
+
+// start the bug
+require_once 'Zend/Session.php';
+
+$s = new Zend_Session_Namespace('blah');
+$s-&gt;someArray['foo'] = 'bar';
+
+var_dump($_SESSION);
+</code></pre>
+
+<p>can you confirm this produces the problem on your version?</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2007-08-01T13:55:29.000+0000</p> 
+        <div class="body">
+            <p>Hi Ralph,</p>
+
+<p>The following test-cases work well on v5.2.3 but fail on v5.1.6:</p>
+
+<pre class="highlight"><code>
+//////////////////////////////////////////////////////////////////////////////
+echo PHP_VERSION;
+
+error_reporting(E_ALL | E_STRICT);   // e-strict it
+
+ 
+///////////////////////////////////////
+// Pre-v5.2 syntax
+///////////////////////////////////////
+
+echo 'BEFORE: ' . Zend_Debug::dump($_SESSION);
+$b = new Zend_Session_Namespace('blah');
+$s = $b-&gt;someArray;
+
+Zend_Debug::dump($s);     // Always empty on v5.1.6 - does not persist :(
+
+if ( ! isset( $s[ 'foo' ] ))
+{
+   $s['foo'] = 'bar';
+   $b-&gt;someArray = $s;
+}
+ 
+echo 'AFTER: ' . Zend_Debug::dump($_SESSION);   // [blah][someArray][foo] exists now but does not persist
+ 
+
+ 
+///////////////////////////////////////
+// v5.2 syntax
+///////////////////////////////////////
+ 
+echo 'BEFORE: ' . Zend_Debug::dump($_SESSION);
+$b = new Zend_Session_Namespace('blah');
+ 
+if ( ! isset( $b-&gt;someArray[ 'foo' ] ))
+{
+   echo 'Boo-Boo!';     // Always echoes this on 5.1.6 - does not persist :(
+   $b-&gt;someArray['foo'] = 'bar';
+}
+ 
+echo 'AFTER: ' . Zend_Debug::dump($_SESSION);   // [blah][someArray][foo] exists now but does not persist
+//////////////////////////////////////////////////////////////////////////////
+</code></pre>
+
+<p>You marked my issue 1743 as a duplicate of <a href="http://framework.zend.com/issues/browse/ZF-1385">http://framework.zend.com/issues/browse/ZF-1385</a>  but I'm not sure if it is. Furthermore, my issue comprises of two problems; one being the above, and the other pertaining to setOptions('name') for session-name at its bottom.</p>
+
+<p>HTH</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2007-08-02T13:51:05.000+0000</p> 
+        <div class="body">
+            <p>Hi Ralph,</p>
+
+<p>Forgot to mention that ideally, the pre-v5.2 syntax should work on all versions as expected.</p>
+
+<p>On another note, I consider it double-standards to advise the developers to use one syntax for pre-v5.2 and another syntax for v5.2 - unless the ZF raises the minimum PHP version to 5.2. Its more confusing and there will be frequent questions on the list why the Zend_Session logic is not working even if its documented clearly and even if its an issue with the version of PHP they are using. I suggest that we simplify the session component and offer Zend_Session out of the box without dependency on the namespace subcomponent. However, those who wish to use the namespace subcomponent may still use it if their version of PHP is compatible with the syntax they're going to use. Here is my suggestion that supports optional namespaces and multi-dimensional nodes that should suffice most applications - including even the complex ones:</p>
+
+<pre class="highlight"><code>
+/////////////////////////////////////////////////////////////////////////
+class Zend_Session ...
+/////////////////////////////////////////////////////////////////////////
+{
+   ////////////////////////////////////////////////////////////////
+   static function get( $key, $namespace = '', $node = '' )
+   ////////////////////////////////////////////////////////////////
+   {
+      if ( $namespace &amp;&amp; $node )      // Namespace and node
+         return $_SESSION[ $namespace ][ $node ][ $key ];
+      elseif ( $namespace )           // Just the namespace
+         return $_SESSION[ $namespace ][ $key ];
+      //
+      return $_SESSION[ $key ];       // No namespace or node
+   }
+   //
+   ////////////////////////////////////////////////////////////////
+   static function set( $key, $value, $namespace = '', $node = '' )
+   ////////////////////////////////////////////////////////////////
+   {
+      if ( $namespace &amp;&amp; $node )        // Namespace and node
+         $_SESSION[ $namespace ][ $node ][ $key ] = $value;
+      elseif ( $namespace )             // Just the namespace
+         $_SESSION[ $namespace ][ $key ] = $value;
+      else
+         $_SESSION[ $key ] = $value;    // No namespace or node
+   }
+   //
+   ////////////////////////////////////////////////////////////////
+   static function has( $key, $namespace = '', $node = '' )
+   ////////////////////////////////////////////////////////////////
+   {
+      if ( $namespace &amp;&amp; $node )
+      {
+         if ( isset( $_SESSION[ $namespace ][ $node ][ $key ] ))
+            return true;          // Namespace and node
+      }
+      elseif ( $namespace )
+      {
+         if ( isset( $_SESSION[ $namespace ][ $key ] ))
+            return true;          // Just the namespace
+      }
+      else
+      {
+         if ( isset( $_SESSION[ $key ] ))
+            return true;         // No namespace or node
+      }
+      //
+      return false;              // No data found
+   }
+}
+
+
+
+USAGE
+-----
+if ( Zend_Session::has( 'user', 'auth' ))
+   $user = Zend_Session::get( 'user', 'auth' );
+else
+   ...
+
+/////////////////////////////////////////////////////////////////////////
+</code></pre>
+
+<p>What do you think of the above...?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-08-02T14:02:53.000+0000</p> 
+        <div class="body">
+            <p>Shekar, Ive done some digging and using a standard suggested test script, was able to identify the problem to only 5.2.0</p>
+
+<p>here is the code i used:</p>
+
+<pre class="highlight"><code>
+webdeveloper@webdevelopment ~/testing $ cat test_zsession.php 
+&lt;?
+
+// set path for all php versions
+set_include_path('.:/usr/share/<a>php5:/usr/share/php</a>');
+
+// e-strict it
+error_reporting(E_ALL | E_STRICT);
+
+// start the bug
+require_once 'Zend/Session.php';
+
+Zend_Session::setId('1234');
+Zend_Session::start();
+
+echo PHP_VERSION . PHP_EOL;
+
+$s = new Zend_Session_Namespace('blah');
+
+if (isset($s-&gt;someArray)) {
+  echo 'OLD VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+}
+
+$new_value = 'bar' . rand(1,5);
+
+$s-&gt;someArray['foo'] = $new_value;
+
+echo 'NEW VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+</code></pre>
+
+<p>And the output of runs:</p>
+
+<pre class="highlight"><code>
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+webdeveloper@webdevelopment ~/testing $ ~/bin/php514 test_zsession.php 
+5.1.4
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar2";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php514 test_zsession.php 
+5.1.4
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar2";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php514 test_zsession.php 
+5.1.4
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar1";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar1";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+webdeveloper@webdevelopment ~/testing $ ~/bin/php520 test_zsession.php 
+5.2.0
+
+Notice: Indirect modification of overloaded property Zend_Session_Namespace::$someArray has no effect in /home/webdeveloper/testing/test_zsession.php on line 25
+NEW VALUE: N;
+webdeveloper@webdevelopment ~/testing $ ~/bin/php520 test_zsession.php 
+5.2.0
+
+Notice: Indirect modification of overloaded property Zend_Session_Namespace::$someArray has no effect in /home/webdeveloper/testing/test_zsession.php on line 25
+NEW VALUE: N;
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php 
+5.2.1
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php 
+5.2.1
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php 
+5.2.1
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+webdeveloper@webdevelopment ~/testing $ php test_zsession.php 
+5.2.2-pl1-gentoo
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+webdeveloper@webdevelopment ~/testing $ php test_zsession.php 
+5.2.2-pl1-gentoo
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+webdeveloper@webdevelopment ~/testing $ php test_zsession.php 
+5.2.2-pl1-gentoo
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar2";}
+webdeveloper@webdevelopment ~/testing $ 
+</code></pre>
+
+<p>Again, right now we are only talking about modification of Namespace variables, (not the "name" issue you also mentioned above)</p>
+
+<p>See if this demonstrates the problem, my run output is right above.
+-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-08-02T14:14:47.000+0000</p> 
+        <div class="body">
+            <p>As a 5.2.0 only workaround:</p>
+
+<pre class="highlight"><code>
+&lt;?
+
+// set path for all php versions
+set_include_path('.:/usr/share/<a>php5:/usr/share/php</a>');
+
+// e-strict it
+error_reporting(E_ALL | E_STRICT);
+
+// start the bug
+require_once 'Zend/Session.php';
+
+Zend_Session::setId('1234');
+Zend_Session::start();
+
+echo PHP_VERSION . PHP_EOL;
+
+$s = new Zend_Session_Namespace('blah');
+
+if (isset($s-&gt;someArray)) {
+  echo 'OLD VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+}
+
+$new_value = 'bar' . rand(1,5);
+
+$tmp['foo'] = $new_value;
+$s-&gt;someArray = $tmp;
+
+echo 'NEW VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+</code></pre>
+
+<pre class="highlight"><code>
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar1";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar1";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar2";}
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234
+webdeveloper@webdevelopment ~/testing $ ~/bin/php520 test_zsession520.php 
+5.2.0
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php520 test_zsession520.php 
+5.2.0
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar3";}
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php    
+5.2.1
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php 
+5.2.1
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar4";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar1";}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-08-02T15:12:38.000+0000</p> 
+        <div class="body">
+            <p>I get results consistent with Ralph's - success for versions 5.1.4 (WinXP), 5.2.1 (Ubuntu), and 5.2.3 (RHEL 3).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2007-08-02T15:58:55.000+0000</p> 
+        <div class="body">
+            <p>Hi Ralph/Darby,</p>
+
+<p>I work on v5.1.6 on XP where the script did not work. It worked on 5.2.3 on XP, too. Regret, I have no way of testing it on other versions.</p>
+
+<p>It's strange it works on 5.1.4, 5.1.6 but not on 5.2. Does it mean PHP was fine on 5.1.4 and 5.1.6 but broken in 5.2 in this respect? Is there a guarantee it would not be broken in future versions of PHP? It wouldn't be graceful for the session component if it does!</p>
+
+<p>In any case, the methods I suggested above for the Zend_Session component to make it independent of the namespace subcomponent are backwards compatible and are meant to be in addition to the ones that already exist in the session component.</p>
+
+<p>Regards,</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-08-02T16:39:35.000+0000</p> 
+        <div class="body">
+            <p>Shekar,
+  I just downloaded php 5.1.6 for xp and was able to sucessfully run this script:</p>
+
+<pre class="highlight"><code>
+&lt;?
+
+// set path for all php versions
+set_include_path('.');
+
+// e-strict it
+error_reporting(E_ALL | E_STRICT);
+
+// start the bug
+require_once 'Zend/Session.php';
+
+Zend_Session::setId('1234');
+Zend_Session::start();
+
+echo PHP_VERSION . PHP_EOL;
+
+$s = new Zend_Session_Namespace('blah');
+
+if (isset($s-&gt;someArray)) {
+  echo 'OLD VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+}
+
+$new_value = 'bar' . rand(1,5);
+
+$s-&gt;someArray['foo'] = $new_value;
+
+echo 'NEW VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+
+</code></pre>
+
+<p>And get these expected results:</p>
+
+<pre class="highlight"><code>
+C:\Documents and Settings\Nobody Special\Desktop\php-5.1.6-win32\test_zsession&gt;less "C:\Documents and Settings\Nobody Special\Local Settings\Temp\sess_1234"
+
+C:\Documents and Settings\Nobody Special\Desktop\php-5.1.6-win32\test_zsession&gt;rm "C:\Documents and Settings\Nobody Special\Local Settings\
+Temp\sess_1234"
+
+C:\Documents and Settings\Nobody Special\Desktop\php-5.1.6-win32\test_zsession&gt;..\php test_zsession.php
+5.1.6
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+
+C:\Documents and Settings\Nobody Special\Desktop\php-5.1.6-win32\test_zsession&gt;..\php test_zsession.php
+5.1.6
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+
+C:\Documents and Settings\Nobody Special\Desktop\php-5.1.6-win32\test_zsession&gt;..\php test_zsession.php
+5.1.6
+OLD VALUE: a:1:{s:3:"foo";s:4:"bar5";}
+NEW VALUE: a:1:{s:3:"foo";s:4:"bar1";}
+</code></pre>
+
+<p>Are you using this test script or the one you posted above?  B/c i notice the one you post above does not explicitly call Zend_Session::start() even though you are printing $_SESSION before the first namespace object is created (which implicitly calls start).</p>
+
+<p>Overall, before discussing code changes, we really need to identify the problem, and to which version of php it pertains to.  Once we figure that out, then we can talk about what changes to the codebase need to happen in order to fix outstanding problems.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-08-02T16:55:05.000+0000</p> 
+        <div class="body">
+            <p>Note: other projects have also come across this problem and have fixed and suggested to move up to 5.2.1.  5.2.0 is simply broken when it comes to __get() behavior, and forcing a referenced return does not work for that version..  This should be taken into consideration when a decision needs to be made about whether or not fix's need to be applied to the codebase..</p>
+
+<p>References:</p>
+
+<p><a href="http://trac.symfony-project.com/trac/ticket/1376">http://trac.symfony-project.com/trac/ticket/1376</a>
+<a href="http://weierophinney.net/matthew/archives/131-Overloading-arrays-in-PHP-5.2.0.html">http://weierophinney.net/matthew/archives/…</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2007-08-06T09:18:07.000+0000</p> 
+        <div class="body">
+            <p>Hi Ralph,</p>
+
+<p>Yes, Zend_Session::start() is called elsewhere BEFORE the script is executed. It's the same script that is run on 5.1.6 and 5.2.3 without any changes; otherwise, code on 5.2.3 would not succeed, either (I'm getting results as desired on 5.2.3)! But I'm not sure why my PHP 5.1.6 is failing - maybe something wrong with my installation/configuration. It could be a DLL mismatch or a corrupted download or something that I'm not sure.</p>
+
+<p>I'm gonna have to re-download/re-install/re-try it. I'll let you know soon...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-08-08T10:53:42.000+0000</p> 
+        <div class="body">
+            <p>Modified my test script to include unnamed array modification and creation:</p>
+
+<p>Script and test run below:</p>
+
+<pre class="highlight"><code>
+webdeveloper@webdevelopment ~/testing $ cat test_zsession.php 
+&lt;?
+
+// set path for all php versions
+set_include_path('.:/usr/share/<a>php5:/usr/share/php</a>');
+
+// e-strict it
+error_reporting(E_ALL | E_STRICT);
+
+// start the bug
+require_once 'Zend/Session.php';
+
+Zend_Session::setId('1234');
+Zend_Session::start();
+
+echo PHP_VERSION . PHP_EOL;
+
+$s = new Zend_Session_Namespace('blah');
+
+if (isset($s-&gt;someArray)) {
+  echo 'OLD VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+}
+
+$s-&gt;someArray[] = 'bar' . rand(1,5);
+
+echo 'NEW VALUE: ' . serialize($s-&gt;someArray) . PHP_EOL;
+
+
+
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php514 test_zsession.php 
+5.1.4
+NEW VALUE: a:1:{i:0;s:4:"bar5";}
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php514 test_zsession.php 
+5.1.4
+OLD VALUE: a:1:{i:0;s:4:"bar5";}
+NEW VALUE: a:2:{i:0;s:4:"bar5";i:1;s:4:"bar1";}
+
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+NEW VALUE: a:1:{i:0;s:4:"bar3";}
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php516 test_zsession.php 
+5.1.6
+OLD VALUE: a:1:{i:0;s:4:"bar3";}
+NEW VALUE: a:2:{i:0;s:4:"bar3";i:1;s:4:"bar1";}
+
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php520 test_zsession.php 
+5.2.0
+
+Notice: Indirect modification of overloaded property Zend_Session_Namespace::$someArray has no effect in /home/webdeveloper/testing/test_zsession.php on line 23
+NEW VALUE: N;
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php520 test_zsession.php 
+5.2.0
+
+Notice: Indirect modification of overloaded property Zend_Session_Namespace::$someArray has no effect in /home/webdeveloper/testing/test_zsession.php on line 23
+NEW VALUE: N;
+
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php 
+5.2.1
+NEW VALUE: a:1:{i:0;s:4:"bar5";}
+
+webdeveloper@webdevelopment ~/testing $ ~/bin/php521 test_zsession.php 
+5.2.1
+OLD VALUE: a:1:{i:0;s:4:"bar5";}
+NEW VALUE: a:2:{i:0;s:4:"bar5";i:1;s:4:"bar2";}
+
+webdeveloper@webdevelopment ~/testing $ cat /dev/null &gt; /tmp/sess_1234 
+
+webdeveloper@webdevelopment ~/testing $ php test_zsession.php 
+5.2.2-pl1-gentoo
+NEW VALUE: a:1:{i:0;s:4:"bar4";}
+
+webdeveloper@webdevelopment ~/testing $ php test_zsession.php 
+5.2.2-pl1-gentoo
+OLD VALUE: a:1:{i:0;s:4:"bar4";}
+NEW VALUE: a:2:{i:0;s:4:"bar4";i:1;s:4:"bar4";}
+
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Shekar Reddy (zendfw) on 2007-11-07T01:12:42.000+0000</p> 
+        <div class="body">
+            <p>I re-downloaded PHP 5.1.6 and did a binary diff on all the files with those installed on my machine and found all of them to be identical. I guess this is just an isolated case - the reasons for which are unknown for now. Since you and Darby are stating it works on 5.1.6, let safely assume that 5.1.6 does not have any issues except for my isolated case.</p>
+
+<p>Thanks,</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2008-02-04T11:06:16.000+0000</p> 
+        <div class="body">
+            <p>Closing as not an issue right now, have done due diligence in finding the core of the issue, but it seems it only affects a 'bad' version of php.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+    </div>
+

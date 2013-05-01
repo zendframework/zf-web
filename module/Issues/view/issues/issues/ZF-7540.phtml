@@ -1,0 +1,263 @@
+<h2>ZF-7540: Allow certain class within checking datatype of variable  </h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-09T12:04:56.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-09-04T12:51:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marius Mühlberger (tracer)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Validate</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-7414">ZF-7414</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Since 1.9.0 the within validation the type is checked.</p>
+
+<p>In Basic this is a good idea, but it also has some great disadvantages.</p>
+
+<p>Scenario:
+- Inside a form I have implemented some Filters, which make me an object out of the given string (e.g. formating output, l18n, etc.)
+- this object implements a __toString() function which gave the (unformated) value to validator so far, which worked fine</p>
+
+<p>Solution:
+It would be a great improvement to implment an interface eg.</p>
+
+<pre class="highlight"><code> 
+interface Zend_Validate_ValidateAble {
+    public function getValidationValue();
+}
+</code></pre>
+
+<p>and check at the top of each "isValid($value)" function:</p>
+
+<pre class="highlight"><code> 
+if ($value instanceof  Zend_Validate_ValidateAble)  {
+    $value = $value-&gt;getValidationValue();
+}
+
+// new type check introduced in 1.9.0 starts here
+</code></pre>
+
+<p>This improvement may be helpful to fix ZF-7414</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marius Mühlberger (tracer) on 2009-08-09T12:06:31.000+0000</p> 
+        <div class="body">
+            <p>without getting into detail with ZF-7414 I guess this improvement should be the solution for this issue, too</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marius Mühlberger (tracer) on 2009-08-09T12:18:42.000+0000</p> 
+        <div class="body">
+            <p>If it helps I can post some files showing the scenario with filters returning objects - I also implemented another interface to get the value formated for the database, another one for localised user output and so on. I just need to declare the filter, everything else is done be the Object being returned from the filter...</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-08-09T12:32:15.000+0000</p> 
+        <div class="body">
+            <p>No, for the proposed interface.
+Can you give an reproducable example of a validator and the value you provide ?</p>
+
+<p>The Problem:
+Casting an object could also lead to the problem to get a non-string (as it depends on the user implementation).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marius Mühlberger (tracer) on 2009-08-09T12:52:01.000+0000</p> 
+        <div class="body">
+            <p>The Problem:
+Yes, there could be an user implementation which returns a non-string, but this should not be the problem:</p>
+
+<pre class="highlight"><code>
+    public function isValid($value)
+    {
+        if ($value instanceof  Zend_Validate_ValidateAble)  {
+            $value = $value-&gt;getValidationValue();
+        }
+
+        if (!is_string($value) &amp;&amp; !is_int($value) &amp;&amp; !is_float($value) &amp;&amp; !is_bool($value)) {
+            $this-&gt;_error(self::INVALID);
+            // if "getValidationValue()" would not be a non-string the validation process would end here!
+            return false;
+        }
+
+        // [...]
+
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marius Mühlberger (tracer) on 2009-08-09T12:57:58.000+0000</p> 
+        <div class="body">
+            <p>The example:</p>
+
+<pre class="highlight"><code>
+class Co_Date extends Zend_Date implements Co_Db_DatabaseString, Co_Validate_ValidateAble
+{
+    protected $_defaultFormat = null; 
+        
+    public function __toString()
+    {
+        return $this-&gt;toString($this-&gt;_defaultFormat, $this-&gt;_locale);        
+    }
+    
+    public function getValidationValue()
+    {
+        return $this-&gt;__toString();
+    }
+    
+    public function setDefaultFormat($value)
+    {
+        $this-&gt;_defaultFormat = $value;
+        return $this;
+    }   
+    
+    public function getDefaultFormat()
+    {
+        return $this-&gt;_defaultFormat;
+    }   
+    
+    /**
+     * get the string to be inserted to the database
+     *
+     * @param string $dataType meta type of db-field
+     * @return string
+     */
+    public function getDatabaseValue($dataType = null)
+    {
+        switch ($dataType) {
+            case 'date':
+                return $this-&gt;toString('y-MM-dd');
+            case 'datetime':
+                return $this-&gt;toString('y-MM-dd HH:mm:ss');
+            case 'int':
+                return $this-&gt;getTimestamp();
+            default:
+                return null;
+        }
+    }    
+}
+</code></pre>
+
+<p>I create a new object and pass it to the validator:</p>
+
+<pre class="highlight"><code>
+$myDate = new CoDate('09.08.2009'); // Locale set do DE_de via Registry
+
+$dateValidator = new Zend_Validate_Date();
+
+var_dump($dateValidator-&gt;isValid($myDate));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-08-24T14:27:29.000+0000</p> 
+        <div class="body">
+            <p>Is this the only example ? Or do you have other problems too. :-)</p>
+
+<p>Because the Date validator accepts Zend_Date objects. (1.9.2/1.10 seperate issue)</p>
+
+<p>For other validators I see more problems by allowing objects than throwing an error.
+Example... Int validator... objects are never casted to int...</p>
+
+<p>Such a change must be thought of seperately for each validator.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marius Mühlberger (tracer) on 2009-08-25T03:21:54.000+0000</p> 
+        <div class="body">
+            <p>Hello Thomas,</p>
+
+<p>unfortunately I have other problems, too :-(</p>
+
+<p>Every value which will be inserted into the database is casted into an Object, also Floats and Int. This objects implment two Interfaces: Co_Db_DatabaseString and Co_Validate_ValidateAble.</p>
+
+<p>This has following three reasons:
+- All values are localized (eg. "." and "," in double and float) =&gt; this could be done in another way, but it fits great into this solution
+- The object adds validators automatically based on the meta-data of the db, so if there is a int and db-type is TINYINT, the validator Between 0-255 is added
+- The object returns a well-formated value for the database via the function "toDbString, eg. if a double has more decimal numbers then the db allows it's rounded correctly, not just cut (some db's also return warnings in the case of to much decimal numbers).</p>
+
+<p>So supporting a interface would be a great solution.</p>
+
+<p>Currently I'm writting on a scientific paper on building an application with zend framework for a german university and I don't have to much time left to finish this work. But I could write a documentation of the way I implemented this hole thing after the scientific paper is finished.</p>
+
+<p>Kind regards,
+Marius</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-08-25T03:38:02.000+0000</p> 
+        <div class="body">
+            <p>No for an additional interface.
+There is no benefit over casting to string when validating (which would be more common).</p>
+
+<p>Example:
+Why should the NotEmpty validator allow objects as input... casting an object to string produces never a null value nor a integer 0 nor a false as it is casted to string.</p>
+
+<p>You can do in userland code whatever you want, but for the framework (we have to think of other usecases, environments, usability and other things) it makes no sense.</p>
+
+<p>Btw: For localizing/normlizing values there is a Zend_Filter_NormalizeToLocalize and reverse... also Zend_Validate_Int/Float accept localized values when the locale is set.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2009-09-04T12:51:29.000+0000</p> 
+        <div class="body">
+            <p>Closing as Won't Fix.</p>
+
+<p>When there are good reasons for a single validator to accept objects (for example Zend_Date for the date validator) then a seperate issue should be given for these validators.</p>
+
+<p>A generic interface as proposed here to allow typeless validation would integrate the same problems as we had before by allowing all types (even ressources) and do casting regardless of the given input.</p>
+
+        </div>
+    </div>
+    </div>
+

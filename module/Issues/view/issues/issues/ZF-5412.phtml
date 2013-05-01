@@ -1,0 +1,197 @@
+<h2>ZF-5412: Zend_Form_Element_MultiCheckBox::addError() array problem</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-06T05:00:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-06-10T04:39:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.5 (27/Oct/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Tobias Petry (ice-breaker)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4915">ZF-4915</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12196/patch5412.txt">patch5412.txt</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If you try to add an error to a Zend_Form_Element_MultiCheckBox element an php warning will occur:
+{quote}Warning: Invalid argument supplied for foreach() in ........\library\Zend\Form\Element.php on line 2101{quote}</p>
+
+<hr /><p>You can reproduce the error by executing this little snippet:</p>
+
+<pre class="literal">
+$element = new Zend_Form_Element_MultiCheckBox('someVar');
+$element-&gt;addMultiOptions(array('hello', 'world'))
+        -&gt;setLabel("Hello world")
+        -&gt;setRequired(false)
+        -&gt;addError('someError'); 
+</pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2009-01-06T05:04:53.000+0000</p> 
+        <div class="body">
+            <p>There has been a bug in addError some time ago, which affected Zend_Element::addError (<a href="http://framework.zend.com/issues/browse/ZF-3852">#ZF-3852</a>).
+Don't know if this is a help for anybody.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2009-01-06T05:21:20.000+0000</p> 
+        <div class="body">
+            <p>The codeblock of the library is the following:</p>
+
+<pre class="literal">
+if ($this-&gt;isArray() || is_array($value)) {
+    $aggregateMessages = array();
+    foreach ($value as $val) {
+        $aggregateMessages[] = str_replace('%value%', $val, $message);
+    }
+    $messages[$key] = $aggregateMessages;
+}</pre>
+
+<p>The problem seems to be the if-clause. isArray is true, but $value is an empty string, when i run my snippet from above. So the source tries to iterate a string, which does not work and the php-warning for the for-each-loop is thrown.
+I changed the if-clause to make an AND instead of an OR and it does work:</p>
+
+<pre class="literal">
+if ($this-&gt;isArray() &amp;&amp; is_array($value)) {
+    $aggregateMessages = array();
+    foreach ($value as $val) {
+        $aggregateMessages[] = str_replace('%value%', $val, $message);
+    }
+    $messages[$key] = $aggregateMessages;
+}</pre>
+
+<p>So now, has $value to be an array if we want to loop.
+It does work, but i don't know if i break something different, but i can't image it, because value HAS TO BE an array for iterating.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-01-22T03:01:15.000+0000</p> 
+        <div class="body">
+            <p>This also breaks when using {{addErrorMessages()}}
+So there is no good way to display errors with this field.</p>
+
+<p>See also: ZF-5603</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Bodera (joust) on 2009-01-22T03:44:50.000+0000</p> 
+        <div class="body">
+            <p>When using {{addErrorMessages()}} the bug is in {{Zend_Form_Element::_getErrorMessages()}}.</p>
+
+<p>When we add error with {{Zend_Form_Element::addError()}} the following is executed:</p>
+
+<pre class="highlight"><code>
+/**
+* Add an error message and mark element as failed validation
+*
+* @param  string $message
+* @return Zend_Form_Element
+*/
+public function addError($message)
+{
+   $this-&gt;addErrorMessage($message);
+   $this-&gt;markAsError();
+   return $this;
+}
+</code></pre>
+
+<p>Let's take a look at {{markAsError()}} function:</p>
+
+<pre class="highlight"><code>
+    $messages       = $this-&gt;getMessages();
+    $customMessages = $this-&gt;_getErrorMessages();
+    $messages       = $messages + $customMessages;
+    if (empty($messages)) {
+        $this-&gt;_isError = true;
+    } else {
+        $this-&gt;_messages = $messages;
+    }
+    return $this;
+</code></pre>
+
+<p>The problem is in {{_getErrorMessages}} function. The resulting {{$message}} var, in case of {{Multi}} field will look like this:</p>
+
+<pre class="highlight"><code>
+$messages = array(
+    0 =&gt; array(
+        0 =&gt; 'My custom errormessage',
+        1 =&gt; 'My custom errormessage',
+        2 =&gt; 'My custom errormessage'
+    )
+)
+</code></pre>
+
+<p>It's structure is unknown for {{Zend_View_Helper_FormErrors}}, therefore there are errors.</p>
+
+<p>I strongly suggest to give full control over the method of validating {{Multi}} elements! As for now validators are run on each and every selected
+value, but there is no way to validate THE WHOLE FIELD, nor give it a GLOBAL SINGLE custom error message. Current architecture does NOT allow i.e. to
+create a {{Zend_Validate_Count}} which would throw error if less (or more) number of fields have been selected.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2009-05-05T04:09:24.000+0000</p> 
+        <div class="body">
+            <p>This patch resolves the problem.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2009-09-11T16:18:37.000+0000</p> 
+        <div class="body">
+            <p>added new patch with unit tests.</p>
+
+<p>current Zend_Form trunk is defect, test with 1.9.2 final, it's working with no side effects.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tobias Petry (ice-breaker) on 2010-06-10T04:39:34.000+0000</p> 
+        <div class="body">
+            <p>fixed with #ZF-4915</p>
+
+        </div>
+    </div>
+    </div>
+

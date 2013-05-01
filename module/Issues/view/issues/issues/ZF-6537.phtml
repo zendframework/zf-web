@@ -1,0 +1,185 @@
+<h2>ZF-6537: Disabling Zend_Layout does not work correctly when ActionStack used.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-05T04:32:53.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T20:53:32.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Mark (lightflowmark)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Layout</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>This is partly a Zend_Layout issue and partly a problem with ViewRenderer helper, I think.</p>
+
+<p>Suppose one is using Zend_Layout with the ActionStack, as recommended in the docs, and the stack is set up at dispatchLoopStartup (which seems like the right place for it).  Content from these actions is assigned to response segments using $this-&gt;_helper-&gt;viewRenderer-&gt;setResponseSegment('someSegment'), in order that it can be rendered in the correct place by Zend_Layout.</p>
+
+<p>I want to disable the layout in one of my actions; however, when I do so (using $this-&gt;getHelper('layout')-&gt;disableLayout()) , any actions previously called by the ActionStack are then appended to the body - there are no layout placeholders (as layout is disabled), and so these items are simply tagged on to the main body.  This is not, I believe, appropriate behaviour.</p>
+
+<p>Psuedo-code may clarify:</p>
+
+<pre class="highlight"><code>
+  function dispatchLoopStartup
+  {
+            $actionStack = $front-&gt;getPlugin('Zend_Controller_Plugin_ActionStack');
+            $menuAction = clone($request);
+            $menuAction-&gt;setActionName('menu')
+                    -&gt;setControllerName('my_controller');
+            $actionStack-&gt;pushStack($menuAction);
+  }
+</code></pre>
+
+<pre class="highlight"><code>
+  function menuAction
+  {
+     // stuff ...
+     // menu viewscript renders like </code></pre><div><code>menu item 1, menu item 2</code></div><code>
+     $this-&gt;_helper-&gt;viewRenderer-&gt;setResponseSegment('menu');
+  }
+
+  function withLayoutAction
+  {
+     // stuff ...
+     // withLayout viewscript renders like </code><div><code>some with-layout text</code></div><code>
+  }
+
+  function noLayoutAction
+  {
+     $this-&gt;getHelper('layout')-&gt;disableLayout();
+     // stuff
+     // noLayout viewscript renders like </code><div><code>Some no-layout stuff here</code></div><code>    
+  }
+</code>
+
+<pre class="highlight"><code>
+</code></pre><h1><code>Menu</code></h1><code>
+&lt;?= $this-&gt;layout()-&gt;menu ?&gt;
+
+</code><h1><code>Main Content</code></h1><code>
+&lt;?= $this-&gt;layout()-&gt;content ?&gt;
+</code>
+
+<p>If I go to my_controller/withLayout, I get the menu and withLayout div rendered at the layout placeholders as you'd expect, no problem.
+If I go to my_controller/noLayout, I the full output is:</p>
+
+<div>Some no-layout stuff here</div>
+
+<div>menu item 1, menu item 2</div>
+
+<p>The content from menuAction is simply appended to the content from noLayoutAction, which is exactly <em>not</em> what I want!</p>
+
+<p>One workaround is rather than disable the layout, to use a layout template with only the 'content' placeholder:</p>
+
+<pre class="highlight"><code>
+&lt;?= $this-&gt;layout()-&gt;content ?&gt;
+</code></pre>
+
+<p>and then, rather than disabling the layout, change layout script in the controller action</p>
+
+<pre class="highlight"><code>
+function noLayoutAction
+{
+  $this-&gt;getHelper('layout')-&gt;setLayout('no-layout');
+} 
+</code></pre>
+
+<p>This implies to me that a possible fix would be to never actually disable Zend_Layout, but instead force it to use a basic layout template as above; to rewrite disableLayout:</p>
+
+<pre class="highlight"><code>
+public function disableLayout()
+{
+  $this-&gt;setLayout('no-layout');
+  $this-&gt;_enabled = false;
+  return($this);
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Mark (lightflowmark) on 2009-05-05T04:50:32.000+0000</p> 
+        <div class="body">
+            <p>Markup edit for readability.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-05-05T06:46:02.000+0000</p> 
+        <div class="body">
+            <p>Assigning to Ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by julien PAULI (doctorrock83) on 2009-05-13T11:39:53.000+0000</p> 
+        <div class="body">
+            <p>Yeah, good one.
+This is because the response object sticks all its body segments together when outputed, and the layout , when activated pulls them from the response.
+When the layout is disabled, the segment is not pulled out from the response object, so it gets rendered.</p>
+
+<p>A quick patch could be (Plugin/Layout)</p>
+
+<pre class="highlight"><code>
+if (!$layout-&gt;isEnabled()) {
+            if (Zend_Controller_Front::getInstance()-&gt;getParam('noViewRenderer') == false &amp;&amp; !Zend_Controller_Action_HelperBroker::hasHelper('viewRenderer')) {
+                return;
+            }
+            $segment = Zend_Controller_Action_HelperBroker::getStaticHelper('ViewRenderer')-&gt;getResponseSegment();
+            if ($segment != null) {
+                $response = $this-&gt;getResponse();
+                $response-&gt;setBody('', $segment);
+            }
+            return;
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T20:53:32.000+0000</p> 
+        <div class="body">
+            <p>Bulk change of all issues last updated before 1st January 2010 as "Won't Fix".</p>
+
+<p>Feel free to re-open and provide a patch if you want to fix this issue.</p>
+
+        </div>
+    </div>
+    </div>
+

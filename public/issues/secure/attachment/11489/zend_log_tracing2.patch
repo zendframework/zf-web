@@ -1,0 +1,288 @@
+Index: Zend/Log/Formatter/Simple.php
+===================================================================
+--- Zend/Log/Formatter/Simple.php	(revision 10903)
++++ Zend/Log/Formatter/Simple.php	(working copy)
+@@ -69,7 +69,12 @@
+     {
+         $output = $this->_format;
+         foreach ($event as $name => $value) {
+-            $output = str_replace("%$name%", $value, $output);
++            $placeholder = "%$name%";
++            // Don't try to cast values to strings unless a placeholder
++            // shows the data is expected.
++            if(strpos($output,$placeholder) !== false){
++                $output = str_replace($placeholder, $value, $output);
++            }
+         }
+         return $output;
+     }
+Index: Zend/Log/Formatter/Tracer.php
+===================================================================
+--- Zend/Log/Formatter/Tracer.php	(revision 0)
++++ Zend/Log/Formatter/Tracer.php	(revision 0)
+@@ -0,0 +1,119 @@
++<?php
++/**
++ * Zend Framework
++ *
++ * LICENSE
++ *
++ * This source file is subject to the new BSD license that is bundled
++ * with this package in the file LICENSE.txt.
++ * It is also available through the world-wide-web at this URL:
++ * http://framework.zend.com/license/new-bsd
++ * If you did not receive a copy of the license and are unable to
++ * obtain it through the world-wide-web, please send an email
++ * to license@zend.com so we can send you a copy immediately.
++ *
++ * @category   Zend
++ * @package    Zend_Log
++ * @subpackage Formatter
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id:$
++ */
++
++/** Zend_Log_Formatter_Interface */
++require_once 'Zend/Log/Formatter/Interface.php';
++
++/**
++ * @category   Zend
++ * @package    Zend_Log
++ * @subpackage Formatter
++ * @copyright  Copyright (c) 2005-2008 Zend Technologies USA Inc. (http://www.zend.com)
++ * @license    http://framework.zend.com/license/new-bsd     New BSD License
++ * @version    $Id$
++ */
++class Zend_Log_Formatter_Tracer implements Zend_Log_Formatter_Interface{
++	
++    const DEFAULT_FORMAT = '%timestamp% %priorityName% (%priority%): %message%';
++    const DEFAULT_FORMAT_TRACE =  ">%index%\t%file%:%line%\t(%class%::%function%)";       
++	/**
++     * Class constructor
++     *
++     * @param  null|string  $format  Format specifier for log messages
++     * @throws Zend_Log_Exception
++     */
++    public function __construct($format = null, $traceFormat = null)
++    {
++        if ($format === null) {
++            $format = self::DEFAULT_FORMAT . PHP_EOL;
++        }
++        if ($traceFormat === null) {
++            $traceFormat = self::DEFAULT_FORMAT_TRACE . PHP_EOL;
++        }
++
++        
++        if (! is_string($format)) {
++            throw new Zend_Log_Exception('Format must be a string');
++        }
++        if (! is_string($traceFormat)) {
++            throw new Zend_Log_Exception('Trace format must be a string');
++        }
++
++        $this->_format = $format;
++        $this->_traceFormat = $traceFormat;
++    }
++    
++    protected function formatBacktrace($trace){        
++        $text = '';        
++        // Avoid 'object', 'args', etc.
++        $names = array('index','file','line','class','function');        
++        
++        foreach($trace as $index => $level){
++            $level['index'] = $index;
++            $line = $this->_traceFormat;
++            foreach($names as $name){
++                $line = str_replace("%$name%", trim($level[$name]), $line);
++            }
++            $text .= $line;
++        }
++        return($text);        
++    }
++
++    protected function stringify($value){
++        if(is_array($value) || is_object($value)){                
++                ob_start();
++                print_r($value);
++                $rep = ob_get_clean();
++                return($rep);
++        }else{
++            return((string)$value);
++        }                
++    }
++
++    /**
++     * Formats data into a single line to be written by the writer.
++     *
++     * @param  array    $event    event data
++     * @return string             formatted line to write to the log
++     */
++    public function format($event)
++    {        
++        $output = $this->_format;
++        foreach ($event as $name => $value) {
++            $placeholder = "%$name%";            
++            // Don't try to cast values to strings unless a placeholder
++            // shows the data is expected.
++            if(strpos($output,$placeholder) !== false){               
++                $output = str_replace($placeholder, $this->stringify($value), $output);
++            }
++        }
++        
++        // Finally, treat the trace (if present) specially
++        if(array_key_exists('trace',$event)){
++            $trace = $this->formatBacktrace($event['trace']);
++            // $trace = preg_replace('/^/m',"\t",$trace); // Pad it out with tabs   
++            $output .= $trace.PHP_EOL;
++        }
++        return $output;
++    }
++    
++}
+Index: Zend/Log.php
+===================================================================
+--- Zend/Log.php	(revision 10903)
++++ Zend/Log.php	(working copy)
+@@ -62,6 +62,16 @@
+     protected $_extras = array();
+ 
+     /**
++     * A list of priorities where automatic backtracing is done for
++     * debugging purposes. A priority not in this list is by default
++     * assumed to be non-traced.
++     *
++     * @var array of priorities, keys are priority numbers, values
++     * are booleans.
++     */
++    protected $_tracedPriorities = array();
++
++    /**
+      * Class constructor.  Create a new logger
+      *
+      * @param Zend_Log_Writer_Abstract|null  $writer  default writer
+@@ -134,12 +144,16 @@
+             throw new Zend_Log_Exception('Bad log priority');
+         }
+ 
++        $traceData = $this->getBacktrace($priority);
++        
+         // pack into event required by filters and writers
+         $event = array_merge(array('timestamp'    => date('c'),
+                                     'message'      => $message,
+                                     'priority'     => $priority,
+                                     'priorityName' => $this->_priorities[$priority]),
+-                              $this->_extras);
++                              $traceData,
++                              $this->_extras
++        );
+ 
+         // abort if rejected by the global filters
+         foreach ($this->_filters as $filter) {
+@@ -154,12 +168,55 @@
+         }
+     }
+ 
++    protected function getBacktrace($priority){
++        if(!(array_key_exists($priority,$this->_tracedPriorities) && ($this->_tracedPriorities[$priority]))){
++            // Not enabled for this priority
++            return(array());
++        }
++
++        $traceData = array();
++        // Get trace data
++        $fulltrace = debug_backtrace();
++
++        // Create a truncated copy that avoids Zend_Log* classes,  
++        $level = 0;
++        foreach ($fulltrace as $level => $details) {                      
++            if (!isset($details['class']) || (!preg_match('/^Zend_Log/',$details['class']))) {
++                break;
++            }
++        }
++        $num = max(0,($level-1));
++        $trace = array_slice($fulltrace,$num);
++            
++        // Find the file and line from the short copy
++        $line = $trace[0]['line'];
++        $file = $trace[0]['file'];
++            
++        // Find the calling info if there is a caller, otherwise current
++        $nextLevel = min(1,sizeof($trace));
++        $class    = $trace[$nextLevel]['class'];
++        $function = $trace[$nextLevel]['function'];
++
++            
++        // Note: Can not use setEventItem() or $_extras because
++        // those are persistent across events.
++            
++        $traceData['line'] = $line;
++        $traceData['file'] = $file;
++        $traceData['function'] = $function;
++        $traceData['class'] = $class;
++        $traceData['trace'] = $trace;
++        
++        return($traceData);
++
++    }
++
+     /**
+      * Add a custom priority
+      *
+      * @param  string   $name      Name of priority
+      * @param  integer  $priority  Numeric priority
+-     * @throws Zend_Log_InvalidArgumentException
++     * @throws Zend_Log_Exception
+      */
+     public function addPriority($name, $priority)
+     {
+@@ -177,6 +234,49 @@
+     }
+ 
+     /**
++     * Enables or disabled additional debug trace information for
++     * a given priority.
++     *
++     * @param integer $priority    Numeric priority
++     * @param boolean $enabled        True to enable extra tracing, false otherwise
++     */
++    public function setTracing($priority, $enabled){
++        if (! isset($this->_priorities[$priority])) {
++            /** @see Zend_Log_Exception */
++            require_once 'Zend/Log/Exception.php';
++            throw new Zend_Log_Exception('Bad log priority');
++        }
++        $this->_tracedPriorities[$priority] = $enabled;
++    }
++
++    /**
++     * Find out whether tracing is enabled or disabled for the given
++     * priority.
++     *
++     * @param integer $priority    Numeric priority
++     * @return boolean True if tracing is enabled, false otherwise.
++     */
++    public function getTracing($priority){
++        if (! isset($this->_priorities[$priority])) {
++            /** @see Zend_Log_Exception */
++            require_once 'Zend/Log/Exception.php';
++            throw new Zend_Log_Exception('Bad log priority');
++        }
++        if(array_key_exists($priority,$this->_tracedPriorities)){
++            return($this->_tracedPriorities[$priority]);
++        }else{
++            return(false);
++        }
++    }
++
++    /**
++     * Resets all tracing settings to off.
++     */
++    public function resetTracing(){
++        $this->_tracedPriorities = array();
++    }
++
++    /**
+      * Add a filter that will be applied before all log writers.
+      * Before a message will be received by any of the writers, it
+      * must be accepted by all filters added with this method.

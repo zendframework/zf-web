@@ -1,0 +1,256 @@
+<h2>ZF-10753: Add SOA design to Zend_Soap AutoDiscovery</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-11-28T06:27:45.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>In Progress</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jeannie BOFFEL (jboffel)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Soap_Wsdl</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10754">ZF-10754</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>SOA design is based on reporting error through SOAP Fault.
+Of course SOAP Fault is already supported by current SOAP Server and Zend_Soap_Wsdl (even it's still with bug, see linked issue).</p>
+
+<p>But currently it's impossible to use it through AutoDiscovery system.
+Here is a possible design I implemented successfully:</p>
+
+<pre class="highlight"><code>
+/**
+ * @xsd element
+ * @xsd sequence
+ */
+class wsGetUserInfosException extends SoapFault
+{
+    /**
+     * @var int $code
+     */
+    public $code;
+    /**
+     * @var string $string
+     */
+    public $message;
+    /**
+     * @var object $trace
+     */
+    public $trace;
+    
+    public function __construct($params=array(0, ""), $faultactor=null, $headerfault=null) {
+        parent::__construct('Client', 'wsGetUserInfos: Fatal error', $faultactor, $this, __CLASS__, $headerfault);
+        $this-&gt;code=$params[0];
+        $this-&gt;message=$params[1];
+        $this-&gt;trace=arrayToObject($this-&gt;getTrace());
+    }
+    
+}
+</code></pre>
+
+<p>It's directly using improvment of parent task. So it's required dependecy.
+For now we just declare a new element in the WSDL, we also need to declare our new custom SoapFault:</p>
+
+<pre class="highlight"><code>
+class wsGetUserInfos
+{
+    /**
+     * @param   string  $name
+     * @return  wsGetUserInfosResult
+     * @xsd fault   wsGetUserInfosException
+     */
+    public function getUserInfos($name) {
+        if ($name=='')
+            throw new wsGetUserInfosException(array(1, "Parameter name missing !"));
+
+        $details=new detailsBrotherList();
+        $details-&gt;addBrotherDetail(new brotherDetail("Jean", 1, 10));
+        $details-&gt;addBrotherDetail(new brotherDetail("Jack", 2, 20));
+        $details-&gt;addBrotherDetail(new brotherDetail("Martin", 3, 30));
+        
+        
+        return new wsGetUserInfosResult($name, "Dupont", 33, $details);
+        
+    }
+    
+}
+
+</code></pre>
+
+<p>And so the modified part of AutoDiscovery to handle the new @xsd fault:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Add a function to the WSDL document.
+     *
+     * @param $function Zend_Server_Reflection_Function_Abstract function to add
+     * @param $wsdl Zend_Soap_Wsdl WSDL document
+     * @param $port object wsdl:portType
+     * @param $binding object wsdl:binding
+     * @return void
+     */
+    protected function _addFunctionToWsdl($function, $wsdl, $port, $binding)
+    {
+        $uri = $this-&gt;getUri();
+
+        // We only support one prototype: the one with the maximum number of arguments
+        $prototype = null;
+        $maxNumArgumentsOfPrototype = -1;
+        foreach ($function-&gt;getPrototypes() as $tmpPrototype) {
+            $numParams = count($tmpPrototype-&gt;getParameters());
+            if ($numParams &gt; $maxNumArgumentsOfPrototype) {
+                $maxNumArgumentsOfPrototype = $numParams;
+                $prototype = $tmpPrototype;
+            }
+        }
+        if ($prototype === null) {
+            require_once "Zend/Soap/AutoDiscover/Exception.php";
+            throw new Zend_Soap_AutoDiscover_Exception("No prototypes could be found for the '" . $function-&gt;getName() . "' function");
+        }
+
+        // Add the input message (parameters)
+        $args = array();
+        if ($this-&gt;_bindingStyle['style'] == 'document') {
+            // Document style: wrap all parameters in a sequence element
+            $sequence = array();
+            foreach ($prototype-&gt;getParameters() as $param) {
+                $sequenceElement = array(
+                    'name' =&gt; $param-&gt;getName(),
+                    'type' =&gt; $wsdl-&gt;getType($param-&gt;getType())
+                );
+                if ($param-&gt;isOptional()) {
+                    $sequenceElement['nillable'] = 'true';
+                }
+                $sequence[] = $sequenceElement;
+            }
+            $element = array(
+                'name' =&gt; $function-&gt;getName(),
+                'sequence' =&gt; $sequence
+            );
+            // Add the wrapper element part, which must be named 'parameters'
+            $args['parameters'] = array('element' =&gt; $wsdl-&gt;addElement($element));
+        } else {
+            // RPC style: add each parameter as a typed part
+            foreach ($prototype-&gt;getParameters() as $param) {
+                $args[$param-&gt;getName()] = array('type' =&gt; $wsdl-&gt;getType($param-&gt;getType()));
+            }
+        }
+        $wsdl-&gt;addMessage($function-&gt;getName() . 'In', $args);
+
+        $isOneWayMessage = false;
+        if($prototype-&gt;getReturnType() == "void") {
+            $isOneWayMessage = true;
+        }
+
+        if($isOneWayMessage == false) {
+            // Add the output message (return value)
+            $args = array();
+            if ($this-&gt;_bindingStyle['style'] == 'document') {
+                // Document style: wrap the return value in a sequence element
+                $sequence = array();
+                if ($prototype-&gt;getReturnType() != "void") {
+                    $sequence[] = array(
+                        'name' =&gt; $function-&gt;getName() . 'Result',
+                        'type' =&gt; $wsdl-&gt;getType($prototype-&gt;getReturnType())
+                    );
+                }
+                $element = array(
+                    'name' =&gt; $function-&gt;getName() . 'Response',
+                    'sequence' =&gt; $sequence
+                );
+                // Add the wrapper element part, which must be named 'parameters'
+                $args['parameters'] = array('element' =&gt; $wsdl-&gt;addElement($element));
+            } else if ($prototype-&gt;getReturnType() != "void") {
+                // RPC style: add the return value as a typed part
+                $args['return'] = array('type' =&gt; $wsdl-&gt;getType($prototype-&gt;getReturnType()));
+            }
+            $wsdl-&gt;addMessage($function-&gt;getName() . 'Out', $args);
+        }
+        
+        $isUsingCustomFault = false;
+        if (preg_match_all('/@xsd\s+fault\s+([^\s]+)/m', $function-&gt;getDocComment(), $matches)) {
+            $classNameCustomFault = $matches[1][0];
+            if (class_exists($classNameCustomFault)) {
+                $isUsingCustomFault = true;
+                $class = new ReflectionClass($classNameCustomFault);
+            }
+        }
+        
+        if ($isUsingCustomFault) {
+            if (preg_match_all('/@xsd\s+element\s+(.*)/m', $class-&gt;getDocComment(), $matches)) {
+                $classNameTypeStrategy = 'element';   
+            } else if (preg_match_all('/@xsd\s+complexType\s+(.*)/m', $class-&gt;getDocComment(), $matches)) {
+                $classNameTypeStrategy = 'type';   
+            }
+        }
+        
+        if ($isUsingCustomFault) {
+            $wsdl-&gt;addMessage($classNameCustomFault, array('fault' =&gt; array($classNameTypeStrategy =&gt; $wsdl-&gt;getType($classNameCustomFault))));
+        }
+        
+        // Add the portType operation
+        if($isOneWayMessage == false) {
+            $portOperation = $wsdl-&gt;addPortOperation($port, $function-&gt;getName(), 'tns:' . $function-&gt;getName() . 'In', 'tns:' . $function-&gt;getName() . 'Out', $isUsingCustomFault ? $wsdl-&gt;getType($classNameCustomFault) : false);
+        } else {
+            $portOperation = $wsdl-&gt;addPortOperation($port, $function-&gt;getName(), 'tns:' . $function-&gt;getName() . 'In', false, $isUsingCustomFault ? $wsdl-&gt;getType($classNameCustomFault) : false);
+        }
+        $desc = $function-&gt;getDescription();
+        if (strlen($desc) &gt; 0) {
+            $wsdl-&gt;addDocumentation($portOperation, $desc);
+        }
+
+        // When using the RPC style, make sure the operation style includes a 'namespace' attribute (WS-I Basic Profile 1.1 R2717)
+        if ($this-&gt;_bindingStyle['style'] == 'rpc' &amp;&amp; !isset($this-&gt;_operationBodyStyle['namespace'])) {
+            $this-&gt;_operationBodyStyle['namespace'] = ''.$uri;
+        }
+
+        // Add the binding operation
+        $operation = $wsdl-&gt;addBindingOperation($binding, $function-&gt;getName(),  $this-&gt;_operationBodyStyle, $this-&gt;_operationBodyStyle, $isUsingCustomFault ? array('name' =&gt; $classNameCustomFault) : false);
+        $wsdl-&gt;addSoapOperation($operation, $uri . '#' .$function-&gt;getName());
+
+        // Add the function name to the list
+        $this-&gt;_functions[] = $function-&gt;getName();
+    }
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+    <p class="comments">No comments to display</p>
+    
+</div>
+

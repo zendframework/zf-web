@@ -1,0 +1,180 @@
+<h2>ZF-11726: Zend_Http_CookieJar::getAllCookies(Zend_Http_CookieJar::COOKIE_STRING_CONCAT) creates an invalid (RFC 6265) Cookie string</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-09-08T17:37:32.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-06-01T01:11:27.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.12.0 (27/Aug/12)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Dominic Luechinger (dol)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Adam Lundrigan (adamlundrigan)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_CookieJar</li>
+            <li>FixForZF1.12</li>
+            <li>state:need-feedback</li>
+            <li>zf-caretaker-adamlundrigan</li>
+            <li>zf-crteam-review</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/14696/ZF-11726.patch">ZF-11726.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If the Zend_Http_CookieJar method 'getAllCookies()' with the 1 parameter set to Zend_Http_CookieJar::COOKIE_STRING_CONCAT, the returned string is invalid and not matches the RCF 6265 (<a href="http://tools.ietf.org/html/rfc6265">http://tools.ietf.org/html/rfc6265</a>).</p>
+
+<h2>Description:</h2>
+
+<p>The returned string not contains a space between each cookie key-value element and the ending semicolon. The RCF 6265 describes the Cookie string as following (EBNF):
+;SP (space)
+;WSP (whitespace)
+;CR (carriage return)
+;CRLF (CR LF)
+;LF (line feed)
+OWS           = *( [ obs-fold ] WSP ); "optional" whitespace
+obs-fold      = CRLF
+cookie-header = "Cookie:" OWS cookie-string OWS
+cookie-string = cookie-pair *( ";" SP cookie-pair )
+cookie-pair       = cookie-name "=" cookie-value
+...</p>
+
+<h2>Expected result:</h2>
+
+<p>CookieJar with two cookies:
+1. foo=bar; Path=/; Domain=example.com
+2. acme=login; Path=/; Domain=example.com</p>
+
+<p>(string) 'foobar=bar; acme=login'</p>
+
+<h2>Actual result:</h2>
+
+<p>(string) 'foobar=bar;acme=login;'</p>
+
+<p>There are two problems here. First, the space between the two cookies is missing. Second, the last character cannot be a semicolon.</p>
+
+<h2>Patch:</h2>
+
+<p>I created an patch to this issue: <a href="https://gist.github.com/1205916">https://gist.github.com/1205916</a></p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dominic Luechinger (dol) on 2011-10-18T21:02:26.000+0000</p> 
+        <div class="body">
+            <p>Patch to solve the cookie problem</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-03T16:21:08.000+0000</p> 
+        <div class="body">
+            <p>Yes, {{Zend_Http_CookieJar}} (and {{Zend_Http_Cookie}} as well) don't adhere exactly to the spec, but does it cause any real-world problems?
+I suspect that changing this behavior could qualify as a backwards-compatibility break (unlikely, IMHO).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-03T16:33:54.000+0000</p> 
+        <div class="body">
+            <p>Reproducing unit test:</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Http/CookieJarTest.php
+===================================================================
+--- tests/Zend/Http/CookieJarTest.php   (revision 24549)
++++ tests/Zend/Http/CookieJarTest.php   (working copy)
+@@ -470,4 +470,33 @@
+         $jar-&gt;reset();
+         $this-&gt;assertTrue($jar-&gt;isEmpty());
+     }
++
++    /**
++     * @group ZF-11726
++     */
++    public function testEnsureCookieJarWithSingleCookieAdheresToSyntaxSpecifiedInRfc6265()
++    {
++        $jar = new Zend_Http_CookieJar();
++        $jar-&gt;addCookie(Zend_Http_Cookie::fromString('foo1=bar1; domain=.example.com; path=/a/b'));
++
++        $cookies = $jar-&gt;getAllCookies(Zend_Http_CookieJar::COOKIE_STRING_CONCAT);
++        // Assert that last key-value pair does not end with separator (;)
++        $this-&gt;assertNotRegExp('/;$/',ltrim($cookies));
++    }
++
++    /**
++     * @group ZF-11726
++     */
++    public function testEnsureCookieJarWithMultipleCookiesAdheresToSyntaxSpecifiedInRfc6265()
++    {
++        $jar = new Zend_Http_CookieJar();
++        $jar-&gt;addCookie(Zend_Http_Cookie::fromString('foo1=bar1; domain=.example.com; path=/a/b'));
++        $jar-&gt;addCookie(Zend_Http_Cookie::fromString('foo2=bar2; domain=.example.com; path=/c/d'));
++
++        $cookies = $jar-&gt;getAllCookies(Zend_Http_CookieJar::COOKIE_STRING_CONCAT);
++        // Assert that parts have a space right after the separator (;)
++        $this-&gt;assertRegExp('/^[^=]+=[^;]+; [^=]+=[^;]+$/',ltrim($cookies));
++        // Assert that last key-value pair does not end with separator (;)
++        $this-&gt;assertNotRegExp('/;$/',ltrim($cookies));
++    }
+ }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Dominic Luechinger (dol) on 2011-11-07T23:31:30.000+0000</p> 
+        <div class="body">
+            <p>Dear Adam</p>
+
+<p>I had problem with a cPanel Server, with only allows RFC conform cookies. This harmed my application to fail and took me hours to figure out what caused the problem. I wasn't thinking a missing space makes the difference. Because I was such annoyed, I wrote this patch to avoid frustration in the future.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-11-08T01:16:34.000+0000</p> 
+        <div class="body">
+            <p>Dominic:  Thank you for your feedback.  I'm not entirely certain it's possible to directly alter the current behavior of {{Zend_Http_CookieJar}}, as there may be implementations which rely on the current (albeit non-standard) behavior.  One thing we can investigate, though, is adding a "strict" mode so that the default behavior remains intact but one can switch on strict RFC6265 compatibility if necessary.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2012-06-01T01:11:26.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r24856</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,183 @@
+<h2>ZF-1816: PostgreSQL: Incorrect sequence name quoting</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-08-06T04:50:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-05-22T06:52:51.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.8.2 (27/May/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marcin Miko?ajczak (memfis)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>As per <a href="http://www.postgresql.org/docs/8.2/interactive/functions-sequence.html">http://postgresql.org/docs/8.2/…</a> quoting a mixed-case sequence name requires putting it also in " ", otherwise the name will be converted to lower-case. Zend_Db_Adapter_Pdo_Pgsql never adds the additional doublequotes mentioned, only the typical singlequtoes used for string constants. Column name quoting in SELECT statements made by the PostgreSQL adapter, however, seems to know about this requirement. As far as I can tell, the problem lies in the following functions:</p>
+
+<pre class="highlight"><code>
+    public function lastSequenceId($sequenceName)
+    {
+        $this-&gt;_connect();
+        $value = $this-&gt;fetchOne("SELECT CURRVAL(".$this-&gt;quote($sequenceName).")");
+        return $value;
+    }
+
+    public function nextSequenceId($sequenceName)
+    {
+        $this-&gt;_connect();
+        $value = $this-&gt;fetchOne("SELECT NEXTVAL(".$this-&gt;quote($sequenceName).")");
+        return $value;
+    }
+</code></pre>
+
+<p>I would have prepared a patch if I knew how (in terms of design and abstracting this additional quoting process) this should be done.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-08-06T10:48:33.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~bkarwin] to initiate issue review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Krasimir Yosifov (x3mer) on 2007-11-09T12:00:47.000+0000</p> 
+        <div class="body">
+            <p>I think that problem is here:
+Zend_Db_Table_Abstract.php
+from line 665</p>
+
+<pre class="highlight"><code>
+        if ($this-&gt;_sequence === true &amp;&amp; $this-&gt;_db instanceof Zend_Db_Adapter_Pdo_Pgsql) {
+            $this-&gt;_sequence = "{$this-&gt;_name}_{$pkIdentity}_seq";
+            if ($this-&gt;_schema) {
+                $this-&gt;_sequence = $this-&gt;_schema . '.' . $this-&gt;_sequence;
+            }
+        }
+</code></pre>
+
+<p>I suggest this code</p>
+
+<pre class="highlight"><code>
+        if ($this-&gt;_sequence === true &amp;&amp; $this-&gt;_db instanceof Zend_Db_Adapter_Pdo_Pgsql) {
+            $this-&gt;_sequence = $this-&gt;_db-&gt;quoteIdentifier("{$this-&gt;_name}_{$pkIdentity}_seq");
+            if ($this-&gt;_schema) {
+                $this-&gt;_sequence = $this-&gt;_db-&gt;quoteIdentifier($this-&gt;_schema) . '.' . $this-&gt;_sequence;
+            }
+        }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Krasimir Yosifov (x3mer) on 2007-11-09T14:45:44.000+0000</p> 
+        <div class="body">
+            <p>Sorry for reposting but I made a mistake in my first comment. So the fixed one is here:</p>
+
+<p>I think that the problem is here:
+Zend_Db_Table_Abstract.php
+line 665</p>
+
+<pre class="highlight"><code>
+if ($this-&gt;_sequence === true &amp;&amp; $this-&gt;_db instanceof Zend_Db_Adapter_Pdo_Pgsql) {
+    $this-&gt;_sequence = "{$this-&gt;_name}_{$pkIdentity}_seq";
+    if ($this-&gt;_schema) {
+        $this-&gt;_sequence = $this-&gt;_schema . '.' . $this-&gt;_sequence;
+    }
+}
+</code></pre>
+
+<p>I suggest this code</p>
+
+<pre class="highlight"><code>
+if ($this-&gt;_sequence === true &amp;&amp; $this-&gt;_db instanceof Zend_Db_Adapter_Pdo_Pgsql) {
+    $this-&gt;sequence = $this-&gt;_db-&gt;quoteIdentifier("{$this-&gt;_name}{$pkIdentity}_seq");
+    if ($this-&gt;_schema) {
+        $this-&gt;_sequence = $this-&gt;_db-&gt;quoteIdentifier($this-&gt;_schema) . '.' . $this-&gt;_sequence;
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:05:28.000+0000</p> 
+        <div class="body">
+            <p>This issue should have been fixed for the 1.5 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:43:52.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:47.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-06T14:25:14.000+0000</p> 
+        <div class="body">
+            <p>This issue has gone unaddressed for too long. I'm re-assigning to Ralph for re-evaluation and categorization.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-01-09T13:58:22.000+0000</p> 
+        <div class="body">
+            <p>Will evaluate within 2 weeks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-05-22T06:52:51.000+0000</p> 
+        <div class="body">
+            <p>Fixed in r15676</p>
+
+        </div>
+    </div>
+    </div>
+

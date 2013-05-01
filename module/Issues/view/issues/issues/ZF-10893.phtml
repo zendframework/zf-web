@@ -1,0 +1,326 @@
+<h2>ZF-10893: Unable to use personal key with Zend_Filter_Encrypt_Mcrypt filter (Algorithm Blowfish, mode CBC)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-03T03:03:22.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-03T13:42:10.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Laurent declercq (nuxwin)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hello ;</p>
+
+<p>It's my first report here so on, please don't be annoyed if I'm wrong in the way to process...</p>
+
+<p>I was extended the <em>Zend_Filter_Encrypt_Mcrypt</em> filter to be able to define my own padding method (padding space method to be compatible with my perl script (Perl Crypt-CBC - Algorithm blowfish).</p>
+
+<p>I work with a fixed key that I set like this:</p>
+
+<pre class="highlight"><code>
+$config = Zend_Registry::get('config');
+$filter = new iMSCP_Filter_Encrypt_Mcrypt($config-&gt;imscp_key);
+...
+</code></pre>
+
+<p>The problem is that I must also redefine the <em>Zend_Filter_Encrypt_Mcrypt::_initCipher()</em> method in my class since it's currently buggy. Indeed, when we sets our own key, the Zend_Filter_Encrypt_Mcrypt::_initCipher() bypass it with salt in some case.</p>
+
+<p>The current code in the parent methods is like this:</p>
+
+<pre class="highlight"><code>
+    protected function _initCipher($cipher)
+    {
+        $key = $this-&gt;_encryption['key'];
+
+        $keysizes = mcrypt_enc_get_supported_key_sizes($cipher);
+
+        if (empty($keysizes) || ($this-&gt;_encryption['salt'] == true)) {
+            $this-&gt;_srand();
+            $keysize = mcrypt_enc_get_key_size($cipher);
+            $key     = substr(md5($key), 0, $keysize);
+        } else if (!in_array(strlen($key), $keysizes)) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+
+    ....
+}
+</code></pre>
+
+<p>Like you can see here, we get the supported key sizes of the opened algorithm. In my case, it's the <em>Blowfish</em> algorithm in <em>CBC</em> mode, and the value returned by the mcrypt_enc_get_supported_key_sizes() function is an empty array. According the  documentation related to this function, when an empty array is returned, all keysizes between 1 and the value returned by the <em>mcrypt_enc_get_key_size()</em> are supported by the algorithm. My own key size is 32. The problem is that currently, when we receive an empty array, the Zend_Filter_Encrypt_Mcrypt::_initCipher() method nypass the key with salt.</p>
+
+<p>For now, I've resolved this issue by redefining this method in my subclass but I think that should be fixed in <em>Zend_Filter_Encrypt_Mcrypt::_initCipher()</em> directly.</p>
+
+<p>My (ugly) modified version of this methods is like this:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Initialises the cipher with the set key
+     *
+     * @param  resource $cipher
+     * @throws
+     * @return resource
+     */
+    protected function _initCipher($cipher)
+    {
+        $key = $this-&gt;_encryption['key'];
+
+        $keysizes = mcrypt_enc_get_supported_key_sizes($cipher);
+
+/* my replacement code  - start */
+        if(empty($keysizes)) { // All value between 1 and mcrypt_enc_get_key_size() are supported
+            $keysize = mcrypt_enc_get_key_size($cipher);
+        if($this-&gt;_encryption['salt'] == true) {
+            $this-&gt;_srand();
+            $key = substr(md5($key), 0, $keysize);
+        } elseif(strlen($key) &gt; $keysize || strlen($key) &lt; 1) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+        } else if (!in_array(strlen($key), $keysizes)) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+/* my replacement code  - end */
+
+/* old zend code  - start */
+
+        if (empty($keysizes) || ($this-&gt;_encryption['salt'] == true)) {
+            $this-&gt;_srand();
+            $keysize = mcrypt_enc_get_key_size($cipher);
+            $key     = substr(md5($key), 0, $keysize);
+        } else if (!in_array(strlen($key), $keysizes)) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+/* old zend code  - end */
+
+        $result = mcrypt_generic_init($cipher, $key, $this-&gt;_encryption['vector']);
+        if ($result &lt; 0) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('Mcrypt could not be initialize with the given setting');
+        }
+
+        return $this;
+    }
+</code></pre>
+
+<p>Thanks for any feedback about this issue.</p>
+
+<p><em>Note:</em> Sorry for my poor English, I'm french.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-01-03T11:54:51.000+0000</p> 
+        <div class="body">
+            <p>The implementation from ZF will not be changed. The reason is that ZF's implementation is failure-save according to key sizes which extend the given maximum value.</p>
+
+<p>Your code throws an exception when the key extends the wished size which is not necessary as the key is stripped to the maximum value (as recommended).</p>
+
+<p>When you want to extend an existing class you should simply extend regarding to your needs and keep calling the rest when it fits. Your code can be reduced to 5 lines:</p>
+
+<pre class="highlight"><code>
+protected function _initCipher($cipher)
+{
+    if(empty(mcrypt_enc_get_supported_key_sizes($cipher))) {
+        if(strlen($this-&gt;_encryption['key']) &gt; mcrypt_enc_get_key_size($cipher) || strlen($this-&gt;_encryption['key']) &lt; 1) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+    }
+
+    return parent::_initCipher($cipher);
+}
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-01-03T12:23:05.000+0000</p> 
+        <div class="body">
+            <p>Closing as non-issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Laurent declercq (nuxwin) on 2011-01-03T13:42:09.000+0000</p> 
+        <div class="body">
+            <p>God... I've you tested before answer ? I'll try to explain better with code:</p>
+
+<ol><li>from my perl script, I generate the key and initialization vector by calling the following script:</li>
+</ol><pre class="highlight"><code>
+#!/user/bin/perl
+
+use strict;
+use warnings;
+use Crypt::CBC;
+use Data::Dumper;
+
+open(F, '&gt;', 'imscp-keys') or die("Error: Can't open file 'imscp-keys' for writing: $!");
+
+print F Data::Dumper-&gt;Dump(
+    [Crypt::CBC-&gt;random_bytes(32), Crypt::CBC-&gt;random_bytes(8)], [qw(key iv)]
+);
+
+close F;
+
+0;
+</code></pre>
+
+<p>After generation, the imscp-keys file contain the following content:</p>
+
+<p>example:</p>
+
+<pre class="highlight"><code>
+$key = 'rª\\|ðzµâþxRºöÊEÞÛÉigæ';
+$iv = 'uÆè6ç&amp;';
+</code></pre>
+
+<p>After, that, I want use both key and initialization vector with Zend_Filter_Encrypt_Mcryp.</p>
+
+<p>To resume, I want be able to do:</p>
+
+<pre class="highlight"><code>
+...
+// Load local configuration file
+require_once 'Zend/Config/Ini.php';
+$config = new Zend_Config_Ini(APPLICATION_PATH . DS . 'configs' . DS . 'imscp.ini', 'frontend', true);
+
+// Load system configuration file
+require_once 'Zend/Config/Xml.php';
+$sysCfg = new Zend_Config_Xml($sysCfgFile);
+
+// Load imscp key and initialization vector
+if(($keysFile = file_get_contents($configDir . DS . 'common' . DS . 'imscp-keys')) &amp;&amp; eval($keysFile) !== false) {
+    $config-&gt;key = $key;
+    $config-&gt;iv = $iv;
+} else {
+    throw new Zend_Exception('Unable to reach or evaluate the imscp-keys file!');
+}
+
+Zend_Registry::set('config', $config);
+
+// In another file
+$config = Zend_Registry::get('config');
+
+$filter = new iMSCP_Filter_Encrypt_Mcrypt($config);
+$password = $filter-&gt;decrypt($config-&gt;resources-&gt;db-&gt;params-&gt;password);
+</code></pre>
+
+<p>The problem here is that my key is not used like I provide it since the following method in Zend_Filter_Encrypt_Mcrypt:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Initialises the cipher with the set key
+     *
+     * @param  resource $cipher
+     * @throws
+     * @return resource
+     */
+    protected function _initCipher($cipher)
+    {
+        $key = $this-&gt;_encryption['key'];
+
+        $keysizes = mcrypt_enc_get_supported_key_sizes($cipher);
+        if (empty($keysizes) || ($this-&gt;_encryption['salt'] == true)) {
+            $this-&gt;_srand();
+            $keysize = mcrypt_enc_get_key_size($cipher);
+            $key     = substr(md5($key), 0, $keysize);
+        } else if (!in_array(strlen($key), $keysizes)) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+
+        $result = mcrypt_generic_init($cipher, $key, $this-&gt;_encryption['vector']);
+        if ($result &lt; 0) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('Mcrypt could not be initialize with the given setting');
+        }
+
+        return $this;
+    }
+</code></pre>
+
+<p>change it. To resume, it's a bug since I cannot decrypt any password encrypted with my perl script and vice-versa (I cannot decrypt any password encrypted with my php script). It's simply due to the fact that Zend_Filter_Encrypt_Mcrypt don't use my key like provided. Why this limitation ? Why you change my key ?</p>
+
+<p>For the record, my original key is:</p>
+
+<pre class="highlight"><code>
+string(32) "r\|zxREɚig"
+</code></pre>
+
+<p>but the iMSCP_Filter_Encrypt_Mcrypt::_initCipher() method change it like:</p>
+
+<pre class="highlight"><code>
+string(32) "e8066f90e2a30c17d90510557da13c6c"
+</code></pre>
+
+<p>Of course, like my passwords where not been encrypted with the "e8066f90e2a30c17d90510557da13c6c" key, that don't work...</p>
+
+<p>To finish, some words about your last sentence:</p>
+
+<p>{quote}</p>
+
+<p>When you want to extend an existing class you should simply extend regarding to your needs and keep calling the rest when it fits. Your code can be reduced to 5 lines:</p>
+
+<pre class="highlight"><code>
+protected function _initCipher($cipher)
+{
+    if(empty(mcrypt_enc_get_supported_key_sizes($cipher))) {
+        if(strlen($this-&gt;_encryption['key']) &gt; mcrypt_enc_get_key_size($cipher) || strlen($this-&gt;_encryption['key']) &lt; 1) {
+            require_once 'Zend/Filter/Exception.php';
+            throw new Zend_Filter_Exception('The given key has a wrong size for the set algorithm');
+        }
+    }
+
+    return parent::_initCipher($cipher);
+}
+</code></pre>
+
+<p>{quote}</p>
+
+<p>I want not redefine this method to check my key length. I redefine it to avoid the problem described above (key not used like provided due to the following line: $key = substr(md5($key), 0, $keysize);</p>
+
+        </div>
+    </div>
+    </div>
+

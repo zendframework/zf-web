@@ -1,0 +1,169 @@
+<h2>ZF-1429: Zend_Search_Lucene needs something to manage index security</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-05-24T11:58:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-07-25T08:51:45.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.2 (25/Sep/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-2779">ZF-2779</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Index files are created with default permissions now.</p>
+
+<p>It looks like 660 mode is the best for default permissions (from safety point of view).</p>
+
+<p>From the other side it should be index class property and there should be an API to change it.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Guglielmo Celata (guglielmo.celata) on 2007-07-24T17:29:38.000+0000</p> 
+        <div class="body">
+            <p>Hi, I have patched the File/Filesystem.php file, allowing it to chmod the file it opens, when it is possible.
+It's working on my local box, but that's because I have manually forced me.apache as user.group in that directory.
+The me user launches the indexing proces as a batch script, while apache accesses it for searching.
+The patch makes ALL files under the chosen index path 0660, and maybe that's wrong, I am not that expert on this.
+I think it's pretty unharmful, after all. :)</p>
+
+<p>Could you chek it up? Do you think it can work, or is it not generic enough?</p>
+
+<h1>Index: library/Zend/Search/Lucene/Storage/File/Filesystem.php</h1>
+
+<p>--- library/Zend/Search/Lucene/Storage/File/Filesystem.php      (revision 5828)
++++ library/Zend/Search/Lucene/Storage/File/Filesystem.php      (working copy)
+@@ -61,6 +61,8 @@
+         if ($this-&gt;_fileHandle === false) {
+             ini_set('track_errors', $trackErrors);
+             throw new Zend_Search_Lucene_Exception($php_errormsg);
++        } else {
++          if (fileowner($filename) == posix_geteuid()) chmod($filename, 0660);
+         }</p>
+
+<pre><code>     ini_set('track_errors', $trackErrors);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2007-08-27T15:37:45.000+0000</p> 
+        <div class="body">
+            <p>Done.</p>
+
+<p>Zend_Search_Lucene_Storage_Directory_Filesystem::setDefaultFilePermissions() and Zend_Search_Lucene_Storage_Directory_Filesystem::getetDefaultFilePermissions() methods may be used to manage files permissions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-01-23T18:42:11.000+0000</p> 
+        <div class="body">
+            <p>Updating Fix Version to follow issue tracker conventions.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Markus Fischer (mfischer) on 2008-02-22T16:59:25.000+0000</p> 
+        <div class="body">
+            <p>Please reconsider your thoughts on forcing the use of chmod.</p>
+
+<p>In restrictive environments it is completely valid that a non-owner of the lucene index files has proper write permissions to write but still is not owner. And, as you're ware, chmod can only be issued by the owner of the files. Group ownership is not considered.</p>
+
+<p>I would strongly advice to remove this patch in its entirety. Zend_Search_Lucene should not deal with permission in anyway itself. This should be left to the environment it is running in, and especially under Unix systems this is easily done by making sure the proper umask is set.</p>
+
+<p>If this is not an option, please at least consider the ability to disable the call to chmod().</p>
+
+<p>Here is an example scenario of mine:
+The index is created from a non www-data user. When I do this and access the index from within the web, I get</p>
+
+<p>Error: chmod(): Operation not permitted in includes/Zend/Search/Lucene/Storage/Directory/Filesystem.php on line 189</p>
+
+<h1>0 includes/Zend/Search/Lucene/LockManager.php(85): Zend_Search_Lucene_Storage_Directory_Filesystem-&gt;createFile('read.lock.file')</h1>
+
+<h1>1 includes/Zend/Search/Lucene.php(410): Zend_Search_Lucene_LockManager::obtainReadLock(Object(Zend_Search_Lucene_Storage_Directory_Filesystem))</h1>
+
+<h1>2 includes/App/Search.php(252): Zend_Search_Lucene-&gt;__construct('/var/www/netcar...')</h1>
+
+<h1>3 http/suche/index2.php(59): App_Search-&gt;search('milbe', 0)</h1>
+
+<h1>4 {main}</h1>
+
+<p>However, there's actually no technical reason why a chmod() call is needed here. The permissions are completely fine as they're and it should not concern the web application that it is not the owner of some of the files. Still the write permissions to create the file are there.</p>
+
+<p>thanks</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Drew Bertola (drewb) on 2008-02-29T20:00:32.000+0000</p> 
+        <div class="body">
+            <p>We are on 1.0.2 and this is causing us all kinds of problems for exactly the same reasons Markus mentions.</p>
+
+<p>There's no need to mess with the permissions I (a reasonably skilled admin) places on files.  Because my apache process runs under a restricted user, searching needs to be able to read files created by another user (one who has proper access to writing those files).</p>
+
+<p>As it stands we need to jump through many hoops to have this work at all.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Drew Bertola (drewb) on 2008-03-01T15:56:39.000+0000</p> 
+        <div class="body">
+            <p>This is also the case in version 1.0.4.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Drew Bertola (drewb) on 2008-03-01T16:13:05.000+0000</p> 
+        <div class="body">
+            <p>Re-opening as new bug: ZF-2779</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexander Veremyev (alexander) on 2008-07-25T08:51:45.000+0000</p> 
+        <div class="body">
+            <p>Reopened issue [ZF-2779] is fixed.</p>
+
+        </div>
+    </div>
+    </div>
+

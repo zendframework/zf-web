@@ -1,0 +1,194 @@
+<h2>ZF-2777: Zend_Controller_Action_Helper_Redirector doesn't handle rewrite the camelCase actions to a correct url</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-03-01T11:18:18.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-11-13T14:10:30.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.7.0 (17/Nov/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Max Gordon (mgordon)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When calling:
+Zend_Controller_Action_Helper_Redirector::setGotoRoute(array("action" =&gt; "fooBar"));</p>
+
+<p>The url's camelCase isn't handled. It ends up:
+<a href="http://localhost/controller/fooBar">http://localhost/controller/fooBar</a></p>
+
+<p>It should end up:
+<a href="http://localhost/controller/foo-bar">http://localhost/controller/foo-bar</a></p>
+
+<p>I've solved this in a quick and dirty way:
+if (isset($urlOptions["action"])){
+  $urlOptions["action"] = strtolower(ereg_replace("[A-Z]", "-\\0", $urlOptions["action"]));
+}</p>
+
+<p>The real fix should probably be in Zend_Controller_Router_Route::assemble()</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-03-06T09:37:18.000+0000</p> 
+        <div class="body">
+            <p>Actually, you shouldn't be specifying your actions using camelCasing when using setGotoRoute() or setGogo() as it is. I'll add some sanitization checks in the Redirector to ensure this will still work, but will need to schedule this for the first mini release following the 1.5.0 final release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-03-06T09:38:11.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next mini release following 1.5.0 final release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-21T17:05:27.000+0000</p> 
+        <div class="body">
+            <p>This issue should have been fixed for the 1.5 release.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-03-25T20:41:12.000+0000</p> 
+        <div class="body">
+            <p>Please categorize/fix as needed.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-04-18T13:11:53.000+0000</p> 
+        <div class="body">
+            <p>This doesn't appear to have been fixed in 1.5.0. Please update if this is not correct.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-04-22T11:58:52.000+0000</p> 
+        <div class="body">
+            <p>Scheduling for next mini release and assigning to Ralph.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Max Gordon (mgordon) on 2008-07-21T04:10:06.000+0000</p> 
+        <div class="body">
+            <p>I've changed Zend_Controller_Router_Route_Module::assemble()</p>
+
+<p>to:</p>
+
+<pre class="highlight"><code>
+public function assemble($data = array(), $reset = false)
+    {
+        if (!$this-&gt;_keysSet) {
+            $this-&gt;_setRequestKeys();
+        }
+
+        $params = (!$reset) ? $this-&gt;_values : array();
+
+        foreach ($data as $key =&gt; $value) {
+            if ($value !== null) {
+                $params[$key] = $value;
+            } elseif (isset($params[$key])) {
+                unset($params[$key]);
+            }
+        }
+
+        $params += $this-&gt;_defaults;
+        // This is the addition, works nicely
+        if (isset($params["action"])){
+            $params["action"] = strtolower(ereg_replace("[A-Z]", "-\\0", $params["action"])); 
+        }
+
+        $url = '';
+
+        if ($this-&gt;_moduleValid || array_key_exists($this-&gt;_moduleKey, $data)) {
+            if ($params[$this-&gt;_moduleKey] != $this-&gt;_defaults[$this-&gt;_moduleKey]) {
+                $module = $params[$this-&gt;_moduleKey];
+            }
+        }
+        unset($params[$this-&gt;_moduleKey]);
+
+        $controller = $params[$this-&gt;_controllerKey];
+        unset($params[$this-&gt;_controllerKey]);
+
+        $action = $params[$this-&gt;_actionKey];
+        unset($params[$this-&gt;_actionKey]);
+
+        foreach ($params as $key =&gt; $value) {
+            $url .= '/' . $key;
+            $url .= '/' . $value;
+        }
+
+        if (!empty($url) || $action !== $this-&gt;_defaults[$this-&gt;_actionKey]) {
+            $url = '/' . $action . $url;
+        }
+
+        if (!empty($url) || $controller !== $this-&gt;_defaults[$this-&gt;_controllerKey]) {
+            $url = '/' . $controller . $url;
+        }
+
+        if (isset($module)) {
+            $url = '/' . $module . $url;
+        }
+
+        return ltrim($url, self::URI_DELIMITER);
+    }
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-05T11:10:30.000+0000</p> 
+        <div class="body">
+            <p>camelCase controllers and actions should be specified with word-separators when passed to the redirector.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-11-13T14:10:30.000+0000</p> 
+        <div class="body">
+            <p>Changing issues in preparation for the 1.7.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

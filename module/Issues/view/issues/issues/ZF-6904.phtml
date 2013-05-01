@@ -1,0 +1,153 @@
+<h2>ZF-6904: Two Validators of the same class can not be used two times for a field in form to validate two values in db</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-06-04T13:11:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-20T09:09:13.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                buzz lightgear (buzz)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-4811">ZF-4811</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12401/Element.patch">Element.patch</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Example:
+$validatorUniqueEmail = new Zend_Validate_Db_NoRecordExists('users', 'email');
+$validatorUniqueEmailNew = new Zend_Validate_Db_NoRecordExists('users', 'newemail');
+$email = new Zend_Form_Element_Text('email');
+$email-&gt;setRequired(true)
+        -&gt;setLabel('E-Mail addresse)
+        -&gt;addValidator($validatorUniqueEmail)
+        -&gt;addValidator($validatorUniqueEmailNew);
+form-&gt;addElement($email);</p>
+
+<p>Here we want to validate if the entered email is not stored in two fields of our db.
+The second validator overwrites the first validator in a strange unknown way. In this case
+only the second validator will work !!!</p>
+
+<p>We had the bug in earlier releases of zend too and solved that issue with a copy of a our validators
+Example:
+$validatorUniqueEmail = new Extlib_Validate_DbUnique('users', 'email');
+//$validatorUniqueEmailNew = new Extlib_Validate_DbUnique('users', 'newemail'); -&gt; seems not to work! A ZEND BUG ?
+$validatorUniqueEmailNew = new Extlib_Validate_DbUniqueCopy('users', 'newemail'); -&gt; works</p>
+
+<p>Perhaps this helps to find the issue</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2009-06-05T01:56:15.000+0000</p> 
+        <div class="body">
+            <p>Changing Component / Name.</p>
+
+<p>This is not an issue with the Zend_Validate, but is an issue of Zend_Form_Element due to its internal naming of validators. (any two validators of the same name would produce the same result).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2009-06-05T02:09:43.000+0000</p> 
+        <div class="body">
+            <p>This issue probably cannot be resolved without breaking BC, and this use-case can be satisfied by using the exclude field of the DB validator. Unless further use-cases can be demonstrated that make this impracticable, I would suggest defering to 2.0</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Mauger (bittarman) on 2009-06-05T08:04:08.000+0000</p> 
+        <div class="body">
+            <p>Suggesting close as 'Wont fix'</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-20T01:45:46.000+0000</p> 
+        <div class="body">
+            <p>Noting Matthew's comments in ZF-4811, I've attached simple patch to fix this issue for the use case described (supplying element with validator objects).</p>
+
+<p>It borrows from the alias system employed by element decorators, which allows you to have multiple instances of the same decorator by supplying an alias (see "Using Multiple Decorators of the Same Type - <a href="http://framework.zend.com/manual/en/zend.form.forms.html#zend.form.forms.decorators">http://framework.zend.com/manual/en/…</a>).</p>
+
+<p>Client code:</p>
+
+<pre class="highlight"><code>
+$element = new Zend_Form_Element_Text( 'foo' );
+$validator1 = new Zend_Validate_InArray( array( 'a', 'b', 'c' ) );
+$validator2 = new Zend_Validate_InArray( array( 'c', 'd', 'e' ) );
+$element-&gt;addValidator( array( 'InArray1' =&gt; $validator1 ) );
+$element-&gt;addValidator( array( 'InArray2' =&gt; $validator2 ) );
+$element-&gt;setView( new Zend_View() );
+var_dump( $element-&gt;isValid( 'c' ) );
+</code></pre>
+
+<p>To allow the passing of aliased validator class name (rather than actual instances), the lazy loader (_loadValidator) would also need to be modified in a similar fashion to _loadDecorator. The method signature would need to change in order to pass the alias, but this would not break BC.</p>
+
+<p>Thoughts?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Steve Hollis (stevehollis) on 2009-11-20T09:08:58.000+0000</p> 
+        <div class="body">
+            <p>Scrub previous comment, this use case can be achieved using validator chains.</p>
+
+<pre class="highlight"><code>
+$element = new Zend_Form_Element_Text( 'foo' );
+$chain = new Zend_Validate();
+$chain-&gt;addValidator( new Zend_Validate_InArray( array( 'a', 'b', 'c' ) ) )
+      -&gt;addValidator( new Zend_Validate_InArray( array( 'c', 'd', 'e' ) ) );
+$element-&gt;addValidator( $chain );
+</code></pre>
+
+<p>Or in original example:</p>
+
+<pre class="highlight"><code>
+$validator = new Zend_Validate();
+$validator-&gt;addValidator(new Zend_Validate_Db_NoRecordExists('users', 'email'));
+          -&gt;addValidator(new Zend_Validate_Db_NoRecordExists('users', 'newemail'));
+$email = new Zend_Form_Element_Text('email');
+$email-&gt;setRequired(true)
+      -&gt;setLabel('E-Mail address')
+      -&gt;addValidator($validator);
+form-&gt;addElement($email);
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

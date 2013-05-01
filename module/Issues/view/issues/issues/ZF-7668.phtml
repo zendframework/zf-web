@@ -1,0 +1,209 @@
+<h2>ZF-7668: Support DB Link identifier as part of table name</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-08-23T20:11:48.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-20T05:52:53.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.9.6 (24/Nov/09)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Phil Brown (philbrown)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Oracle</li>
+            <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Oracle supports DB Links in order to query remote schemas via the following syntax</p>
+
+<pre class="highlight"><code>
+SELECT TABLE_NAME.* FROM SCHEMA.TABLE_NAME@LINK
+</code></pre>
+
+<p>Using Zend_Db_Table_Abstract, if I use something like</p>
+
+<pre class="highlight"><code>
+protected $_schema = 'SCHEMA';
+protected $_name = 'TABLE_NAME@LINK';
+</code></pre>
+
+<p>the generated identifiers in SELECT statements appears as</p>
+
+<pre class="highlight"><code>
+SELECT "TABLE_NAME@LINK".* FROM "SCHEMA"."TABLE_NAME@LINK" ...
+</code></pre>
+
+<p>when it should be</p>
+
+<pre class="highlight"><code>
+SELECT "TABLE_NAME".* FROM "SCHEMA"."TABLE_NAME"@"LINK" ...
+</code></pre>
+
+<p>The issue is that the @ should not be quoted in the FROM clause nor should the link be included in the column prefix.</p>
+
+<p>P.S. We're stuck at ZF 1.7.4 due to RHEL PHP version however a quick glance at 1.9.1 does not seem to indicate that this issue is resolved.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2009-08-26T08:51:09.000+0000</p> 
+        <div class="body">
+            <p>does this not work?</p>
+
+<pre class="highlight"><code>
+protected $_name = 'TABLE_NAME"@"LINK'
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Phil Brown (philbrown) on 2009-08-26T16:21:43.000+0000</p> 
+        <div class="body">
+            <p>Sorry Ralph, it doesn't. That property generates queries like</p>
+
+<pre class="highlight"><code>
+SELECT "TABLE_NAME""@""LINK".* FROM "SCHEMA"."TABLE_NAME""@""LINK" ...
+</code></pre>
+
+<p>notice the extra quotes?</p>
+
+<p>The problem isn't just quoting however. The link name should only appear in the FROM clause. See the last code example in my bug report above for the correct syntax.</p>
+
+<p>Something tells me this will be difficult to implement into Zend_Db_Table_Abstract without affecting other, non-Oracle use cases. A solution is to create a synonym for the linked entity however this requires specific access to the schema in question and reduces portability.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2009-09-17T13:02:46.000+0000</p> 
+        <div class="body">
+            <p>The problem is that you can create a table with @ inside the name (at least with Oracle), this code functions:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE "ZFTEST"."FOO@BAR" ("ID" NUMBER(10) NOT NULL, PRIMARY KEY("ID"));
+</code></pre>
+
+<p>If you access to this table from a link BAZ:</p>
+
+<pre class="highlight"><code>
+SELECT "ID" FROM "ZFTEST"."FOO@BAR"@BAZ
+</code></pre>
+
+<p>The link must be differentiate from the table name.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2009-09-23T04:29:18.000+0000</p> 
+        <div class="body">
+            <p>Perhaps you can use:</p>
+
+<pre class="highlight"><code>
+class My_Table extends Zend_Db_Table_Abstract
+{
+    public function init()
+    {
+        $this-&gt;_name = new Zend_Db_Expr('TABLE_NAME@LINK');
+    }
+}
+</code></pre>
+
+<p>or</p>
+
+<pre class="highlight"><code>
+class My_Table extends Zend_Db_Table_Abstract
+{
+    public function init()
+    {
+        $this-&gt;_name = new Zend_Db_Expr('"TABLE_NAME"@"LINK"');
+    }
+}
+</code></pre>
+
+<p>I didn't try but it should work.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Phil Brown (philbrown) on 2009-09-29T20:15:03.000+0000</p> 
+        <div class="body">
+            <p>No, that still won't work as the link identifier must only appear in the FROM clause.</p>
+
+<p>As Mickael pointed out above, the link would have to be separate from the table name (ie, new property).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2009-09-30T04:10:07.000+0000</p> 
+        <div class="body">
+            <p>After a test this function for me:</p>
+
+<pre class="highlight"><code>
+class My_Table extends Zend_Db_Table_Abstract
+{
+    public function init()
+    {
+        $this-&gt;_name = new Zend_Db_Expr('"TABLE_NAME"@"LINK"');
+        $this-&gt;_cols = array('ID', 'MY_VAL', 'MY_COMMENTS');
+        $this-&gt;_primary = array('ID');
+    }
+}
+$myTable = new My_Table();
+var_dump($myTable-&gt;fetchAll()-&gt;toArray());
+</code></pre>
+
+<p>The generated SQL is:</p>
+
+<pre class="highlight"><code>
+SELECT t.* FROM "TABLE_NAME"@"LINK" t
+</code></pre>
+
+<p>I must define the column and the primary key by hand.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Mickael Perraud (mikaelkael) on 2009-11-20T05:52:53.000+0000</p> 
+        <div class="body">
+            <p>Except using the proposed solution, you can't do it.</p>
+
+<p>Even if we add the support of the link in Zend_Db_Table_Abstract, you don't have access to the remote server to retrieve the description of the table.</p>
+
+        </div>
+    </div>
+    </div>
+

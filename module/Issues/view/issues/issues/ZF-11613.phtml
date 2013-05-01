@@ -1,0 +1,168 @@
+<h2>ZF-11613: Selecting from ,,dual'' impossible under mysql.</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-07-27T10:12:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-09-04T18:31:41.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Artur Łabudziński (seti)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Select</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <ul><li>I initiate the selection
+bq. $select = $db-&gt;select()-&gt;from(new Zend_Db_Expr('dual'),null);</li>
+<li>then i make some stuff, and i add columns with specified selections
+bg. $select -&gt; columns($array);</li>
+</ul><p>That $array have several '('.$another_select.') as alias'.
+I thought i would get sql like: <em>select (......) as alias1, (.....) as alias2, ..... from dual</em>, but i instead of dual i have got dual as <code>t</code>, and then from database: ````</p>
+
+<p>If i try to use <em>from-&gt;('dual')</em> i have got error saying table actual_db.dual not exists....</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Artur Łabudziński (seti) on 2011-07-27T10:17:02.000+0000</p> 
+        <div class="body">
+            <p>For now i have created empty one row max ,,dual'' table in my db.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Adam Lundrigan (adamlundrigan) on 2011-07-27T13:25:41.000+0000</p> 
+        <div class="body">
+            <p>Could you provide a SQL dump with the structure of your tables and a larger sample of your ZF code where you create the SELECT query?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Fuhr (davidfuhr) on 2011-07-27T16:23:21.000+0000</p> 
+        <div class="body">
+            <p>The "dual" table is specific to Oracle and MySQL supports this as well for compatibility reasons: <a href="http://en.wikipedia.org/wiki/DUAL_table">http://en.wikipedia.org/wiki/DUAL_table</a></p>
+
+<pre class="literal">
+-- works in MySQL:
+SELECT NOW() FROM DUAL;
+
+-- works only if you have a table called "dual"
+SELECT NOW() FROM `DUAL`;
+
+-- works NOT in MySQL:
+SELECT NOW() FROM DUAL as t;
+</pre>
+
+<p>The _renderFrom() method in Zend_Db_Select already uses the dummy table for oracle automatically if no from part is set:</p>
+
+<pre class="literal">
+        /*
+         * If no table specified, use RDBMS-dependent solution
+         * for table-less query.  e.g. DUAL in Oracle.
+         */
+        if (empty($this-&gt;_parts[self::FROM])) {
+            $this-&gt;_parts[self::FROM] = $this-&gt;_getDummyTable();
+        }
+</pre>
+
+<p>So i suggest you omit the FROM part when creating the select statement and everything should work fine for Oracle and MySQL as well.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by David Fuhr (davidfuhr) on 2011-07-27T16:38:47.000+0000</p> 
+        <div class="body">
+            <p>Oh, i just saw, that the _getDummyTable() method does actually nothing :)</p>
+
+<p>I assume it should contain something like:</p>
+
+<pre class="literal">
+return $this-&gt;_adapter-&gt;getDummyTable();
+</pre>
+
+<p>The abstract db adapter should return an empty array (like _getDummyTable() currently does) and the oracle and oci adapters should return "DUAL".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Łabudziński (seti) on 2011-07-27T17:41:26.000+0000</p> 
+        <div class="body">
+            <p>I provided FROM... as new Zend_Db_Expr('dual').   What i should get needs to be:    ```` <em>sql.... FROM 'dual'  ...rest of sql</em> witch is normal, but i want the 1st one to work. Without that strange aliacing something that is good, to something that cannot even validate.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Łabudziński (seti) on 2011-07-27T17:45:26.000+0000</p> 
+        <div class="body">
+            <p>Forgot to tell.. That sql of mine (as almost any under mysql that can use dual - would work totally ok without using from at all - but that is strangely prohibited by select class when using for example:  ````</p>
+
+<p>PS: $db used everywhere is just:  <em>$db = $this-&gt;getAdapter();</em></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Łabudziński (seti) on 2011-09-04T18:19:18.000+0000</p> 
+        <div class="body">
+            <p>Fixed it by editing Zend/Db/Select.php, at line <em>1125</em> oryginally containing 
+bq. $tmp .= $this-&gt;_getQuotedTable($table['tableName'], $correlationName);
+to lines</p>
+
+<pre class="literal">
+             if ($table['tableName'] instanceof Zend_Db_Expr)
+                $tmp .= $this-&gt;_getQuotedTable($table['tableName']);
+            else
+                $tmp .= $this-&gt;_getQuotedTable($table['tableName'], $correlationName);
+</pre>
+
+<p>or to single line</p>
+
+<pre class="literal">
+                $tmp .= $this-&gt;_getQuotedTable($table['tableName'], ($table['tableName'] instanceof Zend_Db_Expr) ? null : $correlationName);
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Artur Łabudziński (seti) on 2011-09-04T18:31:41.000+0000</p> 
+        <div class="body">
+            <p>And much more changes. Do anyone found better fix?</p>
+
+        </div>
+    </div>
+    </div>
+

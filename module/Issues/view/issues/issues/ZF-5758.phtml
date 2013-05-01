@@ -1,0 +1,235 @@
+<h2>ZF-5758: Oracle error : '1000 ORA-01000: maximum open cursors exceeded *SELECT S_CTO_PAC.NEXTVAL FROM dual'</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-02-12T05:53:05.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-01-25T11:03:24.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Wilfried Loche (w_loche)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Mickael Perraud (mikaelkael)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Table</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5759">ZF-5759</a></li>
+            <li><a href="/issues/browse/ZF-5761">ZF-5761</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi,</p>
+
+<p>I use thz ZF for a couple og years now but only for some packages. I want to use it dephly (and MVC + Zend_Db).</p>
+
+<p>I got an issue with the Zend_Db_Table as soon as I want to execute more SQL than I/the DBA have/has authorized cursors... even if they should be closed by the ZF...</p>
+
+<p>Here is my example:</p>
+
+<pre class="highlight"><code>
+CREATE TABLE "T_CTO_PAC2" 
+(
+    "ID_PAC" NUMBER(38,0), 
+    "PAC" CHAR(6 BYTE), 
+    "CID" VARCHAR2(64 BYTE), 
+    "LABEL" VARCHAR2(128 BYTE), 
+    "CREATED_ON" DATE DEFAULT sysdate, 
+    "UPDATED_ON" DATE, 
+    CONSTRAINT "CK_CTO_PAC2_CID" CHECK (CID is not null) ENABLE, 
+    CONSTRAINT "CK_CTO_PAC2_LABEL" CHECK (LABEL is not null) ENABLE, 
+    CONSTRAINT "PK_CTO_PAC2" PRIMARY KEY ("ID_PAC") USING INDEX TABLESPACE "CTO_INDEX"  ENABLE, 
+    CONSTRAINT "U_CTO_PAC_PAC2" UNIQUE ("PAC")  USING INDEX TABLESPACE "CTO_INDEX"  ENABLE
+) TABLESPACE "CTO_DATA";
+</code></pre>
+
+<pre class="highlight"><code>
+class TPac extends Cto_Core_Db_Table_Abstract {
+
+    /** @var string Table name */
+    protected $_name = 'T_CTO_PAC2';
+    /** @var string PK */
+    protected $_primary = 'ID_PAC';
+    /** @var string Sequence name */
+    protected $_sequence = 'S_CTO_PAC';
+
+}
+</code></pre>
+
+<pre class="highlight"><code>
+$pac = new TPac();
+//$pac-&gt;getAdapter()-&gt;beginTransaction();
+for ($i = 100; $i &lt; 1901; ++$i) {
+    $p = str_pad($i, 6, '0', STR_PAD_LEFT);
+    
+//--- This hard coded SQL string works....
+//            $sql = "insert into T_CTO_PAC2
+//                    cols (ID_PAC, PAC, LABEL, CID)
+//                    values (S_CTO_PAC.nextval, '$p', 'label $i', 'TEST WILL')";
+//
+//            $pac-&gt;getAdapter()-&gt;query($sql);
+    
+    //--- This insert through the Adapter DOESN'T work
+    $pac-&gt;getAdapter()-&gt;insert('T_CTO_PAC2',
+                               array(
+                                   'ID_PAC' =&gt; new Zend_Db_Expr('S_CTO_PAC.nextval'),
+                                   'PAC' =&gt; str_pad($i, 6, '0', STR_PAD_LEFT),
+                                   'LABEL' =&gt; "label $i",
+                                   'CID' =&gt; 'TEST WILL'
+                               )
+                              );
+                              
+//--- This insert through the Adapter DOESN'T work either
+//            $pac-&gt;insert(array('PAC' =&gt; str_pad($i, 6, '0', STR_PAD_LEFT),
+//                               'LABEL' =&gt; "label $i",
+//                               'CID' =&gt; 'TEST WILL'));
+}
+
+//$pac-&gt;getAdapter()-&gt;commit();
+return;
+</code></pre>
+
+<p>That works for $i &lt; 200, but with $i &lt; 1901, it breaks:</p>
+
+<pre class="literal">
+Fatal error: Uncaught exception 'Zend_Db_Statement_Oracle_Exception' with message '1000 ORA-01000: maximum open cursors exceeded
+    *INSERT INTO T_CTO_PAC2 (ID_PAC, PAC, LABEL, CID) VALUES (S_CTO_PAC.nextval, :PAC1, :LABEL2, :CID3)'
+    in /ehc/fs1/softs/spms/php_lib/ZendFramework-1.7.4/library/Zend/Db/Statement/Oracle.php:274 Stack trace: 
+#0 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.7.4/library/Zend/Db/Statement.php(303): Zend_Db_Statement_Oracle-&gt;_execute(Array) 
+#1 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.7.4/library/Zend/Db/Adapter/Abstract.php(433): Zend_Db_Statement-&gt;execute(Array) 
+#2 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.7.4/library/Zend/Db/Adapter/Oracle.php(641): Zend_Db_Adapter_Abstract-&gt;query('INSERT INTO T_C...', Array) 
+#3 /ehc/fs1/adp/spms/web-app/spms.wloche/application/default/controllers/IndexController.php(57): Zend_Db_Adapter_Oracle-&gt;insert('T_CTO_PAC2', Array) 
+#4 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.7.4/library/Zend/Controller/Action.php(503): IndexController-&gt;indexAction()
+#5 /ehc/fs1/softs/s in /ehc/fs1/softs/spms/php_lib/ZendFramework-1.7.4/library/Zend/Db/Statement/Oracle.php on line 274
+</pre>
+
+<p>Does anybody already got this issue?
+We got some workarroud and optimization we will propose in a next post.</p>
+
+<p>Thx,
+Wilfried Loche</p>
+
+<p>PS. Env :
+- PHP 5.2.8,
+- Oracle Database 11g Enterprise Edition Release 11.1.0.6.0 - 64bit Production With the Partitioning, OLAP, Data Mining and Real Application Testing options
+- tnsname.ora: SPMS11=(DESCRIPTION=(SOURCE_ROUTE=OFF)(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=xx.xx.xx.xx)(PORT=11020)))(CONNECT_DATA=(SID=SPMS11)(SERVER=)))
+- using DRCP</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wilfried Loche (w_loche) on 2009-04-27T06:14:00.000+0000</p> 
+        <div class="body">
+            <p>Am I the only one who use Oracle? :D</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Roger Hunwicks (rhunwicks) on 2009-07-01T11:13:03.000+0000</p> 
+        <div class="body">
+            <p>No, we use Oracle extensively, we just haven't had this issue.</p>
+
+<p>Have you tried:</p>
+
+<pre class="highlight"><code>
+$pacModel = new TPac();
+
+for ($i = 100; $i &lt; 1901; ++$i) {
+    $pac = $pacModel-&gt;createRow();
+    $pac-&gt;PAC = str_pad($i, 6, '0', STR_PAD_LEFT);
+    $pac-&gt;LABEL = "label $i";
+    $pac-&gt;CID = 'TEST WILL';
+    $pac-&gt;save();
+}
+
+return;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wilfried Loche (w_loche) on 2009-08-25T07:39:04.000+0000</p> 
+        <div class="body">
+            <p>Hi Roger,</p>
+
+<p>Happy to have some good news (I didn't see you answer :().
+I'm afraid I have exactly the same issue...</p>
+
+<pre class="literal">Fatal error:  Uncaught exception 'Zend_Db_Statement_Oracle_Exception' with message '604 ORA-00604: error occurred at recursive SQL level 1
+ORA-01000: maximum open cursors exceeded SELECT z2.*
+            FROM (
+                SELECT z1.*, ROWNUM AS "zend_db_rownum"
+                FROM (
+                    SELECT T_CTO_PAC2.* FROM *T_CTO_PAC2 WHERE (T_CTO_PAC2.ID_PAC = 7037.000000)
+                ) z1
+            ) z2
+            WHERE z2."zend_db_rownum" BETWEEN 1 AND 1' in /ehc/fs1/softs/spms/php_lib/ZendFramework-1.9.1/library/Zend/Db/Statement/Oracle.php:275
+Stack trace:
+#0 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.9.1/library/Zend/Db/Statement.php(304): Zend_Db_Statement_Oracle-&gt;_execute(Array)
+#1 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.9.1/library/Zend/Db/Adapter/Abstract.php(468): Zend_Db_Statement-&gt;execute(Array)
+#2 /ehc/fs1/adp/spms/web-app/spms.wloche/library/Cto/Core/Db/Adapter/Oracle.php(120): Zend_Db_Adapter_Abstract-&gt;query('SELECT z2.*?   ...', Array)
+#3 /ehc/fs1/softs/spms/php_lib/ZendFramework-1.9. in <b>/ehc/fs1/softs/spms/php_lib/ZendFramework-1.9.1/library/Zend/Db/Statement/Oracle.php</b> on line 275</pre>
+
+<p>Well... this is not he same ORA error. Seems there is a clue there:
+[<a href="http://www.dba-oracle.com/sf_ora_00604_error_occurred_and_recursive_sql_level_string.htm">http://dba-oracle.com/sf_ora_00604_error_occurred_…</a>]</p>
+
+<p>Our dba will look at it.</p>
+
+<p>Thx,
+Wilfried</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by François-Xavier MAURICARD (fxmauricard) on 2012-01-25T11:03:24.000+0000</p> 
+        <div class="body">
+            <p>Oh man, you should use you DBMS the rights way :</p>
+
+<pre class="highlight"><code>
+$sqlQuery = 'insert into T1 (C1, C2, C3) values (:c1, :c2, :c3)';
+$statement = new Zend_Db_Statement_Oracle($dbAdapter, $sqlQuery);
+for ($i = 100; $i &lt; 1901; ++$i) {
+    $statement-&gt;execute(array(
+        ':c1' =&gt; 'Test C1',
+        ':c2' =&gt; 'Test C2',
+        ':c3' =&gt; 'Test C3',
+    ));
+}
+</code></pre>
+
+<p>It's the only way to Oracle doing noparse for the query and to have the best speed. (or you could have done it with a PL/SQL stored procedures + a VARRAY as parameter).</p>
+
+        </div>
+    </div>
+    </div>
+

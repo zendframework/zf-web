@@ -1,0 +1,220 @@
+<h2>ZF-2657: Make Zend_Log_Writer_Db Easier For Subclassing</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-02-14T14:34:07.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-10-11T12:47:31.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Arthur Kang (arthurkang)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Wil Sinclair (wil)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Log</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Since the _write function is protected, it can't be overloaded, so it should remain as lean as possible for easier subclassing.</p>
+
+<p>In my opinion, the _write function should be trimmed down to:</p>
+
+<pre class="highlight"><code>
+protected function _write($event)
+{
+    if ($this-&gt;_db === null) {
+        throw new Zend_Log_Exception('Database adapter instance has been removed by shutdown');
+    }
+
+    $this-&gt;_db-&gt;insert($this-&gt;_table, $dataToInsert);
+}
+</code></pre>
+
+<p>All of the mapping functions should be done in write():</p>
+
+<pre class="highlight"><code>
+/**
+ * Log a message to this writer.
+ *
+ * @param  array     $event  log data event
+ * @return void
+ */
+public function write($event)
+{
+    foreach ($this-&gt;_filters as $filter) {
+        if (! $filter-&gt;accept($event)) {
+            return;
+        }
+    }
+    
+   // Move Mapping Here
+    if ($this-&gt;_columnMap === null) {
+        $dataToInsert = $event;
+    } else {
+        $dataToInsert = array();
+        foreach ($this-&gt;_columnMap as $columnName =&gt; $fieldKey) {
+            $dataToInsert[$columnName] = $event[$fieldKey];
+        }
+    }
+    
+    // exception occurs on error
+    $this-&gt;_write($dataToInsert);
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-21T14:35:12.000+0000</p> 
+        <div class="body">
+            <p>Working with the _columnMap is a fundamental part of what this class does. If you override write() to change its behavior WRT the column map, maybe this class isn't an appropriate generalization of the class your extending it with.
+What exactly do you need to do that the writer can't do already?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Arthur Kang (arthurkang2) on 2009-01-22T08:31:30.000+0000</p> 
+        <div class="body">
+            <p>The request is to simply "move" the mapping function from function _write to function write.  If an end user has to do some mapping that is different than standard, they could just overload the write function since it is public.  Currently, since the _write function is protected, the whole class has to be overloaded.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Arthur Kang (arthurkang2) on 2009-01-22T08:49:21.000+0000</p> 
+        <div class="body">
+            <p>In response to your question "What exactly do you need to do that the writer can't do already? "</p>
+
+<p>I have a log table that has many fields that get populated during the course of a user interaction, depending upon what the user is doing.  With the column map's currently implementation, all fields are "inserted".  If a certain event does not exist, it will try to insert '', which breaks things for me...Thus, I needed to override the mapping function to check for isset and add it to dataToInsert if it is.</p>
+
+<p>If you have a log table with a date field called "logindate".  Then, in the code, you have something that sets the event if a user logs in.  For guests, the logging function will fail as it will try and insert ''.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-26T10:45:33.000+0000</p> 
+        <div class="body">
+            <p>I'd like to get Matthew's opinion on this. I'm postponing for now since major Zend_Log work won't start in the next few weeks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2009-01-26T11:12:18.000+0000</p> 
+        <div class="body">
+            <p>Arthur, you <em>can</em> override protected methods in PHP, so long as you keep the same visibility or make it more visible.</p>
+
+<pre class="highlight"><code>
+class My_Log_Writer_Db extends Zend_Log_Writer_Db
+{
+    protected function _write($event)
+    {
+        // do your own custom stuff here...
+    }
+}
+</code></pre>
+
+<p>Currently, the write() method is actually in Zend_Log_Writer_Abstract, and contains the general implementation; it then calls _write(), which is what the individual concrete loggers define.</p>
+
+<p>The only improvement I can see to be made here is to create a new method in Zend_Log_Writer_Db called "_prepareDataToInsert" that would do the formatting and data preparation. However, considering how short the implementation is, I'm not sure it's worth it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2009-01-26T11:16:51.000+0000</p> 
+        <div class="body">
+            <p>Doh! I didn't notice that _write is a protected method. As such, it is overridable and this issue seems to be moot. Please reopen if you still have concerns.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Arthur Kang (arthurkang3) on 2009-01-27T12:09:49.000+0000</p> 
+        <div class="body">
+            <p>It was a while back when I filed this, so I had to go back and find out what was going wrong and why I filed this...</p>
+
+<p>Mathew was correct.  The _write method *can* be overloaded.  But, I'm still having an issue.  Its not major, but I thought I'd bring it up.  I don't really know what is going on.</p>
+
+<p>When subclassing Zend_Log_Writer_Db, I have to copy and include the constructor method in my new class.  It is a straight copy and paste, but if I don't, it breaks.  A new constructor with a call to the parent constructor does not work</p>
+
+<p>The below example is a simple test that can be run from the command line.  No constructor in the extended class doesn't work.  Calling the parent constructor from the extended class doesn't work.  Only copying and pasting the constructor method from the parent to the extended class works (at least for me).  Uncomment appropriately to run the different tests.  If I'm doing something wrong and you can let me know, that would be great.  I was under the impression that the parent constructor method would be called if omitted.</p>
+
+<pre class="highlight"><code>
+&lt;?php
+$APP_PATH = '.';
+set_include_path("$APP_PATH/library/" . PATH_SEPARATOR . get_include_path());
+
+// Load and register the Loader
+require_once "Zend/Loader.php";
+Zend_Loader::registerAutoload();
+
+class MyTest_Log_Writer_Db extends Zend_Log_Writer_Db {
+    /*
+    public function __construct($db, $table, $columnMap = null)
+    {
+        parent::__construct($db, $table, $columnMap = null);
+        #$this-&gt;_db    = $db;
+        #$this-&gt;_table = $table;
+        #$this-&gt;_columnMap = $columnMap;
+    }
+    */
+
+    protected function _write($event) {
+        if ($this-&gt;_db === null) {
+            throw new Zend_Log_Exception('Database adapter instance has been removed by shutdown');
+        }
+        
+        Zend_Debug::Dump($event);
+    }
+}
+$log = new Zend_Log(new MyTest_Log_Writer_Db('db', 'table', 'map'));
+$log-&gt;INFO('Testing');
+?&gt;
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ryan Lange (ryan.lange) on 2010-10-11T12:47:30.000+0000</p> 
+        <div class="body">
+            <p>@Arthur: I believe the issue you're having is a result of Zend_Log_Writer_Db's class properties being private.</p>
+
+<p>I'd guess that including a constructor in your child class causes those properties to be private to that child class instead of Zend_Log_Writer_Db.[1] Calling the parent constructor tries to set those properties, which are now private to MyTest_Log_Writer_Db, and therefore fails.</p>
+
+<p>Of course, including a constructor in your child class will likely cause methods of the parent class, like shutdown() to silently fail (since, in shutdown()'s case, it's no longer allowed to modify $_db).</p>
+
+<hr /><ol><li>This doesn't seem correct to me (I had always thought "private" meant private to the class in which they were declared), but it does explain the issues you're having.</li>
+</ol>
+        </div>
+    </div>
+    </div>
+

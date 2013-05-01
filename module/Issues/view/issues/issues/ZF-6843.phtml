@@ -1,0 +1,185 @@
+<h2>ZF-6843: (De)Serialization of objects implementing ArrayAccess or extending ArrayObject and using magic functions __get and __set</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-05-28T07:10:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:23.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Matthias Steinböck (rocksocke)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Amf</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p><em><em>Defining the environment</em></em></p>
+
+<p>I recognised those two problems trying to send Doctrine-models via AMF.</p>
+
+<p>On PHP-side i have typical doctrine-classes in a specified relation:</p>
+
+<pre class="highlight"><code>
+abstract class BaseArea extends Doctrine_Record
+{
+    public function setTableDefinition()
+    {
+        $this-&gt;setTableName('area');
+        $this-&gt;hasColumn('id', 'integer', 4, array('type' =&gt; 'integer', 'primary' =&gt; true, 'autoincrement' =&gt; true, 'length' =&gt; '4'));
+        $this-&gt;hasColumn('content_id', 'integer', 4, array('type' =&gt; 'integer', 'length' =&gt; '4'));
+        $this-&gt;hasColumn('followed_by', 'integer', 4, array('type' =&gt; 'integer', 'length' =&gt; '4'));
+    }
+
+    public function setUp()
+    {
+       $this-&gt;hasMany('Point as Points', array('local' =&gt; 'id',
+                                                'foreign' =&gt; 'area_id'));
+    }
+}
+
+abstract class BasePoint extends Doctrine_Record
+{
+    public function setTableDefinition()
+    {
+        $this-&gt;setTableName('point');
+        $this-&gt;hasColumn('id', 'integer', 4, array('type' =&gt; 'integer', 'primary' =&gt; true, 'autoincrement' =&gt; true, 'length' =&gt; '4'));
+        $this-&gt;hasColumn('top', 'integer', 4, array('type' =&gt; 'integer', 'length' =&gt; '4'));
+        $this-&gt;hasColumn('left', 'integer', 4, array('type' =&gt; 'integer', 'length' =&gt; '4'));
+        $this-&gt;hasColumn('area_id', 'integer', 4, array('type' =&gt; 'integer', 'length' =&gt; '4'));
+    }
+
+    public function setUp()
+    {
+        $this-&gt;hasOne('Area', array('local' =&gt; 'area_id',
+                                    'foreign' =&gt; 'id'));
+    }
+}
+</code></pre>
+
+<p>Normal access to depending objects (in this case Points) works like this in PHP:</p>
+
+<pre class="highlight"><code>
+$result = Doctrine::getTable('Area')-&gt;findAll();
+
+foreach($result[0]-&gt;Points as $point) {
+   // do some freaky stuff with this point
+}
+</code></pre>
+
+<p>Points is a Doctrine_Collection implementing ArrayAccess.</p>
+
+<p><em><em>First problem</em></em></p>
+
+<p>Fetching an $area-instance from the db and sending it via AMF does not serialize the Points.
+This happens because Zend_AMF does not know that there is a "hidden" property called "Points" as it is only handled via the magic functions __get and __set (see doctrine source code for this). Now thinking about how to solve this i think i know, that AMF cannot be changed to use a configuration parameter like "concernMagicProperties":</p>
+
+<pre class="highlight"><code>
+$server = new Zend_AMF_Server();
+$server-&gt;concernMagicProperties = true;
+</code></pre>
+
+<p>Well. I think this is not possible (and maybe also not practical for all occasions). So i made the following change. Doctrine supports adding kind of "unused" fields like this:</p>
+
+<pre class="highlight"><code>
+$area-&gt;mapValue('_hiddenFields', array('Points'));
+</code></pre>
+
+<p>This makes sure Doctrine continues to work (and does not complain about integrity with the database) and Zend_AMF can access this property to find out which hidden fields should be serialized. In a normal environment with the same problem (not using Doctrine) this could be reached by an public property _hiddenFields which will not be serialized or, maybe more beautiful (this idea just comes to my mind), implementing a Zend_AMF_Value_MagicBehaviour:</p>
+
+<pre class="highlight"><code>
+interface Zend_AMF_Value_MagicBehaviour {
+    /** @return array ***/
+    public function getHiddenFields();
+}
+</code></pre>
+
+<p><em><em>Second Problem</em></em></p>
+
+<p>After changing Zend_AMF to implement the first behaviour (using the public property _hiddenFields) i recognised the second problem:
+AMF serializes the Doctrine_Collection as a named object - which is entirely correct, but the problem is, that there must be a matching AS-class which would have required me to implement sort of my own AS-Doctrine-Collection with the big problem, that the property names are unknown at the time of compilation (the properties are called 1 2 3 4 5...) and as AS has no possibility to handle this - or i don't know it (no magic __set or so) - the only possibility was to change Zend_AMF so that this class gets serialized as an Array. AS has enough ways to change this array and send the list back.</p>
+
+<p>To solve this i made a dirty hack in Zend_AMF to check whether the given object is an instance of Doctrine_Collection and handle it as array. More beautiful would be a similar behaviour as mentioned above:</p>
+
+<pre class="highlight"><code>
+interface Zend_AMF_Value_HandleAsArray {}
+</code></pre>
+
+<p>If a class implements this Interface, Zend_AMF should handle the object as an array (not only if it IS an array).</p>
+
+<p><em>Summarizing there are two problems to solve:</em></p>
+
+<ul><li>How can magic "hidden" properties be serialized</li>
+<li>How can classes that implement ArrrayAccess or extend ArrayObject be serialized as an Array</li>
+</ul><p>I documented my specific changes in a patch which might not be the best, but it was a fix for me to use Doctrine.
+I would like to hear your opinion on this topic, also if there is another way of design.</p>
+
+<p>(offtopic: btw: why doesn't zend framework trac has codeformatting for php? ;-) )</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Robert Cesaric (cesaric) on 2009-08-15T19:00:58.000+0000</p> 
+        <div class="body">
+            <p>Here's a hack I wrote to send Doctrine models via AMF:  <a href="http://cesaric.com/?p=303">http://cesaric.com/?p=303</a>.  It'll get all the nested collections of a data graph and convert them to standard objects and ActionScript ArrayCollections.</p>
+
+<p>On a similar note, any luck going the other way around in trying to send ActionScript objects over AMF to the corresponding Doctrine model object?</p>
+
+<p>I can't seem to get ActionScript classes to map to the respective Doctrine model classes. I'm using the $server-&gt;setClassMap(); method and it works fine as long as I'm not mapping to a php class that extends "Doctrine_Record" (my BaseContact class below does extend Doctrine_Record).  If I comment out "extends BaseContact" below, Zend_Amf type casts it just fine.</p>
+
+<p>class Contact extends BaseContact
+{</p>
+
+<pre><code>public function construct(){
+    $this-&gt;mapValue("_explicitType","com.example.vo.ContactVO");        
+}
+</code></pre>
+
+<p>}</p>
+
+<p>Any suggestions?  Btw, great work on Zend_Amf.  It's coming along nicely!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Joshua (joshua) on 2010-04-24T10:03:29.000+0000</p> 
+        <div class="body">
+            <p>The 'Doctrine_Record' may not be available to your php service at the time amf is deserializing the objects.  Hack open one of the amf files, put reference to a Doctrine_Record in there.  If you get an error, there's your problem.</p>
+
+        </div>
+    </div>
+    </div>
+

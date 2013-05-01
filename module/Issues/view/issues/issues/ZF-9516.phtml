@@ -1,0 +1,742 @@
+<h2>ZF-9516: Zend_Form_ArrayNotation</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>New Feature</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-23T08:01:28.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T21:37:57.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Open</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+        None
+                    </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/12966/AnotherApproach_Notary.php">AnotherApproach_Notary.php</a></li>
+            <li><a href="/issues/secure/attachment/12948/ArrayNotation.php">ArrayNotation.php</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The array notation within Zend_Form is very unstructured and cluttered all around the place.</p>
+
+<p>It is not possible to retrieve the Array Notation Cascade for any Item before rendering
+because this is assembled within Zend_Form_Decorator_FormElements.</p>
+
+<p>The methods getValues, setDefaults and similar are nearly unreadable because,
+(so it seems to me) elementsBelongTo and belongsTo where introduced later on
+and only partial patches addressed the need for these settings.</p>
+
+<p>__</p>
+
+<p>Zend_Form_ArrayNotation was a Singleton, :P which holds the structure of an endless number
+of Forms and appended Items by assigning attached Items an unique ident and splicing this
+into an one dimensional B-Tree like array, in a way that every ident will occure twice
+within this array where every idents between are childs of this ident.</p>
+
+<p>Items are added by calling $notation-&gt;addItem($arrayProperties = array(), $intoIdent = null)
+which will return a new unique Ident after appending it into the given Ident or into root.</p>
+
+<p>Items can be moved by calling $notation-&gt;appendItem($ident, $intoIdent) and can be removed
+by calling $notation-&gt;removeItem($ident) which will remove the whole item with childs from
+the tree, and also delete the properties.</p>
+
+<p>Another array within Zend_Form_ArrayNotation holds properties for idents, currently 'name',
+'path', 'concat', where 'path' is the belongsTo or elementsBelongTo setting of that item 
+normalized to '/' separated segments. 'concat' is a keyword which method to use when appending 
+a path to another or retrieving the Notation for an item, currently this is 
+'pathOnly', 'pathAppendName', 'emptyPathAppendName'.
+'pathAppendName' would be used for Zend_Form_Element, and 'emptyPathAppendName' for Zend_Form.</p>
+
+<p>These properties can be set at any time from everywhere to every item with calling 
+$notation-&gt;setProperty($ident, $key, $value)</p>
+
+<p>__</p>
+
+<p>The Array Notation could be retrieved by calling $notation-&gt;getNotation($ident, $from, $concat)
+where $from is either an int for getting the notation up to $from parents, including
+itself (1 or -1 gets the parent notation appended the notation of the item itself), or
+an ident where getNotation will return the path starting from that $from ident 
+(which is a parent of $ident) appended the notation of $ident.</p>
+
+<p>With $concat it is possible to temporary change the method which is used to assemble the
+notation of $ident (This is needed for Zend_Form_Element which normaly uses 'pathAppendName'
+but in case of Zend_Form_Element-&gt;getBelongsTo() the name is not wanted in notation)</p>
+
+<p>__</p>
+
+<p>Zend_Form_ArrayNotation has several helper methods to process data related to Array Notation.
+$notation-&gt;getValuesForItem($ident, $values) currently looks if the notation of $ident could be 
+dissolved within associative array $values and returns that dissolved value or null
+if it could not be dissolved. (This could be modified to dissolve for name of $ident also)
+$notation-&gt;getValuesForItemIfExist($ident, $values) does the same but returns unmodified $values
+if dissolve fails.
+$notation-&gt;appendValue($ident, $value) internally resolves the notation for $ident converts this
+to an array and attaches the value to this array.
+$notation-&gt;replaceInto($ident, $intoValue, $fromValue) is like 
+array_replace_recursive($intoValue, $notation-&gt;appendValue($ident, $fromValue)) but with a custom
+array_replace_recursive function until 5.3 is widespreaded.
+$notation-&gt;toPath($ident | $stringNotation | $associativeArray) returns the path Notation with '/'
+separator (when using $ident, 'concat' method is used for this (like -&gt;getNotation($ident,0))
+$notation-&gt;toId($ident | $stringNotation | $associativeArray) does the same with separator '-'
+and when using $ident for the complete path from root to $ident.</p>
+
+<p>__</p>
+
+<p>This Class could handle all the belongsTo related settings and actions in one place.</p>
+
+<p>It could be modified to allow custom Concat methods (call_user_func|closures) for 
+each item which gets called when assembling the path|ArrayNotation.</p>
+
+<p>It also could implement a way to name SubItems equally which makes them to an array of
+Items while still allowing overloading in Zend_Form.</p>
+
+<pre class="highlight"><code>
+...
+
+    /**
+     * @var Zend_Form_ArrayNotation 
+     */
+    protected $_notary;
+
+    /**
+     * unique ident from Zend_Form_ArrayNotation
+     * @var string
+     */
+    protected $_ident;
+
+...    
+
+    public function __construct($options = null)
+    {
+        $this-&gt;_notary = Zend_Form_ArrayNotation::getInstance();
+        $this-&gt;_ident  = $this-&gt;_notary-&gt;addItem(array('concat' =&gt; 'emptyPathAppendName'));
+
+...
+
+    /**
+     * Get the ArrayNotation instance 
+     * 
+     * @return Zend_From_ArrayNotation
+     */
+    public function getNotary()
+    {
+        return $this-&gt;_notary;
+    }
+
+    /**
+     * Get the unique Ident from Zend_Form_ArrayNotation 
+     * 
+     * @return string
+     */
+    public function getIdent()
+    {
+        return $this-&gt;_ident;
+    }
+
+...
+
+    public function setElementsBelongTo($array)
+    {
+        $path = $this-&gt;filterName($array, true);
+        $this-&gt;setIsArray('' !== $path);
+        $this-&gt;getNotary()-&gt;setPath($this-&gt;getIdent(), $path);
+
+        return $this;
+    }
+
+...
+
+    public function getElementsBelongTo()
+    {
+        return $this-&gt;getNotary()-&gt;getNotation($this-&gt;getIdent(), 0);
+    }
+
+...
+
+    public function addSubForm(Zend_Form $form, $name, $order = null)
+    {
+
+...
+
+        $this-&gt;getNotary()-&gt;appendItem($form-&gt;getIdent(), $this-&gt;getIdent());
+        return $this;
+    }
+
+...
+
+    public function getValidValues($data, $suppressArrayNotation = false)
+    {
+        $notary = $this-&gt;getNotary();
+        $data   = $notary-&gt;getValuesForItemIfExist($this-&gt;getIdent(), $data);
+
+        $values = array();
+        foreach ($this-&gt;_getElementsAndSubFormsOrdered() as $subitem) {
+            $ident = $subitem-&gt;getIdent();
+            if ($subitem instanceof Zend_Form_Element) {
+                $test  = $notary-&gt;getValuesForItem($ident, $data);
+                if (null !== $test) {
+                    if ($subitem-&gt;isValid($test, $data)) {
+                        $values = $notary-&gt;replaceInto($ident, $values,
+                                                       $subitem-&gt;getValue());
+                    }
+                }
+            } else {
+                $values = $notary-&gt;replaceInto($ident, $values,
+                                               $subitem-&gt;getValidValues($data, true));
+            }
+        }
+        if (!$suppressArrayNotation &amp;&amp; $this-&gt;isArray()) {
+            $values = $notary-&gt;appendValue($this-&gt;getIdent(), $values);
+        }
+        return $values;
+    }
+
+...
+</code></pre>
+
+<pre class="highlight"><code>
+$map = Zend_Form_ArrayNotation::getInstance();
+$form1 = $map-&gt;addItem(array("name" =&gt; "form1Name",
+                             "path" =&gt; "path/to/form1[mixed][Notation]",
+                             "concat" =&gt; "emptyPathAppendName"));
+var_dump($form1);
+
+string '#1' (length=2)
+
+
+$element1 = $map-&gt;addItem(array("name" =&gt; "element1Name",
+                                "path" =&gt; "path1[withArrayNotation]",
+                                "concat" =&gt; "pathAppendName"),
+                                $form1);
+
+$subform1 = $map-&gt;addItem(array("name" =&gt; "subform1Name",
+                                "path" =&gt; "subform1Path[withArrayNotation]",
+                                "concat" =&gt; "emptyPathAppendName"),
+                                $form1);
+$element2 = $map-&gt;addItem(array("name" =&gt; "element2Name",
+                                "path" =&gt; "path1[withArrayNotation]",
+                                "concat" =&gt; "pathAppendName"),
+                                $subform1);
+$element3 = $map-&gt;addItem(array("name" =&gt; "element3Name",
+                                "path" =&gt; "path1[withArrayNotation]",
+                                "concat" =&gt; "pathAppendName"),
+                                $subform1);
+$element4 = $map-&gt;addItem(array("name" =&gt; "element4Name",
+                                "path" =&gt; "path1[withArrayNotation]",
+                                "concat" =&gt; "pathAppendName"),
+                                $form1);
+
+var_dump($map-&gt;debugItemsArrays());
+
+array
+  '$this-&gt;_array' =&gt; 
+    array
+      0 =&gt; string '#0' (length=2)
+      1 =&gt; string '#1' (length=2)
+      2 =&gt; string '#2' (length=2)
+      3 =&gt; string '#2' (length=2)
+      4 =&gt; string '#3' (length=2)
+      5 =&gt; string '#4' (length=2)
+      6 =&gt; string '#4' (length=2)
+      7 =&gt; string '#5' (length=2)
+      8 =&gt; string '#5' (length=2)
+      9 =&gt; string '#3' (length=2)
+      10 =&gt; string '#6' (length=2)
+      11 =&gt; string '#6' (length=2)
+      12 =&gt; string '#1' (length=2)
+      13 =&gt; string '#0' (length=2)
+  '$this-&gt;_items' =&gt; 
+    array
+      '#0' =&gt; 
+        array
+          empty
+      '#1' =&gt; 
+        array
+          'name' =&gt; string 'form1Name' (length=9)
+          'path' =&gt; string 'path/to/form1/mixed/Notation' (length=28)
+          'concat' =&gt; string '_concatEmptyPathAppendName' (length=26)
+      '#2' =&gt; 
+        array
+          'name' =&gt; string 'element1Name' (length=12)
+          'path' =&gt; string 'path1/withArrayNotation' (length=23)
+          'concat' =&gt; string '_concatPathAppendName' (length=21)
+      '#3' =&gt; 
+        array
+          'name' =&gt; string 'subform1Name' (length=12)
+          'path' =&gt; string 'subform1Path/withArrayNotation' (length=30)
+          'concat' =&gt; string '_concatEmptyPathAppendName' (length=26)
+      '#4' =&gt; 
+        array
+          'name' =&gt; string 'element2Name' (length=12)
+          'path' =&gt; string 'path1/withArrayNotation' (length=23)
+          'concat' =&gt; string '_concatPathAppendName' (length=21)
+      '#5' =&gt; 
+        array
+          'name' =&gt; string 'element3Name' (length=12)
+          'path' =&gt; string 'path1/withArrayNotation' (length=23)
+          'concat' =&gt; string '_concatPathAppendName' (length=21)
+      '#6' =&gt; 
+        array
+          'name' =&gt; string 'element4Name' (length=12)
+          'path' =&gt; string 'path1/withArrayNotation' (length=23)
+          'concat' =&gt; string '_concatPathAppendName' (length=21)
+
+
+
+var_dump($map-&gt;getNotation($element2, 0, "pathOnly"));
+
+string 'path1[withArrayNotation]' (length=24)
+
+
+var_dump($map-&gt;getNotation($element2, 0));
+
+string 'path1[withArrayNotation][element2Name]' (length=38)
+
+
+var_dump($map-&gt;getNotation($element2, -1));
+
+string 'subform1Path[withArrayNotation][path1][withArrayNotation][element2Name]' (length=71)
+
+
+var_dump($map-&gt;getNotation($element2, $subform1));
+
+string 'subform1Path[withArrayNotation][path1][withArrayNotation][element2Name]' (length=71)
+
+
+var_dump($map-&gt;getNotation($element2));
+
+string 'path[to][form1][mixed][Notation][subform1Path][withArrayNotation][path1][withArrayNotation][element2Name]' (length=105)
+
+
+var_dump($map-&gt;getNotation($element2, -2));
+
+string 'path[to][form1][mixed][Notation][subform1Path][withArrayNotation][path1][withArrayNotation][element2Name]' (length=105)
+
+
+var_dump($map-&gt;getNotation($element2, "#0"));
+
+string 'path[to][form1][mixed][Notation][subform1Path][withArrayNotation][path1][withArrayNotation][element2Name]' (length=105)
+
+
+var_dump($map-&gt;getNotation($element2, null, "pathOnly"));
+
+string 'path[to][form1][mixed][Notation][subform1Path][withArrayNotation][path1][withArrayNotation]' (length=91)
+
+
+$map-&gt;setName($element2, null);
+
+var_dump($map-&gt;getValuesForItem($element2, array("path1" =&gt; array("withArrayNotation" =&gt; "thisIWant"))));
+
+string 'thisIWant' (length=9)
+
+
+$map-&gt;setName($element2, "element2");
+$map-&gt;setPath($element2, null);
+var_dump($map-&gt;getValuesForItem($element2, array("element2" =&gt; array("NowThis" =&gt; "withArray"))));
+
+array
+  'NowThis' =&gt; string 'withArray' (length=17)
+
+
+var_dump($map-&gt;getValuesForItemIfExist($element2, array("nonexistant" =&gt; array("notation" =&gt; "passthrou"))));
+
+array
+  'nonexistant' =&gt; 
+    array
+      'notation' =&gt; string 'passthrou' (length=9)
+
+$map-&gt;setPath($element2, "new[path][forElement2]");
+
+var_dump($value = $map-&gt;appendValue($element2, array("valueFor" =&gt; "Element2")));
+
+array
+  'new' =&gt; 
+    array
+      'path' =&gt; 
+        array
+          'forElement2' =&gt; 
+            array
+              'element2' =&gt; 
+                array
+                  'valueFor' =&gt; string 'Element2' (length=8)
+
+
+var_dump($map-&gt;replaceInto($element2, $value, array("valueFor" =&gt; "NewValue",
+                                                    "newValueFor" =&gt; "Element2")));
+
+array
+  'new' =&gt; 
+    array
+      'path' =&gt; 
+        array
+          'forElement2' =&gt; 
+            array
+              'element2' =&gt; 
+                array
+                  'valueFor' =&gt; string 'NewValue' (length=8)
+                  'newValueFor' =&gt; string 'Element2' (length=8)
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-28T06:03:39.000+0000</p> 
+        <div class="body">
+            <p>I read somewhere in the Tracker "no more Singletons", so i refactor the Class
+to use Zend_Registry now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-29T01:48:21.000+0000</p> 
+        <div class="body">
+            <p>Another Approach using Zend_Registry, well, this is untested though.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-31T02:43:33.000+0000</p> 
+        <div class="body">
+            <p>Updated AnotherApproach_Notary, this is really exciting for me, as everything fits together plus it is complex but not complicated.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-31T02:55:37.000+0000</p> 
+        <div class="body">
+            <p>This is the new Approach, the description above is a bit outdated now, but the consept is similar</p>
+
+<pre class="highlight"><code>
+&lt;?php
+
+class Zend_Form_Notary
+{
+    protected $_registryName = 'FormNotary';
+
+    protected $_array;
+    protected $_items;
+    protected $_btree;
+    protected $_index;
+
+    protected $_ident;
+
+    public function __construct()
+    {
+        if (!Zend_Registry::isRegistered($this-&gt;_registryName)) {
+            $this-&gt;_setupArray();
+        }
+        $this-&gt;_loadArray()
+             -&gt;_generateIdent();
+    }
+
+    protected function _setupArray()
+    {
+        $this-&gt;_array = array('items' =&gt; array('#0' =&gt; array()),
+                              'btree' =&gt; array('#0', '#0'),
+                              'index' =&gt; array());
+
+        return $this-&gt;_saveArray();
+    }    
+
+    protected function _generateIdent()
+    {
+        end($this-&gt;_items);
+        $this-&gt;_ident = '#' . (ltrim(key($this-&gt;_items), '#') + 1);
+        $this-&gt;_array['items'][$this-&gt;_ident] = array();
+        return $this;
+    }
+
+    protected function _loadArray()
+    {
+        $this-&gt;_array = Zend_Registry::get($this-&gt;_registryName);
+        $this-&gt;_items =&amp; $this-&gt;_array['items'];
+        $this-&gt;_btree =&amp; $this-&gt;_array['btree'];
+        $this-&gt;_index =&amp; $this-&gt;_array['index'];
+        return $this;
+    }
+
+    protected function _saveArray()
+    {
+        Zend_Registry::set($this-&gt;_registryName, $this-&gt;_array);
+        return $this;
+    }
+
+    public function getIdent()
+    {
+        return $this-&gt;_ident;
+    }
+
+    public function isIdent($ident)
+    {
+        $this-&gt;_loadArray();
+        if (array_key_exists($ident, $this-&gt;_items)) {
+            return true;
+        }
+        return false;
+    }
+
+    protected function _ensureIdent($ident)
+    {
+        if (null === $ident) {
+            $this-&gt;_loadArray();
+            return $this-&gt;_ident;
+        }
+        if (!$this-&gt;isIdent($ident)) {
+            throw new Zend_Form_Exception("Nonexistant Ident '$ident'");
+        }
+        return $ident;
+    }
+
+    public function setProperty($key, $value, $forIdent = null)
+    {
+        $this-&gt;_setProperty($key, $value, $this-&gt;_ensureIdent($forIdent));
+        $this-&gt;_saveArray();
+    }
+
+    public function setProperties($properties, $forIdent = null)
+    {
+        $ident = $this-&gt;_ensureIdent($forIdent);
+        foreach ($properties as $key =&gt; $value) {
+            $this-&gt;_setProperty($key, $value, $ident);
+        }
+        $this-&gt;_saveArray();
+    }
+
+    protected function _setProperty($key, $value, $ident)
+    {
+        if (3 == func_num_args()) {
+            $value = $this-&gt;normalize($key, $value);
+        }
+        $this-&gt;_items[$ident][$key] = $value;
+        if (!isset($this-&gt;_index[$key])) {
+            $this-&gt;_index[$key] = array();
+        }
+        $this-&gt;_index[$key][$ident] =&amp; $this-&gt;_items[$ident][$key];
+        return $this;
+    }
+
+    public function getProperty($key, $fromIdent = null)
+    {
+        $key   = (string)$key;
+        $ident = $this-&gt;_ensureIdent($fromIdent);
+        return $this-&gt;prepare($key, $this-&gt;_getProperties($key, $ident), null);
+    }
+
+    public function getProperties($keys = null, $fromIdent = null)
+    {
+        $array = array();
+        $ident = $this-&gt;_ensureIdent($fromIdent);
+        foreach ($this-&gt;_getProperties($keys, $ident, true) as $key =&gt; $val) {
+            $array[$key] = $this-&gt;prepare($key, $val, null);
+        }
+        return $array;
+    }
+
+    protected function _getProperties($key, $ident, $returnArray = false)
+    {
+        $keys = $this-&gt;_filterPropertyKeys($key);
+        if (!empty($keys)) {
+            if (true === $returnArray) {
+                return array_intersect_key($this-&gt;_items[$ident], $keys);
+            } else {
+                return array_shift(array_intersect_key($this-&gt;_items[$ident],
+                                                       $keys)));
+            }
+        } 
+        return (true === $returnArray ? array() : null);
+    }
+
+    protected function _filterPropertyKeys($keys)
+    {
+        $ret = array();
+        if (null === $key) {
+            $ret = array_keys($this-&gt;_index);
+        } else if (is_scalar($keys)) {
+            $ret = array_intersect_key($this-&gt;_index, array($keys));
+        } else if (is_array($keys)) {
+            $ret = array_intersect_key($this-&gt;_index, $keys);
+        }
+        return $ret;
+    }
+
+    public function prepare($key, $value)
+    {
+        $prepare = 'prepare' . ucfirst($key);
+        if (method_exists($this, $prepare)) {
+            switch (func_num_args()) {
+                case 3 :
+                    return $this-&gt;$prepare($value, null);
+                    break;
+                default :
+                    return $this-&gt;$prepare($value);
+                    break;
+            }
+        }
+        return $value;
+    }
+
+    public function prepareNotation($notation)
+    {
+        if (1 == func_num_args()) {
+            $notation = $this-&gt;normalizeNotation($notation);
+        }
+        if (empty($segments = explode('/', $notation))) {
+            return strtr($notation, '#', '');
+        }
+        $notation = array_shift($segments);
+        if (count($segments)) {
+            $notation .= '[' . join('][', $segments) . ']';
+        }
+        return strtr($notation, '#', '');
+    }
+
+    public function normalize($key, $value)
+    {
+        $normalize = 'normalize' . ucfirst($key);
+        if (method_exists($this, $normalize)) {
+            return $this-&gt;$normalize($value);
+        }
+        return $value;
+    }
+
+    public function normalizeNotation($notation)
+    {
+        $notation = str_replace('[]','/#/', $notation);
+        return trim(strtr($notation, array('[' =&gt; '/', ']' =&gt; '')), '/');
+    }
+
+    public function getChilds($parent = null)
+    {
+        $parent = $this-&gt;_ensureIdent($parent);
+        list($l, $r) = array_keys($this-&gt;_btree, $parent);
+        $offsprings  = array_slice($this-&gt;_btree, $l+1, $r-$l);
+
+        $childs = array();
+        $child  = null;
+
+        while (false !== ($current = current($offsprings))) {
+            if (null === $child) {
+                $childs[] = $child = $current;
+            } else if ($child === $current) {
+                $child = null;
+            }
+            next($offsprings);
+        }
+        if (empty($childs)) {
+            return null;
+        }
+        return $childs;
+    }
+
+    public function getChildsByProperty($value, $filterKey = null, $fromIdent = null)
+    {
+        return $this-&gt;_filterIdents((array)$this-&gt;getChilds($fromIdent),
+                                    $filterKey, $value);
+    }
+
+    public function getAncestors($ancestor = '#0', $offspring = null, $slice = null)
+    {
+        $offspring = $this-&gt;_ensureIdent($offspring);
+
+        $idents = array();
+        if ($this-&gt;isIdent($ancestor)) {
+            $idents = $this-&gt;_ancestorsSeek($ancestor, $offspring);
+        }
+        if (!empty($idents)) {
+            if (null !== $slice) {
+                return array_slice($idents, $slice);
+            }
+            return $idents;
+        }
+        return null;
+    }
+
+    protected function _ancestorsSeek($ancestor, $offspring)
+    {
+        // outer bounds
+        list($ol, $or) = array_keys($this-&gt;_btree, $ancestor, true);
+        // inner bounds
+        list($il, $ir) = array_keys($this-&gt;_btree, $offspring, true);
+
+        return array_intersect(array_slice($this-&gt;_btree, $ol, $il-$ol+1),
+                               array_slice($this-&gt;_btree, $ir, $or-$ir+1));
+    }
+
+    public function getIdentsByProperty($value, $filterKey = null)
+    {
+        $this-&gt;_loadArray();
+        return $this-&gt;_filterIdents(array_keys($this-&gt;_items),
+                                    $filterKey, $value);
+    }
+
+    protected function _filterIdents($idents, $keys, $value)
+    {
+        $keys  = $this-&gt;_filterPropertyKeys($keys);
+        $array = array();
+        foreach ($idents as $ident) {
+            foreach (array_intersect_key($this-&gt;_items[$ident], $keys) as $pk =&gt; $pv) {
+                if ($this-&gt;equals($pk, $pv, $value)) {
+                    $array[] = $ident;
+                }
+            }
+        }
+        if (empty($array)) {
+            return null;
+        }
+        return $array;
+    }
+
+    public function equals($propKey, $propVal, $value)
+    {
+        $equal = 'equals' . ucfirst($propKey);
+        if (method_exists($this, $equal)) {
+            return $this-&gt;$equal($propVal, $value);
+        }
+        return ($propVal == $value);
+    }
+
+    public function equalsNotation($str1, $str2)
+    {
+        $str1 = rtrim($this-&gt;normalizeNotation($str1), '/#');
+        $str2 = rtrim($this-&gt;normalizeNotation($str2), '/#');
+        return ($str1 === $str2);
+    }
+}
+</code></pre>
+
+        </div>
+    </div>
+    </div>
+

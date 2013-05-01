@@ -1,0 +1,234 @@
+<h2>ZF-1006: A method for generating URLs from the Router</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-03-02T09:10:19.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:53.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Daan Broekhof (joror)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Michal Minicki (martel)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>A method for generating URLs from the routes known to the router.
+(The 'assemble' function is already known in the Route classes, but not used)</p>
+
+<p>A simple function the the Zend_Controller_Router _Rewrite would implement this:
+The arguments array would contain an associative array with information to make an url with.
+An important mechanism is to match the generated route and see if it does not contain defaults the arguments did not contain.</p>
+
+<pre class="highlight"><code>
+public function assembleRoute($arguments)
+{
+    foreach (array_reverse($this-&gt;_routes) as $route)
+    {
+        try
+        {
+            $url = $route-&gt;assemble($arguments, true);
+
+            if (array_diff_assoc($route-&gt;match($url), $arguments) === array())
+                return $url;
+        }
+        catch (Zend_Controller_Router_Exception $e)
+        {
+            continue;
+        }
+    }
+    throw new Zend_Controller_Router_Exception('No route could be found');
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-08T08:14:55.000+0000</p> 
+        <div class="body">
+            <p>That's what the URL view helper is there for:</p>
+
+<pre class="highlight"><code>
+// In view script:
+echo $this-&gt;url(array('param' =&gt; 2));
+echo $this-&gt;url(array('param' =&gt; 2), 'route-name');
+</code></pre>
+
+<p>Or, alternatively, you can use assemble in your business code:</p>
+
+<pre class="highlight"><code>
+$url = $router-&gt;getCurrentRoute()-&gt;assemble(array('param' =&gt; 2));
+$url = $router-&gt;getRoute('route-name')-&gt;assemble(array('param' =&gt; 2));
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daan Broekhof (joror) on 2007-03-08T08:49:52.000+0000</p> 
+        <div class="body">
+            <p>Ah but that function only works on a default route or a specifically named route.
+This function would assemble the most specific route as specified by the parameters, looking through all routes.</p>
+
+<p>If someone for instance has these routes defined:</p>
+
+<p><em>default</em>
+":controller/:action/<em>"
+*newsitem</em>
+"newsitem/:id"
+defaults:
+controller = news
+action = view</p>
+
+<p>If you then try to assemble a route to</p>
+
+<pre class="highlight"><code>
+'controller' =&gt; 'news',
+'action' =&gt; 'view',
+'id' =&gt; 3,
+</code></pre>
+
+<p>It <em>will</em> match the more custom route as:
+"newsitem/3"
+Instead of the default route:
+"news/view/id/3"</p>
+
+<p>This way custom routes automatically get used, instead of needing to specifically name a route to generate an url.
+An easy way to build relative urls would be to use something like this in the url helper:</p>
+
+<pre class="highlight"><code>
+$request = $ctrl-&gt;getRequest();
+$ctrl = Zend_Controller_Front::getInstance();
+$router = $ctrl-&gt;getRouter();
+
+$url = rtrim($request-&gt;getBaseUrl(), '/') . '/';
+$url .= $router-&gt;assembleRoute($urlOptions + $request-&gt;getParams(), $reset);
+</code></pre>
+
+<p>Instead of using the current route as a base, it will look for the best route based on the available information.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-08T09:17:48.000+0000</p> 
+        <div class="body">
+            <p>OK, Daan, it's something that generates a lot of overhead and for what reason? What do you need it for?</p>
+
+<p>Assemble is there to help you build URLs for the menu, for example. Or URLs leading to different pages of the same functionality (like forum thread pages). And you, as a developer of your own software, know exactly what routes you have previously configured so you can name them without any problem. Or use current one as a handy alternative. And you wouldn't probably want your menu to change if you later add some route that will be more specific than the one used in the menu.</p>
+
+<p>Moreover, assemble method gets called many times on the same page (unlike match which is called only once) so it has to be as lightweight as possible. And calling match method repeatedly for every assemble is just not advisable.</p>
+
+<p>I honestly don't see any cases where such pretty random assembling would be useful. Because if you want to give these URLs out it would be better to even hard code them and let the router match the route on the next request.</p>
+
+<p>I think you will have to subclass the router here. Which is not so hard as you're probably hand creating rewrite router anyways (to add new routes to it).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daan Broekhof (joror) on 2007-03-08T10:47:39.000+0000</p> 
+        <div class="body">
+            <p>I can understand your performance argument, and with that in mind this exact feature will indeed be a bit heavy.
+On the other hand it will enable very flexible routing, where you can define new routes easily, and they get used right away &amp; automatically - this would be very handy in big applications or for applications/modules built by 3rd parties.
+It is not a real requirement for the router to have this, but it would be an interesting feature, it would enable the router 'table' to work in both directions.</p>
+
+<p>And as for calling match() every route - this can be optimized away, as the information it is called for (checking if defaults for a route match the parameters) is already available in assemble method. I did not do so in this example to keep things simple.</p>
+
+<p>I have indeed already implemented my own router for this feature - but I suggested it here as I see this possibly being interesting for more people.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michal Minicki (martel) on 2007-03-08T11:29:20.000+0000</p> 
+        <div class="body">
+            <p>Right, Daan, using defaults would be a lot more sensible. But I still can't see how this whole idea would be useful. Let's imagine we have these  routes defined in this exact order:</p>
+
+<pre class="highlight"><code>
+new ..._Route(':action'
+    array('controller' =&gt; 'default', 'action' = 'index')
+);
+
+new ..._Route('users/:user'
+    array('controller' =&gt; 'user', 'action' = 'user')
+);
+
+new ..._Route_Static('users'
+    array('controller' =&gt; 'user', 'action' = 'index')
+);
+
+new ..._Route_Static('login'
+    array('controller' =&gt; 'profile', 'action' = 'login')
+);
+
+</code></pre>
+
+<p>How could this method help? Can you prepare some useful use case? Convince me.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Daan Broekhof (joror) on 2007-03-09T07:05:13.000+0000</p> 
+        <div class="body">
+            <p>An example based on your routes:</p>
+
+<p>I want to make a route to {'controller' =&gt; 'profile', 'action' = 'login'}:
+- default route result: '/profile/login'
+- assembleRoute result: '/login'</p>
+
+<p>I want to make a route to {'controller' =&gt; 'user', 'action' = 'user', 'user' =&gt; 'daan'}
+- default route result: '/user/user' , the value 'user' =&gt; 'daan' is lost
+(but if the default route had a '/*' it would result in  '/user/user/user/daan')
+- assembleRoute result: '/users/daan'</p>
+
+<hr /><p>An example with modules/3rd party applications in mind:</p>
+
+<p>Imagine a phpnuke kind of application based on the framework - a conglomeration of modules by different authors.
+Say one of these modules is a forum, which internally uses a 'topic/:id' routing - this would not be confusing if the module was operated as a stand-alone application. 
+Problems that can occur:
+- Style conflicts, where multiple modules would use dissimilar routing styles
+- Location/module distinctions - you cannot put the 'forum' in a 'forum/' path - all it's internal routes are locked.
+- Conflicting routing, there might be a blog module which also uses a 'topic/:name' route - result: two modules which cannot co-exist without editing all the templates/links in one of them.</p>
+
+<hr /><p><em>The advantage in short</em>:
+Having the reverse routing available removes the need for the developer to know what the defined routes are - the router will find the most appropriate url for the supplied data.
+This opens up the possibility for others (people who deploy the application / other developers) to create and remove routes at will, without having to wonder if it will break a controller or a view. 
+(As long as there is at least one route which can represent any data combination - which usually is the default route with a '/*' end)</p>
+
+<p>The svn trunk of the framework currently has functionality to load routes from a config file - which opens up route definition to the crowd beyond the application developer - so it is indeed something to consider.</p>
+
+        </div>
+    </div>
+    </div>
+

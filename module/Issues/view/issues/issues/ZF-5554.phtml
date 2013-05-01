@@ -1,0 +1,107 @@
+<h2>ZF-5554: records missed in returned when doing a search with two or more strings with AND</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-01-15T05:05:09.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-04-24T11:03:05.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>In Progress</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Richard So (richso)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Alexander Veremyev (alexander)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Search_Lucene</li>
+            <li>After1.12.0</li>
+            <li>zf-crteam-padraic</li>
+            <li>zf-crteam-priority</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-5545">ZF-5545</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have found cases that some records has missed in return to a search with two or more strings with AND criteria (even using generic search API); I've traced into the code and found the following facts:</p>
+
+<ol><li>the score of a MultiTerm search becomes zero (the terms when searched separately can return results, i.e. score &gt; 0)</li>
+<li>some of the $this-&gt;_termsFreqs[$termId][$docId] using in the for loop of member function "_conjunctionScore" is null and caused $reader-&gt;getSimilarity()-&gt;tf($this-&gt;_termsFreqs[$termId][$docId])  [MultiTerm.php line 473] to return 0</li>
+<li>the "used" $docsFilter created in [MultiTerm.php line 330] in member function "_calculateConjunctionResult" caused the last loop for the termFreqs failed to be assigned values</li>
+</ol><p>As I have only limited time for reverse engine, I can't fully understand the use of "DocsFilter" at the moment, I am wondering whether this can be corrected by simply modify the member function as follows:</p>
+
+<pre><code>private function _calculateConjunctionResult(Zend_Search_Lucene_Interface $reader)
+{
+    $this-&gt;_resVector = null;
+
+    if (count($this-&gt;_terms) == 0) {
+        $this-&gt;_resVector = array();
+    }
+
+    // Order terms by selectivity
+    $docFreqs = array();
+    $ids      = array();
+    foreach ($this-&gt;_terms as $id =&gt; $term) {
+        $docFreqs[] = $reader-&gt;docFreq($term);
+        $ids[]      = $id; // Used to keep original order for terms with the same selectivity and omit terms comparison
+    }
+    array_multisort($docFreqs, SORT_ASC, SORT_NUMERIC,
+                    $ids,      SORT_ASC, SORT_NUMERIC,
+                    $this-&gt;_terms);
+
+    $docsFilter = new Zend_Search_Lucene_Index_DocsFilter();
+    foreach ($this-&gt;_terms as $termId =&gt; $term) {
+        $termDocs = $reader-&gt;termDocs($term, $docsFilter);
+    }
+    // Treat last retrieved docs vector as a result set
+    // (filter collects data for other terms)
+    $this-&gt;_resVector = array_flip($termDocs);
+
+    $docsFilter = new Zend_Search_Lucene_Index_DocsFilter();                                               // &lt;---------------------- added to re-initialize the $docsFilter
+    foreach ($this-&gt;_terms as $termId =&gt; $term) {
+        $this-&gt;_termsFreqs[$termId] = $reader-&gt;termFreqs($term, $docsFilter);
+
+    }
+
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Sjoerd van Noort (seven007) on 2009-05-29T02:06:01.000+0000</p> 
+        <div class="body">
+            <p>Reinitialising the DocsFilter as mentioned here solves the Undefined offset notice from issue ZF-5545 for me. Although I don't understand how/if this influences search result. It seems to me, although I don't understand the issue fully, that with this fix the function $reader-&gt;termFreqs has to redo some work because it does not have the Docfilter data from the previous $reader-&gt;termDoc calls</p>
+
+        </div>
+    </div>
+    </div>
+

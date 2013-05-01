@@ -1,0 +1,179 @@
+<h2>ZF-10130: Zend_Mail sets wrong Content-Transfer-Encoding in mail-header in MULTIPART Mime mails (INCLUDES BUGFIX)</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-07-10T03:12:58.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-12-06T03:14:29.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>Next Major Release ()</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Andreas F. (zokaf)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Dolf Schimmel (Freeaqingme) (freak)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Mail</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-9262">ZF-9262</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When sending Multipart Mime-Email Zend_Mail sets the value of the field "Content-Transfer-Encoding" in mail-header to the value of BodyText (which is wrong!)</p>
+
+<p>This results in a violation of RFC when BodyText is (as example) encoded as "quoted-printable" and can result in refusal of the mail from the mail-receivers MUA or MTA.</p>
+
+<p>Best Practice is: DO NOT SET "Content-Transfer-Encoding" in mailheader, when sending Multipart Mime-Emails.</p>
+
+<p>Example code to reproduce the error:</p>
+
+<pre class="highlight"><code>
+  $mail = new Zend_Mail();
+  $mail-&gt;setBodyText('some text','ISO-8859-1',Zend_Mime::ENCODING_QUOTEDPRINTABLE);
+  $mail-&gt;setFrom('xx@xxx.de');
+  $mail-&gt;addTo('xx@xxx.de');
+  $mail-&gt;setSubject('Test');
+  $at = new Zend_Mime_Part('some unimportant content');
+  $at-&gt;type        = 'application/pdf';
+  $at-&gt;disposition = Zend_Mime::DISPOSITION_ATTACHMENT;
+  $at-&gt;encoding    = Zend_Mime::ENCODING_BASE64;
+  $at-&gt;filename    = 'blafasel.pdf';
+  $mail-&gt;addAttachment($at);
+  $mail-&gt;send();
+</code></pre>
+
+<p>The created email looks like this in source:</p>
+
+<pre class="highlight"><code>
+Subject: Test
+To: xx@xxx.de
+From: xx@xxx.de
+Date: Sat, 10 Jul 2010 07:16:15 -0200
+Content-Type: multipart/mixed;
+ boundary="=_03fcaaf5c6e236d86e4353bccf196a7d"
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: inline
+MIME-Version: 1.0
+Message-Id: &lt;20100710091618.B221A124@xxxx.xxxx.de&gt;
+
+This is a message in Mime Format.  If you see this, your mail reader does not support this format.
+
+--=_03fcaaf5c6e236d86e4353bccf196a7d
+Content-Type: text/plain; charset=ISO-8859-1
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: inline
+
+some text
+--=_03fcaaf5c6e236d86e4353bccf196a7d
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="blafasel.pdf"
+
+c29tZSB1bmltcG9ydGFudCBjb250ZW50
+--=_03fcaaf5c6e236d86e4353bccf196a7d--
+</code></pre>
+
+<p>The line "Content-Transfer-Encoding: quoted-printable" direct below "Content-Type: multipart/mixed;  boundary="=_03fcaaf5c6e236d86e4353bccf196a7d" is a violation of RFC.</p>
+
+<p>The error could be corrected in File Zend/Mail/Transport/Abstract.php in function</p>
+
+<pre class="highlight"><code>
+by adding at line 334 the following two lines of code:
+
+</code></pre>
+
+<p>if (isset($boundary))
+    unset($this-&gt;_headers['Content-Transfer-Encoding']);</p>
+
+<pre class="highlight"><code>
+
+
+So the function will look like this from the beginning (just for clarifiation):
+
+
+</code></pre>
+
+<p>public function send(Zend_Mail $mail)
+    {
+        $this-&gt;_isMultipart = false;
+        $this-&gt;_mail        = $mail;
+        $this-&gt;_parts       = $mail-&gt;getParts();
+        $mime               = $mail-&gt;getMime();</p>
+
+<pre><code>    // Build body content
+    $this-&gt;_buildBody();
+
+    // Determine number of parts and boundary
+    $count    = count($this-&gt;_parts);
+    $boundary = null;
+    if ($count &lt; 1) {
+        /**
+         * @see Zend_Mail_Transport_Exception
+         */
+        require_once 'Zend/Mail/Transport/Exception.php';
+        throw new Zend_Mail_Transport_Exception('Empty mail cannot be sent');
+    }
+
+    if ($count &gt; 1) {
+        // Multipart message; create new MIME object and boundary
+        $mime     = new Zend_Mime($this-&gt;_mail-&gt;getMimeBoundary());
+        $boundary = $mime-&gt;boundary();
+    } elseif ($this-&gt;_isMultipart) {
+        // multipart/alternative -- grab boundary
+        $boundary = $this-&gt;_parts[0]-&gt;boundary;
+    }
+
+if (isset($boundary))
+        unset($this-&gt;_headers['Content-Transfer-Encoding']);
+
+   ... the rest of the function follows here ...
+</code></pre>
+
+<p>```</p>
+
+<p>It would be nice if someone could apply this fix to the next version of Zend_Framework.</p>
+
+<p>Thanks
+Andreas</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Dolf Schimmel (Freeaqingme) (freak) on 2010-12-06T03:14:13.000+0000</p> 
+        <div class="body">
+            <p>I'd like to know where and in which rfc I can find this. In any ways, it did get resolved in ZF2</p>
+
+        </div>
+    </div>
+    </div>
+

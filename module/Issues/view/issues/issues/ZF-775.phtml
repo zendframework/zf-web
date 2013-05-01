@@ -1,0 +1,284 @@
+<h2>ZF-775: Zend_Controller_Dispatcher::isDispatchable() always returns true</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-01-20T14:20:43.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:40.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.8.0 (21/Feb/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>In changeset 2840,  Zend_Controller_Dispatcher::_getController() was rewritten to always return the name of a controller without worrying about if there was an associated file/class.</p>
+
+<p>Zend_Controller_Dispatcher::isDispatchable() looks for a boolean false to be returned from _getController() which is now not happenin, so it always returns true.</p>
+
+<p>Looking at the changeset, I think it's intentional to move the directory check out of _getController(), so I suspect that isDispatchable() needs changing to something like:</p>
+
+<pre class="highlight"><code>
+public function isDispatchable(Zend_Controller_Request_Abstract $request)
+{
+    $className = $this-&gt;_getController($request);
+    if (!$className) {
+        return false;
+    }
+
+    try {
+        Zend::loadClass($className, $this-&gt;getControllerDirectory());
+    } catch (Zend_Exception $e) {
+        return false;
+    }
+
+    return true;
+}
+</code></pre>
+
+<p>I suspect that there's a better way than relying on Zend::loadClass's exception though :)</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-20T14:21:30.000+0000</p> 
+        <div class="body">
+            <p>Fix wrapping in code</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-25T16:20:56.000+0000</p> 
+        <div class="body">
+            <p>Please check out revision 3004 -- this should resolve the issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T08:30:21.000+0000</p> 
+        <div class="body">
+            <p>Nearly :)</p>
+
+<p>isDispatchable() returns false for an classname wherease dispatch() succeeds:</p>
+
+<p>suggested patch:</p>
+
+<pre class="highlight"><code>
+Index: Dispatcher.php
+===================================================================
+--- Dispatcher.php      (revision 3010)
++++ Dispatcher.php      (working copy)
+@@ -68,7 +68,7 @@
+     {
+         $className = $this-&gt;_getController($request);
+         if (!$className) {
+-            return false;
++            $className = $this-&gt;_getDefaultControllerName($request);
+         }
+
+         $fileSpec = $this-&gt;classToFilename($className);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-26T08:40:27.000+0000</p> 
+        <div class="body">
+            <p>This is by design, however, and documented in the isDispatchable() docblock:</p>
+
+<pre class="highlight"><code>
+    /**
+     * Returns TRUE if the Zend_Controller_Request_Abstract object can be
+     * dispatched to a controller.
+     *
+     * Use this method wisely. By default, the dispatcher will fall back to the
+     * default controller (either in the module specified or the global default)
+     * if a given controller does not exist. This method returning false does
+     * not necessarily indicate the dispatcher will not still dispatch the call
+     * to the default controller.
+     *
+     * @param Zend_Controller_Request_Abstract $action
+     * @return boolean
+     */
+</code></pre>
+
+<p>The idea is that if the requested controller is not found, or no controller was found, it will fall back to the default controller when dispatching. This allows URLs with no path to work ('/').</p>
+
+<p>The alternate route is to modify _getController() to call _getDefaultController() only if no controller was found. Is this a better solution?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T08:42:14.000+0000</p> 
+        <div class="body">
+            <p>Previous comment should read:</p>
+
+<p>isDispatchable() returns false for an empty classname wherease dispatch() succeeds.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-26T08:50:27.000+0000</p> 
+        <div class="body">
+            <p>Right -- and I've commented on why that is the case currently. Would calling _getDefaultController() from _getController() make more sense to you -- so that isDispatchable() and dispatch() act more alike?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T09:05:31.000+0000</p> 
+        <div class="body">
+            <p>I completely missed the docblock comment! As a general point of view, I expected that isDispatchable() would succeed / fail in exactly the same way as dispatch().</p>
+
+<p>Certainly, from a plugin (or anywhere else outside the dispatcher), there is no way to detect at the moment that dispatch() will succeed or fail other than calling isDispatchable().</p>
+
+<p>I think that moving the _getDefaultController() call to _getController() would make sense as then both isDispatchable() and dispatch()'s call to _getController() will end up with the same result.</p>
+
+<p>In this particular case, I am using a front controller plug in that looks like this:</p>
+
+<pre class="highlight"><code>
+    public function preDispatch(Zend_Controller_Request_Abstract $request)
+    {
+        $dispatcher = Zend_Controller_Front::getInstance()-&gt;getDispatcher();
+        if (!$dispatcher-&gt;isDispatchable($request))
+        {
+            $request-&gt;setControllerName('index');
+            $request-&gt;setActionName('noroute');
+        }
+    }
+</code></pre>
+
+<p>Though, I assume that this is not the only use of isDispatchable() !</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T09:08:32.000+0000</p> 
+        <div class="body">
+            <p>"The idea is that if the requested controller is not found, or no controller was found, it will fall back to the default controller when dispatching. This allows URLs with no path to work ('/')."</p>
+
+<p>This doesn't work then :)</p>
+
+<p><a href="http://example.com/invalid/test">http://example.com/invalid/test</a> throws an exception:</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T09:11:03.000+0000</p> 
+        <div class="body">
+            <p>continuing comment - accidentally submitted.</p>
+
+<p><a href="http://example.com/invalid/test">http://example.com/invalid/test</a> throws an exception:</p>
+
+<p>Fatal error: Uncaught exception 'Zend_Exception' with message 'File "../application/controllers\InvalidController.php" was not found.' in
+C:\code\zftest\lib\zf\library\Zend.php:175 Stack trace: #0 C:\code\zftest\lib\zf\library\Zend.php(103): Zend::loadFile('InvalidControll...', Array, true) #1 C:\code\zftest\lib\zf\library\Zend\Controller\Dispatcher.php(208): Zend::loadClass('InvalidControll...', Array) #2 C:\code\zftest\lib\zf\library\Zend\Controller\Dispatcher.php(157): Zend_Controller_Dispatcher-&gt;loadClass('InvalidControll...') #3 C:\code\zftest\lib\zf\library\Zend\Controller\Front.php(726): Zend_Controller_Dispatcher-&gt;dispatch(Object(Zend_Controller_Request_Http), Object(Zend_Controller_Response_Http)) #4 C:\code\zftest\app2\helloworld\web_root\index.php(23): Zend_Controller_Front-&gt;dispatch() #5 {main} thrown in C:\code\zftest\lib\zf\library\Zend.php on line 175</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-26T09:27:40.000+0000</p> 
+        <div class="body">
+            <p>Okay -- good catch.</p>
+
+<p>My thought, then, is that we need to accommodate the following use cases:</p>
+
+<ul><li>No controller present in request: use default controller and consider the request dispatchable</li>
+<li>Invalid controller present in request: isDispatchable() should report false</li>
+</ul><p>I think that dispatch(), on finding that a controller is not dispatchable, should either:</p>
+
+<ul><li>dispatch to the default controller and action, OR</li>
+<li>throw a Zend_Controller_Dispatcher_Exception, which the developer could then test for in the response object and redirect to a generic error page.</li>
+</ul><p>Perhaps this should be configurable behaviour?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T09:43:29.000+0000</p> 
+        <div class="body">
+            <p>Use cases:
+    *  No controller present in request: use default controller and consider the request dispatchable</p>
+
+<p>I agree as this covers the common case of no path at all ('/'). So, for this case, dispatch() should use the default controller and isDispatchable() should return true.</p>
+
+<pre><code>* Invalid controller present in request: isDispatchable() should report false
+</code></pre>
+
+<p>Agreed.</p>
+
+<p>Choices for dispatch() for the second use case:</p>
+
+<pre><code>* dispatch to the default controller and action, OR
+* throw a Zend_Controller_Dispatcher_Exception, which the developer could then test for in the response object and redirect to a generic error page.
+</code></pre>
+
+<p>I actually think that the current system of dispatch() throwing an exception in this case is perfectly reasonable. Automatically dispatching to the default controller and action would make it that much harder to find typos!</p>
+
+<p>Personally, I don't see the need for making this configurable option as it's trivial to write a plugin to prevent the exception or as you say, checking the response object.  If you did go the configurable route, then redirect to the noRoute action in the default controller though, as most people would want to put up an error page, not the home page.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-26T09:48:08.000+0000</p> 
+        <div class="body">
+            <p>Okay, with that in mind, I'll default to throw an exception if the controller is invalid, but have a configuration option to use the default controller instead. Also, _getDefaultController() already resets the action to the default action when called, so this will not need to change.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-26T09:48:42.000+0000</p> 
+        <div class="body">
+            <p>Also, I'll document how to handle such routes, with an example of subclassing the response object.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2007-01-26T10:01:25.000+0000</p> 
+        <div class="body">
+            <p>Sounds good to me!</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-01-29T09:05:25.000+0000</p> 
+        <div class="body">
+            <p>Issue resolved during week of 22 January 2007</p>
+
+        </div>
+    </div>
+    </div>
+

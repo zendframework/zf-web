@@ -1,0 +1,179 @@
+<h2>ZF-391: Zend_Locale_Format::getNumber() returns wrong results</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-09-21T03:45:54.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:21.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.2.0 (29/Oct/06)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Gunar Scholz (felix)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Thomas Weidner (thomas)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Locale</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Rev 1101 Line 64ff.</p>
+
+<pre class="highlight"><code>
+if ($symbols['decimal'] != '.') {
+    $found[0] = str_replace($symbols['decimal'],".",$found[0]);
+    $found[0] = (float) $found[0];
+} else {
+    $found[0] = (int) $found[0];
+}
+
+return $found[0];
+</code></pre>
+
+<p>Do you see the error? If {{$symbols['decimal']}} is not a dot this function returns always floats (i.e. locale de), else integers (i.e. locale en).</p>
+
+<p>Improvement proposal: How about optionally returning as string? Float has a limited precision. I couldn't get returned numbers containing more then 12 digits without loss of precision. 1234567890.1234 returns a float 1234567890.12</p>
+
+<p>Correction and improvement proposal:</p>
+
+<pre class="highlight"><code>
+public static function getNumber($input, $locale, $asString = false)
+{
+  ...
+    if ($symbols['decimal'] != '.')
+        $found[0] = str_replace($symbols['decimal'], '.', $found[0]);
+
+    if ($asString)
+        return $found[0];
+
+    return (strpos($found[0], '.') !== false) ? (float) $found[0] : (int) $found[0];
+}
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2006-09-21T04:44:41.000+0000</p> 
+        <div class="body">
+            <p>My fault...</p>
+
+<p>But I don't see the problem.
+I will erase the type-converting and this will do the thing.</p>
+
+<p>There will always a string be returned, but it is normalized.
+So when someone will do</p>
+
+<pre class="highlight"><code>
+$number = "123.456.789.012,345678901"
+$normalized = Zend_Locale_Format::getNumber($number,'de_DE');
+</code></pre>
+
+<p>it returns "123456789012.345678901".</p>
+
+<p>This way the function will also handle any size of numbers.
+The only thing the user has to be aware is when he normalized a 
+number bigger as integer. Then he has to use the bcmath functions for computing them.</p>
+
+<p>Is this acceptable ?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2006-09-21T04:47:45.000+0000</p> 
+        <div class="body">
+            <p>Btw:</p>
+
+<p>There will also be a function "getFloat" where you can define a precission.
+So "getNumber" should only return the Integer part (precission 0).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gunar Scholz (felix) on 2006-09-21T10:13:50.000+0000</p> 
+        <div class="body">
+            <p>Leaving the result of getNumber() as string would be fine in my opinion. If someone really needs a typecast ... that's not a big thing.</p>
+
+<p>I don't think there is a need for both the functions getFloat() and getInteger(). It would be be an extra service of Zend_Locale_Format, but I can't imagine a use for it. If a non localized formatting is needed (i.e. for an SQL string), the normalized string can be formatted using number_format() or sprintf() or for bigger numbers using i.e.
+{{bcadd('12345678901234567890.1234567890123456789', 0, $scale);}}</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2006-09-21T13:08:24.000+0000</p> 
+        <div class="body">
+            <p>When someone will do a</p>
+
+<pre class="highlight"><code>
+$number = Zend_Locale_Format::getNumber('123.456.789.0123.456,789',Zend_Locale::de_DE);
+$result = $number + 10;
+</code></pre>
+
+<p>he would get an error... because $number is bigger than $number. It would be autotype-converted to float and loose the precision.</p>
+
+<p>But when he does a getInteger he can be sure that the result is an integer... otherwise he would get an false returned.</p>
+
+<p>And getFloat would have an additional parameter, where you can define the precision.</p>
+
+<pre class="highlight"><code>
+$number = Zend_Locale_Format::getFloat('123,45678',3,Zend_Locale::de_DE);
+// returns 123.456
+</code></pre>
+
+<p>Number is related to is_numeric
+Integer is related to is_int
+Float is related to is_float</p>
+
+<p>And you always have a getxxx, a setxxx, and a isxxx function.
+All functions are per definition locale-aware.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gunar Scholz (felix) on 2006-09-21T15:59:41.000+0000</p> 
+        <div class="body">
+            <p>Hmmm... in my opinion the job of the local class ends after a successful normalization. But if you think different, that's o.k. I can ignore the functions I don't have a use for as long as getNumber() works fine. :-)</p>
+
+<p>Thanks for correcting the bug. You may close this issue.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2006-09-22T01:16:03.000+0000</p> 
+        <div class="body">
+            <p>Zend_Locale_Format::getNumer() now returns only string.</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,100 @@
+Index: tests/Zend/Rest/ServerTest.php
+===================================================================
+--- tests/Zend/Rest/ServerTest.php	(revision 21404)
++++ tests/Zend/Rest/ServerTest.php	(working copy)
+@@ -542,9 +542,10 @@
+ 
+     /**
+      * @see ZF-1949
++     * @see ZF-9374
+      * @group ZF-1949
+      */
+-    public function testMissingArgumentsWithDefaultsShouldNotResultInFaultResponse()
++    public function testMissingAnonArgumentsWithDefaultsShouldNotResultInFaultResponse()
+     {
+         $server = new Zend_Rest_Server();
+         $server->setClass('Zend_Rest_Server_Test');
+@@ -552,10 +553,38 @@
+         $server->handle(array('method' => 'testFunc7', 'arg1' => "Davey"));
+         $result = ob_get_clean();
+         $this->assertContains('<status>success</status>', $result, var_export($result, 1));
+-        $this->assertContains('<response>Hello today, How are you Davey</response>', $result, var_export($result, 1));
++        $this->assertContains('<response>Hello Davey, How are you today</response>', $result, var_export($result, 1));
+     }
+ 
+     /**
++     * @see ZF-9374
++     */
++    public function testMissingZeroBasedAnonArgumentsWithDefaultsShouldNotResultInFaultResponse()
++    {
++        $server = new Zend_Rest_Server();
++        $server->setClass('Zend_Rest_Server_Test');
++        ob_start();
++        $server->handle(array('method' => 'testFunc7', 'arg0' => "Davey"));
++        $result = ob_get_clean();
++        $this->assertContains('<status>success</status>', $result, var_export($result, 1));
++        $this->assertContains('<response>Hello Davey, How are you today</response>', $result, var_export($result, 1));
++    }
++
++    /**
++     * @see ZF-9374
++     */
++    public function testMissingNamesArgumentsWithDefaultsShouldNotResultInFaultResponse()
++    {
++        $server = new Zend_Rest_Server();
++        $server->setClass('Zend_Rest_Server_Test');
++        ob_start();
++        $server->handle(array('method' => 'testFunc7', 'who' => "Davey"));
++        $result = ob_get_clean();
++        $this->assertContains('<status>success</status>', $result, var_export($result, 1));
++        $this->assertContains('<response>Hello Davey, How are you today</response>', $result, var_export($result, 1));
++    }
++
++    /**
+      * @group ZF-3751
+      */
+     public function testCallingUnknownMethodDoesNotThrowUnknownButSpecificErrorExceptionMessage()
+Index: library/Zend/Rest/Server.php
+===================================================================
+--- library/Zend/Rest/Server.php	(revision 21404)
++++ library/Zend/Rest/Server.php	(working copy)
+@@ -189,28 +189,35 @@
+ 
+                     $func_args = $this->_functions[$this->_method]->getParameters();
+ 
++                    // calling_args will be a zero-based array of the parameters
+                     $calling_args = array();
+                     $missing_args = array();
+-                    foreach ($func_args as $arg) {
++                    foreach ($func_args as $i => $arg) {
+                         if (isset($request[strtolower($arg->getName())])) {
+-                            $calling_args[] = $request[strtolower($arg->getName())];
++                            $calling_args[$i] = $request[strtolower($arg->getName())];
+                         } elseif ($arg->isOptional()) {
+-                            $calling_args[] = $arg->getDefaultValue();
++                            $calling_args[$i] = $arg->getDefaultValue();
+                         } else {
+                             $missing_args[] = $arg->getName();
+                         }
+                     }
+ 
++                    // anon_args may be zero-based (per docs), or 1-based (per incorrect Zend_Rest_Client @see ZF-9373)
++                    $anon_args = array();
+                     foreach ($request as $key => $value) {
+                         if (substr($key, 0, 3) == 'arg') {
+                             $key = str_replace('arg', '', $key);
+-                            $calling_args[$key] = $value;
++                            $anon_args[$key] = $value;
+                             if (($index = array_search($key, $missing_args)) !== false) {
+                                 unset($missing_args[$index]);
+                             }
+                         }
+                     }
+ 
++                    // re-key the anon_args to be zero-based, and add in any values already set in calling_args (optional defaults)
++                    ksort($anon_args);
++                    $calling_args = array_values($anon_args) + $calling_args;
++
+                     // Sort arguments by key -- @see ZF-2279
+                     ksort($calling_args);
+ 

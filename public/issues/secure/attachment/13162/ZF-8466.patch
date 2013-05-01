@@ -1,0 +1,144 @@
+Index: library/Zend/Application/Bootstrap/BootstrapAbstract.php
+===================================================================
+--- library/Zend/Application/Bootstrap/BootstrapAbstract.php	(revision 22483)
++++ library/Zend/Application/Bootstrap/BootstrapAbstract.php	(working copy)
+@@ -88,6 +88,16 @@
+     protected $_started = array();
+ 
+     /**
++     * @var array Methods blacklist if passed how parameter type diferent of object could occur problem
++     */
++    protected $_methodsBlackList = array(
++        'setapplication',
++        'setresourceloader',
++        'setpluginloader',
++        'setcontainer'
++    );
++
++    /**
+      * Constructor
+      *
+      * Sets application object, initializes options, and prepares list of
+@@ -131,8 +141,23 @@
+             unset($options['pluginpaths']);
+         }
+ 
++        if (array_key_exists('methodblacklist', $options)) {
++            if (!is_array($options['methodblacklist'])) {
++                $options['methodblacklist'] = array($options['methodblacklist']);
++            }
++
++            foreach ($options['methodblacklist'] as $methodBlackList) {
++                $this->addMethodBlackList($methodBlackList);
++            }
++            unset($options['methodblacklist']);
++        }
++
+         foreach ($options as $key => $value) {
+-            $method = 'set' . strtolower($key);
++            $method = 'set' . $key; // see line 127
++
++            if (in_array($key, $this->_methodsBlackList) && !is_object($value)) {
++                continue;
++            }
+ 
+             if (in_array($method, $methods)) {
+                 $this->$method($value);
+@@ -766,4 +791,33 @@
+         $pluginName = strtolower($pluginName);
+         return $pluginName;
+     }
++
++    /**
++     * @param  string $value
++     * @return Zend_Application_Bootstrap_BootstrapAbstract
++     * @throws Zend_Application_Bootstrap_Exception case method not exists
++     */
++    public function addMethodBlackList($value)
++    {
++        $value = strtolower($value);
++        if ('set' !== substr($value, 0, 3)) {
++            $value = 'set' . $value;
++        }
++
++        if (!method_exists($this, $value)) {
++            throw new Zend_Application_Bootstrap_Exception("Method '{$value}' not could
++                be added the blacklist, this method not exists");
++        }
++
++        $this->_methodsBlackList[] = $value;
++        return $this;
++    }
++
++    /**
++     * @return array
++     */
++    public function getMethodsBlackList()
++    {
++        return $this->_methodsBlackList;
++    }
+ }
+Index: tests/Zend/Application/Bootstrap/BootstrapAbstractTest.php
+===================================================================
+--- tests/Zend/Application/Bootstrap/BootstrapAbstractTest.php	(revision 22483)
++++ tests/Zend/Application/Bootstrap/BootstrapAbstractTest.php	(working copy)
+@@ -729,7 +729,7 @@
+         $bootstrap = new Zend_Application_Bootstrap_Bootstrap($this->application);
+         $bootstrap->setApplication($bootstrap);
+     }
+-    
++
+     /**
+      * @group ZF-7696
+      */
+@@ -746,6 +746,50 @@
+         $bootstrap = new Zf7696Bootstrap($this->application);
+         $bootstrap->bootstrap(array('modules'));
+     }
++
++    /**
++     * @group ZF-8466
++     */
++    public function testAddMethodBlackList()
++    {
++        $bootstrap = $this->application->getBootstrap();
++        $bootstrap->addMethodBlackList('container');
++        $count     = array_count_values($bootstrap->getMethodsBlackList());
++        $this->assertSame(2, $count['setcontainer']);
++
++        $bootstrap->addMethodBlackList('setcontainer');
++        $count     = array_count_values($bootstrap->getMethodsBlackList());
++        $this->assertSame(3, $count['setcontainer']);
++    }
++
++    /**
++     * @group ZF-8466
++     */
++    public function testOptionAddMethodBlackList()
++    {
++        $bootstrap = $this->application->getBootstrap();
++        $bootstrap->setOptions(array('methodblacklist' => 'application'));
++        $count     = array_count_values($bootstrap->getMethodsBlackList());
++        $this->assertSame(2, $count['setapplication']);
++
++        $bootstrap->setOptions(array('methodblacklist' => array('application', 'container')));
++        $count     = array_count_values($bootstrap->getMethodsBlackList());
++        $this->assertSame(3, $count['setapplication']);
++        $this->assertSame(2, $count['setcontainer']);
++
++        $bootstrap->setOptions(array('container' => new stdClass()));
++        $this->assertTrue($bootstrap->getContainer() instanceof stdClass);
++    }
++
++    /**
++     * @group ZF-8466
++     */
++    public function testThrowExceptionCaseMethodPassedNotExists()
++    {
++        $this->setExpectedException('Zend_Application_Bootstrap_Exception');
++        $bootstrap = $this->application->getBootstrap();
++        $bootstrap->addMethodBlackList('setFoo');
++    }
+ }
+ 
+ class Zend_Application_Bootstrap_BootstrapAbstractTest_View

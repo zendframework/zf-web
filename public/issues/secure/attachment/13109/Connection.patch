@@ -1,0 +1,131 @@
+Index: Client/Connection.php
+===================================================================
+--- Client/Connection.php	(revision 22080)
++++ Client/Connection.php	(working copy)
+@@ -15,7 +15,7 @@
+  * @category   Zend
+  * @package    Zend_Queue
+  * @subpackage Stomp
+- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  * @version    $Id$
+  */
+@@ -31,7 +31,7 @@
+  * @category   Zend
+  * @package    Zend_Queue
+  * @subpackage Stomp
+- * @copyright  Copyright (c) 2005-2010 Zend Technologies USA Inc. (http://www.zend.com)
++ * @copyright  Copyright (c) 2005-2009 Zend Technologies USA Inc. (http://www.zend.com)
+  * @license    http://framework.zend.com/license/new-bsd     New BSD License
+  */
+ class Zend_Queue_Stomp_Client_Connection
+@@ -39,6 +39,9 @@
+ {
+     const READ_TIMEOUT_DEFAULT_USEC = 0; // 0 microseconds
+     const READ_TIMEOUT_DEFAULT_SEC = 5; // 5 seconds
++    const END_OF_FRAME   = "\x00\n";
++    const CONTENT_LENGTH = 'content-length';
++    const EOL            = "\n";
+ 
+     /**
+      * Connection options
+@@ -66,18 +69,7 @@
+      */
+     public function open($scheme, $host, $port, array $options = array())
+     {
+-        $str = $scheme . '://' . $host;
+-        $this->_socket = fsockopen($str, $port, $errno, $errstr);
+ 
+-        if ($this->_socket === false) {
+-            // aparently there is some reason that fsockopen will return false
+-            // but it normally throws an error.
+-            require_once 'Zend/Queue/Exception.php';
+-            throw new Zend_Queue_Exception("Unable to connect to $str; error = $errstr ( errno = $errno )");
+-        }
+-
+-        stream_set_blocking($this->_socket, 0); // non blocking
+-
+         if (!isset($options['timeout_sec'])) {
+             $options['timeout_sec'] = self::READ_TIMEOUT_DEFAULT_SEC;
+         }
+@@ -87,6 +79,17 @@
+ 
+         $this->_options = $options;
+ 
++        $str = $scheme . '://' . $host;
++
++        $this->_socket = fsockopen($str, $port, $errno, $errstr, 1);
++
++        if ($this->_socket === false) {
++            // aparently there is some reason that fsockopen will return false
++            // but it normally throws an error.
++            require_once 'Zend/Queue/Exception.php';
++            throw new Zend_Queue_Exception("Unable to connect to $str; error = $errstr ( errno = $errno )");
++        }
++
+         return true;
+     }
+ 
+@@ -145,7 +148,7 @@
+     /**
+      * Write a frame to the stomp server
+      *
+-     * example: $response = $client->write($frame)->read();
++     * @example $response = $client->write($frame)->read();
+      *
+      * @param Zend_Queue_Stom_FrameInterface $frame
+      * @return $this
+@@ -194,7 +197,9 @@
+     public function read()
+     {
+         $this->ping();
+-
++		$bodylength = 0;
++		$headers  = null;
++		$contentlength = null; 
+         $response = '';
+         $prev     = '';
+ 
+@@ -208,21 +213,38 @@
+                 require_once 'Zend/Queue/Exception.php';
+                 throw new Zend_Queue_Exception('Connection lost');
+             }
++			if($headers !== null){
++				$bodylength++;
++			}
+ 
+             // append last character read to $response
+             $response .= $data;
++			
++			if($data == self::EOL && $prev == self::EOL && $headers == null){
++				$headers = explode(self::EOL, $response);
++				foreach($headers as $header){
++					if(substr($header, 0, 14) == self::CONTENT_LENGTH){
++						$keyvaluepair = explode(":", $header);
++						$contentlength = $keyvaluepair[1];
++					}
++				}	
++			}
+ 
+-            // is this \0 (prev) \n (data)? END_OF_FRAME
+-            if (ord($data) == 10 && ord($prev) == 0) {
++			if($bodylength == $contentlength + 2 && $contentlength != null){
++				break;
++			}
++            
++			// is this \0 (prev) \n (data)? END_OF_FRAME
++            if (ord($data) == 10 && ord($prev) == 0  && $contentlength == null) {
+                 break;
+             }
++
+             $prev = $data;
+         }
+ 
+         if ($response === '') {
+             return false;
+         }
+-
+         $frame = $this->createFrame();
+         $frame->fromFrame($response);
+         return $frame;

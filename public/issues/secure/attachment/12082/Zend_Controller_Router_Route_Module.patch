@@ -1,0 +1,294 @@
+Index: Controller/Router/Route/Module.php
+===================================================================
+--- Controller/Router/Route/Module.php	(wersja 16794)
++++ Controller/Router/Route/Module.php	(kopia robocza)
+@@ -36,6 +36,41 @@
+ class Zend_Controller_Router_Route_Module extends Zend_Controller_Router_Route_Abstract
+ {
+     /**
++     * Default translator
++     *
++     * @var Zend_Translate
++     */
++    protected static $_defaultTranslator;
++
++    /**
++     * Translator
++     *
++     * @var Zend_Translate
++     */
++    protected $_translator;
++    
++    /**
++     * Default locale
++     *
++     * @var mixed
++     */
++    protected static $_defaultLocale;
++    
++    /**
++     * Locale
++     * 
++     * @var mixed
++     */
++    protected $_locale;
++    
++    /**
++     * Translate everything or not
++     *
++     * @var array
++     */
++    protected $_translatable = false;
++    
++    /**
+      * URI delimiter
+      */
+     const URI_DELIMITER = '/';
+@@ -80,11 +115,14 @@
+     {
+         $frontController = Zend_Controller_Front::getInstance();
+         
+-        $defs       = ($config->defaults instanceof Zend_Config) ? $config->defaults->toArray() : array();
+-        $dispatcher = $frontController->getDispatcher();
+-        $request    = $frontController->getRequest();
++        $defs         = ($config->defaults instanceof Zend_Config) ? $config->defaults->toArray() : array();
++        $dispatcher   = $frontController->getDispatcher();
++        $request      = $frontController->getRequest();
++        $translatable = $config->get('translatable', false);
++        $translator   = $config->get('translator', null);
++        $locale       = $config->get('locale', null);
+         
+-        return new self($defs, $dispatcher, $request);
++        return new self($defs, $dispatcher, $request, $translatable, $translator, $locale);
+     }
+ 
+     /**
+@@ -93,13 +131,21 @@
+      * @param array $defaults Defaults for map variables with keys as variable names
+      * @param Zend_Controller_Dispatcher_Interface $dispatcher Dispatcher object
+      * @param Zend_Controller_Request_Abstract $request Request object
++     * @param bool $translatable Translate everything or not
++     * @param Zend_Translate $translator Translator to use for this instance
++     * @param Zend_Locale $locale
+      */
+     public function __construct(array $defaults = array(),
+                 Zend_Controller_Dispatcher_Interface $dispatcher = null,
+-                Zend_Controller_Request_Abstract $request = null)
++                Zend_Controller_Request_Abstract $request = null,
++                $translatable = false,
++                Zend_Translate $translator = null, $locale = null)
+     {
+-        $this->_defaults = $defaults;
+-
++        $this->_defaults     = $defaults;
++        $this->_translator   = $translator;
++        $this->_locale       = $locale;
++        $this->_translatable = $translatable;
++        
+         if (isset($request)) {
+             $this->_request = $request;
+         }
+@@ -147,6 +193,10 @@
+     public function match($path, $partial = false)
+     {
+         $this->_setRequestKeys();
++        
++        if ($this->hasTranslator()) {
++            $translateMessages = $this->getTranslator()->getMessages();
++        }
+ 
+         $values = array();
+         $params = array();
+@@ -161,16 +211,40 @@
+             $path = explode(self::URI_DELIMITER, $path);
+ 
+             if ($this->_dispatcher && $this->_dispatcher->isValidModule($path[0])) {
+-                $values[$this->_moduleKey] = array_shift($path);
++                $module = array_shift($path);
++                
++                if ($this->hasTranslator() && !empty($translateMessages)) {
++                    $moduleTranslated = array_search($module, $translateMessages);
++                    if (!empty($moduleTranslated))
++                        $module = $moduleTranslated;
++                }
++                
++                $values[$this->_moduleKey] = $module;
+                 $this->_moduleValid = true;
+             }
+ 
+             if (count($path) && !empty($path[0])) {
+-                $values[$this->_controllerKey] = array_shift($path);
++                $controller = array_shift($path);
++                
++                if ($this->hasTranslator() && !empty($translateMessages)) {
++                    $controllerTranslated = array_search($controller, $translateMessages);
++                    if (!empty($controllerTranslated))
++                        $controller = $controllerTranslated;
++                }
++                
++                $values[$this->_controllerKey] = $controller;
+             }
+ 
+             if (count($path) && !empty($path[0])) {
+-                $values[$this->_actionKey] = array_shift($path);
++                $action = array_shift($path);
++                
++                if ($this->hasTranslator() && !empty($translateMessages)) {
++                    $actionTranslated = array_search($action, $translateMessages);
++                    if (!empty($actionTranslated))
++                        $action = $actionTranslated;
++                }
++                
++                $values[$this->_actionKey] = $action;
+             }
+ 
+             if ($numSegs = count($path)) {
+@@ -200,6 +274,17 @@
+      */
+     public function assemble($data = array(), $reset = false, $encode = true, $partial = false)
+     {
++        if ($this->hasTranslator()) {
++            $translator = $this->getTranslator();
++            if (isset($data['@locale'])) {
++                $locale = $data['@locale'];
++                unset($data['@locale']);
++            } else {
++                $locale = $this->getLocale();
++            }
++            
++        }
++        
+         if (!$this->_keysSet) {
+             $this->_setRequestKeys();
+         }
+@@ -217,18 +302,27 @@
+         $params += $this->_defaults;
+ 
+         $url = '';
+-
++        
+         if ($this->_moduleValid || array_key_exists($this->_moduleKey, $data)) {
+             if ($params[$this->_moduleKey] != $this->_defaults[$this->_moduleKey]) {
+                 $module = $params[$this->_moduleKey];
++                if ($this->hasTranslator()) {
++                    $module = $translator->translate($module, $locale);
++                }
+             }
+         }
+         unset($params[$this->_moduleKey]);
+-
++        
+         $controller = $params[$this->_controllerKey];
++        if ($this->hasTranslator()) {
++            $controller = $translator->translate($controller, $locale);
++        }
+         unset($params[$this->_controllerKey]);
+ 
+         $action = $params[$this->_actionKey];
++        if ($this->hasTranslator()) {
++            $action = $translator->translate($action, $locale);
++        }
+         unset($params[$this->_actionKey]);
+ 
+         foreach ($params as $key => $value) {
+@@ -284,4 +378,100 @@
+         return $this->_defaults;
+     }
+ 
++    /**
++     * Check if translator is set
++     *
++     * @return bool
++     */
++    public function hasTranslator()
++    {
++        if (!$this->_translatable)
++            return false;
++        
++        if ($this->_translator !== null) {
++            return true;
++        }
++        
++        try {
++            return ($this->getTranslator() instanceof Zend_Translate);
++        } catch (Zend_Controller_Router_Exception $e) {
++            return false;
++        }
++    }
++    
++    /**
++     * Set a translator
++     * 
++     * @param  Zend_Translate $translator
++     * @return void
++     */
++    public function setTranslator(Zend_Translate $translator)
++    {
++        $this->_translator = $translator;
++    }
++    
++    /**
++     * Get the translator
++     * 
++     * @throws Zend_Controller_Router_Exception When no translator can be found
++     * @return Zend_Translate
++     */
++    public function getTranslator()
++    {
++        if ($this->_translator !== null) {
++            return $this->_translator;
++        } else if (($translator = Zend_Controller_Router_Route::getDefaultTranslator()) !== null) {
++            return $translator;
++        } else {
++            try {
++                $translator = Zend_Registry::get('Zend_Translate');
++            } catch (Zend_Exception $e) {
++                $translator = null;
++            }
++            
++            if ($translator instanceof Zend_Translate) { 
++                return $translator;
++            }
++        }
++        
++        require_once 'Zend/Controller/Router/Exception.php';
++        throw new Zend_Controller_Router_Exception('Could not find a translator');
++    }
++    
++    /**
++     * Set a locale
++     * 
++     * @param  mixed $locale
++     * @return void
++     */
++    public function setLocale($locale)
++    {
++        $this->_locale = $locale;
++    }
++    
++    /**
++     * Get the locale
++     * 
++     * @return mixed
++     */
++    public function getLocale()
++    {
++        if ($this->_locale !== null) {
++            return $this->_locale;
++        } else if (($locale = Zend_Controller_Router_Route::getDefaultLocale()) !== null) {
++            return $locale;
++        } else {
++            try {
++                $locale = Zend_Registry::get('Zend_Locale');
++            } catch (Zend_Exception $e) {
++                $locale = null;
++            }
++            
++            if ($locale !== null) { 
++                return $locale;
++            }
++        }
++        
++        return null;
++    }
+ }

@@ -1,0 +1,241 @@
+diff --git documentation/manual/en/module_specs/Zend_View-Helpers-Doctype.xml documentation/manual/en/module_specs/Zend_View-Helpers-Doctype.xml
+index 17251b4..0fb27e8 100644
+--- documentation/manual/en/module_specs/Zend_View-Helpers-Doctype.xml
++++ documentation/manual/en/module_specs/Zend_View-Helpers-Doctype.xml
+@@ -87,6 +87,16 @@ if ($view->doctype()->isXhtml()) {
+     // do something differently
+ }
+ ]]></programlisting>
++
++        <para>
++            You can also check if the doctype represents an <acronym>HTML5</acronym> document
++        </para>
++
++        <programlisting language="php"><![CDATA[
++if ($view->doctype()->isHtml5()) {
++    // do something differently
++}
++]]></programlisting>
+     </example>
+ </sect3>
+ <!--
+diff --git documentation/manual/en/module_specs/Zend_View-Helpers-HeadMeta.xml documentation/manual/en/module_specs/Zend_View-Helpers-HeadMeta.xml
+index 0e5556a..1e6d8df 100644
+--- documentation/manual/en/module_specs/Zend_View-Helpers-HeadMeta.xml
++++ documentation/manual/en/module_specs/Zend_View-Helpers-HeadMeta.xml
+@@ -65,6 +65,12 @@
+                 <command>setHttpEquiv($keyValue, $content, $modifiers)</command>
+             </para>
+         </listitem>
++
++		<listitem>
++            <para>
++                <command>setCharset($charset)</command>
++            </para>
++        </listitem>
+     </itemizedlist>
+ 
+     <para>
+@@ -146,6 +152,16 @@ $this->headMeta()->appendHttpEquiv('Content-Type',
+ ]]></programlisting>
+ 
+         <para>
++            If you are serving an HTML5 document, you should provide the character 
++			set like this:
++        </para>
++
++        <programlisting language="php"><![CDATA[
++// setting character set in HTML5
++$this->headMeta()->setCharset('UTF-8'); // Will look like <meta charset="UTF-8">
++]]></programlisting>
++
++        <para>
+             As a final example, an easy way to display a transitional message
+             before a redirect is using a "meta refresh":
+         </para>
+diff --git library/Zend/View/Helper/Doctype.php library/Zend/View/Helper/Doctype.php
+index 97feacb..717698a 100644
+--- library/Zend/View/Helper/Doctype.php
++++ library/Zend/View/Helper/Doctype.php
+@@ -186,6 +186,15 @@ class Zend_View_Helper_Doctype extends Zend_View_Helper_Abstract
+     {
+         return (stristr($this->getDoctype(), 'xhtml') ? true : false);
+     }
++	
++	/**
++	 * Is doctype HTML5? (HeadMeta uses this for validation)
++	 *
++	 * @return booleean
++	 */
++	public function isHtml5() {
++		return (stristr($this->doctype(), '<!DOCTYPE html>') ? true : false);
++	}
+ 
+     /**
+      * String representation of doctype
+diff --git library/Zend/View/Helper/HeadMeta.php library/Zend/View/Helper/HeadMeta.php
+index 47cabc0..1668e1b 100644
+--- library/Zend/View/Helper/HeadMeta.php
++++ library/Zend/View/Helper/HeadMeta.php
+@@ -39,7 +39,7 @@ class Zend_View_Helper_HeadMeta extends Zend_View_Helper_Placeholder_Container_S
+      * Types of attributes
+      * @var array
+      */
+-    protected $_typeKeys     = array('name', 'http-equiv');
++    protected $_typeKeys     = array('name', 'http-equiv', 'charset');
+     protected $_requiredKeys = array('content');
+     protected $_modifierKeys = array('lang', 'scheme');
+ 
+@@ -166,6 +166,25 @@ class Zend_View_Helper_HeadMeta extends Zend_View_Helper_Placeholder_Container_S
+         return parent::__call($method, $args);
+     }
+ 
++	/**
++	 * Create an HTML5-style meta charset tag. Something like <meta charset="utf-8">
++	 * 
++	 * Not valid in a non-HTML5 doctype
++	 *
++	 * @param string $charset 
++	 * @return Zend_View_Helper_HeadMeta Provides a fluent interface
++	 */
++    public function setCharset($charset)
++    {
++        $item = new stdClass;
++        $item->type = 'charset';
++        $item->charset = $charset;
++        $item->content = null;
++        $item->modifiers = array();
++        $this->set($item);
++        return $this;
++    }
++
+     /**
+      * Determine if item is valid
+      *
+@@ -176,12 +195,17 @@ class Zend_View_Helper_HeadMeta extends Zend_View_Helper_Placeholder_Container_S
+     {
+         if ((!$item instanceof stdClass)
+             || !isset($item->type)
+-            || !isset($item->content)
+             || !isset($item->modifiers))
+         {
+             return false;
+         }
+ 
++        if (!isset($item->content)
++        && (! $this->view->doctype()->isHtml5()
++        || (! $this->view->doctype()->isHtml5() && $item->type !== 'charset'))) {
++            return false;
++        }
++
+         return true;
+     }
+ 
+@@ -309,6 +333,12 @@ class Zend_View_Helper_HeadMeta extends Zend_View_Helper_Placeholder_Container_S
+ 
+         $modifiersString = '';
+         foreach ($item->modifiers as $key => $value) {
++            if ($this->view->doctype()->isHtml5()
++            && $key == 'scheme') {
++                require_once 'Zend/View/Exception.php';
++                throw new Zend_View_Exception('Invalid modifier '
++                . '"scheme" provided; not supported by HTML5');
++            }
+             if (!in_array($key, $this->_modifierKeys)) {
+                 continue;
+             }
+@@ -316,9 +346,16 @@ class Zend_View_Helper_HeadMeta extends Zend_View_Helper_Placeholder_Container_S
+         }
+ 
+         if ($this->view instanceof Zend_View_Abstract) {
+-            $tpl = ($this->view->doctype()->isXhtml())
+-                 ? '<meta %s="%s" content="%s" %s/>'
+-                 : '<meta %s="%s" content="%s" %s>';
++            if ($this->view->doctype()->isHtml5()
++            && $type == 'charset') {
++				$tpl = ($this->view->doctype()->isXhtml())
++					? '<meta %s="%s"/>'
++					: '<meta %s="%s">';
++            } elseif ($this->view->doctype()->isXhtml()) {
++                $tpl = '<meta %s="%s" content="%s" %s/>';
++            } else {
++                $tpl = '<meta %s="%s" content="%s" %s>';
++            }
+         } else {
+             $tpl = '<meta %s="%s" content="%s" %s/>';
+         }
+diff --git tests/Zend/View/Helper/DoctypeTest.php tests/Zend/View/Helper/DoctypeTest.php
+index 989e1eb..82f209f 100644
+--- tests/Zend/View/Helper/DoctypeTest.php
++++ tests/Zend/View/Helper/DoctypeTest.php
+@@ -146,6 +146,26 @@ class Zend_View_Helper_DoctypeTest extends PHPUnit_Framework_TestCase
+         $this->assertFalse($doctype->isXhtml());
+     }
+ 
++	public function testIsHtml5() {
++		foreach (array('HTML5', 'XHTML5') as $type) {
++            $doctype = $this->helper->doctype($type);
++            $this->assertEquals($type, $doctype->getDoctype());
++            $this->assertTrue($doctype->isHtml5());
++        }
++
++		foreach (array('HTML4_STRICT', 'HTML4_LOOSE', 'HTML4_FRAMESET', 'XHTML1_STRICT', 'XHTML1_TRANSITIONAL', 'XHTML1_FRAMESET') as $type) {
++			$doctype = $this->helper->doctype($type);
++            $this->assertEquals($type, $doctype->getDoctype());
++            $this->assertFalse($doctype->isHtml5());
++		}
++	}
++	
++	public function testCanRegisterCustomHtml5Doctype() {
++		$doctype = $this->helper->doctype('<!DOCTYPE html>');
++        $this->assertEquals('CUSTOM', $doctype->getDoctype());
++        $this->assertTrue($doctype->isHtml5());
++	}
++
+     public function testCanRegisterCustomXhtmlDoctype()
+     {
+         $doctype = $this->helper->doctype('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://framework.zend.com/foo/DTD/xhtml1-custom.dtd">');
+diff --git tests/Zend/View/Helper/HeadMetaTest.php tests/Zend/View/Helper/HeadMetaTest.php
+index 36afbce..cd5a0a8 100644
+--- tests/Zend/View/Helper/HeadMetaTest.php
++++ tests/Zend/View/Helper/HeadMetaTest.php
+@@ -435,6 +435,39 @@ class Zend_View_Helper_HeadMetaTest extends PHPUnit_Framework_TestCase
+ 
+         $this->assertEquals($expected, $test);
+     }
++	
++	/**
++	 * @issue ZF-7722
++	 */
++	public function testCharsetValidateFail() 
++	{
++		$view = new Zend_View();
++		$view->doctype('HTML4_STRICT');
++		
++		try {
++			$view->headMeta()->setCharset('utf-8');
++			$this->fail('Should not be able to set charset for a HTML4 doctype');
++		} catch (Zend_View_Exception $e) {}
++	}
++	
++	/**
++	 * @issue ZF-7722
++	 */
++	public function testCharset() {
++		$view = new Zend_View();
++		$view->doctype('HTML5');
++		
++		$view->headMeta()->setCharset('utf-8');
++		$this->assertEquals(
++			'<meta charset="utf-8">',
++			$view->headMeta()->toString());
++			
++		$view->doctype('XHTML5');
++		
++		$this->assertEquals(
++			'<meta charset="utf-8"/>',
++			$view->headMeta()->toString());
++	}
+ 
+ }
+ 

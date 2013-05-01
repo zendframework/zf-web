@@ -1,0 +1,350 @@
+Index: tests/ZendX/JQuery/View/jQueryTest.php
+===================================================================
+--- tests/ZendX/JQuery/View/jQueryTest.php	(revision 19899)
++++ tests/ZendX/JQuery/View/jQueryTest.php	(working copy)
+@@ -208,6 +208,12 @@
+     	$this->assertEquals(array('$(document).alert();'), $this->helper->getOnLoadActions());
+     }
+ 
++    public function testShouldAllowUsingAddOnUnLoadStack()
++    {
++    	$this->helper->addOnUnLoad('$(document).alert();');
++    	$this->assertEquals(array('$(document).alert();'), $this->helper->getOnUnLoadActions());
++    }
++
+     public function testShouldAllowStackingMultipleOnLoad()
+     {
+     	$this->helper->addOnLoad("1");
+@@ -215,6 +221,13 @@
+     	$this->assertEquals(2, count($this->helper->getOnLoadActions()));
+     }
+ 
++    public function testShouldAllowStackingMultipleOnUnLoad()
++    {
++    	$this->helper->addOnUnLoad("1");
++    	$this->helper->addOnUnLoad("2");
++    	$this->assertEquals(2, count($this->helper->getOnUnLoadActions()));
++    }
++
+     public function testShouldAllowCaptureOnLoad()
+     {
+     	$this->helper->onLoadCaptureStart();
+@@ -223,6 +236,14 @@
+     	$this->assertEquals(array('$(document).alert();'), $this->helper->getOnLoadActions());
+     }
+ 
++    public function testShouldAllowCaptureOnUnLoad()
++    {
++    	$this->helper->onUnLoadCaptureStart();
++    	echo '$(document).alert();';
++    	$this->helper->onUnLoadCaptureEnd();
++    	$this->assertEquals(array('$(document).alert();'), $this->helper->getOnUnLoadActions());
++    }
++
+     public function testShouldAllowCaptureJavascript()
+     {
+     	$this->helper->javascriptCaptureStart();
+@@ -254,6 +275,17 @@
+     	$this->setExpectedException('Zend_Exception');
+     }
+ 
++    /**
++     * @expectedException Zend_Exception
++     */
++    public function testShouldDisallowNestingCapturesWithException3()
++    {
++    	$this->helper->onUnLoadCaptureStart();
++    	$this->helper->onUnLoadCaptureStart();
++
++    	$this->setExpectedException('Zend_Exception');
++    }
++
+     public function testAddJavascriptFiles()
+     {
+     	$this->helper->addJavascriptFile('/js/test.js');
+@@ -341,6 +373,7 @@
+     	$this->helper->addJavascript("helloWorld();");
+     	$this->helper->addStylesheet("test.css");
+     	$this->helper->addOnLoad("alert();");
++    	$this->helper->addOnUnLoad("alert();");
+ 
+     	// CHeck CDN Usage
+     	$this->assertTrue($this->helper->useCDN());
+@@ -367,6 +400,16 @@
+     	$this->assertContains("alert();", $render);
+     	$this->assertNotContains("helloWorld();", $render);
+ 
++    	// Test Render Only AddOnUnLoad
++    	$this->helper->setRenderMode(ZendX_JQuery::RENDER_JQUERY_ON_UNLOAD);
++    	$render = $this->helper->__toString();
++    	$this->assertNotContains("1.2.3/jquery.min.js", $render);
++    	$this->assertNotContains("test.css", $render);
++    	$this->assertNotContains("test.js", $render);
++    	$this->assertContains("alert();", $render);
++    	$this->assertNotContains("helloWorld();", $render);
++
++
+     	// Test Render Only Javascript
+     	$this->helper->setRenderMode(ZendX_JQuery::RENDER_SOURCES);
+     	$render = $this->helper->__toString();
+@@ -394,6 +437,15 @@
+     	$this->assertContains("alert();", $render);
+     	$this->assertNotContains("helloWorld();", $render);
+ 
++		// Test Render Library and AddOnUnLoad
++    	$this->helper->setRenderMode(ZendX_JQuery::RENDER_LIBRARY | ZendX_JQuery::RENDER_JQUERY_ON_UNLOAD);
++    	$render = $this->helper->__toString();
++    	$this->assertContains("1.2.3/jquery.min.js", $render);
++    	$this->assertNotContains("test.css", $render);
++    	$this->assertNotContains("test.js", $render);
++    	$this->assertContains("alert();", $render);
++    	$this->assertNotContains("helloWorld();", $render);
++
+     	// Test Render All
+     	$this->helper->setRenderMode(ZendX_JQuery::RENDER_ALL);
+     	$render = $this->helper->__toString();
+@@ -419,6 +471,19 @@
+         $this->assertEquals(array(), $this->helper->getOnLoadActions());
+     }
+ 
++    public function testClearAddOnUnLoadStack()
++    {
++        $this->helper->addOnUnLoad("foo");
++        $this->helper->addOnUnLoad("bar");
++        $this->helper->addOnUnLoad("baz");
++
++        $this->assertEquals(array("foo", "bar", "baz"), $this->helper->getOnUnLoadActions());
++
++        $this->helper->clearOnUnLoadActions();
++        $this->assertEquals(array(), $this->helper->getOnUnLoadActions());
++    }
++
++
+     /**
+      * @group ZF-5344
+      */
+@@ -438,6 +503,23 @@
+         $this->assertNotContains('$j(document).ready(function()', $jQueryStack);
+     }
+ 
++    public function testNoConflictModeIsRecognizedInRenderingOnUnLoadStackEvent()
++    {
++        ZendX_JQuery_View_Helper_JQuery::enableNoConflictMode();
++        $this->helper->addOnUnLoad("foo");
++        $this->helper->addOnUnLoad("bar");
++        $this->helper->enable();
++
++        $jQueryStack = $this->helper->__toString();
++        $this->assertContains('$j(window).unload(function()', $jQueryStack);
++
++        ZendX_JQuery_View_Helper_JQuery::disableNoConflictMode();
++
++        $jQueryStack =  $this->helper->__toString();
++        $this->assertNotContains('$j(window).unload(function()', $jQueryStack);
++    }
++
++
+     /**
+      * @group ZF-5839
+      */
+@@ -529,4 +611,4 @@
+ 
+         $this->assertContains($jQueryCdnPath, $this->helper->__toString());
+     }
+-}
+\ No newline at end of file
++}
+Index: library/ZendX/JQuery/View/Helper/JQuery/Container.php
+===================================================================
+--- library/ZendX/JQuery/View/Helper/JQuery/Container.php	(revision 19899)
++++ library/ZendX/JQuery/View/Helper/JQuery/Container.php	(working copy)
+@@ -58,7 +58,7 @@
+     protected $_enabled = false;
+ 
+     /**
+-     * Indicates if a capture start method for javascript or onLoad has been called.
++     * Indicates if a capture start method for javascript or onLoad or onUnLoad has been called.
+      *
+      * @var Boolean
+      */
+@@ -86,6 +86,13 @@
+     protected $_onLoadActions = array();
+ 
+     /**
++     * jQuery onUnLoad statements Stack
++     *
++     * @var Array
++     */
++    protected $_onUnLoadActions = array();
++
++    /**
+      * View is rendered in XHTML or not.
+      *
+      * @var Boolean
+@@ -450,6 +457,36 @@
+     }
+ 
+     /**
++     * Start capturing routines to run onUnLoad
++     *
++     * @return boolean
++     */
++    public function onUnLoadCaptureStart()
++    {
++        if ($this->_captureLock) {
++            require_once 'Zend/Exception.php';
++            throw new Zend_Exception('Cannot nest onUnLoad captures');
++        }
++
++        $this->_captureLock = true;
++        return ob_start();
++    }
++
++    /**
++     * Stop capturing routines to run onUnLoad
++     *
++     * @return boolean
++     */
++    public function onUnLoadCaptureEnd()
++    {
++        $data               = ob_get_clean();
++        $this->_captureLock = false;
++
++        $this->addOnUnLoad($data);
++        return true;
++    }
++
++    /**
+      * Capture arbitrary javascript to include in jQuery script
+      *
+      * @return boolean
+@@ -620,6 +657,41 @@
+     }
+ 
+     /**
++     * Add a script to execute onUnLoad
++     *
++     * @param  string $callback Lambda
++     * @return ZendX_JQuery_View_Helper_JQuery_Container
++     */
++    public function addOnUnLoad($callback)
++    {
++        if (!in_array($callback, $this->_onUnLoadActions, true)) {
++            $this->_onUnLoadActions[] = $callback;
++        }
++        return $this;
++    }
++
++    /**
++     * Retrieve all registered onUnLoad actions
++     *
++     * @return array
++     */
++    public function getOnUnLoadActions()
++    {
++        return $this->_onUnLoadActions;
++    }
++
++    /**
++     * Clear the onUnLoadActions stack.
++     *
++     * @return ZendX_JQuery_View_Helper_JQuery_Container
++     */
++    public function clearOnUnLoadActions()
++    {
++        $this->_onUnLoadActions = array();
++        return $this;
++    }
++
++    /**
+      * Set which parts of the jQuery enviroment should be rendered.
+      *
+      * This function allows for a gradual refactoring of the jQuery code
+@@ -745,6 +817,13 @@
+             }
+         }
+ 
++        $onUnLoadActions = array();
++        if( ($this->getRenderMode() & ZendX_JQuery::RENDER_JQUERY_ON_UNLOAD) > 0) {
++            foreach ($this->getOnUnLoadActions() as $callback) {
++                $onUnLoadActions[] = $callback;
++            }
++        }
++
+         $javascript = '';
+         if( ($this->getRenderMode() & ZendX_JQuery::RENDER_JAVASCRIPT) > 0) {
+             $javascript = implode("\n    ", $this->getJavascript());
+@@ -762,6 +841,16 @@
+             $content .= '});'."\n";
+         }
+ 
++        if (!empty($onUnLoadActions)) {
++            if(ZendX_JQuery_View_Helper_JQuery::getNoConflictMode() == true) {
++                $content .= '$j(window).unload(function() {'."\n    ";
++            } else {
++                $content .= '$(window).unload(function() {'."\n    ";
++            }
++            $content .= implode("\n    ", $onUnLoadActions) . "\n";
++            $content .= '});'."\n";
++        }
++
+         if (!empty($javascript)) {
+             $content .= $javascript . "\n";
+         }
+@@ -840,4 +929,4 @@
+         }
+         return $uiPath;
+     }
+-}
+\ No newline at end of file
++}
+Index: library/ZendX/JQuery.php
+===================================================================
+--- library/ZendX/JQuery.php	(revision 19899)
++++ library/ZendX/JQuery.php	(working copy)
+@@ -88,12 +88,13 @@
+      * @see ZendX_JQuery_Helper_JQuery::setRenderMode
+      * @const Integer
+      */
+-    const RENDER_LIBRARY         = 1;
+-    const RENDER_SOURCES         = 2;
+-    const RENDER_STYLESHEETS     = 4;
+-    const RENDER_JAVASCRIPT      = 8;
+-    const RENDER_JQUERY_ON_LOAD  = 16;
+-    const RENDER_ALL             = 255;
++    const RENDER_LIBRARY           = 1;
++    const RENDER_SOURCES           = 2;
++    const RENDER_STYLESHEETS       = 4;
++    const RENDER_JAVASCRIPT        = 8;
++    const RENDER_JQUERY_ON_LOAD    = 16;
++    const RENDER_JQUERY_ON_UNLOAD  = 32;
++    const RENDER_ALL               = 255;
+ 
+     /**
+      * jQuery-enable a view instance
+@@ -150,4 +151,4 @@
+         }
+         return Zend_Json::encode($value, false, array('enableJsonExprFinder' => true));
+     }
+-}
+\ No newline at end of file
++}
+Index: documentation/manual/en/module_specs/ZendX_JQuery-View-JQuery.xml
+===================================================================
+--- documentation/manual/en/module_specs/ZendX_JQuery-View-JQuery.xml	(revision 19899)
++++ documentation/manual/en/module_specs/ZendX_JQuery-View-JQuery.xml	(working copy)
+@@ -287,6 +287,7 @@
+             <listitem><para><code>ZendX_JQuery::RENDER_STYLESHEETS</code>: Renders jQuery related stylesheets</para></listitem>
+             <listitem><para><code>ZendX_JQuery::RENDER_JAVASCRIPT</code>: Render additional javascript statements</para></listitem>
+             <listitem><para><code>ZendX_JQuery::RENDER_JQUERY_ON_LOAD</code>: Render jQuery onLoad statements</para></listitem>
++            <listitem><para><code>ZendX_JQuery::RENDER_JQUERY_ON_UNLOAD</code>: Render jQuery onUnLoad statements</para></listitem>
+             <listitem><para><code>ZendX_JQuery::RENDER_ALL</code>: Render all previously mentioned blocks, this is default behaviour.</para></listitem>
+         </itemizedlist>
+ 
+@@ -318,4 +319,4 @@
+             which all internal jQuery View helpers do upon being called.
+         </para>
+     </sect3>
+-</sect2>
+\ No newline at end of file
++</sect2>

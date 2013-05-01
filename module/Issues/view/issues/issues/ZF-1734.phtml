@@ -1,0 +1,186 @@
+<h2>ZF-1734: Incorrect redirecting with $redirector-&gt;goto(null,null,'modulename');</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-07-17T14:13:46.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-09-02T10:39:47.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.6.0 (02/Sep/08)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Nick Howell (howellnick)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I have a $this-&gt;_redirector-&gt;goto(null,null,'admin');  inside my Admin_ClassController-&gt;viewAction() ...
+What is expected to happen here is for the page to redirect to <a href="http://example.com/admin">http://example.com/admin</a> but it goes to <a href="http://example.com/admin/class">http://example.com/admin/class</a> instead. Granted, you can do a $this-&gt;_redirector-&gt;goto(null,'index','admin'); but then you get <a href="http://example.com/admin/index">http://example.com/admin/index</a> (I'd prefer to not have the extra /index on the end).</p>
+
+<p>Looks like a problem in Zend_Controller_Action_Helper_Redirector-&gt;setGoto(); ...</p>
+
+<pre class="highlight"><code>
+if (null === $controller) {
+    $controller = $request-&gt;getControllerName();
+    if (empty($controller)) {
+        $controller = $dispatcher-&gt;getDefaultControllerName();
+    }
+}
+</code></pre>
+
+<p>should be:</p>
+
+<pre class="highlight"><code>
+if (null === $controller) {
+    if (null !== $action) {
+        $controller = $request-&gt;getControllerName();
+        if (empty($controller)) {
+            $controller = $dispatcher-&gt;getDefaultControllerName();
+        }
+    }
+}
+</code></pre>
+
+<p>The addition checks to see if the $action was set, THEN we can get the controller name if $controller  was not set - otherwise leave $controller as null.
+I tested this change in my application and the problem was solved.</p>
+
+<p>This also keeps the functionality consistent as you can now do $this-&gt;_redirector-&gt;goto(null); and be redirected to the current module index rather than the controller you are currently in.</p>
+
+<p>UPDATE:
+I have found another problem here...
+When doing a $this-&gt;_redirector-&gt;goto(null,null,'default'); you end up with the URL <a href="http://example.com/default">http://example.com/default</a> instead of the plain old <a href="http://example.com/">http://example.com/</a>. This is also the case when doing something like $this-&gt;_redirector-&gt;goto('login','account','default'); you will end up getting the URL <a href="http://example.com/default/account/login">http://example.com/default/account/login</a> instead of <a href="http://example.com/account/login">http://example.com/account/login</a>.</p>
+
+<p>Here is the change to fix this issue (separate from the issue above). This code:</p>
+
+<pre class="highlight"><code>
+if (null === $module) {
+    $module = $request-&gt;getModuleName();
+    if ($module == $dispatcher-&gt;getDefaultModule()) {
+        $module = '';
+    }
+}
+</code></pre>
+
+<p>Should be:</p>
+
+<pre class="highlight"><code>
+if (null === $module) {
+    $module = $request-&gt;getModuleName();
+}
+        
+if ($module == $dispatcher-&gt;getDefaultModule()) {
+    $module = '';
+}
+</code></pre>
+
+<p>This fixes the issues I am having with it. Comments anyone?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-07-19T16:01:53.000+0000</p> 
+        <div class="body">
+            <p>Assigning to [~matthew] to initiate issue review.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2007-09-14T12:13:57.000+0000</p> 
+        <div class="body">
+            <p>The redirector helper does not support null values for the $action parameter; you need to provide the action.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jaka Jancar (jaka) on 2008-07-28T13:22:05.000+0000</p> 
+        <div class="body">
+            <p>The problem is exists even if you don't use null.</p>
+
+<p>Say, for example, that you want to redirect to /default/index/index. If you want to write the redirection so it works from other modules also, you will write:</p>
+
+<pre class="highlight"><code> 
+$this-&gt;_helper-&gt;redirector('index', 'index', 'default');
+</code></pre>
+
+<p>(as opposed to leaving out the third argument)</p>
+
+<p>This will cause a redirection to "/default" instead of to "/" (redundant action and controller names get hidden, but the redundant module remains).</p>
+
+<p>Please change:</p>
+
+<pre class="highlight"><code> 
+        if (null === $module) {
+            $module = $request-&gt;getModuleName();
+            if ($module == $dispatcher-&gt;getDefaultModule()) {
+                $module = '';
+            }
+        }
+</code></pre>
+
+<p>to:</p>
+
+<pre class="highlight"><code> 
+        if (null === $module) {
+            $module = $request-&gt;getModuleName();
+        }
+        if ($module == $dispatcher-&gt;getDefaultModule()) {
+            $module = '';
+        }
+</code></pre>
+
+<p>since assigning the current module if it's null, and omitting the redundant module name (whether determined automatically or specified explicitly) are two separate actions.</p>
+
+<p>Jaka</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-08-04T19:52:44.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk and merged to 1.6 release branch.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Wil Sinclair (wil) on 2008-09-02T10:39:47.000+0000</p> 
+        <div class="body">
+            <p>Updating for the 1.6.0 release.</p>
+
+        </div>
+    </div>
+    </div>
+

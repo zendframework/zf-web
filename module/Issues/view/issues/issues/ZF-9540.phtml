@@ -1,0 +1,183 @@
+<h2>ZF-9540: Zend_Form isValid | isValidPartial resets individual SubForm Translator</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Sub-task</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-03-25T15:47:17.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-03-28T07:10:43.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.3 (01/Apr/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Christian Albrecht (alab)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Rob Allen (rob)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Form</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>When setting a translator to a Form xor setting a default Translator in Zend_Registry 
+and setting a translator to a SubForm of that Form, the indivdual SubForm Translator 
+is resetted when calling isValid or isValidPartial.</p>
+
+<p>This patch will fix this issue, unit test included</p>
+
+<pre class="highlight"><code>
+Index: tests/Zend/Form/FormTest.php
+===================================================================
+--- tests/Zend/Form/FormTest.php        (Revision 21649)
++++ tests/Zend/Form/FormTest.php        (Arbeitskopie)
+@@ -3885,6 +3885,46 @@
+         $this-&gt;assertEquals('Form message', $messages['bar']['isEmpty']);
+     }    
+ 
++    public function testSubFormTranslatorPreferredOverDefaultTranslator()
++    {
++        $defaultTranslations = array(
++            'isEmpty' =&gt; 'Default message',
++        );
++        $formTranslations = array(
++            'isEmpty' =&gt; 'Form message',
++        );        
++        $subformTranslations = array(
++            'isEmpty' =&gt; 'SubForm message',
++        );        
++        $elementTranslations = array(
++            'isEmpty' =&gt; 'Element message',
++        );
++        $defaultTranslate = new Zend_Translate('array', $defaultTranslations);
++        $formTranslate    = new Zend_Translate('array', $formTranslations);
++        $subformTranslate = new Zend_Translate('array', $subformTranslations);
++        $elementTranslate = new Zend_Translate('array', $elementTranslations);
++        
++        Zend_Registry::set('Zend_Translate', $defaultTranslate);
++        $this-&gt;form-&gt;setTranslator($formTranslate);
++        $this-&gt;form-&gt;addSubForm(new Zend_Form_SubForm(), 'subform');
++        $this-&gt;form-&gt;subform-&gt;setTranslator($subformTranslate);
++        $this-&gt;form-&gt;subform-&gt;addElement('text', 'foo', array('required'=&gt;true, 'translator'=&gt;$elementTranslate));
++        $this-&gt;form-&gt;subform-&gt;addElement('text', 'bar', array('required'=&gt;true));
++
++        $this-&gt;assertFalse($this-&gt;form-&gt;isValid(array('subform' =&gt; array('foo'=&gt;'', 'bar'=&gt;''))));
++        $messages = $this-&gt;form-&gt;getMessages('subform');
++
++        $this-&gt;assertEquals(2, count($messages));
++        $this-&gt;assertEquals('Element message', $messages['foo']['isEmpty']);
++        $this-&gt;assertEquals('SubForm message', $messages['bar']['isEmpty']);
++        
++        $this-&gt;assertFalse($this-&gt;form-&gt;isValidPartial(array('subform' =&gt; array('foo'=&gt;'', 'bar'=&gt;''))));
++        $messages = $this-&gt;form-&gt;getMessages('subform');
++        $this-&gt;assertEquals(2, count($messages));
++        $this-&gt;assertEquals('Element message', $messages['foo']['isEmpty']);
++        $this-&gt;assertEquals('SubForm message', $messages['bar']['isEmpty']);
++    }
++
+     /**
+      * Used by test methods susceptible to ZF-2794, marks a test as incomplete
+      *
+Index: library/Zend/Form.php
+===================================================================
+--- library/Zend/Form.php       (Revision 21649)
++++ library/Zend/Form.php       (Arbeitskopie)
+@@ -2041,7 +2041,9 @@
+             }
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $form) {
+-            $form-&gt;setTranslator($translator);
++            if (null !== $translator &amp;&amp; !$form-&gt;hasTranslator()) {
++                $form-&gt;setTranslator($translator);
++            }
+             if (isset($data[$key])) {
+                 $valid = $form-&gt;isValid($data[$key]) &amp;&amp; $valid;
+             } else {
+@@ -2084,7 +2086,7 @@
+                 }
+                 $valid = $element-&gt;isValid($value, $data) &amp;&amp; $valid;
+             } elseif (null !== ($subForm = $this-&gt;getSubForm($key))) {
+-                if (null !== $translator) {
++                if (null !== $translator &amp;&amp; !$subForm-&gt;hasTranslator()) {
+                     $subForm-&gt;setTranslator($translator);
+                 }
+                 $valid = $subForm-&gt;isValidPartial($data[$key]) &amp;&amp; $valid;
+@@ -2093,7 +2095,7 @@
+         }
+         foreach ($this-&gt;getSubForms() as $key =&gt; $subForm) {
+             if (!in_array($key, $validatedSubForms)) {
+-                if (null !== $translator) {
++                if (null !== $translator &amp;&amp; !$subForm-&gt;hasTranslator()) {
+                     $subForm-&gt;setTranslator($translator);
+                 }
+ 
+@@ -2743,6 +2745,17 @@
+     }
+ 
+     /**
++     * Does this Form or SubForm have its own specific translator?
++     * 
++     * @return bool
++     */
++    public function hasTranslator()
++    {
++        return (bool)$this-&gt;_translator;
++    }
++
++
++    /**
+      * Get global default translator object
+      *
+      * @return null|Zend_Translate
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Christian Albrecht (alab) on 2010-03-25T16:18:20.000+0000</p> 
+        <div class="body">
+            <p>Updated the test as there was a logical error, the test called $subform-&gt;isValid($elementsValuesArray)
+instead of the failing one $form-&gt;isValid($subformValuesArray);</p>
+
+<p>The previous did not fail because there was no need for isValid to set a Translator on a SubForm,
+because there just was no SubForm appended to that SubForm, hehe :)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2010-03-28T07:10:42.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk r21665 and release-1.10 branch r21666.</p>
+
+        </div>
+    </div>
+    </div>
+

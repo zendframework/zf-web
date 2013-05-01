@@ -1,0 +1,520 @@
+<h2>ZF-381:  MySQLi: Zend_Db adapter implementation</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Improvement</dd>
+
+    <dt>Created:</dt>
+    <dd>2006-09-16T06:40:20.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2007-07-05T14:43:20.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>0.9.0 (17/Mar/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Eugene Panaitov (eugenep)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bill Karwin (bkarwin)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Db_Adapter_Mysqli</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-431">ZF-431</a></li>
+            <li><a href="/issues/browse/ZF-48">ZF-48</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/10184/ZF_Db_Mysqli.tbz">ZF_Db_Mysqli.tbz</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi everyone.
+I'm new here, maybe someone has reported allready such an improvement.
+There is a possibility to make ZF work on PHP 5.0.4 (and I suppose on all 5.0.x versions) without PDO extension.</p>
+
+<p>All we need for it is:</p>
+
+<ol><li>Countalbe class definition (somewhere in Zend.php)</li>
+<li>A DB MySQLi Adpater.</li>
+</ol><p>I am succeed with 1) and most part of 2). I can show a working version of my project on PHP 5.0.4.</p>
+
+<p>I estimate my version of MySQLi Adapter is 70% ready. Some methods are to be finished there.</p>
+
+<pre class="highlight"><code>
+&lt;?
+
+Zend::loadClass("Zend_Db_Adapter_Abstract");
+
+class MySQL_Adapter extends Zend_Db_Adapter_Abstract {
+    
+    /**
+     * Quotes an identifier.
+     *
+     * @param string $ident The identifier.
+     * @return string The quoted identifier.
+     */
+    public function quoteIdentifier($string) {
+        
+        $ident = str_replace('`', '``', $ident);
+        return "`$ident`"; 
+        
+    }
+
+
+    /**
+     * Returns a list of the tables in the database.
+     *
+     * @return array
+     */
+    public function listTables() {
+        
+        return $this-&gt;fetchCol('SHOW TABLES'); 
+        
+    }
+
+
+    /**
+     * Returns the column descriptions for a table.
+     *
+     * @return array
+     */
+    public function describeTable($table) {
+        
+        $sql = "DESCRIBE $table";
+        
+        $this-&gt;_connect();
+        
+        $_result = $this-&gt;_connection-&gt;query($sql);
+        
+        $result = array();
+        
+        while ($_row = $_result-&gt;fetch_assoc()) {
+            
+            $row = array();
+            
+            foreach ($_row as $key =&gt; $value) {
+                
+                $row[strtolower($key)] = $value;
+                
+            }
+            
+            $result[] = $row;
+            
+        }
+        
+        $descr = array();
+        foreach ($result as $key =&gt; $val) {
+            $descr[$val['field']] = array(
+                'name'    =&gt; $val['field'],
+                'type'    =&gt; $val['type'],
+                'notnull' =&gt; (bool) ($val['null'] != 'YES'), // not null is NO or empty, null is YES
+                'default' =&gt; $val['default'],
+                'primary' =&gt; (strtolower($val['key']) == 'pri'),
+            );
+        }
+        
+        return $descr; 
+        
+    }
+    
+    public function query($sql, $bind = array()) {
+        
+        $this-&gt;_connect();
+        
+        // is the $sql a Zend_Db_Select object?
+        if ($sql instanceof Zend_Db_Select) {
+            $sql = $sql-&gt;__toString();
+        }
+        
+        $_result = $this-&gt;_connection-&gt;query($sql);
+        
+        print $this-&gt;_connection-&gt;error;
+        
+        return $_result;
+        
+    }
+    
+    public function fetchRow($sql, $bind = null)
+    {
+        $result = $this-&gt;query($sql, $bind);
+        
+        return $result-&gt;fetch_object();
+    }
+
+
+    /**
+     * Quote a raw string.
+     *
+     * @param string $value     Raw string
+     * @return string           Quoted string
+     */
+    protected function _quote($value) {
+        
+        return "'".str_replace("'", "''", $value)."'"; 
+        
+    }
+
+
+    /**
+     * Creates a connection to the database.
+     *
+     * @return void
+     */
+    protected function _connect() {
+        
+        if ($this-&gt;_connection) {
+            return ;
+        }
+        
+        $this-&gt;_connection =&amp; new mysqli($this-&gt;_config['host'], $this-&gt;_config['username'], $this-&gt;_config['password'], $this-&gt;_config['dbname']);
+        
+    }
+
+
+    /**
+     * Prepare a statement and return a PDOStatement-like object.
+     *
+     * @param  string  $sql  SQL query
+     * @return Zend_Db_Statment|PDOStatement
+     */
+    public function prepare($sql) {
+        
+        $this-&gt;_connect();
+        return $this-&gt;_connection-&gt;prepare($sql);
+        
+    }
+
+
+    /**
+     * Gets the last inserted ID.
+     *
+     * @param  string $tableName   name of table (or sequence) associated with sequence
+     * @param  string $primaryKey  primary key in $tableName
+     * @return integer
+     */
+    public function lastInsertId($tableName = null, $primaryKey = null) {
+        
+        $this-&gt;_connect();
+        return $this-&gt;_connection-&gt;lastInsertId(); 
+        
+    }
+
+
+    /**
+     * Begin a transaction.
+     */
+    protected function _beginTransaction() {
+        
+        $this-&gt;_connection-&gt;beginTransaction(); 
+        
+    }
+
+
+    /**
+     * Commit a transaction.
+     */
+    protected function _commit() {
+        
+        $this-&gt;_connection-&gt;commit(); 
+        
+    }
+
+
+    /**
+     * Roll-back a transaction.
+     */
+    protected function _rollBack() {
+        
+        $this-&gt;_connection-&gt;rollBack(); 
+        
+    }
+
+
+    /**
+     * Set the fetch mode.
+     *
+     * @param integer $mode
+     */
+    public function setFetchMode($mode) {
+        
+        switch ($mode) {
+            case PDO::FETCH_LAZY:
+            case PDO::FETCH_ASSOC:
+            case PDO::FETCH_NUM:
+            case PDO::FETCH_BOTH:
+            case PDO::FETCH_NAMED:
+            case PDO::FETCH_OBJ:
+                $this-&gt;_fetchMode = $mode;
+                break;
+            default:
+                throw new Zend_Db_Adapter_Exception('Invalid fetch mode specified');
+                break;
+        } 
+        
+    }
+
+
+
+    /**
+     * Adds an adapter-specific LIMIT clause to the SELECT statement.
+     *
+     * @return string
+     */
+    public function limit($sql, $count, $offset) {
+        
+        if ($count &gt; 0) {
+            $offset = ($offset &gt; 0) ? $offset : 0;
+            $sql .= "LIMIT $offset, $count";
+        }
+        return $sql; 
+        
+    }
+    
+}
+
+?&gt;
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-09-18T12:36:31.000+0000</p> 
+        <div class="body">
+            <p>Hi Eugene,</p>
+
+<p>We have a very broken, out-of-date Zend_Db adapter for MySQLi (not using PDO) here:
+<a href="http://framework.zend.com/fisheye/browse/Zend_Framework/trunk/incubator/library/Zend/Db/Adapter">http://framework.zend.com/fisheye/browse/…</a></p>
+
+<p>Is your version all new, or based on the original attempt at writing a MySQLi adapter?</p>
+
+<p>I'm glad to have your help on this component.  Lets get a <a href="http://framework.zend.com/wiki/x/xgE">CLA</a> signed and submitted, so that we can accept a patch from you.</p>
+
+<p>Cheers,
+Gavin</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eugene Panaitov (eugenep) on 2006-09-18T16:22:23.000+0000</p> 
+        <div class="body">
+            <p>Hi Gavin,</p>
+
+<p>I was faced with necessity to make ZF work on PHP 5.0.4, so I saw Zend_DB_Adapter_MySQLi and tried to use it but it did not work.</p>
+
+<p>This version is an extension of abstract Zend_Db_Adapter_Abstract class with some methods modified to work with mysqli.so library, it has nothing in common with old version of Zend_DB_Adapter_MySQLi.</p>
+
+<p>Since I am still modifying my class, it is to too early to speak about a fully functioning patch, but I believe after I finish the development, we can decrease ZF requirements to PHP 5.0 (and no need of PDO).</p>
+
+<p>Definition of Countable class presents no difficulties I believe, right? =) I tested Zend_Cache, Zend_Config,  Zend_Controller and Zend_View packages on PHP 5.0.4, all of them works successfully after Countable definition.</p>
+
+<p>Let's stay in touch. I estimate the class will be ready in 2-3 weeks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Gavin (gavin) on 2006-10-02T14:28:47.000+0000</p> 
+        <div class="body">
+            <p>Eugene is working on complete rewrite, and is now the author / maintainer.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eugene Panaitov (eugenep) on 2006-10-04T15:16:52.000+0000</p> 
+        <div class="body">
+            <p>Anybody can help me testing. The class is almost ready now. See incubator\library\Zend\Db\Adapter\Mysqli.php</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Falk Doering (fadoe) on 2006-11-09T05:09:22.000+0000</p> 
+        <div class="body">
+            <p>I found a bug(?). I was using the svn version.</p>
+
+<p><code>
+require_once 'Zend.php';
+require_once 'Zend/Db.php';</code></p>
+
+<p>$dbconfig = array('host'     =&gt; 'localhost',
+                  'username' =&gt; 'dbtest',
+                  'password' =&gt; 'dbtest',
+                  'dbname'   =&gt; 'dbtest');</p>
+
+<p>$db = Zend_Db::factory('mysqli', $dbconfig);</p>
+
+<p>$result = $db-&gt;listTables();</p>
+
+<p>Zend::dump($result);
+</p>
+
+<p>Error:</p>
+
+<p>Fatal error: Call to undefined method mysqli_result::fetchAll() in /srv/www/Zend/Db/Adapter/Abstract.php on line 348</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2006-11-13T15:22:37.000+0000</p> 
+        <div class="body">
+            <p>Changing fix version to 0.8.0.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by sfet (sfet) on 2006-12-04T17:57:01.000+0000</p> 
+        <div class="body">
+            <p>Hello</p>
+
+<p>I needed MySQLi support for one of my projects so I played a little bit with it. In attached file is modified version of MySQLi Statement and Adapter. It works much more better than one from SVN ;-)</p>
+
+<p>-Milan Mlynarcik
+mmlynarcik at relytech dot com</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eugene Panaitov (eugenep) on 2006-12-04T18:06:46.000+0000</p> 
+        <div class="body">
+            <p>Thanks, Milan.
+Your code looks good. I'll test it and add it to repository in a few days.
+If you want to continue changing code and get an access to SVN commitment, you should sign the CLA.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by sfet (sfet) on 2006-12-04T19:06:17.000+0000</p> 
+        <div class="body">
+            <p>I do so as soon as possible :-)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eugene Panaitov (eugenep) on 2006-12-10T13:01:55.000+0000</p> 
+        <div class="body">
+            <p>Hi Milan.
+I reviewed your code. You added mysqli_statemant support in the adapter, that's good. Finally somebody should do that.</p>
+
+<p>I tried to run it locally, but there were some critical errors related to MySQL localization and settings.</p>
+
+<p>E.g. we have a table with fieldnames with underscores. Statement's prepare did not parse it correctly: it split field name before replacing them with <code>?</code> by the underscore and instead of one name <code>field_name</code> method resulted two fields <code>field</code> and <code>name</code>.</p>
+
+<p>Also in describeTable function MySQL can output a column description array with uppercased fieldnames as well as lowercased, camelized and so on. It depends on MySQL settings.</p>
+
+<p>I truly believe your code will work at last. I will go through the rest of the code and fix everything soon.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eugene Panaitov (eugenep) on 2006-12-10T13:03:34.000+0000</p> 
+        <div class="body">
+            <p>By the way, Gavin, I remember we talked about some plugins that can help in solving these localization based errors. Can you tell me what is the situation with these plugins?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by sfet (sfet) on 2006-12-10T16:32:27.000+0000</p> 
+        <div class="body">
+            <p>Hello Eugene.</p>
+
+<p>I'm not sure but I think problem with "field names with underscores" is matter of Zend_Db_Statment. Zend_Db_Statement_Mysqli just uses Zend_Db_Statement's _sqlParams property and _joinSql() method for solving this problem. execute() method does not do anything with field names. It just replaces all field names found in _sqlParams property with '?'.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eugene Panaitov (eugenep) on 2006-12-10T16:41:54.000+0000</p> 
+        <div class="body">
+            <p>Milan, right, the key code is this:</p>
+
+<pre class="highlight"><code>
+protected function _prepSql($sql)
+    {
+        // split into text and params
+        $this-&gt;_sqlSplit = preg_split(
+            "/(\?|\:[a-z_]+)/",  // note here I added underscore into split pattern chars. It is temporary solution, best way is preparing field names before using statement.
+            $sql,
+            -1,
+            PREG_SPLIT_DELIM_CAPTURE|PREG_SPLIT_NO_EMPTY
+        );
+
+        // map params
+        $this-&gt;_sqlParam = array();
+        foreach ($this-&gt;_sqlSplit as $key =&gt; $val) {
+            if ($val[0] == ':' || $val[0] == '?') {
+                $this-&gt;_sqlParam[] = $val; // key *2 +1 is the parsed position
+            }
+        }
+
+        // set up for binding
+        $this-&gt;_bindParam = array();
+
+    } 
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by sfet (sfet) on 2006-12-10T16:54:13.000+0000</p> 
+        <div class="body">
+            <p>That's strange. I have that underscore in my Zend_Db_Statement ;) Maybe I solved this problem before but have forget that I did so ;-) I should use SVN to be able to see all changes I have done. I thought that I changed just adapter and statement and I didn't take note that I changed something else. How does it work, now?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Allen Kim (bighostkim) on 2006-12-21T14:11:39.000+0000</p> 
+        <div class="body">
+            <p>I found some messages:</p>
+
+<p>Strict Standards: Assigning the return value of new by reference is deprecated in /home/allen/ZendFramework-0.6.0/incubator/library/Zend/Db/Adapter/Mysqli.php on line 273</p>
+
+<p>Strict Standards: Declaration of Zend_Db_Adapter_MySQLi::fetchAll() should be compatible with that of Zend_Db_Adapter_Abstract::fetchAll() in /home/allen/ZendFramework-0.6.0/incubator/library/Zend/Db/Adapter/Mysqli.php on line 55</p>
+
+<p>Not serious, but better to be looked into.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-25T16:36:15.000+0000</p> 
+        <div class="body">
+            <p>Assign to Bill Karwin.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-02-25T17:04:50.000+0000</p> 
+        <div class="body">
+            <p>Implementation is complete in revision 3639.
+All Zend_Db unit tests pass using the Mysqli adapter.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bill Karwin (bkarwin) on 2007-03-09T20:00:23.000+0000</p> 
+        <div class="body">
+            <p>Moved to core in revision 3853.</p>
+
+        </div>
+    </div>
+    </div>
+

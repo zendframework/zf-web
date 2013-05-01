@@ -1,0 +1,168 @@
+<h2>ZF-12467: Invalid controller name specified into request</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2012-11-14T10:56:26.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2012-11-20T19:14:48.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Jari Turkia (hqjatu)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ben Scholzen (dasprid)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller_Router</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>If user makes a mistake on accidentally enters incorrect controller, it is set into request as-is in Zend_Controller_Router_Rewrite::_setRequestParams(). However, in Zend_Controller_Dispatcher_Abstract::_formatName() there is a preg_replace('/[^a-z0-9 ]/', '') when forming the controller name.</p>
+
+<p>Now, in my code I cannot rely that controller name has been properly filtered, nor what the class name ended up to be!</p>
+
+<p>I'm currently studying the implications of rejecting illegal controller names or alternatively, silently accepting the filtering result.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Jari Turkia (hqjatu) on 2012-11-14T11:58:20.000+0000</p> 
+        <div class="body">
+            <p>I ended up inheriting my own Controller_Router_Rewrite. The only thing I'm doing there is:</p>
+
+<pre class="literal"> 
+    /**
+     * Set module, controller and action to request
+     * Confirm that they are sane
+     */
+    protected function _setRequestParams($request, $params)
+    {
+        parent::_setRequestParams($request, $params);
+
+        if (!preg_match('/^[a-z0-9 ]+$/', strtolower($request-&gt;getModuleName()))) {
+            require_once 'Zend/Controller/Router/Exception.php';
+            throw new Zend_Controller_Router_Exception('Badly formatted module: ' . $request-&gt;getModuleName(), 412);
+        }
+        if (!preg_match('/^[a-z0-9 ]+$/', strtolower($request-&gt;getControllerName()))) {
+            require_once 'Zend/Controller/Router/Exception.php';
+            throw new Zend_Controller_Router_Exception('Badly formatted controller: ' . $request-&gt;getControllerName(), 412);
+        }
+        if (!preg_match('/^[a-z0-9 ]+$/', strtolower($request-&gt;getActionName()))) {
+            require_once 'Zend/Controller/Router/Exception.php';
+            throw new Zend_Controller_Router_Exception('Badly formatted action: ' . $request-&gt;getActionName(), 412);
+        }
+    }
+</pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-16T16:31:38.000+0000</p> 
+        <div class="body">
+            <p>This won't be changed in the core of ZF as extending the class as noted in the comments is a good workaround for anyone who needs this functionality .</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jari Turkia (hqjatu) on 2012-11-16T19:58:49.000+0000</p> 
+        <div class="body">
+            <p>Let's think this for a second. I'll present a really stupid example, but bear with me.</p>
+
+<p>Assume that somebody using Windows would define a controller in filename PrintglobalspasswordController.php like this:</p>
+
+<pre class="literal">
+global $password;
+$password = "reallysecret123";
+
+class PrintglobalspasswordController extends Zend_Controller_Action
+{
+    public function indexAction()
+    {
+        $cntr = $this-&gt;getRequest()-&gt;getControllerName();
+        $PrintglobalspasswordController = "not this";
+        print eval($cntr);
+    }
+}
+</pre>
+
+<p>I'm the first one to state, that if anyone would write such a code, he would be a total dumbass. Also I'd say that the code would not work. But I've seen really wonderful things happen (and written).</p>
+
+<p>You would see some sort of runtime error when accessing:
+<a href="http://myserver.com/fi/printglobalspassword">http://myserver.com/fi/printglobalspassword</a></p>
+
+<p>But guess what happens when user accesses it like this:
+<a href="http://myserver.com/fi/print">http://myserver.com/fi/print</a> $GLOBALS["password"];</p>
+
+<p>Yep. You guessed it!</p>
+
+<p>My scenario is really far fetched and very stupid, but the way I run my business, I choose to sanitize user input. Period. Looks like at Zend you really don't care.</p>
+
+<p>That's sad.
+I really thought that you are professionals there.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T11:00:29.000+0000</p> 
+        <div class="body">
+            <p>I can't see how this theoretical attack could ever work as if you go to <a href="http://myserver.com/fi/print">http://myserver.com/fi/print</a> $GLOBALS["password"]; then you get an exception of:</p>
+
+<p>Invalid controller specified (print%20$GLOBALS%5B%22password%22%5D;)</p>
+
+<p>which means that any code in the PrintglobalspasswordController class wouldn't run.</p>
+
+<p>What I'm saying is that I don't think that there's actually a possibly security issue here due to the way the router and dispatcher work. If you have a working proof of concept, please email zf-security@zend.com.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Rob Allen (rob) on 2012-11-20T11:01:21.000+0000</p> 
+        <div class="body">
+            <p>That error is actually:</p>
+
+<p>```</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Jari Turkia (hqjatu) on 2012-11-20T19:14:48.000+0000</p> 
+        <div class="body">
+            <p>Sir, you're correct.
+But only if you did not touch routing. Out-of-the-box the only router is a Zend_Controller_Router_Route_Module which seems to do urlencoding for it's parameters.</p>
+
+<p>In my case app, I don't have the luxury of using solely module-routes. There are a number of Zend_Controller_Router_Route routes which don't sanitize or encode input strings. Which is pretty much my point.</p>
+
+        </div>
+    </div>
+    </div>
+

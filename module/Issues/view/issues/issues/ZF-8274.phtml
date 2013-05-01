@@ -1,0 +1,122 @@
+<h2>ZF-8274: No ability to specify URI when connecting to LDAP server using Zend_Ldap</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2009-11-10T05:53:16.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-11-12T01:15:01.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.10.0 (27/Jan/10)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Michael Croes (mycroes)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Stefan Gehrig (sgehrig)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Ldap</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>The current Zend_Ldap implementation expects host, portnumber, ssl and tls settings to connect to a directory server. However, this doesn't allow to connect to a socket (when running OpenLDAP on the same server for instance). Also, there's quite some lines of code figuring out the URI that one could specify immediately, but after those lines is an if that discards it all if there was no SLL used.</p>
+
+<p>Personally I'd like to give an URI to ldap_connect, because it also allows failover to other servers. I currently specify 5 servers when connecting to LDAP, so I made my own class that extends Zend_Ldap and overrides the connect function.</p>
+
+<p>I think there must be a sane way to implement this without dropping backwards compatibility, for instance by adding an URI option and using connect with URI when the option is set. Also, ldap_connect should connect to the default server specified in the ldap config files if no arguments are given, it seems to me this currently isn't possible either.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-11-10T06:14:19.000+0000</p> 
+        <div class="body">
+            <p>I don't understand why the ability to specify the LDAP URI directly would have any effect on the possibility of using a failover configuration.</p>
+
+<p>Would it OK for your use-case (using a socket connection to the LDAP server via {{ldapi://}} if there was another {{socket}} option that allows you to specify the path to the underlying socket?</p>
+
+<p>Regarding your comment about using ldap config files: this will not be possible as e.g. there are no such files with Windows installations of PHP. It also shouldn't be that much work to include the default failover server in the application itself - without relying on external files (whose location is also not very consistent).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Croes (mycroes) on 2009-11-10T07:54:51.000+0000</p> 
+        <div class="body">
+            <p>As for the failover:
+$resource = ldap_connect('<a>ldapi:///</a> <a>ldapi:///var/run/slapd.sock</a> <a>ldap://localhost</a> <a>ldaps://localhost</a> <a>ldaps://nearbyserver</a> <a>ldaps://farawayserver</a>');
+This will only fail if all of the servers can't be reached. Of course there are other possibilities to provide a similar failover system, by connecting to the first server and then checking if it is available and so on, but this is already possible to use at a lower level, without having to implement anything for it yourself.</p>
+
+<p>I think the socket option would only partly solve the missing URI option, but at least it would allow people to connect over a socket instead of via a hostname (and everything that comes with that).</p>
+
+<p>Regarding the config files: It's not that there's a default failover server, there's a default server (or default list of servers). I don't know how it works on Windows, whether it's not possible to create such a config file (I believe it is, but the location is awkward, otherwise it would also not be possible to verify certificates). Either way, allowing for it to work as it should on linux doesn't break anything.</p>
+
+<p>Would this be worth it if I can tell you how to set up a similar configuration file for Windows?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Stefan Gehrig (sgehrig) on 2009-11-10T10:29:53.000+0000</p> 
+        <div class="body">
+            <p>Fixed in trunk (r18924).</p>
+
+<p>Added option to provide one or more LDAP URI(s) (ldap://, ldaps:// or ldapi://) in the $host parameter (either via options or via {{Zend_Ldap::connect()}}.</p>
+
+<p>Could you please test if this works as expected?</p>
+
+<p>Regarding the thing about reading the ldap.conf: how would you propose to locate the correct ldap.conf? Some distribution have /etc/ldap.conf some have /etc/ldap/ldap.conf... Or how do you think we could handle user-specific config files?
+On Windows the path to ldap.conf is hard-coded within the extension; it's always {{C:\OpenLDAP\sysconf\ldap.conf}}. So I think the problem will rather be finding the correct file on *nix systems.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Croes (mycroes) on 2009-11-10T13:08:40.000+0000</p> 
+        <div class="body">
+            <p>I will comment about testing the code later, but in response to your config question:</p>
+
+<p>I actually thought the LDAP libraries took care of loading defaults when not specifying any arguments, but I was wrong. The config file in *nix can be in a few places, but according to pam_ldap (which is very much one of the technically best LDAP implementations as far as I know) the default is /etc/ldap.conf (and this is the default I know off for the distributions I've used).</p>
+
+<p>After rediscovering that the config has to be read at application level, I'm in doubt as to how and if it should be implemented. Personally I'd say implement a config reader, create a mapping from config values to values needed for Zend_Ldap and use the system default path (known for windows and *nix) with an option to override.</p>
+
+<p>This would pretty much allow similar behaviour to what is possible now with loading configs and setOptions().</p>
+
+<p>Also, I'm not saying you have to implement this functionality, I'm very happy the URI support is there, which is way more important in my opinion, but for future reference it might be nice that the issue was at least discussed (in depth?).</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Michael Croes (mycroes) on 2009-11-12T01:15:01.000+0000</p> 
+        <div class="body">
+            <p>URI support works as expected (tested with trunk), thank you very much!</p>
+
+        </div>
+    </div>
+    </div>
+

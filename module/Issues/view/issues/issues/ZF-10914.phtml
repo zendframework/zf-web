@@ -1,0 +1,171 @@
+<h2>ZF-10914: Zend_XmlRpc_Value converts Integer to String param</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2011-01-05T03:38:42.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-01-08T13:20:34.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.3 (01/Feb/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Alexey Bass (alexey.bass)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ramon Henrique Ornelas (ramon)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_XmlRpc_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-10920">ZF-10920</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Yesterday I've updated ZF from 1.11.1 to 1.11.2 and today morning got some errors with Zend_XmlRpc_Client.</p>
+
+<p>I have remote XML-RPC server that has one of following methods signature:</p>
+
+<pre class="highlight"><code>
+simulator.copySetupDevices(String dstIp, Integer dstPort, String setupName, String options)
+</code></pre>
+
+<p>I was using this code to communicate with it:</p>
+
+<pre class="highlight"><code> 
+$client = new Zend_XmlRpc_Client($connectUrl);
+$params = array('10.10.1.1', 9999, 'TestReload3', '{}');
+$client-&gt;call('simulator.copySetupDevices', $params);
+</code></pre>
+
+<p>Until 1.11.2 it worked fine. But after upgrade I got an exception</p>
+
+<pre class="highlight"><code>
+No method matching arguments: java.lang.String, java.lang.String, java.lang.String, java.lang.String
+</code></pre>
+
+<p>I see from here that while passing second argument as PHP Integer, it was converted in ZF to String somewhere.</p>
+
+<p>Debugging the code I found that problem in {{Zend_XmlRpc_Value::getXmlRpcValue()}}.</p>
+
+<p>Auto-detecting type done via</p>
+
+<pre class="highlight"><code>
+Zend_XmlRpc_Value::_phpVarToNativeXmlRpc($value)
+</code></pre>
+
+<p>On line 318 we got switch that returns 'int' for our '(int) 9999'.</p>
+
+<pre class="highlight"><code>
+switch (self::getXmlRpcTypeByValue($value))
+</code></pre>
+
+<p>That's fine, but switch's case for Integers is {{case 'integer':}} (@line 349), so we bypass it and goto the {{default:}} which is</p>
+
+<pre class="highlight"><code>
+return new Zend_XmlRpc_Value_String($value)
+</code></pre>
+
+<p>In ZF 1.11.1 switch was returning 'integer' for Integers because of {{gettype()}}</p>
+
+<pre class="highlight"><code>
+switch (gettype($value))
+</code></pre>
+
+<p>I think Matthew missed this when committed new Zend/XmlRpc/Value.php</p>
+
+<pre class="highlight"><code>
+@version    $Id: Value.php 23584 2010-12-28 19:51:49Z matthew $
+</code></pre>
+
+<p>Proposed solution - change to</p>
+
+<pre class="highlight"><code>
+case self::XMLRPC_TYPE_INTEGER:
+
+or
+
+case self::XMLRPC_TYPE_INTEGER:
+case 'integer':
+</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Alexey Bass (alexey.bass) on 2011-01-05T05:13:07.000+0000</p> 
+        <div class="body">
+            <p>better formatting</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Alexey Bass (alexey.bass) on 2011-01-05T05:38:38.000+0000</p> 
+        <div class="body">
+            <p>Meanwhile workaround is to use Zend_XmlRpc_Value_* class</p>
+
+<pre class="highlight"><code>
+$client = new Zend_XmlRpc_Client($connectUrl);
+
+$params = array(
+  '10.10.1.1',
+  new Zend_XmlRpc_Value_Integer(9999),
+  'TestReload3',
+  '{}',
+);
+
+$client-&gt;call('simulator.copySetupDevices', $params);
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Tim Rupp (caphrim007) on 2011-01-07T08:30:10.000+0000</p> 
+        <div class="body">
+            <p>It goes further than just integers.</p>
+
+<p>The Zend_XmlRpc_Value class also appears to have done away with the struct type. So associative arrays are converted to strings too. Note the _phpVarToNativeXmlRpc method and how it is missing a case for 'struct' in the switch statement</p>
+
+<p>switch (self::getXmlRpcTypeByValue($value))</p>
+
+<p>line 318</p>
+
+<p>There is an array type, but no struct type even though the array case very explicitly shows Struct code.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ramon Henrique Ornelas (ramon) on 2011-01-08T13:20:02.000+0000</p> 
+        <div class="body">
+            <p>The merge r23584 incomplete fixed with r23624 - thanks.</p>
+
+        </div>
+    </div>
+    </div>
+

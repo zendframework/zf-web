@@ -1,0 +1,196 @@
+<h2>ZF-3465: dispatcher - error when removing default routes</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-06-17T00:18:25.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2009-07-29T15:49:02.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Marek (xorock)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Matthew Weier O'Phinney (matthew)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Controller</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>I think there is a bug in Zend/Controller/Dispatcher/Standard.php line 247.
+Now: if (!$this-&gt;getParam('useDefaultControllerAlways') &amp;&amp; !empty($controller)) {
+Should be: if (!$this-&gt;getParam('useDefaultControllerAlways') &amp;&amp; empty($controller)) {</p>
+
+<p>Why? Even if we remove default routes ($router-&gt;removeDefaultRoutes(); ) we are always being redirected to index/index controller/action. So:
+$front-&gt;throwExceptions(true) + $router-&gt;removeDefaultRoutes() = index/index
+$front-&gt;throwExceptions(true) + #$router-&gt;removeDefaultRoutes() = exception</p>
+
+<p>According to docs (<a href="http://framework.zend.com/manual/en/zend.controller.exceptions.html#zend.controller.exceptions.handling">http://framework.zend.com/manual/en/…</a>) 
+$dispatcher-&gt;setParam('useDefaultControllerAlways', true);
+should switch between exception and default controller but now it isn't.</p>
+
+<p>Of course, I could be wrong :)</p>
+
+<p>edit: yes, it's definitely a bug. I've chcecked all possible combinations with routes / errorplugin / exception and now it's fine.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-24T11:36:59.000+0000</p> 
+        <div class="body">
+            <p>Actually, the current behavior is correct. When the useDefaultControllerAlways is set to true, then isDispatchable() will always return true -- because it will resolve the invalid or empty controller to the default controller. I've tested extensively, and it works exactly as expected.</p>
+
+<p>The one issue I've had with this is if I set the parameter <em>after</em> dispatch() has already been called on the front controller -- i.e., from a plugin. In such a case, by the time that routeStartup() has hit, pushing the parameters into the front controller will have no effect on the router or dispatcher. If this is what you are doing, you may need to push that setParam() into your bootstrap or index.php prior to calling dispatch().</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marek (xorock) on 2008-11-24T22:44:29.000+0000</p> 
+        <div class="body">
+            <p>Sorry, I can't agree with You. My bootstrap.php:
+  $frontController = Zend_Controller_Front::getInstance();
+  $frontController-&gt;throwExceptions(true);
+  $frontController-&gt;setRouter($router);
+  $frontController-&gt;setParam('noViewRenderer', true);
+  $frontController-&gt;setParam('useDefaultControllerAlways', true);
+  $frontController-&gt;setControllerDirectory('../application/modules/default/controllers');
+  $frontController-&gt;registerPlugin(...some plugins here...);</p>
+
+<p>$frontController-&gt;returnResponse(true);
+  $response = $frontController-&gt;dispatch();</p>
+
+<p>/<em>My own class for handling headers.</em>/
+  $response-&gt;sendResponse();</p>
+
+<p>And let's try my code, set $frontController-&gt;setParam('useDefaultControllerAlways', false); and go to <a href="http://domain/non/existent">http://domain/non/existent</a> -&gt; Invalid controller specified. Now $frontController-&gt;throwExceptions(false); -&gt; Action "error" does not exist and was not trapped in __call(). W can read <a href="http://framework.zend.com/manual/en/zend.controller.exceptions.html">http://framework.zend.com/manual/en/…</a> "By default, the error handler plugin is registered and active...By passing a boolean true value to this method, you can tell the front controller that instead of aggregating exceptions in the response object or using the error handler plugin, you'd rather handle them yourself.". So as You can see everything is working as it should.</p>
+
+<p>Now use default ZF code. $frontController-&gt;setParam('useDefaultControllerAlways', false); and go to <a href="http://domain/non/existent">http://domain/non/existent</a> -&gt; index/index was loaded. Why? $frontController-&gt;throwExceptions(false); -&gt; index/index . Nothing is working. You can also search google - there are several sites where people complain of such strange behavior.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-25T05:11:26.000+0000</p> 
+        <div class="body">
+            <p>I have done exactly what you suggest: I used a stock ZF install, with only an IndexController and ErrorController defined, and set the useDefaultControllerAlways param to false. In such a case, passing an invalid controller correctly goes to the ErrorController. Toggling the flag to true, I correctly go to the IndexController. This is exactly the behavior that is expected.</p>
+
+<p>That said, I think I know where the confusion lies: when an action is also provided via the URL. Let's look at the flow:</p>
+
+<ul><li>invalid controller detected</li>
+<li>controller rewritten to IndexController</li>
+<li>action called on IndexController</li>
+<li>IndexController does not find action method, and invokes __call()</li>
+<li>__call() recognizes that an undefined action was called, and throws an exception</li>
+<li>the ErrorHandler plugin detects the exception and invokes the ErrorController</li>
+</ul><p>So, the useDefaultControllerAlways flag is doing exactly as it should. The problem is that there is an expectation that the action controller will fall back to a default action as well. And that's the real issue here.</p>
+
+<p>I'm re-opening the issue and noting that when the default controller is selected in such a case that the default action as defined in the dispatcher should also be utilized.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marek (xorock) on 2008-11-25T06:39:19.000+0000</p> 
+        <div class="body">
+            <p>It was some time ago when I reported this bug so I forgot real problem here was $router-&gt;removeDefaultRoutes(). What You said is valid for general, default routes. Could You please explain to me what exactly should  happen if we changed ZF default routing?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Matthew Weier O'Phinney (matthew) on 2008-11-25T06:55:04.000+0000</p> 
+        <div class="body">
+            <p>Resolved in r12822 in trunk and r12823 in 1.7 release branch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lorenzo Alberton (quipo) on 2009-03-17T04:25:19.000+0000</p> 
+        <div class="body">
+            <p>I can confirm this. Removing the default routes, the error controller is never called.  Changing "!empty($controller)" to "empty($controller)", as suggested by the bug reporter, fixed the issue for me too.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Lorenzo Alberton (quipo) on 2009-05-26T15:37:21.000+0000</p> 
+        <div class="body">
+            <p>This bug is marked as resolved, but I can still reproduce it in the latest release (1.8.1).   As reported by Marek, the problem happens when calling $router-&gt;removeDefaultRoutes(), and can be fixed by removing the "!" sign from within the "!empty($controller)" check.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by etaty (etaty) on 2009-07-21T16:36:07.000+0000</p> 
+        <div class="body">
+            <p>Still in 1.8.4
+Zend\Controller\Dispatcher\Standard.php</p>
+
+<p>line 239 :
+if (!$this-&gt;getParam('useDefaultControllerAlways') &amp;&amp; !empty($controller)) {</p>
+
+<p>new line 239 :
+if (!$this-&gt;getParam('useDefaultControllerAlways') &amp;&amp; empty($controller)) {</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thorsten Ruehl (truehl) on 2009-07-29T15:48:58.000+0000</p> 
+        <div class="body">
+            <p>same problem here, Zend Framework 1.8.1</p>
+
+<p>For us this worked to disable the default routing in some projects:</p>
+
+<pre class="literal">
+Index: libs/zfw-1_8_1/Zend/Controller/Dispatcher/Standard.php
+===================================================================
+--- libs/zfw-1_8_1/Zend/Controller/Dispatcher/Standard.php      (revision 5938)
++++ libs/zfw-1_8_1/Zend/Controller/Dispatcher/Standard.php      (working copy)
+@@ -236,9 +236,14 @@
+          */
+         if (!$this-&gt;isDispatchable($request)) {
+             $controller = $request-&gt;getControllerName();
+-            if (!$this-&gt;getParam('useDefaultControllerAlways') &amp;&amp; !empty($controller)) {
++            # see: <a href="http://framework.zend.com/issues/browse/ZF-3465">http://framework.zend.com/issues/browse/ZF-3465</a>
++            if (!$this-&gt;getParam('useDefaultControllerAlways')) {
+                 require_once 'Zend/Controller/Dispatcher/Exception.php';
+-                throw new Zend_Controller_Dispatcher_Exception('Invalid controller specified (' . $request-&gt;getControllerName() . ')');
++                if(!empty($controller)) {
++                    throw new Zend_Controller_Dispatcher_Exception('Invalid controller specified (' . $request-&gt;getControllerName() . ')');
++                } else {
++                    throw new Zend_Controller_Dispatcher_Exception('No controller determined and useDefaultControllerAlways is disabled!');
++                }
+             }
+
+             $className = $this-&gt;getDefaultControllerClass($request);
+</pre>
+
+        </div>
+    </div>
+    </div>
+

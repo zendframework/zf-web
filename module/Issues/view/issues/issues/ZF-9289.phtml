@@ -1,0 +1,441 @@
+<h2>ZF-9289: Zend_Filter_Input incorrect generation of validation errors</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Patch</dd>
+
+    <dt>Created:</dt>
+    <dd>2010-02-27T20:59:38.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2011-10-13T17:09:36.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.11.9 (14/Jul/11)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Eran Galperin (erangalp)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Bart McLeod (mcleod@spaceweb.nl)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Filter_Input</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-11819">ZF-11819</a></li>
+            <li><a href="/issues/browse/ZF-11142">ZF-11142</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+        <li><a href="/issues/secure/attachment/13827/Input.php.patch2">Input.php.patch2</a></li>
+            <li><a href="/issues/secure/attachment/13830/Input.php.patch3">Input.php.patch3</a></li>
+            <li><a href="/issues/secure/attachment/13828/InputTest.php.patch2">InputTest.php.patch2</a></li>
+            <li><a href="/issues/secure/attachment/13831/InputTest.php.patch3">InputTest.php.patch3</a></li>
+        </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Zend_Filter_Input has incorrect behavior for handling custom error messages configured via the 'messages' meta-command and applying a 'presence' meta-command on a field validator declaration. This issue extends ZF-8446 and covers additional erroneous behavior.</p>
+
+<p>Using the following sample code:</p>
+
+<pre class="highlight"><code>
+&lt;?php
+// .. Require framework classes ..
+
+$data = array(
+  "title" =&gt; "",
+  "project_id" =&gt; "",
+  "reporter_id" =&gt; "18",
+  "assigned_id" =&gt; "0",
+  "type" =&gt; "1",
+  "priority" =&gt; "2",
+  "tags" =&gt; "",
+  "description" =&gt; "",
+  "reproduce" =&gt; ""
+);
+
+$validators = array(
+    'title' =&gt; array('NotEmpty','messages' =&gt; 'Please enter issue title'),
+    'description' =&gt; array('NotEmpty','messages' =&gt; 'Please enter issue description'),
+    'reproduce' =&gt; array('NotEmpty','presence' =&gt; 'optional'),
+    'browsers' =&gt; array('NotEmpty','presence' =&gt; 'optional'),
+    'os' =&gt; array('NotEmpty','presence' =&gt; 'optional'),
+    'status' =&gt; array('Digits','presence' =&gt; 'optional'),
+    'type' =&gt; 'Digits',
+    'priority' =&gt; 'Digits',
+    'project_id' =&gt; array('Digits','messages' =&gt; 'Please select project'),
+    'reporter_id' =&gt; array('Digits','messages' =&gt; 'Please select issue reporter'),
+    'assigned_id' =&gt; array('NotEmpty','presence' =&gt; 'optional','allowEmpty' =&gt; true)
+);
+
+$options = array('presence' =&gt; 'required','missingMessage' =&gt; "Please fill the required field '%field%'");
+$input = new Zend_Filter_Input(null,$validators,$data,$options);
+
+$input -&gt; isValid();
+echo '</code></pre><pre><code>';
+var_dump($input -&gt; getMessages());
+echo '</code></pre><code>';
+</code>
+
+<p>The expected output: (works in ZF 1.7.6)</p>
+
+<pre class="highlight"><code>
+array(3) {
+  ["title"]=&gt; array(1) {
+    ["isEmpty"]=&gt;
+    string(24) "Please enter issue title"
+  }
+  ["description"]=&gt; array(1) {
+    ["isEmpty"]=&gt;
+    string(30) "Please enter issue description"
+  }
+  ["project_id"]=&gt; array(1) {
+    ["stringEmpty"]=&gt;
+    string(21) "Please select project"
+  }
+}
+</code></pre>
+
+<p>The actual output: (1.10 trunk)</p>
+
+<pre class="highlight"><code>
+array(4) {
+  ["title"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(24) "Please enter issue title"
+  }
+  ["description"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(30) "Please enter issue description"
+  }
+  ["reproduce"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(30) "Please enter issue description"
+  }
+  ["project_id"] =&gt; array(1) {
+    ["isEmpty"] =&gt; string(30) "Please enter issue description"
+  }
+}
+</code></pre>
+
+<p>The last two returned messages are incorrect and an error message is returned for a valid field ('reproduce'), which has a 'presence' =&gt; 'optional' modifier (which works for some of the other fields). Zend_Filter_Input message handling has been buggy for several major revisions (since the 1.7 version), might be worth to see where it went wrong.</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2010-03-15T13:55:12.000+0000</p> 
+        <div class="body">
+            <p>Regarding "reproduce":
+The error is correct and not wrong.</p>
+
+<p>You defined that "reproduce" is optional, but when it's available it has to be "NotEmpty"... as the field "reproduce" is available the validator checks if it's not empty... but it is empty, and therefor the error is returned also for the field "reproduce".</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2010-03-15T17:10:36.000+0000</p> 
+        <div class="body">
+            <p>Yes, you are correct, my mistake. However, the error returned is not correct (it uses the 'messages' definition from another field)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2010-04-28T14:39:49.000+0000</p> 
+        <div class="body">
+            <p>Is there any progress on this? this component still can't be used reliably in current versions of the framework</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-27T20:57:05.000+0000</p> 
+        <div class="body">
+            <p>I added a related issue, if you go there, you will find a patch that solves the problem with the wrong error message.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-27T20:58:39.000+0000</p> 
+        <div class="body">
+            <p>I changed it from bug to patch, because you can find a patch in the related issue. If Ralph nor Thomas finds the time to review the patch, I will commit it very soon.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-28T10:10:56.000+0000</p> 
+        <div class="body">
+            <p>The fix is in svn now.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2011-03-28T10:57:59.000+0000</p> 
+        <div class="body">
+            <p>Thanks Bart.
+This fix almost fixes the problem - it does restore the default error message and prevents overwriting. There is another problem that is fleshed out now that this is fixed and might deserve a separate issue report - if you declare a validator in the chain that has hidden dependencies (many validators also apply the 'NotEmpty' validator - 'Digits' for example), the 'messages' meta-command is again ignored and the default of the dependencies is used instead.</p>
+
+<p>So if I have something like:</p>
+
+<pre class="highlight"><code>
+$validators = array(
+    'status' =&gt; array('Digits','messages' =&gt; 'Please select your status')
+);
+</code></pre>
+
+<p>If 'status' has an empty value, I will get the 'NotEmpty' default message  - 
+{quote}You must give a non-empty value for field 'status'{quote}</p>
+
+<p>Instead of the error message defined in the 'messages' meta-command. On the other hand if I specify the 'NotEmpty' validator explicitly</p>
+
+<pre class="highlight"><code>
+$validators = array(
+    'status' =&gt; array('NotEmpty','Digits','messages' =&gt; 'Please select your status')
+);
+</code></pre>
+
+<p>I can now control the error message returned by an empty value. I think it's fair to say this is not the expected behavior (and it's undocumented)</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-28T12:09:02.000+0000</p> 
+        <div class="body">
+            <p>Thanks for your fast feedback Eran.</p>
+
+<p>I think I disagree with you here. In your first example of your last comment: If you want to yield the message 'Please select your status', you should provide an invalid digit, such as 'a'. In that case, the Digits validator should trigger the custom message that you supplied. If instead, you supply nothing, I think it is reasonable that Zend_Filter_Input resorts to the default message for empty values that are required.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2011-03-28T12:57:13.000+0000</p> 
+        <div class="body">
+            <p>I would argue that an empty string is still not a digit. This behavior is not expected - it took me a while to figure out I could override it by adding manually the 'NotEmpty' validator, and I imagine others would have the same problem (though it seems that Zend_Filter_Input is not in common use). Ideally, I could configure the 'Digits' validator to avoid the 'NotEmpty' check, but since it is not the case I'd expect it to use my custom error instead of providing a default override for something I didn't require.</p>
+
+<p>It seems like a case of trying to reuse classes where it's not needed - the 'Digits' validator (and others) could have performed the check for an empty string internally and returned the custom error message attached to that validator. Instead it uses the 'NotEmpty' validator which is both unexpected and complicates matters regarding error messages.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-29T07:00:34.000+0000</p> 
+        <div class="body">
+            <p>I think I get your point to some extend, although I must admit that I myself do not use Zend_Filter_Input in my daily work. By fixing this bug I gained some understanding of the component, but I am not the designer or owner of the component.</p>
+
+<p>What I understand from your last comment is that you would want every validator to check for not empty by itself and not let Zend_Filter_Input interfere with that. The obvious advantages of that approach would be that Zend_Filter_Input could be simpler internally, while becoming more predictable externally at the same time.</p>
+
+<p>Apart from that I personnaly find that intermixing metacommands and validators is not a great feature. It takes us away from the initial Keep It Simple approach that should be typical of Zend Framework components.</p>
+
+<p>However: simplifying this would likely break BC.</p>
+
+<p>I am willing to take a second look at this, but I think you should create a separate issue for that and inform me of that.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2011-03-29T08:42:36.000+0000</p> 
+        <div class="body">
+            <p>I'm not necessarily saying that each validator should check if it receives a non-empty string - just that if it does, it should be internally. Personally, I don't expect 'Digits' to fail on an empty string - if I want to check for non-empty values, I would add a 'NotEmpty' validator to the chain. The current behavior is not obvious and hard to override unless you know its kinks (like I unfortuntely already do).</p>
+
+<p>I'll just mention that I'm still using an old version of Zend_Filter_Input that works perfectly (I think it's ver. 1.6). Not sure what happened to it since ver. 1.7, but it has become much harder to generate correct error output from it.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-29T08:55:57.000+0000</p> 
+        <div class="body">
+            <p>Thanks again for your feedback. Could you specify exactly what in this particular case 'perfectly' would mean to you in terms of expected behavior and based on which part of the manual (please add citation) you base the expectation.</p>
+
+<p>I would like to make sure that if I change the behavior of Zend_Filter_Input in any way, this change would meet your expectations and that those expectations are based on documented behavior, rather than on how an older version of the component used to behave.</p>
+
+<p>The old behavior may have been accidental and now that you have become used to it, you regard it as perfect? I am not saying this is the case, I just want to make sure that I really understand your use case and the meaning of expected and perfect in this context. Because I do not frequently use the component I do not yet have a feel for what natural or expected behavior would be in this particular case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2011-03-29T10:06:52.000+0000</p> 
+        <div class="body">
+            <p>First I'd like to thank you Bart, for pursuing this issue. I'd given up that it would be fixed since it seems efforts are geared towards ZF 2.0.</p>
+
+<p>I went over the source again (haven't looked at it for a while) to understand exactly what is the problem. I think I have it better defined now -
+Zend_Filter_Input has the 'allowEmpty' meta-command set to false by default. This causes a 'NotEmpty' check to be made for each validator by default, even if it's not explicitly defined in the validation chain. This check is made using the 'NotEmpty' validator before the defined validator is run, overriding error messages defined for the validator in question.</p>
+
+<p>This is mentioned briefly in the manual as well (under the ALLOW_EMPTY meta-command), but the way it's described leads you to believe that the 'NotEmpty' check would be made only if no validators are defined for the field in question.</p>
+
+<p>So what I'd expect in this case is one of two things - 
+* Either the ALLOW_EMPTY meta-command should be set to true by default as not to add validation checks not defined by the developer
+* Or the defined validator runs before the 'NotEmpty' check allowing it to output its own error messages. In the case of the 'Digits' validator mentioned previously, it does have an internal check for a non-empty value and would have returned the defined error message (expected behavior). I would add that in my opinion it should return custom error message defined for the validator even if it uses the 'NotEmpty' validator internally.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2011-03-29T10:40:28.000+0000</p> 
+        <div class="body">
+            <p>Another thing that I wanted to add - part of the problem with the 'allowEmpty' meta-command is that it overrides defined 'NotEmpty' validators in the chain. I'd expect it to apply only if there are no such validators defined.</p>
+
+<pre class="highlight"><code>
+$data = array('name' =&gt; '');
+
+$validators = array(
+    'name' =&gt; 'NotEmpty'
+);
+
+$options = array('allowEmpty' =&gt; true);
+$filter = new Zend_Filter_Input(null,$validators,$data,$options);
+
+if($filter -&gt; isValid()) {
+//Validation passes, even though we have an explicit 'NotEmpty' validator defined
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-03-29T11:06:16.000+0000</p> 
+        <div class="body">
+            <p>This is a complicated subject. What is troubling me is that there is still a mix in the expectations you describe, between what is documented and what you find is reasonable.</p>
+
+<p>From a performance perspective, it is wise to run the NotEmpty validators before any others, because if they break the chain, then the more expensive validations do not have to run. It is still easy to add a message for the not empty situation by adding a notempty validator.</p>
+
+<p>I agree that if setting AllowEmpty to true for the overall chain, this should not apply if you explicitly add a NotEmpty validator nor if you explicitly use the metacommand 'presence' =&gt; 'required' for a specific validation rule. This should only affect the fact that by default, everything has to be present.</p>
+
+<p>Again, these bugs or improvements should be in separate issues, so that they can be managed seperately, by people that understand the specific issue, this will also help people to add comments where appropriate.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-12T11:34:44.000+0000</p> 
+        <div class="body">
+            <p>I am reopening the issue, because I looked into to the issue with ALLOW_EMPTY and I agree with Eran, that even if each field is allowed empty by default, we should still disallow them to be empty if a NotEmpty validator is found in the ruleset.</p>
+
+<p>I fixed this issue and will attach patches. The patches will wait for your evaluation for a few days. After this time, they will be committed into svn if no one has complained.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-12T11:36:57.000+0000</p> 
+        <div class="body">
+            <p>Attached two patches, with a patch2 extension. Do not worry about the extension.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-13T11:31:53.000+0000</p> 
+        <div class="body">
+            <p>The previous patches still had a problem: the bug would persist if you would use a string 'NotEmpty' instead of a Zend_Validate_NotEmpty instance. I supplied new patches, with a patch3 extension that fix this issue. You no longer need the *.patch2</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-04-14T20:29:09.000+0000</p> 
+        <div class="body">
+            <p>I will commit the resolution as it is in the *.patch3 files.</p>
+
+<p>Thomas, I think my previous fix didn't make it into the 1.11.5 release. How should I go about to get fixes into the next mini release?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Eran Galperin (erangalp) on 2011-04-14T21:59:16.000+0000</p> 
+        <div class="body">
+            <p>I've tested it and clears all of the use-cases I previously had problems with. I really appreciate your help on this, Bart</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-04-16T20:49:23.000+0000</p> 
+        <div class="body">
+            <p>Check if the fix is within branch.
+If it is then it will be automatically integrated in the next release.</p>
+
+<p>Additionally I am reopening this issue for integration within ZF2.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2011-07-05T14:08:07.000+0000</p> 
+        <div class="body">
+            <p>Was this merged to the release 1.11 branch?</p>
+
+<p>Also, you can close this if it has been and follow ZF2-27 for integration in 2.x.</p>
+
+<p>-ralph</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-07-12T17:13:28.000+0000</p> 
+        <div class="body">
+            <p>None of my fixes have been merged it seems. Is this something I should do myself? I had the (wrong?) idea that the component owner would take care of such responsible work, but I am willing to track my fixes back and merge all of them.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-13T09:24:57.000+0000</p> 
+        <div class="body">
+            <p>Bart:
+Can you please merge your changes to branch, add the svn release as note and then close this issue.
+ZF2 will be done by another issue in this case.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-07-13T11:06:07.000+0000</p> 
+        <div class="body">
+            <p>Merged all fixes for Zend_Filter_Input and unit test into 1.11 branch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-07-13T11:06:24.000+0000</p> 
+        <div class="body">
+            <p>Merged into 1.11 branch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-13T19:43:57.000+0000</p> 
+        <div class="body">
+            <p>Bart:
+Which svn release?</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-07-13T19:47:48.000+0000</p> 
+        <div class="body">
+            <p>Fixing assignment as Bart did the work</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Bart McLeod (mcleod@spaceweb.nl) on 2011-07-13T20:06:56.000+0000</p> 
+        <div class="body">
+            <p>this specific fix was in svn release 23861
+further fixes (different issue) in 23862, which is the version I merged into the 1.11 branch</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Thomas Weidner (thomas) on 2011-08-25T19:12:48.000+0000</p> 
+        <div class="body">
+            <p>Added to ZF2 with GH-273
+Please note that there are still known issues with the provided patch within ZF1 which have been solved within ZF2 by Matthew</p>
+
+        </div>
+    </div>
+    </div>
+

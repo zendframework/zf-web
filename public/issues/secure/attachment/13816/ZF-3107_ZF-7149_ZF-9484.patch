@@ -1,0 +1,270 @@
+Index: Zend/Log/Writer/Db.php
+===================================================================
+--- Zend/Log/Writer/Db.php	(wersja 9106)
++++ Zend/Log/Writer/Db.php	(kopia robocza)
+@@ -53,6 +53,13 @@
+      * @var null|array
+      */
+     private $_columnMap;
++    
++    /**
++     * Additional options
++     *
++     * @var array
++     */
++    private $_options;
+ 
+     /**
+      * Class constructor
+@@ -62,11 +69,12 @@
+      * @param array $columnMap
+      * @return void
+      */
+-    public function __construct($db, $table, $columnMap = null)
++    public function __construct($db, $table, $columnMap = null, array $options = array())
+     {
+         $this->_db    = $db;
+         $this->_table = $table;
+         $this->_columnMap = $columnMap;
++        $this->_options = $options;
+     }
+ 
+     /**
+@@ -82,6 +90,7 @@
+             'db'        => null,
+             'table'     => null,
+             'columnMap' => null,
++            'options' => array(),
+         ), $config);
+ 
+         if (isset($config['columnmap'])) {
+@@ -91,7 +100,8 @@
+         return new self(
+             $config['db'],
+             $config['table'],
+-            $config['columnMap']
++            $config['columnMap'],
++            $config['options']
+         );
+     }
+ 
+@@ -140,6 +150,6 @@
+             }
+         }
+ 
+-        $this->_db->insert($this->_table, $dataToInsert);
++        $this->_db->insert($this->_table, $dataToInsert, $this->_options);
+     }
+ }
+Index: Zend/Db/Adapter/Sqlsrv.php
+===================================================================
+--- Zend/Db/Adapter/Sqlsrv.php	(wersja 9106)
++++ Zend/Db/Adapter/Sqlsrv.php	(kopia robocza)
+@@ -354,7 +354,7 @@
+      * @param array $bind Column-value pairs.
+      * @return int The number of affected rows.
+      */
+-    public function insert($table, array $bind)
++    public function insert($table, array $bind, array $options = array())
+     {
+         // extract and quote col names from the array keys
+         $cols = array();
+@@ -368,14 +368,11 @@
+                 $vals[] = '?';
+             }
+         }
+-
++        
+         // build the statement
+-        $sql = "INSERT INTO "
+-             . $this->quoteIdentifier($table, true)
+-             . ' (' . implode(', ', $cols) . ') '
+-             . 'VALUES (' . implode(', ', $vals) . ')'
++        $sql = $this->buildInsertStmt($table, $cols, $vals, $options)
+              . ' ' . $this->_lastInsertSQL;
+-
++        
+         // execute the statement and return the number of affected rows
+         $stmt   = $this->query($sql, array_values($bind));
+         $result = $stmt->rowCount();
+Index: Zend/Db/Adapter/Pdo/Mysql.php
+===================================================================
+--- Zend/Db/Adapter/Pdo/Mysql.php	(wersja 9106)
++++ Zend/Db/Adapter/Pdo/Mysql.php	(kopia robocza)
+@@ -254,4 +254,18 @@
+         return $sql;
+     }
+ 
++    protected function getValidInsertOptions() {
++        return array(
++            self::OPTION_LOW_PRIORITY,
++            self::OPTION_DELAYED,
++            self::OPTION_HIGH_PRIORITY,
++            self::OPTION_IGNORE
++        );
++    }
++
++    protected function getValidUpdateOptions() {
++        return array(
++            self::OPTION_IGNORE
++        );
++    }
+ }
+Index: Zend/Db/Adapter/Mysqli.php
+===================================================================
+--- Zend/Db/Adapter/Mysqli.php	(wersja 9106)
++++ Zend/Db/Adapter/Mysqli.php	(kopia robocza)
+@@ -546,4 +546,19 @@
+         $revision = (int) ($version % 100);
+         return $major . '.' . $minor . '.' . $revision;
+     }
++    
++    protected function getValidInsertOptions() {
++        return array(
++            self::OPTION_LOW_PRIORITY,
++            self::OPTION_DELAYED,
++            self::OPTION_HIGH_PRIORITY,
++            self::OPTION_IGNORE
++        );
++    }
++    
++    protected function getValidUpdateOptions() {
++        return array(
++            self::OPTION_IGNORE
++        );
++    }
+ }
+Index: Zend/Db/Adapter/Abstract.php
+===================================================================
+--- Zend/Db/Adapter/Abstract.php	(wersja 9106)
++++ Zend/Db/Adapter/Abstract.php	(kopia robocza)
+@@ -43,6 +43,11 @@
+ abstract class Zend_Db_Adapter_Abstract
+ {
+ 
++    const OPTION_LOW_PRIORITY = 'LOW_PRIORITY';
++    const OPTION_DELAYED = 'DELAYED';
++    const OPTION_HIGH_PRIORITY = 'HIGH_PRIORITY';
++    const OPTION_IGNORE = 'IGNORE';
++    
+     /**
+      * User-provided configuration
+      *
+@@ -532,7 +537,7 @@
+      * @param array $bind Column-value pairs.
+      * @return int The number of affected rows.
+      */
+-    public function insert($table, array $bind)
++    public function insert($table, array $bind, array $options = array())
+     {
+         // extract and quote col names from the array keys
+         $cols = array();
+@@ -562,10 +567,7 @@
+         }
+ 
+         // build the statement
+-        $sql = "INSERT INTO "
+-             . $this->quoteIdentifier($table, true)
+-             . ' (' . implode(', ', $cols) . ') '
+-             . 'VALUES (' . implode(', ', $vals) . ')';
++        $sql = $this->buildInsertStmt($table, $cols, $vals, $options);
+ 
+         // execute the statement and return the number of affected rows
+         if ($this->supportsParameters('positional')) {
+@@ -576,6 +578,40 @@
+         return $result;
+     }
+ 
++    protected function buildInsertStmt($table, $cols, $vals, array $options) {
++        // build the statement
++        return "INSERT "
++             . $this->getInsertOptions($options)
++             . " INTO "
++             . $this->quoteIdentifier($table, true)
++             . ' (' . implode(', ', $cols) . ') '
++             . 'VALUES (' . implode(', ', $vals) . ')';
++    }
++    
++    protected function getInsertOptions(array $options) {
++        $validOptions = array();
++        
++        if (in_array(self::OPTION_LOW_PRIORITY, $options)) {
++            $validOptions[] = self::OPTION_LOW_PRIORITY;
++        } elseif (in_array(self::OPTION_DELAYED, $options)) {
++            $validOptions[] = self::OPTION_DELAYED;
++        } elseif (in_array(self::OPTION_HIGH_PRIORITY, $options)) {
++            $validOptions[] = self::OPTION_HIGH_PRIORITY;
++        }
++        
++        if (in_array(self::OPTION_IGNORE, $options)) {
++            $validOptions[] = self::OPTION_IGNORE;
++        }
++        
++        $validOptions = array_intersect($validOptions, $this->getValidInsertOptions());
++        
++        return implode(' ', $validOptions);
++    }
++    
++    protected function getValidInsertOptions() {
++        return array();
++    }
++    
+     /**
+      * Updates table rows with specified data based on a WHERE clause.
+      *
+@@ -584,7 +620,7 @@
+      * @param  mixed        $where UPDATE WHERE clause(s).
+      * @return int          The number of affected rows.
+      */
+-    public function update($table, array $bind, $where = '')
++    public function update($table, array $bind, $where = '', array $options = array())
+     {
+         /**
+          * Build "col = ?" pairs for the statement,
+@@ -620,10 +656,7 @@
+         /**
+          * Build the UPDATE statement
+          */
+-        $sql = "UPDATE "
+-             . $this->quoteIdentifier($table, true)
+-             . ' SET ' . implode(', ', $set)
+-             . (($where) ? " WHERE $where" : '');
++        $sql = $this->buildUpdateStmt($table, $set, $where, $options);
+ 
+         /**
+          * Execute the statement and return the number of affected rows
+@@ -637,6 +670,34 @@
+         return $result;
+     }
+ 
++    protected function buildUpdateStmt($table, $set, $where, array $options) {
++        /**
++         * Build the UPDATE statement
++         */
++        return  "UPDATE "
++             . $this->getUpdateOptions($options)
++             . " "
++             . $this->quoteIdentifier($table, true)
++             . ' SET ' . implode(', ', $set)
++             . (($where) ? " WHERE $where" : '');
++    }
++    
++    protected function getUpdateOptions(array $options) {
++        $validOptions = array();
++        
++        if (in_array(self::OPTION_IGNORE, $options)) {
++            $validOptions[] = self::OPTION_IGNORE;
++        }
++        
++        $validOptions = array_intersect($validOptions, $this->getValidUpdateOptions());
++        
++        return implode(' ', $validOptions);
++    }
++    
++    protected function getValidUpdateOptions() {
++        return array();
++    }
++    
+     /**
+      * Deletes table rows based on a WHERE clause.
+      *

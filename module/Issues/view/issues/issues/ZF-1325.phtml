@@ -1,0 +1,201 @@
+<h2>ZF-1325: &quot;Unwritable session.save_path&quot; when using defaults in Zend_Session and php.ini</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2007-04-28T15:35:47.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2008-05-08T14:29:39.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Resolved</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul>        <li>1.0.0 RC1 (28/May/07)</li>
+    </ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Chris van der Wel (kritz)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Ralph Schindler (ralph)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Session</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+        <li><a href="/issues/browse/ZF-3020">ZF-3020</a></li>
+            <li><a href="/issues/browse/ZF-3226">ZF-3226</a></li>
+        </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <pre class="highlight"><code>&lt;?php
+
+set_include_path(get_include_path().PATH_SEPARATOR.'/path/to/zend/framework');
+
+require_once 'Zend/Session.php';
+Zend_Session::start();
+
+?&gt;</code></pre>
+
+<p>produces the following exception when session.save_path is not set in php.ini:</p>
+
+<p>Uncaught exception 'Zend_Session_Exception' with message 'Unwritable session.save_path: ' in /path/to/zend/framework/Zend/Session.php:217</p>
+
+<p>According to the PHP manual (<a href="http://nl2.php.net/manual/nl/ref.session.php#ini.session.save-path">http://nl2.php.net/manual/nl/…</a>) session.save_path should default to "/tmp", but Zend_Session still complains. The following code works, but the ini_set call shouldn't be necessary.</p>
+
+<pre class="highlight"><code>&lt;?php
+
+set_include_path(get_include_path().PATH_SEPARATOR.'/path/to/zend/framework');
+
+require_once 'Zend/Session.php';
+ini_set('session.save_path','/tmp');
+Zend_Session::start();
+
+?&gt;</code></pre>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Chris van der Wel (kritz) on 2007-04-28T15:36:38.000+0000</p> 
+        <div class="body">
+            <p>added code blocks.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-30T16:00:12.000+0000</p> 
+        <div class="body">
+            <p>Looking at the code, I see in Zend/Session.php at the end of the {{setOptions()}} method:</p>
+
+<pre class="highlight"><code>
+        $savePath = ini_get('session.save_path');
+        if (strpos($savePath, ';') !== false) {
+            $savePath = explode(';', $savePath);
+            $savePath = realpath(array_pop($savePath));
+        }
+        if (self::$_ignore_save_path !== true &amp;&amp; !is_writable($savePath)) {
+            throw new Zend_Session_Exception("Unwritable session.save_path: $savePath");
+        }
+</code></pre>
+
+<p>But when I look at the <a href="">www.php.net/manual/en/ref.session.php</a>" rel="nofollow"&gt;PHP manual entry I see:</p>
+
+<p>bq. session.save_path defines the argument which is passed to the save handler. If you choose the default files handler, this is the path where the files are created. Defaults to /tmp. See also session_save_path().
+bq. There is an optional N argument to this directive that determines the number of directory levels your session files will be spread around in. For example, setting to '5;/tmp' may end up creating a session file and location like /tmp/4/b/1/e/3/sess_4b1e384ad74619bd212e236e52a5a174If . In order to use N you must create all of these directories before use. A small shell script exists in ext/session to do this, it's called mod_files.sh. Also note that if N is used and greater than 0 then automatic garbage collection will not be performed, see a copy of php.ini for further information. Also, if you use N, be sure to surround session.save_path in "quotes" because the separator (\;) is also used for comments in php.ini.</p>
+
+<p>If we consider it a good design decision that Zend_Session throws an Exception if the session path is not writable, then it must also check all of the child directories of the session.save_path when using the optional N argument. I think that this is not a good option, however, and I tend to question the sensibility of throwing an Exception at this point in the code for the purpose of verifying the session.save_path.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-04-30T16:01:26.000+0000</p> 
+        <div class="body">
+            <p>Volley to [~ralph] for additional comment.</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-05-08T11:26:07.000+0000</p> 
+        <div class="body">
+            <p>Ok, after reading through the ext/session C, I know whats going on and why its going on.  session_start(), regardless of whether or not it actually does start or not, will set its internal state to active. Which means, session_write_close (effectively) will run at RSHUTDOWN, thus changing the state of ext/session.</p>
+
+<p>Also, the following code has the added benefit of being able to throw exceptions on ANY mod_handler ext/session decides to use, be it mm, files, db, or memcached.  The idea as always, is that session_start should emit nothing from PHP and should start clean, otherwise, we should throw an exception as developers might want to be able to handle it at bootstrap time.</p>
+
+<pre class="highlight"><code>
+webdeveloper@webdevelopment ~ $ cat testerror.php
+&lt;?
+
+ini_set('session.save_path', '/var/log');
+
+class Zend_Session
+{
+  public function start()
+  {
+    set_error_handler(array('Zend_Session_Exception', 'handleSessionStartError'), E_ALL);
+    session_start();
+    restore_error_handler();
+    if (Zend_Session_Exception::$sessionStartError !== null) {
+       set_error_handler(array('Zend_Session_Exception', 'handleSilentWriteClose'), E_ALL);
+       session_write_close();
+       restore_error_handler();
+       throw new Zend_Session_Exception(Zend_Session_Exception::$sessionStartError);
+    }
+
+  }
+}
+
+class Zend_Session_Exception extends Exception
+{
+  static public $sessionStartError = null;
+
+  static public function handleSessionStartError($errno, $errstr)
+  {
+    self::$sessionStartError = $errstr;
+  }
+
+  static public function handleSilentWriteClose($errno, $errstr)
+  { }
+
+}
+
+
+// this wouldbe bootstrap file
+try
+{
+  Zend_Session::start();
+} catch (Exception $e) {
+  print_r('setup error: ' . $e-&gt;getMessage() . "\n");
+}
+
+echo "End of program
+
+";
+webdeveloper@webdevelopment ~ $ php testerror.php
+setup error: session_start(): open(/var/log/sess_9bae147b205508d3dab70023eab739eb, O_RDWR) failed: Permission denied (13)
+End of program
+</code></pre>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Ralph Schindler (ralph) on 2007-05-08T12:28:14.000+0000</p> 
+        <div class="body">
+            <p>ABOVE IS PROOF-OF-CONCEPT ONLY, see the fixes in the code</p>
+
+<p>Fisheye tab above or:</p>
+
+<p><a href="http://framework.zend.com/fisheye/changelog/Zend_Framework?cs=4763">SVN r4763</a></p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Darby Felton (darby) on 2007-05-09T14:37:13.000+0000</p> 
+        <div class="body">
+            <p>Confirmed as fixed. Thanks to [~ralph]!</p>
+
+        </div>
+    </div>
+    </div>
+

@@ -1,0 +1,235 @@
+<h2>ZF-4956: Double query encoding conversion</h2>
+
+<dl class="metadata">
+    <dt>Issue Type:</dt>
+    <dd>Bug</dd>
+
+    <dt>Created:</dt>
+    <dd>2008-11-15T13:45:31.000+0000</dd>
+
+    <dt>Last Updated:</dt>
+    <dd>2010-10-16T01:11:38.000+0000</dd>
+
+    <dt>Status:</dt>
+    <dd>Closed</dd>
+
+    <dt>Fix version(s):</dt>
+    <dd><ul></ul></dd>
+
+    <dt>Reporter:</dt>
+    <dd>
+                Boris (boris)
+            </dd>
+
+    <dt>Assignee:</dt>
+    <dd>
+                Marc Bennewitz (private) (mabe)
+            </dd>
+
+    <dt>Tags:</dt>
+    <dd><ul>        <li>Zend_Http_Client</li>
+        </ul></dd>
+
+    <dt>Related issues:</dt>
+    <dd><ul>
+    </ul></dd>
+
+    <dt>Attachments:</dt>
+    <dd><ul>
+    </ul></dd>
+</dl>
+
+<div class="description">
+    <h3>Description</h3>
+
+    <div class="body">
+        <p>Hi, I write a simple class that helps to collect keywords from russian search engine "Yandex",
+they offer special service to check most popular queries sent by users.</p>
+
+<p>My IDE uses utf8 encoding, and file encoded with utf8 as well.
+I searched for keyword "тест" ("test" in English), here is the url I copied from my browser:</p>
+
+<p><a href="http://wordstat.yandex.ru/advq?rpt=ppc&amp;key=&amp;shw=1&amp;tm=&amp;checkboxes=&amp;text=%F2%E5%F1%F2&amp;regions_text=%C2%F1%E5&amp;regions">http://wordstat.yandex.ru/advq/…</a>=</p>
+
+<p>Here is a php class that I wrote to collect keywords from this service:</p>
+
+<hr /><p>&lt;</p>
+
+<p>pre class="highlight"&gt;<code>
+&lt;?php
+
+setlocale(LC_ALL, 'ru_RU.UTF-8');
+date_default_timezone_set('Europe/Moscow');
+error_reporting(E_ALL|E_STRICT);
+ini_set('display_erros', 'on');
+
+class YandexWordstat {
+    
+    private $client;
+    
+    private $url = '<a href="http://wordstat.yandex.ru/advq">http://wordstat.yandex.ru/advq</a>';
+    
+    public function __construct()
+    {
+        $this-&gt;client = new Zend_Http_Client();
+        $this-&gt;client-&gt;setConfig(array('maxredirects'   =&gt; 0,
+                                       'timeout'       =&gt; 30,
+                                       'adapter'    =&gt; 'Zend_Http_Client_Adapter_Proxy',
+                                       'proxy_host' =&gt; 'srv01.lan',
+                                       'proxy_port' =&gt; 3128,
+                                       
+        ));
+    }
+
+    private function getPage()
+    {
+        $this-&gt;client-&gt;setUri($this-&gt;url);
+        $responce = $this-&gt;client-&gt;request();
+        if ($responce-&gt;getStatus() != 200)
+        {
+            return false;
+        }
+
+        $page = $responce-&gt;getBody();
+        return $page;
+    }
+    
+    private function createSearchString($options = array())
+    {
+        $params = array('rpt' =&gt; 'ppc', 'key' =&gt; '', 'shw' =&gt; 1, 'tm' =&gt; '',
+                        'checkboxes' =&gt; '', 'regions_text' =&gt; '%C2%F1%E5', 'regions' =&gt; '', );
+        foreach($options as $key =&gt; $value) {
+            $params[$key] = $value;
+        }
+
+        foreach ($params as $p_key =&gt; $p_value) {
+            $this-&gt;client-&gt;setParameterGet($p_key, $p_value);
+        }
+        var_dump($this-&gt;client);
+    }
+    
+    public function collectKeywords($keyword)
+    {
+//      $keyword = iconv('utf-8', 'windows-1251', $keyword);
+        $this-&gt;createSearchString(array('text' =&gt; $keyword));
+        $first_page = $this-&gt;getPage();
+        $this-&gt;getKeywords($first_page);
+    }
+</code>
+----------------------------------
+
+There is a call to var_dump in code, I did this specially because I wanted to check if url correct or not,
+here is the output:
+
+-------------------------------------------
+
+</p><pre class="literal">
+object(Zend_Http_Client)[49]
+  protected 'config' =&gt; 
+    array
+      'maxredirects' =&gt; int 0
+      'strictredirects' =&gt; boolean false
+      'useragent' =&gt; string 'Zend_Http_Client' (length=16)
+      'timeout' =&gt; int 30
+      'adapter' =&gt; string 'Zend_Http_Client_Adapter_Proxy' (length=30)
+      'httpversion' =&gt; string '1.1' (length=3)
+      'keepalive' =&gt; boolean false
+      'storeresponse' =&gt; boolean true
+      'strict' =&gt; boolean true
+      'proxy_host' =&gt; string 'srv01.lan' (length=9)
+      'proxy_port' =&gt; int 3128
+  protected 'adapter' =&gt; null
+  protected 'uri' =&gt; null
+  protected 'headers' =&gt; 
+    array
+      empty
+  protected 'method' =&gt; string 'GET' (length=3)
+  protected 'paramsGet' =&gt; 
+    array
+      'rpt' =&gt; string 'ppc' (length=3)
+      'key' =&gt; string '' (length=0)
+      'shw' =&gt; int 1
+      'tm' =&gt; string '' (length=0)
+      'checkboxes' =&gt; string '' (length=0)
+      'regions_text' =&gt; string '%C2%F1%E5' (length=9)
+      'regions' =&gt; string '' (length=0)
+      'text' =&gt; string '%F2%E5%F1%F2' (length=12)
+</pre>      
+-------------------
+
+Please note the following
+<pre class="highlight"><code>
+ this is a correct url parameter, but when I checked HTTP Proxy logs I saw the following:
+
+<a href="http://wordstat.yandex.ru/advq?rpt=ppc&amp;key=&amp;shw=1&amp;tm=&amp;checkboxes=&amp;regions_text=%25C2%25F1%25E5&amp;regions=&amp;text=%25F2%25E5%25F1%25F2">http://wordstat.yandex.ru/advq/…</a>
+
+look at the url part
+&amp;text=%25F2%25E5%25F1%25F2
+it was changed. You may also visit the provided url and check that is is not correct.
+
+There is no any additional code in my class that makes any conversions or something like that.
+
+I looked at Zend/library/Zend/Uri/Http.php and reviewed the setQuery method, it uses the http_build_query
+php function, so I thought that this function caused a problem, and I wrote a test script:
+
+--------------------
+</code></pre>
+&lt;?php
+
+$str = 'тест';
+$str = iconv('utf-8', 'windows-1251', $str);
+
+var_dump(http_build_query(array('test' =&gt; $str)));
+
+?&gt;
+
+<p>OUTPUT:</p>
+
+<p>boris@sba:~/Desktop/zend$ php test.php
+string(17) "test=%F2%E5%F1%F2"</p>
+
+<h2>```</h2>
+
+<p>So here is my question: is this some kind of a bug in Zend Framework, or do I need to set some additional
+parameters/variables etc, to prevent Zend Framework from doing this double conversions?</p>
+
+    </div>
+</div>
+
+<div class="comments">
+    <h3>Comments</h3>
+
+    <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2010-01-18T07:01:01.000+0000</p> 
+        <div class="body">
+            <p>Hi Boris,</p>
+
+<p>I see you set the get parameter already url encoded:</p>
+
+<pre class="highlight"><code>
+        $params = array('rpt' =&gt; 'ppc', 'key' =&gt; '', 'shw' =&gt; 1, 'tm' =&gt; '',
+                        'checkboxes' =&gt; '', 'regions_text' =&gt; '%C2%F1%E5', 'regions' =&gt; '', );
+        foreach($options as $key =&gt; $value) {
+            $params[$key] = $value;
+        }
+
+        foreach ($params as $p_key =&gt; $p_value) {
+            $this-&gt;client-&gt;setParameterGet($p_key, $p_value);
+        }
+</code></pre>
+
+<p>But Zend_Http_Client is doing this for you.
+This means if you set "setParameterGet('regions_text', '%C2%F1%E5')" Zend_Http_Client generates "&amp;regions_text=%25C2%25F1%25E5".
+Please set your parameter not pre-urlencoded like: "setParameterGet('regions_text', "\xC2\xF1\xE5")"</p>
+
+        </div>
+    </div>
+        <div class="comment">
+        <p class="metadata">Posted by Marc Bennewitz (private) (mabe) on 2010-10-16T01:11:33.000+0000</p> 
+        <div class="body">
+            <p>not an issue (see my comment above)</p>
+
+        </div>
+    </div>
+    </div>
+
