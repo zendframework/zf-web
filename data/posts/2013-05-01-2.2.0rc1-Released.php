@@ -13,8 +13,8 @@ $post->setTitle('Zend Framework 2.2.0rc1 Released!');
 $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
-$post->setCreated(new DateTime('2013-05-01 16:30', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2013-05-01 16:30', new DateTimezone('America/Chicago')));
+$post->setCreated(new DateTime('2013-05-01 17:50', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2013-05-01 17:50', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>
     The Zend Framework community is pleased to announce the immediate availability
@@ -201,6 +201,18 @@ $extended =<<<'EOC'
 <ul>
     <li><a href="https://github.com/zendframework/zf2/issues?milestone=14&state=closed">Zend Framework 2.2.0 milestone</a></li>
 </ul>
+
+<h2>Other Announcements</h2>
+
+<p>
+    Around a month ago, we migrated <a href="https://github.com/zendframework/zf1">Zend 
+    Framework 1 to GitHub</a>. At that time, we also migrated active issues created since
+    1.12.0 to the <a href="https://github.com/zendframework/zf1/issues">GitHub issue tracker</a>,
+    and marked our self-hosted issue tracker read-only. We have decided to turn off that issue
+    tracker, but still retain the original issues at their original locations for purposes
+    of history and transparency. You can find information on the change on our <a href="/issues">
+    issues landing page</a>.
+</p>
 
 <h2>Thank You!</h2>
 
