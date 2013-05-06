@@ -64,9 +64,13 @@ $extended =<<<'EOC'
         use <code>Zend\Mvc\I18n\Translator</code>. In most cases, this will not present
         an issue, as the translator object is generally injected via the 
         <code>ValidatorPluginManager</code>, which has already been updated to inject
-        the correct translator object. <strong><em>If you were manually injecting your
-        validators with a translator object, please note that you must now use 
-        <code>Zend\Mvc\I18n\Translator</code> now.</em></strong>
+        the correct translator object. 
+    </p>
+
+    <p>
+        <strong><em>If you were manually injecting your validators with a 
+        translator object, please note that you must now use 
+        <code>Zend\Mvc\I18n\Translator</code>.</em></strong>
     </p>
 
     <p>
