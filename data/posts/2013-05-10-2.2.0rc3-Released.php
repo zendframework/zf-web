@@ -13,8 +13,8 @@ $post->setTitle('Zend Framework 2.2.0rc3 Released!');
 $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
-$post->setCreated(new DateTime('2013-05-10 10:00', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2013-05-10 10:00', new DateTimezone('America/Chicago')));
+$post->setCreated(new DateTime('2013-05-10 08:30', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2013-05-10 08:30', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>
     The Zend Framework community is pleased to announce the immediate availability
