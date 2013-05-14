@@ -203,6 +203,68 @@ $extended =<<<'EOC'
     vendor specific support over the 2.2 to 2.3 timeline.
 </p>
 
+<h2>New Service Wrappers</h2>
+
+<p>
+    Zend Framework has a long history of providing API wrappers; in fact, they
+    were a prominent part of the initial pre-release! The tradition continues
+    in ZF2, though each API wrapper now has its own repository.
+</p>
+
+<p>
+    Alongside the 2.2.0 release, we're also providing initial beta releases of
+    two new service components: <code>ZendService_Api</code> and 
+    <code>ZendService_OpenStack</code>.
+</p>
+
+<h3>ZendService_Api</h3>
+
+<p>
+    This is an HTTP microframework for consuming generic API calls in PHP. This 
+    framework can be used to create PHP libraries that consume specific HTTP APIs 
+    using either a simple configuration array or files. This project uses the 
+    <code>Zend\Http\Client</code> component of Zend Framework 2.
+    <a href="http://www.zimuel.it/en/zendservice-api-micro-http-framework/">Enrico has 
+blogged about the component previously.</a>
+</p>
+
+<h3>ZendService_OpenStack</h3>
+
+<p>
+    We began the development of a new library to support the last API version of <a 
+    href="http://www.openstack.org">OpenStack</a>.
+    The goal of this component is to simplify the usage of OpenStack in PHP, 
+    providing a simple object oriented interface to its API services.
+    This component is based on <code>ZendService_Api</code>, giving us a flexible 
+    way to update the HTTP specification with the future API versions.
+</p>
+
+<h2>ZFTool Diagnostic Features</h2>
+
+<p>
+    Artur Bodera (aka Thinkscape) provided a new diagnostics feature for ZFTool. 
+    Using this feature, we can allow the execution of customized diagnostics tests 
+    in ZF2 projects, including testing for the required PHP version, testing for 
+    specific PHP extensions, testing for specific ZF2 modules, testing for specific 
+    PHP INI settings, and more; <a 
+    href="https://github.com/zendframework/ZFTool/blob/master/docs/DIAGNOSTICS.md">read 
+    the documentation to get an idea of the variety of tests available.</a>
+</p>
+
+<p>
+    Moreover, with the collaboration of the <a 
+    href="https://github.com/liip/LiipMonitor">LiipMonitor project</a>, we decided 
+    to create common interfaces for performing diagnostic tests in PHP 
+    applications.  An initial draft is available in the <a 
+    href="https://github.com/zendframework/ZendDiagnostics">ZendDiagnostic 
+    repository</a>.
+</p>
+
+<p>
+    The diagnostics feature is available in the <a href="https://packages.zendframework.com/zftool.phar">
+    latest version of ZFTool</a>.
+</p>
+
 <h2>Hydrator Improvements</h2>
 
 <p>
