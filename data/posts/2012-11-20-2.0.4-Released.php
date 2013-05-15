@@ -84,9 +84,11 @@ $extended =<<<'EOC'
 As an example of the latter:
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 class SomeController extends AbstractActionController
 {
-    protected $acceptCriteria = array(
+    protected \$acceptCriteria = array(
         'Zend\View\Model\JsonModel' => array(
             'application/json',
         ),
@@ -97,14 +99,16 @@ class SomeController extends AbstractActionController
 
     public function apiAction()
     {
-        $viewModel = $this->acceptableViewModelSelector($this->acceptCriteria);
+        \$viewModel = \$this->acceptableViewModelSelector(\$this->acceptCriteria);
         
         // Potentially vary execution based on model returned
-        if ($viewModel instanceof JsonModel) {
+        if (\$viewModel instanceof JsonModel) {
             // ...
         }
     }
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>

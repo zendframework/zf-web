@@ -106,13 +106,16 @@ encoding when desired.
 </p>
 
 <pre class="highlight">
-&lt;?php $this->gt;headTitle($title) ?>
-&lt;h2>gt;&lt;?= $title ?>&lt;/h2>
-&lt;ul>gt;
-&lt;?php foreach ($entries as $entry): ?>gt;
-    &lt;li>gt;&lt;?= $this->escape($entry->getName()) ?>&lt;/li>
-&lt;?php endforeach ?>gt;
-&lt;/ul>gt;
+EOC;
+$extended .= highlight_string("<" . "?php \$this->headTitle(\$title) ?>
+<h2><" . "?= \$title ?></h2>
+<ul>
+<" . "?php foreach (\$entries as \$entry): ?>
+    <li><" . "?= \$this->escape(\$entry->getName()) ?></li>
+<" . "?php endforeach ?>
+</ul>
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -157,21 +160,25 @@ So, in a nutshell:
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 class FooController extends ActionController
 {
     public function processAction()
     {
         // Locator-awareness for pulling conditional functionality:
-        $form = $this-&gt;getLocator()-&gt;get('foo-form');
+        \$form = \$this->getLocator()->get('foo-form');
         
-        $post = $this-&gt;getRequest()-&gt;post()-&gt;toArray();
-        if ($form-&gt;isValid($post)) {
+        \$post = \$this->getRequest()->post()->toArray();
+        if (\$form->isValid(\$post)) {
             // do some processing
             // Redirection via a plugin:
-            return $this-&gt;redirect()-&gt;toRoute('foo-success');
+            return \$this->redirect()->toRoute('foo-success');
         }
     }
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -230,6 +237,8 @@ allow creating definitions via configuration. This allows things like:
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 use Zend\Di\Definition\Annotation as Di;
 
 class Foo
@@ -237,10 +246,12 @@ class Foo
     /**
      * @Di\Inject()
      */
-    public function setEvents(EventCollection $events)
+    public function setEvents(EventCollection \$events)
     {
     }
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -249,7 +260,9 @@ construction. Additionally, you can now do things like this:
 </p>
 
 <pre class="highlight">
-$config['di'] = array(
+EOC;
+$extended .= highlight_string("<" . "?php
+\$config['di'] = array(
 'definition' => array('class' => array(
     'Mongo' => array(
         '__construct' => array(
@@ -317,6 +330,8 @@ $config['di'] = array(
         'connection' => 'MongoCollection',
     )),
 ));
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>

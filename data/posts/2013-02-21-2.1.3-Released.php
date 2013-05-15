@@ -68,12 +68,14 @@ $extended =<<<'EOC'
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 // The following line should be on or around line 34:
-if ($zf2Path) {
-    if (isset($loader)) {
-        $loader->add('Zend', $zf2Path);
+if (\$zf2Path) {
+    if (isset(\$loader)) {
+        \$loader->add('Zend', \$zf2Path);
     } else {
-        include $zf2Path . '/Zend/Loader/AutoloaderFactory.php';
+        include \$zf2Path . '/Zend/Loader/AutoloaderFactory.php';
         Zend\Loader\AutoloaderFactory::factory(array(
             'Zend\Loader\StandardAutoloader' => array(
                 'autoregister_zf' => true
@@ -81,10 +83,12 @@ if ($zf2Path) {
         ));
 
         // Add the following two lines:
-        require $zf2Path . '/Zend/Stdlib/compatibility/autoload.php';
-        require $zf2Path . '/Zend/Session/compatibility/autoload.php';
+        require \$zf2Path . '/Zend/Stdlib/compatibility/autoload.php';
+        require \$zf2Path . '/Zend/Session/compatibility/autoload.php';
     }
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <h2>Routing Fixes</h2>

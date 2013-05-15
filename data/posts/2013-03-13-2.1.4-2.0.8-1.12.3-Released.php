@@ -62,7 +62,9 @@ $extended =<<<'EOC'
 </p>
 
 <pre class="highlight">
-$url = $router->assemble(array(
+EOC;
+$extended .= highlight_string("<" . "?php
+\$url = \$router->assemble(array(
     'name' => 'foo',
 ), array(
     'query' => array(
@@ -73,7 +75,9 @@ $url = $router->assemble(array(
 ));
 
 // via URL helper/plugin:
-$rendererOrController->url('foo', array(), array('query' => $request->getQuery()));
+\$rendererOrController->url('foo', array(), array('query' => \$request->getQuery()));
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>

@@ -27,7 +27,7 @@ $body =<<<'EOS'
 
 EOS;
 $post->setBody($body);
-$extended =<<<'EOS'
+$extended =<<<'EOC'
 
 <h3>Connecting to DB2 and Oracle</h3>
 
@@ -37,10 +37,12 @@ $extended =<<<'EOS'
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 use Zend\Db\Adapter\Adapter as DbAdapter;
 
 // DB2 Connection
-$adapter = new DbAdapter(array(
+\$adapter = new DbAdapter(array(
     'driver' => 'IbmDb2',
     'database' => '*LOCAL',
     'username' => '',
@@ -53,12 +55,14 @@ $adapter = new DbAdapter(array(
 );
 
 // Oracle Connection
-$adapter = new DbAdapter(array(
+\$adapter = new DbAdapter(array(
     'driver' => 'Oci8',
     'hostname' => 'localhost/XE',
     'username' => 'developer',
     'password' => 'developer'
 ));
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -82,20 +86,24 @@ $adapter = new DbAdapter(array(
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 // Zend\Db\TableGateway
 use Zend\Db\TableGateway\TableGateway;
  
-$table = new TableGateway('ARTIST'), $adapter);
-$results = $table->select(array('ARTIST_ID > ?' => 5000));
+\$table = new TableGateway('ARTIST'), \$adapter);
+\$results = \$table->select(array('ARTIST_ID > ?' => 5000));
 
 // iterate results outputting each column
-foreach ($results as $row) {
+foreach (\$results as \$row) {
   echo '&lt;tr&gt;';
-  foreach ($row as $col) {
-    echo '&lt;td&gt;' . $col . '&lt;/td&gt;';
+  foreach (\$row as \$col) {
+    echo '&lt;td&gt;' . \$col . '&lt;/td&gt;';
   }
   echo '&lt;/tr&gt;';
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -103,17 +111,21 @@ foreach ($results as $row) {
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 // complex query
-$sql = new Sql($adapter);
-$select = $sql->select()->from('ARTIST')
+\$sql = new Sql(\$adapter);
+\$select = \$sql->select()->from('ARTIST')
     ->columns(array()) // no columns from main table
     ->join('ALBUM', 'ARTIST.ARTIST_ID = ALBUM.ARTIST_ID', array('TITLE', 'RELEASE_DATE'))
     ->order(array('RELEASE_DATE', 'TITLE'))
     ->where->like('ARTIST.NAME', '%Brit%');
-$statement = $sql->prepareStatementFromSqlObject($select);
-foreach ($statement->execute() as $row) {
-    // var_dump($row);
+\$statement = \$sql->prepareStatementFromSqlObject(\$select);
+foreach (\$statement->execute() as \$row) {
+    // var_dump(\$row);
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <h3>Other Interesting Additions to Zend\Db\Sql</h3>
@@ -123,18 +135,23 @@ foreach ($statement->execute() as $row) {
 </p>
 
 <pre class="highlight">
-$subselect = new Select;
-$subselect->from('bar')->where->like('y', '%Foo%');
-$select = new Select;
-$select->from('foo')->join(array('z' => $select39subselect), 'z.foo = bar.id');
+EOC;
+$extended .= highlight_string("<" . "?php
+\$subselect = new Select;
+\$subselect->from('bar')->where->like('y', '%Foo%');
+\$select = new Select;
+\$select->from('foo')->join(array('z' => \$select39subselect), 'z.foo = bar.id');
 
-// produces SQL92 SQL (newlines added for readability):
-SELECT "foo".*, "z".*
-    FROM "foo"
+/* produces SQL92 SQL (newlines added for readability):
+SELECT \"foo\".*, \"z\".*
+    FROM \"foo\"
     INNER JOIN (
-        SELECT "bar".* FROM "bar"
-            WHERE "y" LIKE '%Foo%'
-        ) AS "z" ON "z"."foo" = "bar"."id"
+        SELECT \"bar\".* FROM \"bar\"
+            WHERE \"y\" LIKE '%Foo%'
+        ) AS \"z\" ON \"z\".\"foo\" = \"bar\".\"id\"
+ */
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -142,8 +159,12 @@ SELECT "foo".*, "z".*
 </p>
 
 <pre class="highlight">
-$select = new Select;
-$select->order(new Expression('RAND()'));
+EOC;
+$extended .= highlight_string("<" . "?php
+\$select = new Select;
+\$select->order(new Expression('RAND()'));
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <h3>Call to Action</h3>
@@ -163,7 +184,7 @@ $select->order(new Expression('RAND()'));
 <p>
 Happy ZFing!
 </p>
-EOS;
+EOC;
 $post->setExtended($extended);
 
 return $post;

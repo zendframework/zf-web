@@ -83,37 +83,49 @@ $extended =<<<'EOC'
     Just to give you an idea of these new architecture, we reported an example of two different uses for the same use case:<br /><br />
     <b>First example</b>
     <pre class="highlight">
-    $client= new Zend\Http\Client('http://www.test.com');
-    $client->setMethod('POST');
-    $client->setParameterPost(array('foo' => 'bar));
+EOC;
+$extended .= highlight_string("<" . "?php
+    \$client= new Zend\Http\Client('http://www.test.com');
+    \$client->setMethod('POST');
+    \$client->setParameterPost(array('foo' => 'bar));
     
-    $response= $client->send();
+    \$response= \$client->send();
     
-    if ($response->isSuccess()) {
+    if (\$response->isSuccess()) {
         //  the POST was successfull
     }
+", true);
+$extended .=<<<'EOC'
     </pre>
     <b>Second example</b>
     <pre class="highlight">
-    $request= new Zend\Http\Request();
-    $request->setUri('http://www.test.com');
-    $request->setMethod('POST');
-    $request->setParameterPost(array('foo' => 'bar));
+EOC;
+$extended .= highlight_string("<" . "?php
+    \$request= new Zend\Http\Request();
+    \$request->setUri('http://www.test.com');
+    \$request->setMethod('POST');
+    \$request->setParameterPost(array('foo' => 'bar));
     
-    $client= new Zend\Http\Client();
-    $response= $client->send($request);
+    \$client= new Zend\Http\Client();
+    \$response= \$client->send(\$request);
     
-    if ($response->isSuccess()) {
+    if (\$response->isSuccess()) {
         //  the POST was successfull
     }
+", true);
+$extended .=<<<'EOC'
     </pre><br />
     Moreover, we implemented a static version of the Zend\Http\Client to be able to write something simple code like that:<br />
     <pre class="highlight">
-    $response= Zend\Http\ClientStatic::post('http://www.test.com',array('foo'=>'bar'));
+EOC;
+$extended .= highlight_string("<" . "?php
+    \$response= Zend\Http\ClientStatic::post('http://www.test.com',array('foo'=>'bar'));
     
-    if ($response->isSuccess()) {
+    if (\$response->isSuccess()) {
         //  the POST was successfull
     }
+", true);
+$extended .=<<<'EOC'
     </pre>
 </p>    
 
