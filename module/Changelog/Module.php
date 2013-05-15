@@ -140,8 +140,8 @@ class Module implements ConsoleUsageProviderInterface
                 $controller->setConsole($services->get('Console'));
                 $controller->setZf1DataFile($zf1DataFile);
                 $controller->setZf2DataFile($zf2DataFile);
-                $controller->setXmlRpcClient($services->get('Changelog\XmlRpc\Client'));
-                $controller->setJiraAuth($services->get('Changelog\Jira\Auth'));
+                // $controller->setXmlRpcClient($services->get('Changelog\XmlRpc\Client'));
+                // $controller->setJiraAuth($services->get('Changelog\Jira\Auth'));
                 $controller->setHttpClient($services->get('Changelog\Http\Client'));
 
                 if (isset($config['github_token']) && $config['github_token']) {
