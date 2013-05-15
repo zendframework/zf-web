@@ -229,11 +229,15 @@ $extended =<<<'EOC'
 </p>
 
 <pre class="highlight">
-$foo = null;
-/** @var $storage Zend\Session\Storage\SessionStorage */
-if (isset($storage->foo)) {
-    $foo = $storage->foo;
+EOC;
+$extended .= highlight_string("<" . "?php
+\$foo = null;
+/** @var \$storage Zend\Session\Storage\SessionStorage */
+if (isset(\$storage->foo)) {
+    \$foo = \$storage->foo;
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -242,12 +246,16 @@ if (isset($storage->foo)) {
 </p>
 
 <pre class="highlight">
-$foo = null;
+EOC;
+$extended .= highlight_string("<" . "?php
+\$foo = null;
 
-/** @var $storage Zend\Session\Storage\SessionStorage */
-if (isset($storage['foo'])) {
-    $foo = $storage['foo'];
+/** @var \$storage Zend\Session\Storage\SessionStorage */
+if (isset(\$storage['foo'])) {
+    \$foo = \$storage['foo'];
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>

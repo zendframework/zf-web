@@ -56,6 +56,8 @@ $extended =<<<'EOC'
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 'log' => array(
     'Application\Log' => array(
         'writers' => array(
@@ -69,6 +71,8 @@ $extended =<<<'EOC'
         ),
     ),
 ),
+", true);
+$extended.=<<<'EOC'
 </pre>
 
 <p>
@@ -152,43 +156,62 @@ $extended =<<<'EOC'
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
     use Zend\Db\Sql\Sql;
     use Zend\Db\Sql\Ddl;
 
-    $t = new Ddl\CreateTable();
-    $t->setTable('bar');
-    $t->addColumn(new Ddl\Column\Integer('id', 12, true, null,
-['auto_increment' => true, 'comment' => 'Some comment']));
-    $t->addColumn(new Ddl\Column\Varchar('name', 255));
-    $t->addColumn(new Ddl\Column\Char('foo', 20));
-    $t->addConstraint(new Ddl\Constraint\PrimaryKey('id'));
-    $t->addConstraint(new Ddl\Constraint\UniqueKey(['name', 'foo'],
-'my_unique_key'));
+    \$t = new Ddl\CreateTable();
+    \$t->setTable('bar');
+    \$t->addColumn(new Ddl\Column\Integer(
+        'id', 
+        12, 
+        true, 
+        null,
+        ['auto_increment' => true, 'comment' => 'Some comment']
+    ));
+    \$t->addColumn(new Ddl\Column\Varchar('name', 255));
+    \$t->addColumn(new Ddl\Column\Char('foo', 20));
+    \$t->addConstraint(new Ddl\Constraint\PrimaryKey('id'));
+    \$t->addConstraint(new Ddl\Constraint\UniqueKey(
+        ['name', 'foo'],
+        'my_unique_key'
+    ));
 
-    $sql = new Sql($adapter);
-    echo $sql->getSqlStringForSqlObject($t);
+    \$sql = new Sql(\$adapter);
+    echo \$sql->getSqlStringForSqlObject(\$t);
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>Once this table is created, it can then be altered:</p>
 
 <pre class="highlight">
-    $t = new Ddl\AlterTable('bar');
-    $t->changeColumn('name', new Ddl\Column\Varchar('new_name', 50));
-    $t->addColumn(new Ddl\Column\Varchar('another', 255));
-    $t->addColumn(new Ddl\Column\Varchar('other_id', 255));
-    $t->dropColumn('foo');
-    $t->addConstraint(new Ddl\Constraint\ForeignKey(
+EOC;
+$extended .= highlight_string("<" . "?php
+    \$t = new Ddl\AlterTable('bar');
+    \$t->changeColumn('name', new Ddl\Column\Varchar('new_name', 50));
+    \$t->addColumn(new Ddl\Column\Varchar('another', 255));
+    \$t->addColumn(new Ddl\Column\Varchar('other_id', 255));
+    \$t->dropColumn('foo');
+    \$t->addConstraint(new Ddl\Constraint\ForeignKey(
         'my_fk', 'other_id', 'other_table', 'id', 'CASCADE', 'CASCADE'
     ));
-    $t->dropConstraint('my_index');
-    echo $sql->getSqlStringForSqlObject($t);
+    \$t->dropConstraint('my_index');
+    echo \$sql->getSqlStringForSqlObject(\$t);
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>Or even dropped:</p>
 
 <pre class="highlight">
-    $dt = new Ddl\DropTable('bar');
-    echo $sql->getSqlStringForSqlObject($dt);
+EOC;
+$extended .= highlight_string("<" . "?php
+    \$dt = new Ddl\DropTable('bar');
+    echo \$sql->getSqlStringForSqlObject(\$dt);
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -346,7 +369,11 @@ blogged about the component previously.</a>
         in 2.1.5, add the following option to your individual MVC page definitions:
 
         <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 'use_route_match' => true,
+", true);
+$extended .=<<<'EOC'
         </pre>
     </li>
 </ul>
