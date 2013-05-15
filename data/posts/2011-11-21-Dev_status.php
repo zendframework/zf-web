@@ -121,6 +121,8 @@ This allows modules that look like this:
 </p>
 
 <pre class="highlight">
+EOC;
+$extended .= highlight_string("<" . "?php
 namespace Blog;
 
 use InvalidArgumentException,
@@ -131,8 +133,8 @@ class Module implements AutoloaderProvider
 {
     public function init()
     {
-        $events = StaticEventManager::getInstance();
-        $events->attach('bootstrap', 'bootstrap', array($this, 'bootstrap'));
+        \$events = StaticEventManager::getInstance();
+        \$events->attach('bootstrap', 'bootstrap', array(\$this, 'bootstrap'));
     }
 
     public function getAutoloaderConfig()
@@ -151,6 +153,8 @@ class Module implements AutoloaderProvider
     
     /* ... */
 }
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
@@ -206,11 +210,15 @@ something like the following:
 </p>
 
 <pre class="highlight">
-$moduleManager = new Zend\Module\Manager($appConfig['modules']);
-$listenerOptions = new Zend\Module\Listener\ListenerOptions($appConfig['module_listener_options']);
-$moduleManager->setDefaultListenerOptions($listenerOptions);
-$moduleManager->getConfigListener()->addConfigGlobPath(dirname(__DIR__) . '/config/autoload/*.config.php');
-$moduleManager->loadModules();
+EOC;
+$extended .= highlight_string("<" . "?php
+\$moduleManager = new Zend\Module\Manager(\$appConfig['modules']);
+\$listenerOptions = new Zend\Module\Listener\ListenerOptions(\$appConfig['module_listener_options']);
+\$moduleManager->setDefaultListenerOptions(\$listenerOptions);
+\$moduleManager->getConfigListener()->addConfigGlobPath(dirname(__DIR__) . '/config/autoload/*.config.php');
+\$moduleManager->loadModules();
+", true);
+$extended .=<<<'EOC'
 </pre>
 
 <p>
