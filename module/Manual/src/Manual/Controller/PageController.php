@@ -170,7 +170,8 @@ class PageController extends AbstractActionController
      */
     protected function getPageContent($file, $version)
     {
-        if ('1.11' === substr($version, 0, 4) || '1.12' === substr($version, 0, 4)) {
+        $ver = substr($version, 0, 3);
+        if ('1.1' === $ver || '1.9' === $ver) {
             return $this->getV1PageContent($file);
         }
         if ('1.' === substr($version, 0, 2)) {
@@ -320,8 +321,6 @@ class PageController extends AbstractActionController
             $pageContent['body'] = $navigation . $pageContent['body'] . $navigation;
         }
 
- 
-        //var_dump($pageContent);
         return $pageContent;
     }
 
