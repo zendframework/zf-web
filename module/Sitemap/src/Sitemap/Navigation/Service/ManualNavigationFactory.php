@@ -26,14 +26,14 @@ class ManualNavigationFactory extends DefaultNavigationFactory
 
                     $versionDefaults = array();
                     if (empty($config['zf_latest_version']) || empty($config['zf_maintained_major_versions'])) {
-                        // version info missing from config, skip priority completely
+                        // version info missing from config, skip priority
 
                     } else if ($version == $config['zf_latest_version']) {
                         // use normal priority for latest version
                         $versionDefaults['priority'] = 0.5;
 
                     } else if (in_array($version, $config['zf_maintained_major_versions'])) {
-                        // use a lower priority for older but still maintained versions
+                        // lower priority for older but still maintained versions
                         $versionDefaults['priority'] = 0.3;
 
                     } else {
@@ -53,7 +53,8 @@ class ManualNavigationFactory extends DefaultNavigationFactory
                                 continue;
                             }
 
-                            // if the file was in a sub-folder we need to grab the path to include in the URL
+                            // if the file was in a sub-folder we need to grab
+                            // the path to include in the URL
                             $pathPrefix = substr($manualFile->getPath(), strlen($path));
                             if ($pathPrefix) {
                                 $pathPrefix .= '/';
@@ -81,18 +82,13 @@ class ManualNavigationFactory extends DefaultNavigationFactory
 
             $pages = $this->getPagesFromConfig($configuration['navigation'][$this->getName()]);
 
-            // we have to use the HTTP router here because the Sitemap requires it, and
-            // this code may have been called from a CLI script
+            // we have to use the HTTP router here because the Sitemap requires
+            // it, and this code may have been called from a CLI script
             $router = $serviceLocator->get('HttpRouter');
 
             $this->pages = $this->injectComponents($pages, $routeMatch, $router);
         }
 
         return $this->pages;
-    }
-
-    protected function getVersionPriority($version)
-    {
-        include __DIR__ . '/zf2-manual-versions.php';
     }
 }
