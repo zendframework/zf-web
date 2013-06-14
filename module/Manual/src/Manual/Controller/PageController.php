@@ -83,18 +83,20 @@ class PageController extends AbstractActionController
         $page    = $matches->getParam('page', false);
         $version = $matches->getParam('version', false);
         $lang    = $matches->getParam('lang', false);
+
         if (!$page || !$version || !$lang) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
         $name = $page;
         
         $docFile = $this->params[$version][$lang] . $page;
-
+        
         if (!file_exists($docFile)) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
 
         $content = $this->getPageContent($docFile, $version);
+        
         if (false === $content) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
@@ -168,14 +170,161 @@ class PageController extends AbstractActionController
      */
     protected function getPageContent($file, $version)
     {
-        if ('1.' === substr($version, 0, 2)) {
+        if ('1.1' === substr($version, 0, 3)) {
             return $this->getV1PageContent($file);
         }
+        if ('1.' === substr($version, 0, 2)) {
+            return $this->getOldV1PageContent($file);
+        } 
         return $this->getV2PageContent($file);
     }
 
     /**
-     * Get page content from a v1 manual
+     * Get page content for version < 1.11
+     *
+     * @param  string $file
+     * @return array
+     */
+    protected function getOldV1PageContent($file)
+    {
+        $pageContent = array();
+
+        $doc                    = new DomQuery(file_get_contents($file));
+        $pageContent['body']    = '';
+        $pageContent['sidebar'] = '';
+        $pageContent['title']   = '';
+
+        $sidebar = true;
+        // Body
+        $content = $doc->queryXpath('//div[@class="book"]');
+        if (count($content)) {
+            $pageContent['body'] = $content->current()->ownerDocument->saveXML(
+                $content->current()
+            );
+            $sidebar = false;
+        }
+
+        $content = $doc->queryXpath('//div[@class="chapter"]/div[@class="sect1"]');
+        if (count($content)) {
+            $xpath = new \DOMXpath($content->getDocument());
+                // Replace A link tag without text with a space
+                $nodelist = $xpath->query(
+                    '//a[@name]'
+                );
+
+                foreach ($nodelist as $node) {
+                    $newElement = $content->getDocument()->createElement(
+                        'a', ' '
+                    );
+                    $newElement->setAttribute('name', $node->getAttribute('name'));
+                    $node->parentNode->replaceChild($newElement, $node);
+                } 
+            $pageContent['body'] = $content->current()->ownerDocument->saveXML(
+                $content->current()
+            );
+        }
+
+        if (empty($pageContent['body'])) {
+            $content = $doc->queryXpath('//div[@class="sect1"]');
+            if (count($content)) {
+                $xpath = new \DOMXpath($content->getDocument());
+                // Replace A link tag without text with a space
+                $nodelist = $xpath->query(
+                    '//a[@name]'
+                );
+
+                foreach ($nodelist as $node) {
+                    $newElement = $content->getDocument()->createElement(
+                        'a', ' '
+                    );
+                    $node->parentNode->replaceChild($newElement, $node);
+                }
+                $pageContent['body']= $content->current()->ownerDocument->saveXML(
+                    $content->current()
+                );
+            }
+        }
+        
+        // Sidebar
+        $headline= $doc->queryXpath('//div[@class="toc"]');
+        if ($sidebar && count($headline)) {
+
+            $pageContent['sidebar'] = $headline->current()->ownerDocument->saveXML(
+                $headline->current()
+            );
+        }
+
+        // Previous topic
+        $prevTopic  = $doc->queryXpath('//div[@class="navheader"]//a[@accesskey="p"]')->current();
+
+        if (count($prevTopic)) {
+            $pageContent['sidebar'] .= '<h1>Previous topic</h1>';
+            $pageContent['sidebar'] .= sprintf(
+                '<p class="topless"><a href="%s" title="previous chapter">%s</a></p>',
+                $prevTopic->getAttribute('href'),
+                $prevTopic->nodeValue
+            );
+        }
+
+        // Next topic
+        $nextTopic  = $doc->queryXpath('//div[@class="navheader"]//a[@accesskey="n"]')->current();
+
+        if (count($nextTopic)) {
+            $pageContent['sidebar'] .= '<h1>Next topic</h1>';
+            $pageContent['sidebar'] .= sprintf(
+                '<p class="topless"><a href="%s" title="next chapter">%s</a></p>',
+                $nextTopic->getAttribute('href'),
+                $nextTopic->nodeValue
+            );
+        }
+
+        // Head title
+        $elem = $doc->queryXpath('//ul[@class="toc"]/li[@class = "active"]/a/text()')->current();
+        if (count($elem)) {
+            $pageContent['title'] = $elem->ownerDocument->saveXML($elem);
+        }
+
+        $elem = $doc->queryXpath('//ul[@class="toc"]/li[@class="header up"][last()]/a/text()')->current();
+        if (count($elem)) {
+            $pageContent['title'] .= ' - ' . $elem->ownerDocument->saveXML($elem);
+        }
+
+        // Navigation
+        $navigation = '';
+
+        // Previous link
+        $prevLink  = $doc->queryXpath('//div[@class="navfooter"]//a[@accesskey="p"]')->current();
+        if (count($prevLink)) {
+            $navigation .= sprintf(
+                '<li class="prev"><a href="%s">%s</a>',
+                $prevLink->getAttribute('href'),
+                $prevLink->nodeValue
+            );
+        }
+
+        // Next link
+        $nextLink  = $doc->queryXpath('//div[@class="navfooter"]//a[@accesskey="n"]')->current();
+        if (count($nextLink)) {
+            $navigation .= sprintf(
+                '<li class="next"><a href="%s">%s</a>',
+                $nextLink->getAttribute('href'),
+                $nextLink->nodeValue
+            );
+        }
+
+        if (!empty($navigation)) {
+            $navigation = sprintf(
+                '<div class="related hide-on-print"><ul>%s</ul></div>',
+                $navigation
+            );
+            $pageContent['body'] = $navigation . $pageContent['body'] . $navigation;
+        }
+
+        return $pageContent;
+    }
+
+    /**
+     * Get page content from a v1.11+
      * 
      * @param  string $file 
      * @return array
