@@ -31,7 +31,7 @@ $rewriteRegexes = array(
     '#^/manual(/(?P<version>\d+\.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
         $lang    = isset($matches['lang'])    ? $matches['lang']    : 'en';
         $version = isset($matches['version']) ? $matches['version'] : '2.0';
-        if ('1.' === substr($matches['version'], 0, 2)) {
+        if ('1.1' === substr($matches['version'], 0, 3)) {
             $file = 'manual.html';
         } else {
             $file = 'index.html';
