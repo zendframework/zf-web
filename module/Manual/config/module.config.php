@@ -7,7 +7,7 @@ return array(
     'router' => array(
         'routes' => array(
             'manual' => array(
-                'type' => 'Segment',
+                'type' => 'Manual\Route',
                 'options' => array(
                     'route' => '/manual/:version/:lang/:page',
                     'constraints' => array(

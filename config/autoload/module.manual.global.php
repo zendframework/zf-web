@@ -25,4 +25,6 @@ krsort($paths);
 return array(
     'zf_document_path' => $paths,
     'zf_apidoc_versions' => include __DIR__ . '/zf-apidoc-versions.php',
+    'zf_latest_version' => max(array_keys($paths)),
+    'zf_maintained_major_versions' => array('1.12')
 );
