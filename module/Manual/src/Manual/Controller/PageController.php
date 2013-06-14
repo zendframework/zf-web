@@ -170,8 +170,7 @@ class PageController extends AbstractActionController
      */
     protected function getPageContent($file, $version)
     {
-        $ver = substr($version, 0, 3);
-        if ('1.1' === $ver || '1.9' === $ver) {
+        if ('1.1' === substr($version, 0, 3)) {
             return $this->getV1PageContent($file);
         }
         if ('1.' === substr($version, 0, 2)) {
