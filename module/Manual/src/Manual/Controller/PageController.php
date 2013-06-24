@@ -17,7 +17,7 @@ class PageController extends AbstractActionController
     protected $apiDocVersions;
 
     /**
-     * @var array 
+     * @var array
      */
     protected $params;
 
@@ -28,8 +28,8 @@ class PageController extends AbstractActionController
 
     /**
      * Set the resolver
-     * 
-     * @param  ResolverInterface $resolver 
+     *
+     * @param  ResolverInterface $resolver
      * @return PageController
      */
     public function setResolver(ResolverInterface $resolver)
@@ -40,8 +40,8 @@ class PageController extends AbstractActionController
 
     /**
      * Set API documentation version map
-     * 
-     * @param  array $versions 
+     *
+     * @param  array $versions
      * @return self
      */
     public function setApiDocVersions(array $versions)
@@ -52,9 +52,9 @@ class PageController extends AbstractActionController
 
     /**
      * Set params of the controller
-     * 
+     *
      * @param  array $params
-     * @return PageController 
+     * @return PageController
      */
     public function setParams(array $params)
     {
@@ -73,7 +73,7 @@ class PageController extends AbstractActionController
      *
      * Otherwise, returns a view model with a template matching the page from
      * this module.
-     * 
+     *
      * @return ViewModel
      */
     public function manualAction()
@@ -88,7 +88,7 @@ class PageController extends AbstractActionController
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
         $name = $page;
-        
+
         $docFile = $this->params[$version][$lang] . $page;
         
         if (!file_exists($docFile)) {
@@ -114,8 +114,8 @@ class PageController extends AbstractActionController
 
     /**
      * Learn Action
-     * 
-     * @return ViewModel 
+     *
+     * @return ViewModel
      */
     public function learnAction()
     {
@@ -126,8 +126,8 @@ class PageController extends AbstractActionController
 
     /**
      * training Action
-     * 
-     * @return ViewModel 
+     *
+     * @return ViewModel
      */
     public function trainingAction()
     {
@@ -138,8 +138,8 @@ class PageController extends AbstractActionController
 
     /**
      * support Action
-     * 
-     * @return ViewModel 
+     *
+     * @return ViewModel
      */
     public function supportAction()
     {
@@ -150,7 +150,7 @@ class PageController extends AbstractActionController
 
     /**
      * API Action
-     * 
+     *
      * @return ViewModel
      */
     public function apiAction()
@@ -163,10 +163,10 @@ class PageController extends AbstractActionController
 
     /**
      * Get page content (body, sidebar) according to the doc version
-     * 
+     *
      * @param  string $file
      * @param  string $version
-     * @return boolean|array 
+     * @return boolean|array
      */
     protected function getPageContent($file, $version)
     {
@@ -559,8 +559,8 @@ class PageController extends AbstractActionController
 
     /**
      * get page content from a v2 manual
-     * 
-     * @param  string $file 
+     *
+     * @param  string $file
      * @return array
      */
     protected function getV2PageContent($file)
@@ -635,7 +635,7 @@ class PageController extends AbstractActionController
         // Change headlines
         $pageContent['sidebar'] = str_replace('<h4>','<h1>', $pageContent['sidebar']);
         $pageContent['sidebar'] = str_replace('</h4>','</h1>', $pageContent['sidebar']);
-        
+
         $pageContent['sidebar'] = str_replace('<h3>','<h1>', $pageContent['sidebar']);
         $pageContent['sidebar'] = str_replace('</h3>','</h1>', $pageContent['sidebar']);
 
@@ -655,9 +655,9 @@ class PageController extends AbstractActionController
 
     /**
      * Return a 404 page and status
-     * 
-     * @param  ViewModel $model 
-     * @param  \Zend\Http\Response $response 
+     *
+     * @param  ViewModel $model
+     * @param  \Zend\Http\Response $response
      * @return ViewModel
      */
     protected function return404Page(ViewModel $model, $response)
