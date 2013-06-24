@@ -19,6 +19,7 @@ return array(
         'Manual',
         // 'Search',
         'Security',
+        'Sitemap',
         'PhlyCommon',
         'PhlyBlog',
         'PhlyContact',
