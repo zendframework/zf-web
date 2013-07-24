@@ -2,6 +2,7 @@
 
 namespace Changelog\Controller;
 
+use DateTime;
 use Zend\Console\Adapter\AdapterInterface as Console;
 use Zend\Console\ColorInterface as Color;
 use Zend\Console\Request as ConsoleRequest;
@@ -266,8 +267,12 @@ class FetchController extends AbstractActionController
 
     protected function fetchGithubChangelog($zfVersion, $version)
     {
-        $filter = function ($string) {
-            return preg_replace("/\n\-+(?:BEGIN PGP SIGNATURE).*/s", '', $string);
+        $filter = function ($string, DateTime $date) {
+            $dateString = $date->format('Y-m-d');
+
+            $string = preg_replace("/\n\-+(?:BEGIN PGP SIGNATURE).*/s", '', $string);
+            $string = preg_replace('/^(Zend Framework \d+\.\d+\.\d+[^\n]*)/s', '$1 (' . $dateString .')', $string);
+            return $string;
         };
         
         $this->console->writeLine("    Fetching ref info for tag '$version'");
@@ -293,10 +298,11 @@ class FetchController extends AbstractActionController
         }
 
         $tagInfo  = json_decode($response->getBody());
+        $tagDate  = new DateTime($tagInfo->tagger->date);
     
         $this->console->writeLine(    '[DONE]', Color::GREEN);
 
-        return $filter($tagInfo->message);
+        return $filter($tagInfo->message, $tagDate);
     }
 
     protected function emitError($message)
