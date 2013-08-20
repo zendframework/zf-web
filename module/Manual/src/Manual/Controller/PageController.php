@@ -84,23 +84,57 @@ class PageController extends AbstractActionController
         $version = $matches->getParam('version', false);
         $lang    = $matches->getParam('lang', false);
 
+        // Check URL params
         if (!$page || !$version || !$lang) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
         $name = $page;
 
+        // Create doc filename
         $docFile = $this->params[$version][$lang] . $page;
-        
+
+        // Check file
         if (!file_exists($docFile)) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
 
+        // Get page content
         $content = $this->getPageContent($docFile, $version);
-        
+
+        // Check content
         if (false === $content) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
 
+        // Get content list for select element
+        $contentList = $this->getContentList(
+            $this->params[$version][$lang],
+            $version
+        );
+
+        // Get current page for select element with content list
+        $getLinks = function ($pages) use (&$getLinks) {
+            $links = array();
+            foreach ($pages as $key => $value) {
+                $links[] = $key;
+                if (is_array($value)) {
+                    $links = array_merge($links, $getLinks($value));
+                }
+            }
+            return $links;
+        };
+
+        if (in_array($page, $getLinks($contentList))) {
+            $currentPage = $page;
+        } else {
+            $currentPage = $this->getSelectedPage(
+                $page,
+                $this->params[$version][$lang],
+                $version
+            );
+        }
+
+        // Set variables on view model
         $model->setVariable('name', $name);
         $model->setVariable('lang', $lang);
         $model->setVariable('title', $content['title']);
@@ -108,7 +142,10 @@ class PageController extends AbstractActionController
         $model->setVariable('sidebar', $content['sidebar']);
         $model->setVariable('version', $version);
         $model->setVariable('versions', array_keys($this->params));
+        $model->setVariable('contentList', $contentList);
+        $model->setVariable('currentPage', $currentPage);
         $model->setTemplate('manual/page-controller/manual');
+
         return $model;
     }
 
@@ -651,6 +688,151 @@ class PageController extends AbstractActionController
         $pageContent['title'] = $elem->nodeValue;
 
         return $pageContent;
+    }
+
+    /**
+     * @param string $path
+     * @param string $version
+     *
+     * @return array
+     */
+    protected function getContentList($path, $version)
+    {
+        if ('1.1' === substr($version, 0, 3)) {
+            return array();
+        }
+        if ('1.' === substr($version, 0, 2)) {
+            return array();
+        }
+        return $this->getV2ContentList($path);
+    }
+
+    /**
+     * @param string $path
+     * @return array
+     */
+    protected function getV2ContentList($path)
+    {
+        // Create list
+        $list = array(
+            'index.html' => 'Programmer’s Reference Guide',
+        );
+        $doc  = new DomQuery(file_get_contents($path . 'index.html'));
+
+        // Anonymous function for string replacement
+        $replace = function ($string) {
+            return str_replace('¶', '', $string);
+        };
+
+        // Fetch sections
+        $sections = $doc->queryXpath(
+            '//div[@class="body"]/div[@class="section"]/div[@class="section"]'
+        );
+
+        // Check sections
+        if (count($sections)) {
+            $xpath = new \DOMXpath($sections->getDocument());
+
+            foreach ($sections as $section) {
+                // Get label for optgroup
+                $group = $replace($section->childNodes->item(1)->nodeValue);
+                if (empty($group)) {
+                    $group = $replace($section->childNodes->item(2)->nodeValue);
+                }
+
+                // Create optgroup
+                $list[$group] = array();
+
+                // Fetch subsections
+                $subSections = $xpath->query(
+                    'div[@class="section"]',
+                    $section
+                );
+
+                // Check subsections
+                if ($subSections->length) {
+                    foreach ($subSections as $subSection) {
+                        // Fetch component headlines
+                        $headlines = $xpath->query('h3', $subSection);
+
+                        // Check component headlines
+                        if ($headlines->length) {
+                            // Fetch first link
+                            $links = $xpath->query(
+                                'blockquote/div/ul/li[1]/a',
+                                $subSection
+                            );
+
+                            // Add to list
+                            foreach ($headlines as $headline) {
+                                $list[$group][$links->item(0)->getAttribute('href')] =
+                                    $replace($headline->nodeValue);
+                            }
+                        }
+                    }
+                } else {
+                    // Fetch page headlines
+                    $headlines = $xpath->query(
+                        'blockquote/div/ul/li/a',
+                        $section
+                    );
+
+                    // Check page headlines
+                    if ($headlines->length) {
+                        // Add to list
+                        foreach ($headlines as $headline) {
+                            $list[$group][$headline->getAttribute('href')] =
+                                $replace($headline->nodeValue);
+                        }
+                    }
+                }
+            }
+        }
+
+        return $list;
+    }
+
+    /**
+     * @param string $currentPage
+     * @param string $path
+     * @param string $version
+     *
+     * @return string|null
+     */
+    protected function getSelectedPage($currentPage, $path, $version)
+    {
+        if ('1.1' === substr($version, 0, 3)) {
+            return null;
+        }
+        if ('1.' === substr($version, 0, 2)) {
+            return null;
+        }
+        return $this->getV2SelectedPage($currentPage, $path);
+    }
+
+    /**
+     * @param string $currentPage
+     * @param string $path
+     *
+     * @return string|null
+     */
+    protected function getV2SelectedPage($currentPage, $path)
+    {
+        $doc = new DomQuery(file_get_contents($path . 'index.html'));
+
+        // Fetch first link
+        $links = $doc->queryXpath(
+            sprintf(
+                '//a[@href = "%s"]/parent::li/parent::ul/li[1]/a',
+                $currentPage
+            )
+        );
+
+        // Check link and href attribute
+        if ($links->count() && $links->current()->hasAttribute('href')) {
+            return $links->current()->getAttribute('href');
+        }
+        return null;
     }
 
     /**
