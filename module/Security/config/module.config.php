@@ -16,7 +16,7 @@ return array(
                 'date'  => 'Thu, 14 March 2013 10:00:00 -0500',
             ),
             'ZF2012-05' => array(
-                'title' => 'ZF2012-05: Potential Proxy Injection Vulnerabilities in Multiple Zend Framework 2 Components',
+                'title' => 'ZF2012-05: Potential XML eXternal Entity injection vectors in Zend Framework 1 Zend_Feed component',
                 'date'  => 'Tue, 18 December 2012 13:00:00 -0500',
             ),
             'ZF2012-04' => array(
