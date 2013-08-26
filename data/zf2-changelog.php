@@ -3081,5 +3081,11 @@ Total issues resolved: **26**
 - [4988: &#91;Zend-Code&#92; Fix Code Generation for non namespace classes](https://github.com/zendframework/zf2/issues/4988)
 - [4990: &#91;Zend-Code&#92; Make sure that a use is only added once in ClassGenerator](https://github.com/zendframework/zf2/issues/4990)
 - [4996: BaseInputFilter-&gt;add deasn\'t work (Form Validation breaks since 2.2)](https://github.com/zendframework/zf2/issues/4996)',
+  '2.2.4' => 'Zend Framework 2.2.4 (2013-08-26)
+
+Total issues resolved: **3**
+- [5008: deprecated feature in classmap generator](https://github.com/zendframework/zf2/issues/5008)
+- [5015: Allow set Form::setPreferFormInputFilter via options](https://github.com/zendframework/zf2/issues/5015)
+- [5028: Fix forms regression introduced in 2.2.3](https://github.com/zendframework/zf2/issues/5028)',
 );
 return $tags;
