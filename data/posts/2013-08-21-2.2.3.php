@@ -80,4 +80,3 @@ EOC;
 $post->setExtended($extended);
 
 return $post;
-
