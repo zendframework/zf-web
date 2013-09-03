@@ -3,11 +3,9 @@
 namespace Manual\Controller;
 
 use Zend\Mvc\Controller\AbstractActionController;
-use Zend\Mvc\MvcEvent;
 use Zend\View\Resolver\ResolverInterface;
 use Zend\View\Model\ViewModel;
 use Zend\Dom\Query as DomQuery;
-use \DomElement;
 
 class PageController extends AbstractActionController
 {
@@ -112,7 +110,7 @@ class PageController extends AbstractActionController
             $version
         );
 
-        // Get current page for select element with content list
+        // Get current page link for select element with content list
         $getLinks = function ($pages) use (&$getLinks) {
             $links = array();
             foreach ($pages as $key => $value) {
@@ -134,6 +132,14 @@ class PageController extends AbstractActionController
             );
         }
 
+        // Get current page title
+        $currentPageTitle = $this->getSelectedPage(
+            $page,
+            $this->params[$version][$lang],
+            $version,
+            false
+        );
+
         // Set variables on view model
         $model->setVariable('name', $name);
         $model->setVariable('lang', $lang);
@@ -144,6 +150,7 @@ class PageController extends AbstractActionController
         $model->setVariable('versions', array_keys($this->params));
         $model->setVariable('contentList', $contentList);
         $model->setVariable('currentPage', $currentPage);
+        $model->setVariable('currentPageTitle', $currentPageTitle);
         $model->setTemplate('manual/page-controller/manual');
 
         return $model;
@@ -796,10 +803,11 @@ class PageController extends AbstractActionController
      * @param string $currentPage
      * @param string $path
      * @param string $version
+     * @param bool   $getHref
      *
      * @return string|null
      */
-    protected function getSelectedPage($currentPage, $path, $version)
+    protected function getSelectedPage($currentPage, $path, $version, $getHref = true)
     {
         if ('1.1' === substr($version, 0, 3)) {
             return null;
@@ -807,31 +815,61 @@ class PageController extends AbstractActionController
         if ('1.' === substr($version, 0, 2)) {
             return null;
         }
-        return $this->getV2SelectedPage($currentPage, $path);
+        return $this->getV2SelectedPage($currentPage, $path, $getHref);
     }
 
     /**
      * @param string $currentPage
      * @param string $path
+     * @param bool   $getHref
      *
      * @return string|null
      */
-    protected function getV2SelectedPage($currentPage, $path)
+    protected function getV2SelectedPage($currentPage, $path, $getHref = true)
     {
         $doc = new DomQuery(file_get_contents($path . 'index.html'));
 
-        // Fetch first link
-        $links = $doc->queryXpath(
-            sprintf(
-                '//a[@href = "%s"]/parent::li/parent::ul/li[1]/a',
-                $currentPage
-            )
-        );
+        if (true === $getHref) {
+            // Fetch first link
+            $links = $doc->queryXpath(
+                sprintf(
+                    '//a[@href = "%s"]/parent::li/parent::ul/li[1]/a',
+                    $currentPage
+                )
+            );
 
-        // Check link and href attribute
-        if ($links->count() && $links->current()->hasAttribute('href')) {
-            return $links->current()->getAttribute('href');
+            // Check link
+            if ($links->count() && $links->current()->hasAttribute('href')) {
+                return $links->current()->getAttribute('href');
+            }
+        } else {
+            // Fetch headline (component name)
+            $headline = $doc->queryXpath(
+                sprintf(
+                    '//a[@href = "%s"]/parent::li/parent::ul/parent::div/parent::blockquote/parent::div/h3',
+                    $currentPage
+                )
+            );
+
+            // Check headline
+            if ($headline->count()) {
+                return str_replace('¶', '', $headline->current()->nodeValue);
+            } else {
+                // Fetch headline
+                $headline = $doc->queryXpath(
+                    sprintf(
+                        '//a[@href = "%s"]/parent::li/parent::ul/parent::div/parent::blockquote/parent::div/h2',
+                        $currentPage
+                    )
+                );
+
+                // Check headline
+                if ($headline->count()) {
+                    return str_replace('¶', '', $headline->current()->nodeValue);
+                }
+            }
         }
+
         return null;
     }
 
