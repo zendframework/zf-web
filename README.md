@@ -1,3 +1,5 @@
+![Logo](http://framework.zend.com/images/logos/ZendFramework-logo.png)
+
 Zend Framework Website, v2.0
 ============================
 
