@@ -658,16 +658,68 @@ class PageController extends AbstractActionController
         }
 
         // Sidebar
-        $elem    = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]')->current();
-        $pageContent['sidebar'] = $elem->ownerDocument->saveXML($elem);
+        $elements = $doc->queryXpath('//div[@class="sphinxsidebarwrapper"]/*');
+        $pageContent['sidebar'] = '';
 
-        // Remove logo
-        $pageContent['sidebar'] = substr(
-            $pageContent['sidebar'],
-            strpos($pageContent['sidebar'], '</p>')
-        );
+        /** @var \DOMNode $node */
+        foreach ($elements as $node) {
+            // Get TOC headline
+            if ($node->nodeValue == 'Table Of Contents') {
+                // Add headline to sidebar
+                $pageContent['sidebar'] .= '<section id="toc">';
+                $pageContent['sidebar'] .= $node->ownerDocument->saveXML($node);
 
-        $pageContent['sidebar'] = substr($pageContent['sidebar'], 0, -6);
+                // Get TOC list
+                if ('ul' == $node->nextSibling->nextSibling->nodeName) {
+                    // Add list to sidebar
+                    $pageContent['sidebar'] .= $node->ownerDocument->saveXML(
+                        $node->nextSibling->nextSibling
+                    );
+                }
+                // Add closing tag to sidebar
+                $pageContent['sidebar'] .= '</section>';
+            }
+
+            // Get "This Page" headline
+            if ($node->nodeValue == 'This Page') {
+                // Add headline to sidebar
+                $pageContent['sidebar'] .= '<section id="this-page-menu">';
+                $pageContent['sidebar'] .= $node->ownerDocument->saveXML($node);
+
+                // Get "This Page" menu
+                $menu = $node->nextSibling->nextSibling;
+                if ($menu && $menu->hasAttribute('class')
+                    && 'this-page-menu' == $menu->getAttribute('class')
+                ) {
+                    // Add menu to sidebar
+                    $pageContent['sidebar'] .= $node->ownerDocument->saveXML(
+                        $menu
+                    );
+                }
+
+                // Get note
+                if ($menu
+                    && false !== strpos(
+                        trim($menu->nextSibling->nodeValue), 'Note:'
+                    )
+                ) {
+                    // Get content with its descendants ("<p><a></a></p>")
+                    $innerHTML = '';
+                    foreach ($menu->nextSibling->childNodes as $child)  {
+                        $innerHTML .= $node->ownerDocument->saveHTML($child);
+                    }
+
+                    // Add note to sidebar
+                    $pageContent['sidebar'] .= sprintf(
+                        '<p class="note">%s</p>',
+                        trim($innerHTML)
+                    );
+                }
+
+                // Add closing tag to sidebar
+                $pageContent['sidebar'] .= '</section>';
+            }
+        }
 
         // Replace empty links
         $pageContent['sidebar'] = str_replace(
@@ -682,13 +734,6 @@ class PageController extends AbstractActionController
 
         $pageContent['sidebar'] = str_replace('<h3>','<h1>', $pageContent['sidebar']);
         $pageContent['sidebar'] = str_replace('</h3>','</h1>', $pageContent['sidebar']);
-
-        // Add CSS class for notes
-        $pageContent['sidebar'] = str_replace(
-            '<p style="font-size: 12px">',
-            '<p class="note">',
-            $pageContent['sidebar']
-        );
 
         // Title
         $elem = $doc->queryXpath('//title')->current();
