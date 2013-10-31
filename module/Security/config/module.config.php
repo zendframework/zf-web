@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2013-04' => array(
+                'title' => 'ZF2013-04: Potential Remote Address Spoofing Vector in Zend\Http\PhpEnvironment\RemoteAddress',
+                'date'  => 'Thu, 31 October 2013 14:00:00 -0500',
+            ),
             'ZF2013-03' => array(
                 'title' => 'ZF2013-03: Potential SQL injection due to execution of platform-specific SQL containing interpolations',
                 'date'  => 'Thu, 14 March 2013 10:00:00 -0500',
