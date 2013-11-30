@@ -51,6 +51,11 @@ class PageController extends AbstractController
             return $this->return404Page($model, $e->getResponse());
         }
 
+        // Redirect license page
+        if ('license' == $page) {
+            return $this->redirect()->toRoute('about/license');
+        }
+
         $page = 'page-controller/' . $page;
         if (!$this->resolver->resolve($page)) {
             return $this->return404Page($model, $e->getResponse());
