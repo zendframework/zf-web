@@ -109,7 +109,7 @@ return array(
                 ),
                 'may_terminate' => true,
                 'child_routes'  => array(
-                    'faq'    => array(
+                    'faq'     => array(
                         'type'          => 'Segment',
                         'options'       => array(
                             'route'    => 'faq[/]',
@@ -119,7 +119,7 @@ return array(
                         ),
                         'may_terminate' => true,
                     ),
-                    'faq-v1' => array(
+                    'faq-v1'  => array(
                         'type'          => 'Segment',
                         'options'       => array(
                             'route'    => 'faq-v1[/]',
@@ -129,25 +129,25 @@ return array(
                         ),
                         'may_terminate' => true,
                     ),
+                    'license' => array(
+                        'type'    => 'Segment',
+                        'options' => array(
+                            'route'    => 'license[/]',
+                            'defaults' => array(
+                                'page' => 'about/license',
+                            ),
+                        ),
+                    ),
                 ),
             ),
             'license'         => array(
-                'type'          => 'Segment',
-                'options'       => array(
+                'type'    => 'Segment',
+                'options' => array(
                     'route'    => '/license[/]',
                     'defaults' => array(
                         '__NAMESPACE__' => 'PageController\Controller',
                         'controller'    => 'Page',
                         'page'          => 'license',
-                    ),
-                ),
-                'may_terminate' => true,
-                'child_routes'  => array(
-                    'new-bsd' => array(
-                        'type'    => 'Literal',
-                        'options' => array(
-                            'route' => 'new-bsd',
-                        ),
                     ),
                 ),
             ),
