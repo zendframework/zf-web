@@ -14,7 +14,7 @@ $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
 $post->setCreated(new DateTime('2013-12-20 17:00', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2013-12-20 17:00', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2013-12-21 10:10', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>Today, we're releasing version 0.8.0 of Apigility! You can grab and test it
 using one of the following two methods:</p>
@@ -132,6 +132,12 @@ At that point, we will start the beta release cycle, spending that time to do
 the UI refactoring and project documentation. Once those are complete, we'll
 finally issue a stable release; we're aiming for late February 2014 at this
 time.</p>
+
+<h4>Updates</h4>
+
+<ul>
+    <li>2013-12-21 16:10 UTC: Fixed <code>wget</code> command and URI, per reports of errors in comments.</li>
+</ul>
 
 EOC;
 $post->setExtended($extended);
