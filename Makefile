@@ -27,9 +27,9 @@ HOMEPAGE_PATH ?= $(CURDIR)/module/Application/view/application/index/index.phtml
 HOMEPAGE_TEMPLATE ?= $(CURDIR)/data/homepage.phtml
 SECURITY_CONFIG ?= $(CURDIR)/module/Security/config/module.config.php
 
-.PHONY : all apidoc-version changelog check-version download-version homepage manual-version
+.PHONY : all apidoc-version changelog check-version download-version homepage manual-version manual-latest-version
 
-all : download-version manual-version apidoc-version changelog homepage
+all : download-version manual-version manual-latest-version apidoc-version changelog homepage
 
 homepage :
 	@echo "Updating homepage feeds..."
@@ -60,6 +60,12 @@ ifeq ($$?,0)
 endif
 	-mv zf$(VERSION_MAJOR)-manual-versions.php config/autoload/zf$(VERSION_MAJOR)-manual-versions.php
 	@echo "[DONE] Adding manual version mapping."
+
+manual-latest-version: check-version
+	@echo "Updating manual downloads version to $(VERSION)..."
+	-cp module/Downloads/view/downloads/downloads/index.phtml.dist module/Downloads/view/downloads/downloads/index.phtml
+	-sed -i s/{VERSION}/$(VERSION)/g module/Downloads/view/downloads/downloads/index.phtml
+	@echo "[DONE] Updating manual downloads version"
 
 apidoc-version: check-version
 	@echo "Adding version $(VERSION) to apidoc mapping..."
