@@ -14,7 +14,7 @@ $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
 $post->setCreated(new DateTime('2014-02-28 17:00', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2014-02-28 17:00', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2014-03-01 12:20', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>Today, we're releasing version 0.9.0 of Apigility! You can grab and test it
 using one of the following two methods:</p>
@@ -24,7 +24,7 @@ using one of the following two methods:</p>
     </li>
     <li>Manual download:
         <pre><code>
-        wget https://github.com/zfcampus/zf-apigility-skeleton/releases/download/0.9.0/zf-apigility-skeleton-0.8.0.zip
+        wget https://github.com/zfcampus/zf-apigility-skeleton/releases/download/0.9.0/zf-apigility-skeleton-0.9.0.zip
         unzip zf-apigility-skeleton-0.9.0.zip
         </code></pre>
     </li>
@@ -295,6 +295,12 @@ $extended =<<<'EOC'
     for how the modules work together as a whole. We hope to provide "recipes"
     for a number of common practices and development and deployment situations.
 </p>
+
+<h4>Updates</h4>
+
+<ul>
+    <li>2014-03-01 12:20: Fixed <kbd>wget</kbd> command to reference correct download link.</li>
+</ul>
 
 EOC;
 $post->setExtended($extended);
