@@ -14,7 +14,7 @@ $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
 $post->setCreated(new DateTime('2014-02-28 17:00', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2014-03-01 12:20', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2014-03-03 12:00', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>Today, we're releasing version 0.9.0 of Apigility! You can grab and test it
 using one of the following two methods:</p>
@@ -139,7 +139,7 @@ $extended =<<<'EOC'
 </li>
 <li>
 <p>A new module was created for Apigility-specific interfaces,
-  <a href="https://github.com/zfcampus/zf-apigility-documentation">zf-apigility-documentation</a>.
+  <a href="https://github.com/zfcampus/zf-apigility-provider">zf-apigility-provider</a>.
   The primary use case is for composition in modules that may or may not be
   consumed by Apigility (e.g., a general-purpose module that could be composed
   into many projects). The only interface currently is
@@ -299,6 +299,7 @@ $extended =<<<'EOC'
 <h4>Updates</h4>
 
 <ul>
+    <li>2014-03-03 12:00: Fixed zf-apigility-documentation to read zf-apigility-provider in fourth bullet-point of changelog.</li>
     <li>2014-03-01 12:20: Fixed <kbd>wget</kbd> command to reference correct download link.</li>
 </ul>
 
