@@ -3,6 +3,14 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2014-02' => array(
+                'title' => 'ZF2014-02: Potential security issue in login mechanism of ZendOpenId and Zend_OpenId consumer',
+                'date'  => 'Thu, 06 March 2014 17:00:00 -0500',
+            ),
+            'ZF2014-01' => array(
+                'title' => 'ZF2014-01: Potential XXE/XEE attacks using PHP functions: simplexml_load_*, DOMDocument::loadXML, and xml_parse',
+                'date'  => 'Thu, 06 March 2014 17:00:00 -0500',
+            ),
             'ZF2013-04' => array(
                 'title' => 'ZF2013-04: Potential Remote Address Spoofing Vector in Zend\Http\PhpEnvironment\RemoteAddress',
                 'date'  => 'Thu, 31 October 2013 14:00:00 -0500',
