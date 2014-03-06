@@ -1,0 +1,87 @@
+<h2>ZF2014-02: Potential security issue in login mechanism of ZendOpenId and Zend_OpenId consumer</h2>
+
+<p>
+    Using the <code>Consumer</code> component of <code>ZendOpenId</code> (or 
+    <code>Zend_OpenId</code> in ZF1), it is possible to login using an 
+    arbitrary OpenID account (without knowing any secret information) by using 
+    a malicious OpenID Provider. That means OpenID it is possible to login using
+    arbitrary OpenID Identity (MyOpenID, Google, etc), which are not under the 
+    control of our own OpenID Provider. Thus, we are able to impersonate any 
+    OpenID Identity against the framework.
+</p>
+
+<p>
+    Moreover, the Consumer accepts OpenID tokens with arbitrary signed 
+    elements. The framework does not check if, for example, both
+    <code>openid.claimed_id</code> and 
+    <code>openid.endpoint_url</code> are signed. It is just sufficient to sign one parameter. 
+    According to <a href="https://openid.net/specs/openid-authentication-2_0.html#positive_assertions">https://openid.net/specs/openid-authentication-2_0.html#positive_assertions</a>,
+    at least <code>op_endpoint</code>, <code>return_to</code>, 
+    <code>response_nonce</code>, <code>assoc_handle</code>, and, if present in 
+    the response, <code>claimed_id</code> and <code>identity</code>, must be signed.
+</p>
+
+<h3>How the attack works</h3>
+
+<p>
+    To realize the attack, we set up a malicious OpenID Provider (e.g. 
+    "http://openid.evil.com") that is able to generate valid OpenID tokens 
+    containing arbitrary <code>openid.identifier</code> and 
+    <code>openid.claimed_id</code> values. At that point, we can
+    successfully authenticate with the issued identity controlled by our 
+    Identity Provider, e.g. "http://openid.evil.com?identity=bob". This confirms 
+    that our Identity Provider works correctly. Then we log out. Afterwards, we
+    start the same login procedure, i.e. we submit the same Identity again
+    ("http://openid.evil.com?identity=bob"). According to the OpenID
+    specification, we are redirected to our Identity Provider
+    ("http://openid.evil.com"). But this time, we configure our Identity
+    Provider to ignore the requested identity ("http://openid.evil.com?identity=bob")
+    and instead use a victim's identity (e.g. <code>openid.claimed_id=http://victim.myopenid.com/</code>,
+    <code>openid.identity=http://victim.myopenid.com/</code>,  and additionally
+    <code>op_endpoint=http://www.myopenid.com/server</code>).
+</p>
+
+<p>
+    All other <code>openid.*</code> parameters are used as requested. Note that our
+    Identity Provider is not authorized to issue tokens in the name of other
+    Identity Providers (such as MyOpenID, Google, etc.).  However, the token is 
+    accepted by the framework. In this manner we could impersonate other 
+    users/identities without knowing any credentials and secrets.
+</p>
+
+
+<h3>Action Taken</h3>
+
+<p>
+    We have made the following changes to <code>ZendOpenId\Consumer\GenericConsumer</code>
+    and <code>Zend_OpenId_Consumer</code> classes:
+</p>
+
+<ul class="ul">
+    <li>During the <code>verify()</code> method of the consumer, if the <code>openid_op_endpoint</code> value is different from the previous server, related to the same <code>openid_assoc_handle</code>, we return <code>false</code>, reporting an error.</li>
+    <li>Before the signature validation of the <code>openid_sig</code> parameter, we check that the required parameters (as noted in the <a href="https://openid.net/specs/openid-authentication-2_0.html#positive_assertions">assertion section of the OpenID specification</a>) are all present in the <code>openid_signed</code> list.</li>
+</ul>
+
+<p>
+    The following releases contain the fixes:
+</p>
+
+<ul class="ul">
+    <li>Zend Framework 1, version 1.12.4</li>
+    <li>ZendOpenId, version 2.0.2</li>
+</ul>
+
+<h2>Other Information</h2>
+
+<h3>Acknowledgments</h3>
+
+<p>
+    The Zend Framework team thanks the following for identifying the issues and 
+    working with us to help protect its users:
+</p>
+
+<ul>
+    <li>Christian Mainka (Christian.Mainka@rub.de) and Vladislav Mladenov (vladislav.mladenov@rub.de) researchers at the Ruhr-University Bochum for alerting us to the issue and for the suggestions on how to fix it;</li>
+    <li>Enrico Zimuel (enrico@zend.com) for implementing a solution.</li>
+</ul>
+
