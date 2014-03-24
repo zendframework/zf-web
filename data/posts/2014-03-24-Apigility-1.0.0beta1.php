@@ -93,6 +93,15 @@ $extended =<<<'EOC'
     robust APIs.
 </p>
 
+<h2>New Website!</h2>
+
+<p>
+    First in our line of announcements, 
+    <a href="http://www.zimuel.it/">Enrico Zimuel</a> has completely rewritten the
+    <a href="http://apigility.org/">Apigility website</a> to provide more 
+    content and a more modern look!
+</p>
+
 <h2>What has changed for beta1?</h2>
 
 <p>
