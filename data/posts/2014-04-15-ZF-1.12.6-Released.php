@@ -23,7 +23,7 @@ $body =<<<'EOS'
 
 <ul>
     <li>
-        <a href="/downloads/latest">http://framework.zend.com/downloads/latest#ZF1</a>
+        <a href="/downloads/latest#ZF1">http://framework.zend.com/downloads/latest#ZF1</a>
     </li>
 </ul>
 
@@ -48,7 +48,7 @@ $extended =<<<'EOC'
 <p>
     The problem that arose is that <a href="https://github.com/akrabat/zf1/blob/0282f49112688f124373bcf915abb6227d050454/library/Zend/Locale.php#L38-L67">more 
     than two dozen locales have been renamed</a> in the official CLDR sources since then,
-    and the Zend Framework 1.12.4 shipped exactly what CLDR ships. As a result, users
+    and Zend Framework 1.12.4 shipped exactly what CLDR ships. As a result, users
     of those old locales suddenly found their applications no longer working, due to
     newly invalid locales.
 </p>

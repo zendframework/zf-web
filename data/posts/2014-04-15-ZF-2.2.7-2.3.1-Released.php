@@ -28,7 +28,7 @@ $body =<<<'EOS'
 
 <ul>
     <li>
-        <a href="/downloads/latest">http://framework.zend.com/downloads/latest#ZF2</a>
+        <a href="/downloads/latest#ZF2">http://framework.zend.com/downloads/latest#ZF2</a>
     </li>
 </ul>
 
