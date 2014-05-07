@@ -16,7 +16,7 @@ $post->setPublic(true);
 $post->setCreated(new DateTime('2014-05-07 10:00', new DateTimezone('America/Chicago')));
 $post->setUpdated(new DateTime('2014-05-07 10:00', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
-<img src="/images/ag-hero.png" style="max-width="100%" alt="Apigility">
+<img src="/images/ag-hero.png" style="display: block; margin-left: auto; margin-right: auto; max-width: 100%" alt="Apigility">
 
 <p>We're happy to announce the immediate availability of Apigility 1.0.0!</p>
 
@@ -71,7 +71,7 @@ $extended =<<<'EOC'
 
 <p>Apigility is not just an engine. Apigility also provides a web-based Admin UI to allow you to quickly create and modify your API and services, set up authentication, create authorization rules, set up validations for incoming data, and write document.</p>
 
-<img src="/images/apigility-1.0.0-dashboard.png" style="max-width="100%" alt="Apigility Dashboard">
+<img src="/images/apigility-1.0.0-dashboard.png" style="display: block; margin-left: auto; margin-right: auto; max-width: 100%" alt="Apigility Dashboard">
 
 <p>The Admin UI is built using <a href="https://angularjs.org/">AngularJS</a>, and is backed by... an API! (We're taking the &quot;API First&quot; mantra very seriously!)</p>
 
