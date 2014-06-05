@@ -96,11 +96,34 @@ class AdvisoryModel
      */
     protected function sortAdvisories()
     {
-        uksort($this->advisories, function ($a, $b) {
+        $getAdvisoryId = function ($title) {
+            if (! preg_match('/^(?P<id>[A-Z]+\d{4}-\d{2}):/', $title, $matches)) {
+                return $title;
+            }
+            return $matches['id'];
+        };
+
+        $compareKey = function ($a, $b) use ($getAdvisoryId) {
+            $a = $getAdvisoryId($a['title']);
+            $b = $getAdvisoryId($b['title']);
+
             if ($a === $b) {
                 return 0;
             }
             if ($a > $b) {
+                return -1;
+            }
+            return 1;
+        };
+
+        usort($this->advisories, function ($a, $b)  use ($compareKey) {
+            $aDate = strtotime($a['date']);
+            $bDate = strtotime($b['date']);
+
+            if ($aDate === $bDate) {
+                return $compareKey($a, $b);
+            }
+            if ($aDate > $bDate) {
                 return -1;
             }
             return 1;

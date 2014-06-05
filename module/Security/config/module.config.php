@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'AG2014-01' => array(
+                'title' => 'AG2014-01: Potential Database Injection Vector in DB-Connected REST Services',
+                'date'  => 'Thu, 05 June 2014 11:30:00 -0500',
+            ),
             'ZF2014-03' => array(
                 'title' => 'ZF2014-03: Potential XSS vector in multiple view helpers',
                 'date'  => 'Tue, 15 April 2014 15:05:00 -0500',
@@ -128,7 +132,7 @@ return array(
                                 'action'   => 'advisory',
                             ),
                             'constraints' => array(
-                                'advisory' => 'ZF20\d{2}-\d{2}',
+                                'advisory' => '(ZF|AG)20\d{2}-\d{2}',
                             ),
                         ),
                     ),
