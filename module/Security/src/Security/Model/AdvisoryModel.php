@@ -116,7 +116,7 @@ class AdvisoryModel
             return 1;
         };
 
-        usort($this->advisories, function ($a, $b)  use ($compareKey) {
+        uasort($this->advisories, function ($a, $b)  use ($compareKey) {
             $aDate = strtotime($a['date']);
             $bDate = strtotime($b['date']);
 
