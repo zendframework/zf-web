@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2014-04' => array(
+                'title' => 'ZF2014-04: Potential SQL injection in the ORDER implementation of Zend_Db_Select',
+                'date'  => 'Thu, 12 June 2014 15:00:00 -0500',
+            ),
             'AG2014-01' => array(
                 'title' => 'AG2014-01: Potential Database Injection Vector in DB-Connected REST Services',
                 'date'  => 'Thu, 05 June 2014 11:30:00 -0500',
