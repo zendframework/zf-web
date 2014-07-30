@@ -36,5 +36,24 @@ class Module
             },
         ));
     }
-    
+
+    public function getViewHelperConfig()
+    {
+        return array(
+            'factories' => array(
+                'outdatedDocsMessage' => function ($helperPluginManager) {
+                    $sm = $helperPluginManager->getServiceLocator();
+
+                    $config = $sm->get('Config');
+
+                    $helper = new View\Helper\OutdatedDocsMessage(
+                        $config['zf_document_path'],
+                        $config['zf_maintained_major_versions']
+                    );
+
+                    return $helper;
+                },
+            )
+        );
+    }
 }
