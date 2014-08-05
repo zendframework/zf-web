@@ -170,7 +170,7 @@ return array(
                 'options' => array(
                     'route'    => '/downloads[/[:action]]',
                     'constraints' => array(
-                        'action' => '(latest|archives|phpcloud|skeleton-app|composer|pyrus)',
+                        'action' => '(latest|archives|skeleton-app|composer|pyrus)',
                     ),
                     'defaults' => array(
                         '__NAMESPACE__' => 'Downloads\Controller',
