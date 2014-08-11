@@ -24,6 +24,9 @@ class DownloadsController extends AbstractActionController
      */
     public function indexAction()
     {
+        return array(
+            'releases' => $this->releases,
+        );
     }
 
     /**
