@@ -177,7 +177,12 @@ $extended =<<<'EOC'
     <li><a href="https://github.com/zfcampus/zf-oauth2/pull/56">Ensure bodyParams is an array before creating request</a><br /></li>
     <li><a href="https://github.com/zfcampus/zf-oauth2/pull/54">Update PdoAdapter.php</a><br /></li>
     <li><a href="https://github.com/zfcampus/zf-oauth2/pull/48">refactored the class to support better reuse when extending the class</a><br /></li>
-    <li><a href="https://github.com/zfcampus/zf-oauth2/issues/46">Separate MongoClient creation from MongoAdapter factory</a><br />zf-rest:<br /></li>
+    <li><a href="https://github.com/zfcampus/zf-oauth2/issues/46">Separate MongoClient creation from MongoAdapter factory</a></li>
+</ul>
+
+<h3>zf-rest:</h3>
+
+<ul>
     <li><a href="https://github.com/zfcampus/zf-rest/pull/43">Allow returning entities without identifiers from creation routines</a><br /></li>
     <li><a href="https://github.com/zfcampus/zf-rest/pull/39">Allow Header tied to 'id' param.</a><br /></li>
     <li><a href="https://github.com/zfcampus/zf-rest/pull/38">Can't attach to a resource's event using the SharedEventManager</a><br /></li>
