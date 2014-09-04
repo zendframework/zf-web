@@ -16,6 +16,9 @@ class Module implements ConsoleUsageProviderInterface
         $eventManager        = $e->getApplication()->getEventManager();
         $moduleRouteListener = new ModuleRouteListener();
         $moduleRouteListener->attach($eventManager);
+
+        $eventManager->attach(MvcEvent::EVENT_DISPATCH, array($this, 'enableFloatBar'), 1000);
+        $eventManager->attach(MvcEvent::EVENT_DISPATCH, array($this, 'rotateXPoweredByHeader'));
     }
 
     public function getConfig()
@@ -60,7 +63,17 @@ class Module implements ConsoleUsageProviderInterface
     public function init(ModuleManager $moduleManager)
     {
         $sharedEvents = $moduleManager->getEventManager()->getSharedManager();
-        $sharedEvents->attach(__NAMESPACE__, MvcEvent::EVENT_DISPATCH, array($this, 'rotateXPoweredByHeader'));
+    }
+
+    /**
+     * @param \Zend\Mvc\MvcEvent $e
+     */
+    public function enableFloatBar(MvcEvent $e)
+    {
+        $layout = $e->getViewModel();
+        if (null === $layout->getVariable('floatbar')) {
+            $layout->setVariable('floatbar', true);
+        }
     }
 
     /**

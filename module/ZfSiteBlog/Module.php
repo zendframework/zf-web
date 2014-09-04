@@ -84,6 +84,7 @@ class Module
 
         self::$layout = $layout   = new Model\ViewModel();
         $layout->setTemplate('layout');
+        $layout->setVariable('floatbar', true);
         $view->addResponseStrategy(function($e) use ($layout, $renderer) {
             $result = $e->getResult();
             $layout->setVariable('content', $result);
