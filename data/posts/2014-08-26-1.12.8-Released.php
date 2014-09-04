@@ -14,7 +14,7 @@ $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
 $post->setCreated(new DateTime('2014-08-26 11:30', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2014-08-26 11:30', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2014-09-04 16:10', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 <p>
     The Zend Framework community is pleased to announce the immediate availability
@@ -81,6 +81,12 @@ functions, if your SQL code doesn't work after the upgrade to ZF 1.12.8.</p>
     As always, I'd like to thank the many contributors who made this
     release possible!
 </p>
+
+<h4>Updates</h4>
+
+<ul>
+    <li>2014-09-04: Added section on potential BC break.</li>
+</ul>
 EOC;
 $post->setExtended($extended);
 
