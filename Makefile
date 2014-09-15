@@ -62,10 +62,12 @@ endif
 	@echo "[DONE] Adding manual version mapping."
 
 manual-latest-version: check-version
+ifeq ($(VERSION_MAJOR),2)
 	@echo "Updating manual downloads version to $(VERSION)..."
 	-cp module/Downloads/view/downloads/downloads/index.phtml.dist module/Downloads/view/downloads/downloads/index.phtml
 	-sed -i s/{VERSION}/$(VERSION)/g module/Downloads/view/downloads/downloads/index.phtml
 	@echo "[DONE] Updating manual downloads version"
+endif
 
 apidoc-version: check-version
 	@echo "Adding version $(VERSION) to apidoc mapping..."
