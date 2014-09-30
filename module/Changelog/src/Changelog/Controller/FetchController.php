@@ -12,8 +12,9 @@ use Zend\XmlRpc\Client\ServerProxy as XmlRpcClient;
 
 class FetchController extends AbstractActionController
 {
-    const GITHUB_REFS = 'https://api.github.com/repos/zendframework/%s/git/refs/tags/%s';
-    const GITHUB_TAGS = 'https://api.github.com/repos/zendframework/%s/tags';
+    const GITHUB_RELEASE  = 'https://api.github.com/repos/zendframework/%s/releases/%s';
+    const GITHUB_RELEASES = 'https://api.github.com/repos/zendframework/%s/releases';
+    const GITHUB_TAGS     = 'https://api.github.com/repos/zendframework/%s/tags';
 
     protected $console;
     protected $githubToken;
@@ -267,16 +268,22 @@ class FetchController extends AbstractActionController
 
     protected function fetchGithubChangelog($zfVersion, $version)
     {
-        $filter = function ($string, DateTime $date) {
+        $filter = function ($string, DateTime $date) use ($version) {
             $dateString = $date->format('Y-m-d');
 
+            $string = preg_replace("/\r/", '', $string);
             $string = preg_replace("/\n\-+(?:BEGIN PGP SIGNATURE).*/s", '', $string);
             $string = preg_replace('/^(Zend Framework \d+\.\d+\.\d+[^\n]*)/s', '$1 (' . $dateString .')', $string);
+
+            if (! preg_match('/^Zend Framework \d+\.\d+\.\d+/s', $string)) {
+                $string = sprintf("Zend Framework %s (%s)\n\n%s", $version, $dateString, $string);
+            }
+
             return $string;
         };
         
         $this->console->writeLine("    Fetching ref info for tag '$version'");
-        $uri = sprintf(self::GITHUB_REFS, $zfVersion, $version);
+        $uri = sprintf(self::GITHUB_RELEASES, $zfVersion);
         $this->httpClient->setUri($uri);
         $response = $this->httpClient->send();
 
@@ -285,11 +292,22 @@ class FetchController extends AbstractActionController
             return;
         }
 
-        $refInfo  = json_decode($response->getBody());
-        $tagUrl   = $refInfo->object->url;
-    
-        $this->console->writeLine("    Fetching tag metadata for tag '$version'");
-        $this->httpClient->setUri($tagUrl);
+        $releases  = json_decode($response->getBody());
+        $releaseId = false;
+        foreach ($releases as $release) {
+            if ($release->tag_name === $version) {
+                $releaseId = $release->id;
+                break;
+            }
+        }
+
+        if (!$releaseId) {
+            $this->emitError(sprintf('Could not find release entry for version %s', $version));
+            return;
+        }
+
+        $uri = sprintf(self::GITHUB_RELEASE, $zfVersion, $releaseId);
+        $this->httpClient->setUri($uri);
         $response = $this->httpClient->send();
 
         if (!$response->isOk()) {
@@ -298,11 +316,11 @@ class FetchController extends AbstractActionController
         }
 
         $tagInfo  = json_decode($response->getBody());
-        $tagDate  = new DateTime($tagInfo->tagger->date);
+        $tagDate  = new DateTime($tagInfo->created_at);
     
         $this->console->writeLine(    '[DONE]', Color::GREEN);
 
-        return $filter($tagInfo->message, $tagDate);
+        return $filter($tagInfo->body, $tagDate);
     }
 
     protected function emitError($message)
