@@ -269,6 +269,7 @@ class FetchController extends AbstractActionController
     protected function fetchGithubChangelog($zfVersion, $version)
     {
         $filter = function ($string, DateTime $date) use ($version) {
+            $version    = str_replace('release-', '', $version);
             $dateString = $date->format('Y-m-d');
 
             $string = preg_replace("/\r/", '', $string);

@@ -3807,7 +3807,8 @@ SECURITY FIXES
 - [6551: Fixes CS : trailing spaces and unused use](https://github.com/zendframework/zf2/pull/6551)',
   '2.2.8' => 'Zend Framework 2.2.8 (2014-09-16)
 
-**This release contains security updates:**
+
+### Security Fixes
 
 - **ZF2014-05:** Due to an issue that existed in PHP\'s LDAP extension, it is
   possible to perform an unauthenticated simple bind against a LDAP server by
