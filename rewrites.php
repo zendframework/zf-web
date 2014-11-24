@@ -29,9 +29,14 @@ $rewriteRegexes = array(
     '#^/zf2/blog/entry/(?P<id>[^/]+)#' => '/blog/%id%.html',
     '#^/manual/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(?P<page>.*)$#' => '/manual/1.12/%lang%%page%',
     '#^/manual(/(?P<version>\d+\.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
+        if (! isset($matches['version'])) {
+            $config = include 'config/autoload/zf-manual-routes.global.php';
+            $matches['version'] = $config['router']['routes']['manual']['options']['defaults']['version'];
+        }
+
         $lang    = isset($matches['lang'])    ? $matches['lang']    : 'en';
-        $version = isset($matches['version']) ? $matches['version'] : '2.0';
-        if ('1.1' === substr($matches['version'], 0, 3)) {
+        $version = $matches['version'];
+        if ('1.1' === substr($version, 0, 3)) {
             $file = 'manual.html';
         } else {
             $file = 'index.html';
@@ -73,7 +78,9 @@ $test = function () use ($rewriteTable, $rewriteRegexes, $rewrite) {
 
         if (is_callable($rewriteUri)) {
             $rewriteUri = $rewriteUri($uri, $matches);
-            $rewrite($rewriteUri);
+            if (false !== $rewriteUri) {
+                $rewrite($rewriteUri);
+            }
             return;
         }
 

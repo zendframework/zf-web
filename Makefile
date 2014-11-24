@@ -9,16 +9,20 @@
 # - VERSION - version being released or added to site; required for all but
 #   homepage target
 # - RELEASE_DATE - release date in format Y-m-d, if other than current date
+# - PORT - port on which to run built-in PHP web server
 #
 # Available targets:
 # - homepage - update the homepage with latest feeds from blog and security
 #   advisories
 # - all - add a release version, update manual and apidoc mappings, and update
 #   changelogs to include new version
+# - serve - start an instance of the built-in PHP web server, given a default
+#   port of 8080 (but using PORT if provided)
 
 VERSION ?= false
 RELEASE_DATE ?= $(shell date +%F)
 PHP ?= /usr/local/zend/bin/php
+PORT ?= 8080
 
 BIN = $(CURDIR)/bin
 
@@ -29,7 +33,7 @@ SECURITY_CONFIG ?= $(CURDIR)/module/Security/config/module.config.php
 
 .PHONY : all apidoc-version changelog check-version download-version homepage manual-version manual-latest-version
 
-all : download-version manual-version manual-latest-version apidoc-version changelog homepage
+all : download-version manual-version manual-latest-version manual-route-version apidoc-version changelog homepage serve
 
 homepage :
 	@echo "Updating homepage feeds..."
@@ -69,6 +73,16 @@ ifeq ($(VERSION_MAJOR),2)
 	@echo "[DONE] Updating manual downloads version"
 endif
 
+manual-route-version: check-version
+	@echo "Updating manual route default version to $(VERSION)..."
+	$(PHP) $(BIN)/update-manual-routes.php $(VERSION) > zf-manual-routes.global.php
+ifeq ($$?,0)
+	@echo "[FAILED] Failed to update manual route default version"
+	exit 1
+endif
+	-mv zf-manual-routes.global.php config/autoload/zf-manual-routes.global.php
+	@echo "[DONE] Updating manual route default version"
+
 apidoc-version: check-version
 	@echo "Adding version $(VERSION) to apidoc mapping..."
 	$(PHP) $(BIN)/update-apidoc-versions.php $(VERSION) > zf-apidoc-versions.php
@@ -86,3 +100,8 @@ ifeq ($(VERSION),false)
 endif
 	$(eval VERSION_MAJOR := $(shell echo $(VERSION) | cut -f1 -d.))
 	$(eval VERSION_MINOR := $(shell echo $(VERSION) | cut -f2 -d.))
+
+serve :
+	@echo "Starting PHP built-in server on port $(PORT)"
+	$(PHP) -S 0.0.0.0:$(PORT) -t public/ public/index.php
+	@echo "[DONE] Shutting down PHP built-in server"
