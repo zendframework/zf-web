@@ -143,6 +143,7 @@ class PageController extends AbstractActionController
         // Set variables on view model
         $model->setVariable('name', $name);
         $model->setVariable('lang', $lang);
+        $model->setVariable('page', $page);
         $model->setVariable('title', $content['title']);
         $model->setVariable('body', $content['body']);
         $model->setVariable('sidebar', $content['sidebar']);
@@ -206,6 +207,41 @@ class PageController extends AbstractActionController
     }
 
     /**
+     * Handles switching from one version to another in the docs, will attempt
+     * to keep the user on the same page where possible
+     *
+     * @return Zend\Http\PhpEnvironment\Response
+     */
+    public function versionSwitchAction()
+    {
+        $newVersion = $this->params()->fromQuery('new');
+        $lang = $this->params()->fromQuery('lang');
+        $page = $this->params()->fromQuery('page');
+
+        if (!$page || !$newVersion || !$lang || !isset($this->params[$newVersion])) {
+            return $this->return404Page($model, $this->getEvent()->getResponse());
+        }
+
+        $docFile = $this->params[$newVersion][$lang] . $page;
+
+        if (file_exists($docFile)) {
+            // there's an equivalent page in $newVersion, so redirect them to it
+            $foo = $this->redirect()->toRoute('manual', array(
+                'version' => $newVersion,
+                'lang' => $lang,
+                'page' => $page
+            ));
+
+        } else {
+            // no equivalent page in $newVersion to just redirect to the index
+            return $this->redirect()->toRoute('manual', array(
+                'version' => $newVersion,
+                'lang' => $lang
+            ));
+        }
+    }
+
+    /**
      * Get page content (body, sidebar) according to the doc version
      *
      * @param  string $file
@@ -219,7 +255,7 @@ class PageController extends AbstractActionController
         }
         if ('1.' === substr($version, 0, 2)) {
             return $this->getOldV1PageContent($file);
-        } 
+        }
         return $this->getV2PageContent($file);
     }
 
@@ -262,7 +298,7 @@ class PageController extends AbstractActionController
                     );
                     $newElement->setAttribute('name', $node->getAttribute('name'));
                     $node->parentNode->replaceChild($newElement, $node);
-                } 
+                }
             $pageContent['body'] = $content->current()->ownerDocument->saveXML(
                 $content->current()
             );
@@ -288,7 +324,7 @@ class PageController extends AbstractActionController
                 );
             }
         }
-        
+
         // Sidebar
         $headline= $doc->queryXpath('//div[@class="toc"]');
         if ($sidebar && count($headline)) {
@@ -369,8 +405,8 @@ class PageController extends AbstractActionController
 
     /**
      * Get page content from a v1.11+
-     * 
-     * @param  string $file 
+     *
+     * @param  string $file
      * @return array
      */
     protected function getV1PageContent($file)
