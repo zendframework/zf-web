@@ -24,6 +24,16 @@ return array(
                     ),
                 ),
             ),
+            'manual-version-switch' => array(
+                'type' => 'Literal',
+                'options' => array(
+                    'route' => '/manual-version-switch',
+                    'defaults' => array(
+                        'controller' => 'Manual/Controller/Page',
+                        'action'     => 'version-switch',
+                    )
+                )
+            ),
             'learn' => array(
                 'type' => 'Segment',
                 'options' => array(
