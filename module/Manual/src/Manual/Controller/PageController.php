@@ -259,7 +259,7 @@ class PageController extends AbstractActionController
 
         if (file_exists($docFile)) {
             // there's an equivalent page in $newVersion, so redirect them to it
-            $foo = $this->redirect()->toRoute('manual', array(
+            $foo = $this->plugin('redirect')->toRoute('manual', array(
                 'version' => $newVersion,
                 'lang' => $lang,
                 'page' => $page
@@ -267,7 +267,7 @@ class PageController extends AbstractActionController
 
         } else {
             // no equivalent page in $newVersion to just redirect to the index
-            return $this->redirect()->toRoute('manual', array(
+            return $this->plugin('redirect')->toRoute('manual', array(
                 'version' => $newVersion,
                 'lang' => $lang
             ));
