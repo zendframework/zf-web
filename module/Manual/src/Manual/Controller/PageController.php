@@ -20,6 +20,11 @@ class PageController extends AbstractActionController
     protected $latestVersion;
 
     /**
+     * @var string
+     */
+    protected $latestZf1Version;
+
+    /**
      * @var array
      */
     protected $params;
@@ -32,9 +37,10 @@ class PageController extends AbstractActionController
     /**
      * @param string $latestVersion
      */
-    public function __construct($latestVersion)
+    public function __construct($latestVersion, $latestZf1Version)
     {
-        $this->latestVersion = $latestVersion;
+        $this->latestVersion    = $latestVersion;
+        $this->latestZf1Version = $latestZf1Version;
     }
 
     /**
@@ -173,6 +179,8 @@ class PageController extends AbstractActionController
         $model->setVariable('body', $content['body']);
         $model->setVariable('sidebar', $content['sidebar']);
         $model->setVariable('version', $version);
+        $model->setVariable('latestVersion', $this->latestVersion);
+        $model->setVariable('latestZf1Version', $this->latestZf1Version);
         $model->setVariable('versions', array_keys($this->params));
         $model->setVariable('contentList', $contentList);
         $model->setVariable('currentPage', $currentPage);

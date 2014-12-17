@@ -28,7 +28,10 @@ class Module
                 $resolver = $services->get('ViewResolver');
                 $config   = $services->get('Config');
 
-                $controller = new Controller\PageController($config['zf_latest_version']);
+                $controller = new Controller\PageController(
+                    $config['zf_latest_version'],
+                    $config['zf1_latest_version']
+                );
                 $controller->setResolver($resolver);
                 $controller->setApiDocVersions($config['zf_apidoc_versions']);
                 $controller->setParams($config['zf_document_path']);
