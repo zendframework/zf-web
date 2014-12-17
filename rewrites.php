@@ -27,7 +27,12 @@ $rewriteTable = array(
 
 $rewriteRegexes = array(
     '#^/zf2/blog/entry/(?P<id>[^/]+)#' => '/blog/%id%.html',
-    '#^/manual/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(?P<page>.*)$#' => '/manual/1.12/%lang%%page%',
+    '#^/manual/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)/(?P<page>.*)$#' => function ($uri, array $matches) {
+        if (strpos($matches['lang'], 'current') === 0) {
+            return false;
+        }
+        return sprintf('/manual/1.12/%lang%%page%', $matches['lang'], $matches['page']);
+    },
     '#^/manual(/(?P<version>\d+\.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
         if (! isset($matches['version'])) {
             $matches['version'] = 'current';
