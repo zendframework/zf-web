@@ -252,26 +252,25 @@ class PageController extends AbstractActionController
         $page = $this->params()->fromQuery('page');
 
         if (!$page || !$newVersion || !$lang || !isset($this->params[$newVersion])) {
-            return $this->return404Page($model, $this->getEvent()->getResponse());
+            return $this->return404Page(new ViewModel(), $this->getEvent()->getResponse());
         }
 
         $docFile = $this->params[$newVersion][$lang] . $page;
 
         if (file_exists($docFile)) {
             // there's an equivalent page in $newVersion, so redirect them to it
-            $foo = $this->redirect()->toRoute('manual', array(
-                'version' => $newVersion,
-                'lang' => $lang,
-                'page' => $page
-            ));
-
-        } else {
-            // no equivalent page in $newVersion to just redirect to the index
             return $this->redirect()->toRoute('manual', array(
                 'version' => $newVersion,
-                'lang' => $lang
+                'lang'    => $lang,
+                'page'    => $page,
             ));
         }
+
+        // no equivalent page in $newVersion to just redirect to the index
+        return $this->redirect()->toRoute('manual', array(
+            'version' => $newVersion,
+            'lang'    => $lang,
+        ));
     }
 
     /**
