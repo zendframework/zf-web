@@ -15,6 +15,11 @@ class PageController extends AbstractActionController
     protected $apiDocVersions;
 
     /**
+     * @var string
+     */
+    protected $latestVersion;
+
+    /**
      * @var array
      */
     protected $params;
@@ -23,6 +28,14 @@ class PageController extends AbstractActionController
      * @var ResolverInterface
      */
     protected $resolver;
+
+    /**
+     * @param string $latestVersion
+     */
+    public function __construct($latestVersion)
+    {
+        $this->latestVersion = $latestVersion;
+    }
 
     /**
      * Set the resolver
@@ -83,12 +96,24 @@ class PageController extends AbstractActionController
         $lang    = $matches->getParam('lang', false);
 
         // Check URL params
-        if (!$page || !$version || !$lang) {
+        if (!$page || false === $version || !$lang) {
             return $this->return404Page($model, $this->getEvent()->getResponse());
         }
+
+        // Redirect latest version to "current"
+        if ($version === $this->latestVersion) {
+            return $this->redirect->toRoute(
+                'manual',
+                [ 'version' => 'current', 'lang' => $lang, 'page' => $page ]
+            );
+        }
+
         $name = $page;
 
         // Create doc filename
+        if ('current' === $version) {
+            $version = $this->latestVersion;
+        }
         $docFile = $this->params[$version][$lang] . $page;
 
         // Check file
@@ -287,18 +312,21 @@ class PageController extends AbstractActionController
         $content = $doc->queryXpath('//div[@class="chapter"]/div[@class="sect1"]');
         if (count($content)) {
             $xpath = new \DOMXpath($content->getDocument());
-                // Replace A link tag without text with a space
-                $nodelist = $xpath->query(
-                    '//a[@name]'
-                );
 
-                foreach ($nodelist as $node) {
-                    $newElement = $content->getDocument()->createElement(
-                        'a', ' '
-                    );
-                    $newElement->setAttribute('name', $node->getAttribute('name'));
-                    $node->parentNode->replaceChild($newElement, $node);
-                }
+            // Replace A link tag without text with a space
+            $nodelist = $xpath->query(
+                '//a[@name]'
+            );
+
+            foreach ($nodelist as $node) {
+                $newElement = $content->getDocument()->createElement(
+                    'a',
+                    ' '
+                );
+                $newElement->setAttribute('name', $node->getAttribute('name'));
+                $node->parentNode->replaceChild($newElement, $node);
+            }
+
             $pageContent['body'] = $content->current()->ownerDocument->saveXML(
                 $content->current()
             );
@@ -315,7 +343,8 @@ class PageController extends AbstractActionController
 
                 foreach ($nodelist as $node) {
                     $newElement = $content->getDocument()->createElement(
-                        'a', ' '
+                        'a',
+                        ' '
                     );
                     $node->parentNode->replaceChild($newElement, $node);
                 }
@@ -328,7 +357,6 @@ class PageController extends AbstractActionController
         // Sidebar
         $headline= $doc->queryXpath('//div[@class="toc"]');
         if ($sidebar && count($headline)) {
-
             $pageContent['sidebar'] = $headline->current()->ownerDocument->saveXML(
                 $headline->current()
             );
@@ -429,7 +457,8 @@ class PageController extends AbstractActionController
 
             foreach ($nodelist as $node) {
                 $newElement = $content->getDocument()->createElement(
-                    'h4', $node->nodeValue
+                    'h4',
+                    $node->nodeValue
                 );
                 $node->parentNode->replaceChild($newElement, $node);
             }
@@ -441,7 +470,8 @@ class PageController extends AbstractActionController
 
             foreach ($nodelist as $node) {
                 $newElement = $content->getDocument()->createElement(
-                    'h3', $node->nodeValue
+                    'h3',
+                    $node->nodeValue
                 );
                 $node->parentNode->replaceChild($newElement, $node);
             }
@@ -453,7 +483,8 @@ class PageController extends AbstractActionController
 
             foreach ($nodelist as $node) {
                 $newElement = $content->getDocument()->createElement(
-                    'h2', $node->nodeValue
+                    'h2',
+                    $node->nodeValue
                 );
                 $node->parentNode->replaceChild($newElement, $node);
             }
@@ -501,7 +532,7 @@ class PageController extends AbstractActionController
                                      . $h2->ownerDocument->saveXML($h2)
                                      . '</h2>'
                                      . $contentList->ownerDocument->saveXML($contentList);
-            } else  {
+            } else {
                 $pageContent['body'] = $body->ownerDocument->saveXML($body);
             }
         }
@@ -736,12 +767,13 @@ class PageController extends AbstractActionController
                 // Get note
                 if ($menu
                     && false !== strpos(
-                        trim($menu->nextSibling->nodeValue), 'Note:'
+                        trim($menu->nextSibling->nodeValue),
+                        'Note:'
                     )
                 ) {
                     // Get content with its descendants ("<p><a></a></p>")
                     $innerHTML = '';
-                    foreach ($menu->nextSibling->childNodes as $child)  {
+                    foreach ($menu->nextSibling->childNodes as $child) {
                         $innerHTML .= $node->ownerDocument->saveHTML($child);
                     }
 
@@ -765,11 +797,11 @@ class PageController extends AbstractActionController
         );
 
         // Change headlines
-        $pageContent['sidebar'] = str_replace('<h4>','<h1>', $pageContent['sidebar']);
-        $pageContent['sidebar'] = str_replace('</h4>','</h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('<h4>', '<h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('</h4>', '</h1>', $pageContent['sidebar']);
 
-        $pageContent['sidebar'] = str_replace('<h3>','<h1>', $pageContent['sidebar']);
-        $pageContent['sidebar'] = str_replace('</h3>','</h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('<h3>', '<h1>', $pageContent['sidebar']);
+        $pageContent['sidebar'] = str_replace('</h3>', '</h1>', $pageContent['sidebar']);
 
         // Title
         $elem = $doc->queryXpath('//title')->current();
