@@ -247,11 +247,19 @@ class PageController extends AbstractActionController
      */
     public function versionSwitchAction()
     {
-        $newVersion = $this->params()->fromQuery('new');
-        $lang = $this->params()->fromQuery('lang');
-        $page = $this->params()->fromQuery('page');
+        $newVersion = $this->params()->fromQuery('new', false);
+        $lang       = $this->params()->fromQuery('lang', false);
+        $page       = $this->params()->fromQuery('page', false);
 
-        if (!$page || !$newVersion || !$lang || !isset($this->params[$newVersion])) {
+        if ($newVersion === 'current') {
+            $newVersion = $this->latestVersion;
+        }
+
+        if (false === $newVersion
+            || false === $page
+            || false === $lang
+            || ! isset($this->params[$newVersion])
+        ) {
             return $this->return404Page(new ViewModel(), $this->getEvent()->getResponse());
         }
 
@@ -260,7 +268,7 @@ class PageController extends AbstractActionController
         if (file_exists($docFile)) {
             // there's an equivalent page in $newVersion, so redirect them to it
             return $this->redirect()->toRoute('manual', array(
-                'version' => $newVersion,
+                'version' => ($newVersion === $this->latestVersion) ? 'current' : $newVersion,
                 'lang'    => $lang,
                 'page'    => $page,
             ));
@@ -268,7 +276,7 @@ class PageController extends AbstractActionController
 
         // no equivalent page in $newVersion to just redirect to the index
         return $this->redirect()->toRoute('manual', array(
-            'version' => $newVersion,
+            'version' => ($newVersion === $this->latestVersion) ? 'current' : $newVersion,
             'lang'    => $lang,
         ));
     }
