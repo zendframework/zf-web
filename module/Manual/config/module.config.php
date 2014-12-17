@@ -12,14 +12,14 @@ return array(
                     'route' => '/manual/:version/:lang/:page',
                     'constraints' => array(
                         'lang'    => '[a-z]{2}',
-                        'version' => '[0-9\.]+',
+                        'version' => '(current|[0-9\.]+)',
                         'page'    => '.+'
                     ),
                     'defaults' => array(
                         'controller' => 'Manual/Controller/Page',
                         'action'     => 'manual',
                         'lang'       => 'en',
-                        'version'    => '2.1',
+                        'version'    => 'current',
                         'page'       => 'index.html',
                     ),
                 ),
