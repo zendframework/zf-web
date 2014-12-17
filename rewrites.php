@@ -30,8 +30,7 @@ $rewriteRegexes = array(
     '#^/manual/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(?P<page>.*)$#' => '/manual/1.12/%lang%%page%',
     '#^/manual(/(?P<version>\d+\.\d+)(/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)(/)?)?)?$#' => function ($uri, array $matches) {
         if (! isset($matches['version'])) {
-            $config = include 'config/autoload/zf-manual-routes.global.php';
-            $matches['version'] = $config['router']['routes']['manual']['options']['defaults']['version'];
+            $matches['version'] = 'current';
         }
 
         $lang    = isset($matches['lang'])    ? $matches['lang']    : 'en';
