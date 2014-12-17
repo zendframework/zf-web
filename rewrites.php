@@ -27,7 +27,7 @@ $rewriteTable = array(
 
 $rewriteRegexes = array(
     '#^/zf2/blog/entry/(?P<id>[^/]+)#' => '/blog/%id%.html',
-    '#^/manual/(?P<version>1\.1\d\)/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)/index\.html$#' => function ($uri, array $matches) {
+    '#^/manual/(?P<version>1\.1\d)/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)/index\.html$#' => function ($uri, array $matches) {
         return sprintf('/manual/%s/%s/manual.html', $matches['version'], $matches['lang']);
     },
     '#^/manual/(?P<lang>[a-z]{2}(_[a-zA-Z]+)?)/(?P<page>.*)$#' => function ($uri, array $matches) {
