@@ -23,10 +23,13 @@ foreach ($zf2versions as $version) {
 
 krsort($paths);
 
+$zf1MinorVersions = array_keys($zf1versions);
+usort($zf1MinorVersions, 'version_compare');
+
 return array(
     'zf_document_path'             => $paths,
     'zf_apidoc_versions'           => include __DIR__ . '/zf-apidoc-versions.php',
     'zf_latest_version'            => max(array_keys($paths)),
-    'zf1_latest_version'           => max(array_keys($zf1versions)),
+    'zf1_latest_version'           => array_pop($zf1MinorVersions),
     'zf_maintained_major_versions' => array('1.12')
 );
