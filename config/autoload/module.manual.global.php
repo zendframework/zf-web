@@ -1,8 +1,9 @@
 <?php
-$paths          = array();
-$zf1ManualPath  = '/var/local/framework/ZendFramework-%s/documentation/manual/core/%s/';
-$zf1langs       = array('en', 'de', 'fr', 'ru', 'ja', 'zh');
-$zf1versions    = include __DIR__ . '/zf1-manual-versions.php';
+$paths         = array();
+$zf1ManualPath = '/var/local/framework/ZendFramework-%s/documentation/manual/core/%s/';
+$zf1langs      = array('en', 'de', 'fr', 'ru', 'ja', 'zh');
+$zf1versions   = include __DIR__ . '/zf1-manual-versions.php';
+
 foreach ($zf1versions as $minorVersion => $specificVersion) {
     $paths[$minorVersion] = array();
     foreach ($zf1langs as $lang) {
@@ -23,8 +24,9 @@ foreach ($zf2versions as $version) {
 krsort($paths);
 
 return array(
-    'zf_document_path' => $paths,
-    'zf_apidoc_versions' => include __DIR__ . '/zf-apidoc-versions.php',
-    'zf_latest_version' => max(array_keys($paths)),
+    'zf_document_path'             => $paths,
+    'zf_apidoc_versions'           => include __DIR__ . '/zf-apidoc-versions.php',
+    'zf_latest_version'            => max(array_keys($paths)),
+    'zf1_latest_version'           => max(array_keys($zf1versions)),
     'zf_maintained_major_versions' => array('1.12')
 );
