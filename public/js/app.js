@@ -1,4 +1,3 @@
-;
 (function ($, window, undefined) {
     'use strict';
 
@@ -46,5 +45,4 @@
             $('body').toggleClass('active');
         });
     }
-
 })(jQuery, this);
