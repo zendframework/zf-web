@@ -22,6 +22,11 @@ class UserStorage
             ));
         }
 
+        foreach ($data as $index => $user) {
+            $data[$index]['name_user'] = strtolower($user['name_user']);
+            $data[$index]['email']     = strtolower($user['email']);
+        }
+
         $this->data = $data;
     }
 
