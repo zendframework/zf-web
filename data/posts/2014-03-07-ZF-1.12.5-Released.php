@@ -56,7 +56,7 @@ $extended =<<<'EOC'
 
 <p>
     A big thank you to those contributors who spotted the errors and provided the 
-    initial fixes, particularly Martin Hujer and Frank Bruckner.
+    initial fixes, particularly Martin Hujer and Frank Brückner.
 </p>
 
 EOC;
