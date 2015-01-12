@@ -452,11 +452,6 @@ foreach (DocumentQuery('img.current', $document, 'TYPE_CSS') as $match) {
   <code>renderCurrent()</code>, allowing you to render flash messages sent in the current
   request (using the same API as <code>renderMessages()</code>).</p>
 </li>
-<li>
-<p><a href="https://github.com/zendframework/zf2/issues/5897">#5897</a> adds a <code>fromJsonRawBody()</code> method to the <code>Params</code>
-  plugin, allowing the ability to decode and retrieve parameters passed via the
-  request body as JSON.</p>
-</li>
 </ul>
 
 <h3>Zend\Navigation</h3>
