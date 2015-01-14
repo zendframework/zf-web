@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-14' => array(
+                'title' => 'ZF2015-01: ZF2015-01: Session validation vulnerability',
+                'date'  => 'Wed, 14 January 2015 13:00:00 -0500',
+            ),
             'ZF2014-06' => array(
                 'title' => 'ZF2014-06: SQL injection vector when manually quoting values for sqlsrv extension, using null byte',
                 'date'  => 'Thu, 17 September 2014 10:30:00 -0500',
