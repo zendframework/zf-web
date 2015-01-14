@@ -3844,5 +3844,18 @@ SECURITY UPDATES
   thus mitigate the SQLi vector. We do not recommend manually quoting values,
   but if you do, and use the SQL Server adapter without PDO, we recommend
   upgrading immediately.',
+  '2.2.9' => 'Zend Framework 2.2.9 (2015-01-14)
+
+## SECURITY UPDATES
+
+- **ZF2015-01:** Session validators were not run if set before session start.
+  Essentially, the validators were writing to the `$_SESSION` superglobal before
+  session start, which meant the data was overwritten once the session began.
+  This meant on subsequent calls, the validators had no data to compare against,
+  making the sessions automatically valid. We have provided patches to ensure
+  that validators are run only after the session has begun, which will ensure
+  they validate sessions correctly going forward. If you use `Zend\\Session`
+  validators, we recommend upgrading immediately.
+',
 );
 return $tags;
