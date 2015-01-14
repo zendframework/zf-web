@@ -25,6 +25,8 @@ $body =<<<'EOS'
     <li>Zend Framework <strong>1.12.10</strong></li>
 </ul>
 
+<p>You can download Zend Framework at:</p>
+
 <ul>
     <li>
         <a href="/downloads/latest#ZF1">http://framework.zend.com/downloads/latest#ZF1</a>
