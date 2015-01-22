@@ -54,15 +54,17 @@ $extended =<<<'EOC'
   <li><strong>Separating components into individual, versioned
     projects.</strong> This enables broader re-use and higher velocity of
     innovation.</li>
-  <li>Strong emphasis on <strong>HTTP message interfaces</strong>, with Matthew
+  <li>Strong emphasis on <strong>HTTP messages</strong>, with Matthew
     leading the <a href="https://github.com/php-fig/fig-standards/blob/master/proposed/http-message.md">PSR-7
     specification</a>.</li>
   <li><strong>Updating our existing full-stack MVC framework</strong> to depend
     on the newly independent components for better reuse and simplicity. ZF2 MVC
     applications will have a documented upgrade path to ZF3 requiring minimal
     changes.</li>
-  <li><strong>Embracing middleware</strong> runtime patterns as a lighter weight
-    <em>alternative</em> to the enterprise MVC framework stack.</li>
+  <li><strong>Embracing <a 
+    href="https://mwop.net/blog/2015-01-08-on-http-middleware-and-psr-7.html">middleware</a></strong> 
+    runtime patterns as a lighter weight <em>alternative</em> to the enterprise 
+    MVC framework stack.</li>
   <li>Enabling Apigility to work as a middleware stack, for better performance
     and simplicity, with the same streamlined, powerful user experience.</li>
   <li><strong>Optimizing for PHP 7</strong>, but <strong>supporting PHP
@@ -71,7 +73,7 @@ $extended =<<<'EOC'
 
 <p>
   We have already done a lot of thinking (and coding!) in this direction, and we
-  intend to release ZF3 in Q3 2015 -- yes, this year!
+  intend to release ZF3 in Q3 2015 &mdash; yes, this year!
 </p>
 
 <p>
@@ -85,9 +87,9 @@ $extended =<<<'EOC'
   We are very excited about the changes to come, and hope you are as well!
 </p>
 
-<blockquote>
-  <p>-- The ZF Team</p>
-</blockquote>
+<center>
+  <p><b>&mdash; The ZF Team &mdash;</b></p>
+</center>
 
 <p>
   P.S. We will be posting some additional, more detailed thoughts regarding our
