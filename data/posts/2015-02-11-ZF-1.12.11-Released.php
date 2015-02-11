@@ -53,7 +53,7 @@ $extended =<<<'EOC'
 </p>
 
 <ul>
-    <li><a href="/changelog/1.12.10">Changelog</a></li>
+    <li><a href="/changelog/1.12.11">Changelog</a></li>
 </ul>
 EOC;
 $post->setExtended($extended);
