@@ -3,8 +3,12 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-02' => array(
+                'title' => 'ZF2015-02: Potential SQL injection in PostgreSQL Zend\Db adapter',
+                'date'  => 'Wed, 18 February 2015 15:00:00 -0500',
+            ),
             'ZF2015-01' => array(
-                'title' => 'ZF2015-01: ZF2015-01: Session validation vulnerability',
+                'title' => 'ZF2015-01: Session validation vulnerability',
                 'date'  => 'Wed, 14 January 2015 13:00:00 -0500',
             ),
             'ZF2014-06' => array(
