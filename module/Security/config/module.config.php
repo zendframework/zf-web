@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-03' => array(
+                'title' => 'ZF2015-03: Invalid CSRF validation of null or incorrectly formatted token identifiers',
+                'date'  => 'Thu, 12 March 2015 10:00:00 -0500',
+            ),
             'ZF2015-02' => array(
                 'title' => 'ZF2015-02: Potential SQL injection in PostgreSQL Zend\Db adapter',
                 'date'  => 'Wed, 18 February 2015 15:00:00 -0500',
