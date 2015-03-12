@@ -4119,5 +4119,10 @@ SECURITY UPDATES
   SQL injection vectors. We have provided patches that use proper escaping. If
   you use Postgresql with Zend Framework 2, we recommend upgrading immediately.
 ',
+  '2.3.6' => 'Zend Framework 2.3.6 (2015-03-12)
+
+## SECURITY UPDATES
+
+- **ZF2015-03** `Zend\\Validator\\Csrf` was incorrectly testing null or improperly formatted token identifiers, allowing them to pass validation. This release provides patches to correct the behavior. If you use the validator, or the corresponding `Zend\\Form\\Element\\Csrf`, we recommend upgrading immediately.',
 );
 return $tags;
