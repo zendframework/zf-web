@@ -4124,5 +4124,8 @@ SECURITY UPDATES
 ## SECURITY UPDATES
 
 - **ZF2015-03** `Zend\\Validator\\Csrf` was incorrectly testing null or improperly formatted token identifiers, allowing them to pass validation. This release provides patches to correct the behavior. If you use the validator, or the corresponding `Zend\\Form\\Element\\Csrf`, we recommend upgrading immediately.',
+  '2.3.7' => 'Zend Framework 2.3.7 (2015-03-12)
+
+- [7255: Revert BC break against AbstractRestfulController](https://github.com/zendframework/zf2/pull/7255)',
 );
 return $tags;
