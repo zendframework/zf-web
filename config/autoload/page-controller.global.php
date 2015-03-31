@@ -151,6 +151,17 @@ return array(
                     ),
                 ),
             ),
+            'long-term-support'         => array(
+                'type'          => 'Segment',
+                'options'       => array(
+                    'route'    => '/long-term-support[/]',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page'          => 'long-term-support',
+                    ),
+                ),
+            ),
             'zend-config-xml' => array(
                 'type'    => 'Segment',
                 'options' => array(
