@@ -10,7 +10,7 @@ return array (
         array (
           'defaults' => 
           array (
-            'version' => '2.3',
+            'version' => '2.4',
           ),
         ),
       ),
