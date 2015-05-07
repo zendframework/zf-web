@@ -898,6 +898,10 @@ class PageController extends AbstractActionController
                                 $subSection
                             );
 
+                            if (! $links->length) {
+                                continue;
+                            }
+
                             // Add to list
                             foreach ($headlines as $headline) {
                                 $list[$group][$links->item(0)->getAttribute('href')] =
