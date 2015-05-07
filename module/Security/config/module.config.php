@@ -1,8 +1,12 @@
-<?php
+<?php // @codingStandardsIgnoreFile
 return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-04' => array(
+                'title' => 'ZF2015-04: Potential CRLF injection attacks in mail and HTTP headers',
+                'date'  => 'Thu, 07 May 2015 12:13:00 -0500',
+            ),
             'ZF2015-03' => array(
                 'title' => 'ZF2015-03: Invalid CSRF validation of null or incorrectly formatted token identifiers',
                 'date'  => 'Thu, 12 March 2015 10:00:00 -0500',

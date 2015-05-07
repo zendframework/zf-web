@@ -1,0 +1,143 @@
+<h2>ZF2015-04: Potential CRLF injection attacks in mail and HTTP headers</h2>
+
+<p>
+    The CRLF Injection Attack (sometimes also referred to as HTTP Response
+    Splitting) is a fairly simple, yet extremely powerful web attack. It has been
+    reported in detail in
+    "<a href="http://cwe.mitre.org/data/definitions/113.html">CWE-113 Improper
+    Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response
+    Splitting')</a>".
+</p>
+
+<p>
+    CRLF (Carriage Return <code>"\r"</code> and Line Feed <code>"\n"</code>) is a
+    significant sequence of characters, representing the the End Of Line (EOL)
+    marker for many Internet protocols, including, but not limited to MIME
+    (e-mail), NNTP (newsgroups), and, more importantly, HTTP.  When programmers
+    write code for web applications, they split headers based on where the CRLF is
+    found. If a malicious user is able to inject his own CRLF sequence into an HTTP
+    stream, he is able to maliciously control the way a web application functions.
+</p>
+
+<p>
+    For instance, the following attack is possible using <code>Zend\Mail</code>:
+</p>
+
+<pre class="highlight"><code>
+$message = new Zend\Mail\Message();
+$message-&gt;setSubject(
+    "test1\r\nContent-Type: text/html; charset = \"iso-8859-1\"\r\n\r\n"
+    . "&lt;html&gt;&lt;body&gt;&lt;iframe src=\"http://example.com/\"&gt;&lt;/iframe&gt;"
+    . "&lt;/body&gt;&lt;/html&gt;&lt;!--"
+);
+$message-&gt;setBody("This is the real body!");
+var_dump($message-&gt;toString());
+</code></pre>
+
+<p>
+    This <code>var_dump</code> shows that the string contains a double CRLF sequence. A mail
+    server will interpret the HTML code as the message body, instead of the
+    correct one, executing the attack!
+</p>
+
+<p>
+    The other Zend Framework component affected by CRLF Injection Attack is <code>Zend\Http</code>.
+</p>
+
+</p>
+
+<h3>Action Taken</h3>
+
+<p>
+    We added three new classes:
+</p>
+
+<ul>
+    <li><code>Zend\Mail\Header\HeaderName</code></li>
+    <li><code>Zend\Mail\Header\HeaderValue</code></li>
+    <li><code>Zend\Http\Header\HeaderValue</code></li>
+</ul>
+
+<p>
+    Each defines three static methods:
+</p>
+
+<ul>
+    <li><code>filter($value)</code>, for filtering a value based on the relevant
+        IETF specification.</li>
+    <li><code>isValid($value)</code>, for validating that a value only contains
+        characters defined in the relevant IETF specification.</li>
+    <li><code>assertValid($value)</code>, for asserting that a value is valid
+        (raises an exception for invalid values).</li>
+</ul>
+
+<p>
+    We updated the header classes in each component to use the
+    <code>isValid()</code> and <code>assertValid()</code> methods to validate
+    data provided to the class and raise an exception for invalid data. These
+    utilities are used both when deserializing a header value, as well as
+    when providing data via constructors and setters, ensuring that the
+    classes can only emit valid data.
+</p>
+
+<p>
+    Additionally, we updated deserialization methods in classes representing 
+    mail messages and HTTP request and response messages to scan for CRLF 
+    injection attempts, and they now raise exceptions on detection.
+</p>
+
+<p>
+    Users may use the <code>isValid()</code> methods to pro-actively check for
+    invalid values, and/or the <code>filter()</code> methods to sanitize data
+    to use for headers. In the latter case, developers should be aware that
+    filtering is lossy, as it strips any invalid characters detected.
+</p>
+
+<p>
+    The following specifications were used when developing the solution:
+</p>
+
+<ul>
+    <li><a href="https://www.ietf.org/rfc/rfc2822.txt">RFC 2822</a> for mail headers.</li>
+    <li><a href="https://www.ietf.org/rfc/rfc7230.txt">RFC 7230</a> for HTTP headers.</li>
+</ul>
+
+<p>
+    The patch fixing the issues has been applied in the following versions:
+</p>
+
+<ul>
+    <li>Zend Framework 2.3.8</kbd>
+    <li>Zend Framework 2.4.1</kbd>
+</ul>
+
+<p>
+    This vulnerability has also been disclosed as <a 
+        href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2015-3154">CVE-2015-3154</a>.
+</p>
+
+<h3>Recommendations</h3>
+
+<p>
+    If you are using <code>Zend\Mail</code> or <code>Zend\Http</code> (either standalone, or 
+    within components like <code>Zend\Mvc</code>), we recommend upgrading immediately.
+</p>
+
+<h3>Acknowledgments</h3>
+
+<p>
+    The Zend Framework team thanks the following for identifying the issues and 
+    working with us to help protect its users:
+</p>
+
+<ul>
+    <li>Filippo Tessarotto, who reported the issue on <code>Zend\Mail</code>; and</li>
+    <li><a href="https://github.com/ezimuel">Enrico Zimuel</a>, who provided the initial
+        patch, as well as ongoing review; and</li>
+    <li><a href="https://github.com/Maks3w">Maks3w</a>, who reported the <code>Zend\Http</code>
+        issue, and who reviewed the patch and proposed improvements; and</li>
+    <li><a href="https://github.com/weierophinney">Matthew Weier O'Phinney</a>, who reviewed, 
+        tested, and finalized the patch.</li>
+</ul>
+
+<?php echo $this->render('security/policy');
