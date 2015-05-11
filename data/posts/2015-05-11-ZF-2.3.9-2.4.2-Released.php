@@ -34,8 +34,7 @@ $body =<<<'EOS'
 </ul>
 
 <p>
-    These are the ninth and second feature releases, respectively, for these minor
-    versions. The releases contain fixes for BC breaks introduced in 2.3.8 and 2.4.1.
+    These are the ninth and second feature releases, respectively, for these minor versions. The releases contain fixes for BC breaks introduced in 2.3.8 and 2.4.1.
 </p>
 EOS;
 $post->setBody($body);
@@ -46,7 +45,7 @@ $extended =<<<'EOC'
 <p>
     Zend Framework versions 2.3.8 and 2.4.2 introduced fixes for
     <a href="/security/advisory/ZF2015-04">ZF2015-04</a>, a serious vulnerability 
-    in the <kbd>Zend\Mail</kbd> and <kbd>Zend\Http</kbd> components.</li>
+    in the <code>Zend\Mail</code> and <code>Zend\Http</code> components.</li>
 </ul>
 
 <p>
@@ -55,18 +54,13 @@ $extended =<<<'EOC'
 </p>
 
 <ul>
-    <li><a href="https://github.com/zendframework/zf2/issues/7514">Mail messages with multipart
-        bodies were providing an incorrect header continuation.</a></li>
-    <li><a href="https://github.com/zendframework/zf2/issues/7506">Mail messages containing UTF-8
-        addresses were not being improperly tagged as invalid.</a></li>
-    <li><a href="https://github.com/zendframework/zf2/issues/7507">Cookies with array values
-        were not being serialized and urlencoded, and thus were improperly tagged as invalid.</a></li>
+    <li><a href="https://github.com/zendframework/zf2/issues/7514">Mail messages with multipart bodies were providing an incorrect header continuation.</a></li>
+    <li><a href="https://github.com/zendframework/zf2/issues/7506">Mail messages containing UTF-8 addresses were not being improperly tagged as invalid.</a></li>
+    <li><a href="https://github.com/zendframework/zf2/issues/7507">Cookies with array values were not being serialized and urlencoded, and thus were improperly tagged as invalid.</a></li>
 </ul>
 
 <p>
-    The new releases fix these issues, ensuring that applications will be both protected
-    from ZF2015-04, as well as continue to work under common use cases. Regression tests were
-    added to ensure the functionality continues to work in the future.
+    The new releases fix these issues, ensuring that applications will be both protected from ZF2015-04, as well as continue to work under common use cases. Regression tests were added to ensure the functionality continues to work in the future.
 </p>
 
 <h3>Changelog</h3>
@@ -88,8 +82,8 @@ $extended =<<<'EOC'
 </p>
 
 <p>
-    You can opt-in to the LTS version by pinning your <kbd>zendframework/zendframework</kbd>
-    <a href="https://getcomposer.org">Composer</a> requirement to the version <kbd>~2.4.0</kbd>.
+    You can opt-in to the LTS version by pinning your <code>zendframework/zendframework</code>
+    <a href="https://getcomposer.org">Composer</a> requirement to the version <code>~2.4.0</code>.
 </p>
 
 <p>
