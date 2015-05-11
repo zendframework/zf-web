@@ -4500,5 +4500,20 @@ SECURITY UPDATES
   
 ## SECURITY UPDATES
 - **ZF2015-04**: `Zend\\Mail` and `Zend\\Http` were both susceptible to CRLF Injection Attack vectors (for HTTP, this is often referred to as HTTP Response Splitting). Both components were updated to perform header value validations to ensure no values contain characters not detailed in their corresponding specifications, and will raise exceptions on detection. Each also provides new facilities for both validating and filtering header values prior to injecting them into header classes.  If you use either `Zend\\Mail` or `Zend\\Http` (which includes users of `Zend\\Mvc`), we recommend upgrading immediately.',
+  '2.3.9' => 'Zend Framework 2.3.9 (2015-05-11)
+
+- [7506: resolves issues when UTF-8 values are used in Mail headers, particularly addresses.](https://github.com/zendframework/zf2/pull/7506)
+- [7507: ensures that array values can be used with cookies.](https://github.com/zendframework/zf2/pull/7507)
+- [7514: ensures that multipart MIME messages can be added to Zend\\\\Mail\\\\Message instances in such a way that they do not conflict with ZF2015-04.](https://github.com/zendframework/zf2/pull/7514) 
+',
+  '2.4.2' => 'Zend Framework 2.4.2 (2015-05-11)
+
+- [7503: Mail header - boundary issue (related to ZF2015-04)](https://github.com/zendframework/zf2/issues/7503)
+- [7506: &#91;mail&#92; Fix set UTF-8 values to headers. Fix #7501](https://github.com/zendframework/zf2/pull/7506)
+- [7507: &#91;http&#92; Allow serialize any character on cookies](https://github.com/zendframework/zf2/pull/7507)
+- [7510: &#91;mail/mime&#92; Fix content-type has invalid characters in field value. Fix #7503](https://github.com/zendframework/zf2/pull/7510)
+- [7512: \\Zend\\Ldap\\Attribute::valueFromLdap catching wrong exception](https://github.com/zendframework/zf2/issues/7512)
+- [7513: &#91;ldap&#92; Fix exceptions while parsing are not captured.](https://github.com/zendframework/zf2/pull/7513)
+- [7514: &#91;#7503&#92; Pass the `\\r\\n` sequence to Part::getHeadersAsArray()](https://github.com/zendframework/zf2/pull/7514)',
 );
 return $tags;
