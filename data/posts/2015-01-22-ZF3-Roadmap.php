@@ -55,7 +55,7 @@ $extended =<<<'EOC'
     projects.</strong> This enables broader re-use and higher velocity of
     innovation.</li>
   <li>Strong emphasis on <strong>HTTP messages</strong>, with Matthew
-    leading the <a href="https://github.com/php-fig/fig-standards/blob/master/proposed/http-message.md">PSR-7
+    leading the <a href="http://www.php-fig.org/psr/psr-7/">PSR-7
     specification</a>.</li>
   <li><strong>Updating our existing full-stack MVC framework</strong> to depend
     on the newly independent components for better reuse and simplicity. ZF2 MVC
