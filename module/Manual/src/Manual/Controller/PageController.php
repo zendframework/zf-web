@@ -181,11 +181,15 @@ class PageController extends AbstractActionController
         $model->setVariable('version', $version);
         $model->setVariable('latestVersion', $this->latestVersion);
         $model->setVariable('latestZf1Version', $this->latestZf1Version);
-        $model->setVariable('versions', array_keys($this->params));
         $model->setVariable('contentList', $contentList);
         $model->setVariable('currentPage', $currentPage);
         $model->setVariable('currentPageTitle', $currentPageTitle);
         $model->setTemplate('manual/page-controller/manual');
+
+        // Sort version numbers
+        $versions = array_keys($this->params);
+        rsort($versions, SORT_NATURAL);
+        $model->setVariable('versions', $versions);
 
         return $model;
     }
