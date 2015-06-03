@@ -4515,5 +4515,11 @@ SECURITY UPDATES
 - [7512: \\Zend\\Ldap\\Attribute::valueFromLdap catching wrong exception](https://github.com/zendframework/zf2/issues/7512)
 - [7513: &#91;ldap&#92; Fix exceptions while parsing are not captured.](https://github.com/zendframework/zf2/pull/7513)
 - [7514: &#91;#7503&#92; Pass the `\\r\\n` sequence to Part::getHeadersAsArray()](https://github.com/zendframework/zf2/pull/7514)',
+  '2.5.0' => 'Zend Framework 2.5.0 (2015-06-03)
+
+- [7072: Split Framework](https://github.com/zendframework/zf2/issues/7072)
+- [7095: Drop PHP 5.3 support](https://github.com/zendframework/zf2/issues/7095)
+- [7119: #7095 - bumping minimum PHP version requirement to 5.4.0](https://github.com/zendframework/zf2/pull/7119)
+- [7542: Make ZF2 a meta-package](https://github.com/zendframework/zf2/pull/7542)',
 );
 return $tags;
