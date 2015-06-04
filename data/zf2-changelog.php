@@ -4521,5 +4521,8 @@ SECURITY UPDATES
 - [7095: Drop PHP 5.3 support](https://github.com/zendframework/zf2/issues/7095)
 - [7119: #7095 - bumping minimum PHP version requirement to 5.4.0](https://github.com/zendframework/zf2/pull/7119)
 - [7542: Make ZF2 a meta-package](https://github.com/zendframework/zf2/pull/7542)',
+  '2.5.1' => 'Zend Framework 2.5.1 (2015-06-04)
+
+- [7571: makes `zend-ldap` an optional dependency instead of a hard dependency, as `zend-ldap` has a hard requirement on `ext-ldap`, blocking installation for many users. If you use `zend-ldap`, you will need to call `composer require zendframework/zend-ldap` after upgrading to 2.5.1.](https://github.com/zendframework/zf2/pull/7571) ',
 );
 return $tags;
