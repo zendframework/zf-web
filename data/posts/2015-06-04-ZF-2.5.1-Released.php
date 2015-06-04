@@ -23,7 +23,7 @@ $body =<<<'EOS'
 </p>
 
 <pre class="highlight"><code>
-$ composer update zendframework/zendfraemwork
+$ composer update zendframework/zendframework
 </code></pre>
 
 EOS;
