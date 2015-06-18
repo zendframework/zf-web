@@ -4524,5 +4524,8 @@ SECURITY UPDATES
   '2.5.1' => 'Zend Framework 2.5.1 (2015-06-04)
 
 - [7571: makes `zend-ldap` an optional dependency instead of a hard dependency, as `zend-ldap` has a hard requirement on `ext-ldap`, blocking installation for many users. If you use `zend-ldap`, you will need to call `composer require zendframework/zend-ldap` after upgrading to 2.5.1.](https://github.com/zendframework/zf2/pull/7571) ',
+  '2.4.3' => 'Zend Framework 2.4.3 (2015-06-17)
+
+- [zend-view#4: Use the Host port when port forwarding is detected](https://github.com/zendframework/zend-view/pull/4)',
 );
 return $tags;
