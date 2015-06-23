@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-05' => array(
+                'title' => 'ZF2015-05: Potential XSS and Open Redirect vectors in zend-diactoros',
+                'date'  => 'Thu, 23 June 2015 10:50:00 -0500',
+            ),
             'ZF2015-04' => array(
                 'title' => 'ZF2015-04: Potential CRLF injection attacks in mail and HTTP headers',
                 'date'  => 'Thu, 07 May 2015 12:13:00 -0500',
