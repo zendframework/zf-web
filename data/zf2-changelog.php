@@ -4527,5 +4527,8 @@ SECURITY UPDATES
   '2.4.3' => 'Zend Framework 2.4.3 (2015-06-17)
 
 - [zend-view#4: Use the Host port when port forwarding is detected](https://github.com/zendframework/zend-view/pull/4)',
+  '2.4.4' => 'Zend Framework 2.4.4 (2015-07-21)
+
+- [zend-stdlib#9: fixes an issue with count incrementation during insert in PriorityList, ensuring that incrementation only occurs when the item inserted was not previously present in the list.](https://github.com/zendframework/zend-stdlib/pull/9)',
 );
 return $tags;
