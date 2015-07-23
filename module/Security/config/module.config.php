@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'AG2015-01' => array(
+                'title' => 'AG2015-01: Potential Authenticated User Spoofing in zf-oauth2',
+                'date'  => 'Thu, 23 July 2015 12:00:00 -0500',
+            ),
             'ZF2015-05' => array(
                 'title' => 'ZF2015-05: Potential XSS and Open Redirect vectors in zend-diactoros',
                 'date'  => 'Thu, 23 June 2015 10:50:00 -0500',
