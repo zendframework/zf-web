@@ -1,0 +1,92 @@
+<h2>ZF2016-06: XXE/XEE vector when using ZendXml on multibyte payloads</h2>
+
+<p>
+    <a href="<?php echo $this->url('security/advisory', array('advisory' => 'ZF2014-01')) ?>">ZF2014-01</a>
+    addressed potential XML eXternal Entity (XXE) injection and XML Entity Expansion (XEE)
+    vectors in Zend Framework components that consume XML. The solution provided at
+    the time was creation of a new component, <a href="https://github.com/zendframework/ZendXml">ZendXml</a>,
+    which mitigates the vectors, and which we then incorporated into all components
+    that consume XML.
+</p>
+
+<p>
+    However, an independent security researcher recently discovered a vector
+    that remained open in ZendXml when running under PHP-FPM (PHP's FastCGI
+    Process Manager) when in a threaded environment: if the XML payload is in a
+    multibyte encoding, the heuristic we provide to detect XXE/XEE vectors
+    can fail.
+</p>
+
+<h3>Action Taken</h3>
+
+<p>
+    The underlying problem is threading support for libxml2 in PHP, which is what
+    forced us to use a heuristic detection under PHP-FPM in the first place.
+    That problem <a href="https://bugs.php.net/bug.php?id=64938">has been
+    fixed in the upstream PHP project</a>, but it only applies to PHP versions
+    5.5 at 5.5.22 and higher, PHP 5.6 at 5.6.6 and higher, and the PHP 7
+    development branch. This means that, in order to protect all users of Zend
+    Framework, we had to create better heuristic detection when using an older
+    version of PHP.
+</p>
+
+<p>
+    We updated our heuristic to do the following:
+</p>
+
+<ul>
+    <li>If a Byte Order Mark (BOM) is detected, we use that encoding for the file
+        encoding</li>
+    <li>If no BOM is present, we compare the opening characters against sequences
+        in known encodings to determine the file encoding, defaulting to UTF-8 if
+        no match is made.</li>
+    <li>The file encoding is used to determine if a charset encoding is provided
+        in the XML declaration.</li>
+    <li>We loop through each of the discovered charset and file encodings to
+        encode the sequence <code>&lt;!ENTITY</code> and test for the encoded
+        string in the document. If discovered, the heuristic fails, and
+        we mark the document as a security violation.</li>
+</ul>
+
+<p>
+    For users of PHP 5.5 &gt;= 5.5.22, PHP 5.6 &gt;= 5.6.6, and PHP 7 development
+    builds, we never use the heuristic, and instead use the tools provided by
+    libxml2 to prevent external entity loading and entity expansions.
+</p>
+
+<p>
+    The following components/libraries were patched, at the version specified:
+</p>
+
+<ul class="ul">
+    <li>ZendXml, version 1.0.1</li>
+    <li>Zend Framework 1, version 1.12.14</li>
+    <li>Zend Framework 2, versions 2.4.6 and 2.5.2</li>
+</ul>
+
+<p>
+    This vulnerability has also been disclosed as <a 
+        href="https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2015-5161">CVE-2015-5161</a>.
+</p>
+
+<h3>Recommendations</h3>
+
+<p>
+    If you use any Zend Framework components that consume XML, and use or will
+    use PHP-FPM during deployment, we recommend upgrading to one of these versions
+    immediately.
+</p>
+
+<h3>Acknowledgments</h3>
+
+<p>
+    The Zend Framework team thanks the following for identifying the issues and 
+    working with us to help protect its users:
+</p>
+
+<ul class="ul">
+    <li>Dawid Golunski, working with <a href="http://www.beyondsecurity.com/ssd.html">Beyond Security's SecuriTeam Secure Disclosure Program</a>, for reporting the vector and reviewing the patch.</li>
+    <li><a href="https://mwop.net/">Matthew Weier O'Phinney</a> for developing the patch.</li>
+    <li><a href="http://blog.ircmaxell.com/">Anthony Ferrara</a> for providing direction and reviewing the patch.</li>
+    <li><a href="http://www.zimuel.it/">Enrico Zimuel</a> for reviewing the patch.</li>
+</ul>
