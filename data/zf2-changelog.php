@@ -4533,5 +4533,21 @@ SECURITY UPDATES
   '2.4.5' => 'Zend Framework 2.4.5 (2015-07-28)
 
 - [7: Ensure Required, AllowEmpty validation combo works](https://github.com/zendframework/zend-inputfilter/pull/7)',
+  '2.4.6' => 'Zend Framework 2.4.6 (2015-08-03)
+
+- [10: Take fallback value into account during input filter validation](https://github.com/zendframework/zend-inputfilter/pull/10)
+
+## SECURITY UPDATES
+
+- **ZF2015-06**: `ZendXml` runs a heuristic detection for XML Entity Expansion and XML eXternal Entity vectors when under php-fpm, due to issues with threading in libxml preventing using that library\'s built-in mechanisms for disabling them. However, the heuristic was determined to be faulty when multibyte encodings are used for the XML. This release contains a patch to ensure that the heuristic will work with multibyte encodings.
+
+  If you use Zend Framework components that utilize DOMDocument or SimpleXML (which includes `Zend\\XmlRpc`, `Zend\\Soap`, `Zend\\Feed`, and several others), and deploy using php-fpm in production (or plan to), we recommend upgrading immediately.',
+  '2.5.2' => 'Zend Framework 2.5.2 (2015-08-03)
+
+## SECURITY UPDATES
+
+- **ZF2015-06**: `ZendXml` runs a heuristic detection for XML Entity Expansion and XML eXternal Entity vectors when under php-fpm, due to issues with threading in libxml preventing using that library\'s built-in mechanisms for disabling them. However, the heuristic was determined to be faulty when multibyte encodings are used for the XML. This release contains a patch to ensure that the heuristic will work with multibyte encodings.
+
+  If you use Zend Framework components that utilize DOMDocument or SimpleXML (which includes `Zend\\XmlRpc`, `Zend\\Soap`, `Zend\\Feed`, and several others), and deploy using php-fpm in production (or plan to), we recommend upgrading immediately.',
 );
 return $tags;
