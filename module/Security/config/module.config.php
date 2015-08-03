@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-06' => array(
+                'title' => 'ZF2016-06: XXE/XEE vector when using ZendXml on multibyte payloads',
+                'date'  => 'Mon, 03 August 2015 14:15:00 -0500',
+            ),
             'AG2015-01' => array(
                 'title' => 'AG2015-01: Potential Authenticated User Spoofing in zf-oauth2',
                 'date'  => 'Thu, 23 July 2015 12:00:00 -0500',
