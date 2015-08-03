@@ -1,16 +1,16 @@
 <?php
 return array (
-  'router' => 
+  'router' =>
   array (
-    'routes' => 
+    'routes' =>
     array (
-      'manual' => 
+      'manual' =>
       array (
-        'options' => 
+        'options' =>
         array (
-          'defaults' => 
+          'defaults' =>
           array (
-            'version' => '2.5',
+            'version' => '2.4',
           ),
         ),
       ),
