@@ -4,7 +4,7 @@ return array(
         'page_size' => 15,
         'advisories' => array(
             'ZF2015-06' => array(
-                'title' => 'ZF2016-06: XXE/XEE vector when using ZendXml on multibyte payloads',
+                'title' => 'ZF2015-06: XXE/XEE vector when using ZendXml on multibyte payloads',
                 'date'  => 'Mon, 03 August 2015 14:15:00 -0500',
             ),
             'AG2015-01' => array(
