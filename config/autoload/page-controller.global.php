@@ -24,6 +24,16 @@ return array(
                         ),
                         'may_terminate' => true,
                     ),
+                    'crteam'     => array(
+                        'type'          => 'Segment',
+                        'options'       => array(
+                            'route'    => 'crteam[/]',
+                            'defaults' => array(
+                                'page'          => 'participate/crteam',
+                            ),
+                        ),
+                        'may_terminate' => true,
+                    ),
                     'contribute-v1' => array(
                         'type'          => 'Segment',
                         'options'       => array(
