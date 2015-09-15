@@ -4552,5 +4552,24 @@ SECURITY UPDATES
   '2.4.7' => 'Zend Framework 2.4.7 (2015-08-11)
 
 - [15: validateInputs must allow ArrayAccess for $data](https://github.com/zendframework/zend-inputfilter/pull/15)',
+  '2.4.8' => 'Zend Framework 2.4.8 (2015-09-15)
+
+- [zend-validator/25: validate against DateTimeImmutable instead of DateTimeInterface](https://github.com/zendframework/zend-validator/pull/25)
+- [zend-validator/35: treat 0.0 as non-empty, restoring pre-2.4 behavior](https://github.com/zendframework/zend-validator/pull/35)
+- [zend-inputfilter/26: deprecate "magic" logic for auto-attaching NonEmpty validators in favor of explicit attachment](https://github.com/zendframework/zend-inputfilter/pull/26)
+- [zend-inputfilter/22: ensure fallback values work as per pre-2.4 behavior](https://github.com/zendframework/zend-inputfilter/pull/22)
+- [zend-inputfilter/31: update the InputFilterInterface::add() docblock to match implementations](https://github.com/zendframework/zend-inputfilter/pull/31)
+- [zend-inputfilter/25: Fix how missing optoinal fields are validated to match pre 2.4.0 behavior](https://github.com/zendframework/zend-inputfilter/pull/26)
+- [zend-form/12: deprecate AllowEmpty and ContinueIfEmpty annotations, per zend-inputfilter#26](https://github.com/zendframework/zend-form/pull/12)
+- [zend-form/9: fix typos in aria attribute names of AbstractHelper](https://github.com/zendframework/zend-form/pull/9)
+- [zend-mail/26: fixes the ContentType header to properly handle encoded parameter values](https://github.com/zendframework/zend-mail/pull/26)
+- [zend-mail/11: fixes the Sender header to allow mailbox addresses without TLDs](https://github.com/zendframework/zend-mail/pull/11)
+- [zend-mail/24: fixes parsing of messages that contain an initial blank line before headers](https://github.com/zendframework/zend-mail/pull/24)
+- [zend-http/23: fixes the SetCookie header to allow multiline values (as they are always encoded)](https://github.com/zendframework/zend-http/pull/23)
+- [zend-mvc/27: fixes DefaultRenderingStrategy errors due to controllers returning non-view model results](https://github.com/zendframework/zend-mvc/pull/27)
+
+## SECURITY UPDATES
+
+- **ZF2015-07**: The filesystem storage adapter of `Zend\\Cache` was creating directories with a liberal umask that could lead to local arbitrary code execution and/or local privilege escalation. This release contains a patch that ensures the directories are created using permissions of 0775 and files using 0664 (essentially umask 0002).',
 );
 return $tags;
