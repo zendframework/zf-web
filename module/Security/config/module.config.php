@@ -3,6 +3,14 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-08' => array(
+                'title' => 'ZF2015-08: Potential SQL injection vector using null byte for PDO (MsSql, SQLite)',
+                'date'  => 'Tue, 15 September 2015 14:15:00 -0500',
+            ),
+            'ZF2015-07' => array(
+                'title' => 'ZF2015-07: Filesystem Permissions Issues in Multiple Components',
+                'date'  => 'Tue, 15 September 2015 14:15:00 -0500',
+            ),
             'ZF2015-06' => array(
                 'title' => 'ZF2015-06: XXE/XEE vector when using ZendXml on multibyte payloads',
                 'date'  => 'Mon, 03 August 2015 14:15:00 -0500',
