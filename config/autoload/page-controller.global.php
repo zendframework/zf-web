@@ -162,6 +162,17 @@ return array(
                     ),
                 ),
             ),
+            'expressive' => array(
+                'type'    => 'Segment',
+                'options' => array(
+                    'route'    => '/expressive[/]',
+                    'defaults' => array(
+                        '__NAMESPACE__' => 'PageController\Controller',
+                        'controller'    => 'Page',
+                        'page'          => 'expressive',
+                    ),
+                ),
+            ),
             'zend-config-xml' => array(
                 'type'    => 'Segment',
                 'options' => array(
