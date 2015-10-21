@@ -14,7 +14,7 @@ if (php_sapi_name() === 'cli-server' && is_file(__DIR__ . parse_url($_SERVER['RE
 include 'rewrites.php';
 
 // Setup autoloading
-include 'init_autoloader.php';
+include 'vendor/autoload.php';
 
 // Run the application!
 Zend\Mvc\Application::init(include 'config/application.config.php')->run();
