@@ -3,6 +3,14 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2015-10' => array(
+                'title' => 'ZF2015-10: Potential Information Disclosure in Zend\Crypt\PublicKey\Rsa\PublicKey',
+                'date'  => 'Mon, 23 November 2015 14:30:00 -0500',
+            ),
+            'ZF2015-09' => array(
+                'title' => 'ZF2015-09: Potential Information Disclosure and Insufficient Entropy vulnerability in Zend\Captcha\Word',
+                'date'  => 'Mon, 23 November 2015 14:30:00 -0500',
+            ),
             'ZF2015-08' => array(
                 'title' => 'ZF2015-08: Potential SQL injection vector using null byte for PDO (MsSql, SQLite)',
                 'date'  => 'Tue, 15 September 2015 14:15:00 -0500',
