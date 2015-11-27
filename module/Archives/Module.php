@@ -1,7 +1,9 @@
 <?php
 namespace Archives;
 
-class Module
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
+
+class Module implements ConfigProviderInterface
 {
     public function getConfig()
     {
