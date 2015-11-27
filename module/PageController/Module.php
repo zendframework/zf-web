@@ -2,7 +2,10 @@
 
 namespace PageController;
 
-class Module
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
+use Zend\ModuleManager\Feature\ControllerProviderInterface;
+
+class Module implements ConfigProviderInterface, ControllerProviderInterface
 {
     public function getConfig()
     {

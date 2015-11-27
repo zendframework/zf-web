@@ -2,9 +2,13 @@
 
 namespace Downloads;
 
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
+use Zend\ModuleManager\Feature\ControllerProviderInterface;
+use Zend\ModuleManager\Feature\ServiceProviderInterface;
 use Zend\ServiceManager\Exception\ServiceNotCreatedException;
 
-class Module
+class Module implements ConfigProviderInterface, ServiceProviderInterface,
+                        ControllerProviderInterface
 {
     public function getConfig()
     {

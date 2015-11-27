@@ -3,9 +3,13 @@
 namespace Search;
 
 use Zend\Http\Client as HttpClient;
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
+use Zend\ModuleManager\Feature\ControllerProviderInterface;
+use Zend\ModuleManager\Feature\ServiceProviderInterface;
 use Zend\ServiceManager\Exception\ServiceNotFoundException;
 
-class Module
+class Module implements ConfigProviderInterface, ServiceProviderInterface,
+                        ControllerProviderInterface
 {
     public function getConfig()
     {
