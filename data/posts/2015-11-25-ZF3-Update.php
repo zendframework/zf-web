@@ -21,7 +21,7 @@ $post->setUpdated(new DateTime('2015-11-25 15:45', new DateTimezone('America/Chi
 $body =<<<'EOS'
 In October, while at ZendCon, I presented a talk on Zend Framework 3 entitled
 "Components, PSR-7, and Middleware: Zend Framework 3." You can
-[view it online](http://weierophinney.github.io/2015-10-22-ZF3/), but this post
+[watch it online](https://www.youtube.com/watch?v=3AFR1BeiO2Q), but this post
 discusses current status, details some decisions, and points to the work still
 to be done.  It's a long read; grab a warm beverage, maybe some popcorn, and
 take your time.
