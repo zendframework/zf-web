@@ -16,8 +16,8 @@ $post->setTitle('Expressive 1.0.0RC3 Released!');
 $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
-$post->setCreated(new DateTime('2015-12-07 12:00', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2015-12-07 12:00', new DateTimezone('America/Chicago')));
+$post->setCreated(new DateTime('2015-12-07 13:00', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2015-12-07 13:00', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 The Zend Framework community is pleased to announce the immediate availability of Expressive 1.0.0rc3!
 
@@ -32,7 +32,7 @@ EOS;
 $post->setBody($markdown->convertToHtml($body));
 
 $extended =<<<'EOC'
-## Changes since RC3
+## Changes in RC3
 
 RC3 shows a number of improvements, including a number of *new components* created
 in order to improve interoperability with other [PSR-7](http://www.php-fig.org/psr/psr-7/)
