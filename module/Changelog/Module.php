@@ -5,23 +5,16 @@ namespace Changelog;
 use RuntimeException;
 use Zend\Console\Adapter\AdapterInterface as Console;
 use Zend\Http\Client as HttpClient;
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
 use Zend\ModuleManager\Feature\ConsoleUsageProviderInterface;
+use Zend\ModuleManager\Feature\ControllerProviderInterface;
+use Zend\ModuleManager\Feature\ServiceProviderInterface;
 use Zend\ServiceManager\Exception\ServiceNotCreatedException;
 use Zend\XmlRpc\Client as XmlRpcClient;
 
-class Module implements ConsoleUsageProviderInterface
+class Module implements ConsoleUsageProviderInterface, ConfigProviderInterface,
+                        ServiceProviderInterface, ControllerProviderInterface
 {
-    public function getAutoloaderConfig()
-    {
-        return array(
-            'Zend\Loader\StandardAutoloader' => array(
-                'namespaces' => array(
-                    __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
-                )
-            )
-        );
-    }
-
     public function getConfig()
     {
         return include __DIR__ . '/config/module.config.php';

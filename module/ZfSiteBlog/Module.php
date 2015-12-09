@@ -4,31 +4,18 @@ namespace ZfSiteBlog;
 
 use Zend\Config\Config;
 use Zend\Console\Console;
-use Zend\Http\PhpEnvironment\Request;
-use Zend\Http\PhpEnvironment\Response;
-use Zend\Mvc\ModuleRouteListener;
-use Zend\Mvc\Router\Http\TreeRouteStack;
-use Zend\Mvc\View\Http\ViewManager;
-use Zend\Stdlib\ArrayUtils;
-use Zend\View\Model;
-use Zend\View\HelperPluginManager;
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
+use Zend\ModuleManager\Feature\ServiceProviderInterface;
+use Zend\ModuleManager\Feature\ViewHelperProviderInterface;
 use Zend\View\Helper as ViewHelper;
+use Zend\View\HelperPluginManager;
+use Zend\View\Model;
 
-class Module
+class Module implements ConfigProviderInterface, ServiceProviderInterface,
+                        ViewHelperProviderInterface
 {
     protected static $layout;
     protected $config;
-
-    public function getAutoloaderConfig()
-    {
-        return array(
-            'Zend\Loader\StandardAutoloader' => array(
-                'namespaces' => array(
-                    __NAMESPACE__ => __DIR__ . '/src/' . __NAMESPACE__,
-                ),
-            ),
-        );
-    }
 
     public function getConfig()
     {

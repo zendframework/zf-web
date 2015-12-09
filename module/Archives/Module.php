@@ -1,17 +1,10 @@
 <?php
 namespace Archives;
 
-class Module
-{
-    public function getAutoloaderConfig()
-    {
-        return array('Zend\Loader\StandardAutoloader' => array(
-            'namespaces' => array(
-                'Archives' => __DIR__ . '/src/Archives',
-            ),
-        ));
-    }
+use Zend\ModuleManager\Feature\ConfigProviderInterface;
 
+class Module implements ConfigProviderInterface
+{
     public function getConfig()
     {
         return include __DIR__ . '/config/module.config.php';
