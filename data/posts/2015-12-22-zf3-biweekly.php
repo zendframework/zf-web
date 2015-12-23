@@ -79,7 +79,7 @@ candidates, as well as new components, which will be listed later in this post.
 - [zend-psr7bridge 0.2.1](https://github.com/zendframework/zend-psr7bridge/releases/tag/0.2.1)
   adds support for injecting generated PSR-7 instances with the cookies present
   in the zend-http request instance.
-- [zend-math 2.5.2](https://github.com/zendframework/zend-math/releases/tag/2.5.2) fixes
+- [zend-math 2.5.2](https://github.com/zendframework/zend-math/releases/tag/release-2.5.2) fixes
   base conversions for base36 and below.
 - [zend-server 2.6.0](https://github.com/zendframework/zend-server/releases/tag/release-2.6.0)
   adds support for unwinding `{@inheritdoc}` annotations, and fixes a misleading
