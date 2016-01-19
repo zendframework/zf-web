@@ -3,10 +3,316 @@
   <channel>
     <title>Blog Entries - ZF Blog</title>
     <description>Blog Entries - ZF Blog</description>
-    <pubDate>Thu, 14 Jan 2016 23:00:00 +0000</pubDate>
+    <pubDate>Tue, 19 Jan 2016 19:10:00 +0000</pubDate>
     <generator>Zend_Feed_Writer 2 (http://framework.zend.com)</generator>
     <link>http://framework.zend.com/blog.html</link>
     <atom:link rel="self" type="application/rss+xml" href="http://framework.zend.com/blog-rss.xml"/>
+    <item>
+      <title>Expressive 1.0.0RC6/RC7 Released!</title>
+      <pubDate>Tue, 19 Jan 2016 19:10:00 +0000</pubDate>
+      <link>http://framework.zend.com/blog/2016-01-19-expressive-rc6-rc7.html</link>
+      <guid>http://framework.zend.com/blog/2016-01-19-expressive-rc6-rc7.html</guid>
+      <author>matthew@zend.com (Matthew Weier O'Phinney)</author>
+      <dc:creator>Matthew Weier O'Phinney</dc:creator>
+      <content:encoded><![CDATA[<p>The Zend Framework community is pleased to announce the immediate availability
+of Expressive 1.0.0rc6 and 1.0.0rc7!</p>
+<p>You can install the latest versions using <a href="https://getcomposer.org">Composer</a>,
+via the <code>create-project</code> command:</p>
+<pre><code class="language-bash">$ composer create-project -s rc zendframework/zend-expressive-skeleton expressive
+</code></pre>
+<p>You can update your existing applications using:</p>
+<pre><code class="language-bash">$ composer update
+</code></pre>
+<p>Unfortunately, zend-expressive RC6 introduces some breaking changes. Several
+issues were raised that could not be handled in a fully backwards compatible
+fashion, and we felt they were important enough to introduce before a stable
+release is made. We continue to honor previous application configuration;
+however, deprecation notices will be raised, and the code for parsing the old
+configuration will be removed for the 1.1 release.</p>
+<p>We also released zend-expressive-skeleton RC7 quick on the heels of RC6 in order
+to correct an issue with installation whereby the development dependencies at
+time of invocation were installed, rather than the rewritten ones. This affected
+only the skeleton, which is why we're announcing RC6 <em>and</em> RC7 releases.</p>
+<p>See below for full details on what has changed.</p><h2>Changes in zend-expressive RC6</h2>
+<p>Like RC5, the bulk of the changes merged for RC6 were documentation, including:</p>
+<ul>
+<li>a cookbook recipe detailing <a href="http://zend-expressive.readthedocs.org/en/latest/helpers/url-helper/#base-path-support">how to set the base path on a <code>UrlHelper</code> instance</a>.</li>
+<li>two cookbook recipes detailing mechanisms for enabling <a href="http://zend-expressive.readthedocs.org/en/latest/cookbook/setting-locale-without-routing-parameter/">localized</a> <a href="http://zend-expressive.readthedocs.org/en/latest/cookbook/setting-locale-depending-routing-parameter/">routes</a>.</li>
+<li>a cookbook recipe detailing <a href="http://zend-expressive.readthedocs.org/en/latest/cookbook/debug-toolbars/">how to add several popular debug toolbars to your applications</a>.</li>
+<li>a cookbook recipe detailing <a href="http://zend-expressive.readthedocs.org/en/latest/cookbook/using-routed-middleware-class-as-controller/">how to write classes for handling multiple routes</a>.  (similar to controllers in MVC-oriented systems).</li>
+<li>a <a href="http://zend-expressive.readthedocs.org/en/latest/features/#flow-overview">flow diagram</a> for the &quot;Features&quot; chapter.</li>
+</ul>
+<p>Unlike RC5, however, we introduced a significant code change, prompted by user
+feedback. In particular, we saw each of the following reported multiple times:</p>
+<ul>
+<li>confusion over the <code>pre_routing</code> and <code>post_routing</code> middleware pipeline keys,
+and how they relate to routed middleware.</li>
+<li>requests to split the routing middleware into two distinct responsibilities:
+routing middleware, and dispatch middleware.</li>
+<li>requests to allow dispatching middleware when triggering route result observers.</li>
+</ul>
+<p>On analysis, and in discussions with users, we decided to make the following changes.</p>
+<h3>Splitting the routing middleware</h3>
+<p>We split the routing middleware into two discrete methods: routing and dispatch.
+This solved multiple problems, and enables a number of interesting workflows.</p>
+<p>In particular, it allows you to define middleware that can act on the routing
+results in order to satisify pre-conditions in an automated way.</p>
+<p>As an example, let's say you have a workflow where you want to:</p>
+<ul>
+<li>Authenticate a user</li>
+<li>Authorize the user</li>
+<li>Perform content negotiation</li>
+<li>Validate incoming body parameters</li>
+</ul>
+<p>However, you don't want to perform these actions for <em>every</em> request, only
+specific routes.</p>
+<p>Previously, you would need to define an array of middleware for each route that needs
+this set of responsibilities:</p>
+<pre><code class="language-php">[
+    'routes' =&gt; [
+        'api.ping' =&gt; [
+            'path' =&gt; '/api/ping',
+            'middleware' =&gt; [
+                AuthenticationMiddleware::class,
+                AuthorizationMiddleware::class,
+                ContentNegotiationMiddleware::class,
+                BodyValidationMiddleware::class,
+                PingMiddleware::class,
+            ],
+            'allowed_methods' =&gt; ['GET'],
+        ],
+        'api.books' =&gt; [
+            'path' =&gt; '/api/books[/{id:[a-f0-9]{8}}]',
+            'middleware' =&gt; [
+                AuthenticationMiddleware::class,
+                AuthorizationMiddleware::class,
+                ContentNegotiationMiddleware::class,
+                BodyValidationMiddleware::class,
+                BooksMiddleware::class,
+            ],
+        ],
+        /* etc. */
+    ],
+]
+</code></pre>
+<p>This is repetitive, and prone to error: any change in the workflow requires propagation
+to <em>every route</em>.</p>
+<p>Splitting the routing and dispatch middleware allows you to pipe middleware
+<em>between</em> the two actions, allowing you to register such workflows <em>once</em>. The middleware
+could then introspect the route results to determine if they have work to do.</p>
+<p>This means you can now write middleware like this:</p>
+<pre><code class="language-php">use Zend\Expressive\Router\RouteResult;
+
+$authenticationMiddleware = function ($request, $response, $next) use ($map, $authenticate) {
+    $routeResult = $request-&gt;getAttribute(RouteResult::class, false);
+    if (! $routeResult instanceof RouteResult) {
+        return $next($request, $response);
+    }
+
+    if (! in_array($routeResult-&gt;getMatchedRouteName(), $map)) {
+        return $next($request, $response);
+    }
+
+    $authenticationResult = $authenticate($request);
+    if (! $authenticationResult-&gt;isSuccess()) {
+        // ERROR!
+        return new AuthenticationErrorResponse();
+    }
+
+    return $next(
+        $request-&gt;withAttribute($authenticationResult-&gt;getIdentity()),
+        $response
+    );
+}
+</code></pre>
+<p>You would then sandwich it between the routing and dispatch middleware.
+Programmatically, that looks like:</p>
+<pre><code class="language-php">$app-&gt;pipeRoutingMiddleware();
+$app-&gt;pipe($authenticationMiddleware);
+$app-&gt;pipeDispatchMiddleware();
+</code></pre>
+<p>We'll look at configuration later, as it changes more dramatically.</p>
+<h3>No more auto-registration of the routing middleware</h3>
+<p>Prior to RC6, the routing middleware was auto-registered when:</p>
+<ul>
+<li>any call to <code>route()</code> was made, including those via the methods that proxy to
+it (<code>get()</code>, <code>post()</code>, <code>any()</code>, etc.).</li>
+<li>as soon as the <code>Application</code> instance was invoked as middleware (i.e., by
+calling <code>$app($request, $response)</code> or calling <code>$app-&gt;run()</code>).</li>
+</ul>
+<p>You could also always register it manually when creating your application
+pipeline using the <code>pipeRoutingMiddleware()</code> method.</p>
+<p>Because routing was split into two distinct actions, and one primary purpose for
+doing so was to allow registering middleware between those actions, we felt that
+auto-registration was not only no longer useful, but a liability.</p>
+<p>As such, when creating your application programmatically, there is now <em>exactly
+one workflow</em> to use to enable the routing and dispatch middleware: each must
+be piped explicitly into the pipeline:</p>
+<pre><code class="language-php">$app-&gt;pipe(ServerUrlMiddleware::class);
+$app-&gt;pipe(BaseParamsMiddleware::class);
+$app-&gt;pipeRoutingMiddleware();
+$app-&gt;pipe(UrlHelperMiddleware::class);
+$app-&gt;pipeDispatchMiddleware();
+</code></pre>
+<p><strong>If you are building your application programmatically, you <em>must</em> update it to
+pipe the routing and dispatch middleware in order for it to continue to
+work.</strong></p>
+<p>We'll look at configuration for the <code>ApplicationFactory</code> later, as it changes as
+well.</p>
+<h3>No more route result observers</h3>
+<p>Another consequence of splitting the routing middleware in two was a pleasant discovery:
+there was no longer any need for the route result observer system!</p>
+<p>The route result observer system was added in RC3 to allow the application to notify
+interested observers of the results of routing, as there was no other way to trigger
+functionality between the act of routing and when the matched middleware was dispatched
+(if any was actually matched!).</p>
+<p>Several developers complained that they couldn't return a response from these
+observers when they detected an error condition, nor could they introspect the request
+in such situations.</p>
+<p>With the routing middleware split, there's an answer to those questions, and the
+observer system is no longer needed; just place middleware between the routing
+and dispatch middleware, and have it act on the <code>RouteResult</code> instance (which the
+routing middleware injects as a request attribute). In fact, we've already demonstrated
+this above!</p>
+<p>For RC6, we removed the <code>RouteResultSubjectInterface</code> implementation from the
+<code>Application</code> instance, while keeping the original methods defined in that interface;
+these methods now trigger deprecation notices. If you were using observers
+previously, and keep your existing RC5 configuration, we also inject a special
+&quot;route result observer middleware&quot; between the routing and dispatch middleware that
+will notify the observers. The deprecation messages will prompt you to update
+your code, and provide a link to the migration guide to help you.</p>
+<p>A new <em>minor</em> version of zend-expressive-router was released, v1.2.0, marking each of
+the <code>RouteResultSubjectInterface</code> and <code>RouteResultObserverInterface</code> as deprecated.</p>
+<p>A new <em>major</em> version of zend-expressive-helpers was released, v2.0.0, that removes
+the <code>RouteResultObserverInterface</code> implementation from the <code>UrlHelper</code>, and updates
+its related middleware to act between the routing and dispatch middleware.</p>
+<h3>Simplified configuration</h3>
+<p>We've alluded to configuration changes several times; it's now time to detail those.</p>
+<p>One common confusion that arose was around the <code>pre_routing</code> and <code>post_routing</code> names.
+Many assumed that <code>pre_routing</code> meant that the middleware listed only operated before
+routing — and did not realize that such middleware could also post-process
+responses. Similarly, many assumed that <code>post_routing</code> middleware was executed after
+routed middleware, even when the routed middleware returned a response (it was only
+executed if the routed middleware called <code>$next()</code> or if an error occurred).</p>
+<p>We wanted to clarify how the middleware pipeline worked, and with the switch to split
+the routing and dispatch middleware, and a desire to allow injecting middleware between
+routing and dispatch, we had an opportunity to positiveily change the configuration to
+make it more clear.</p>
+<p><a href="http://www.zimuel.it">Enrico</a> suggested that instead of segregating into pre/post, we
+have a single pipeline. This would require defining entries for the routing and
+dispatch middleware as part of the pipeline, but you would then be able to see the
+exact workflow.</p>
+<p>One counter-argument, however, is when merging configuration, which is done by default
+in the skeleton, and which is a recommended practice to keep configuration for related
+functionality in discrete places. How would order be preserved?</p>
+<p>We decided to introduce a <code>priority</code> key into our middleware configuration specifications.
+This works with <code>SplPriorityQueue</code>: higher values are piped earlier and execute
+earlier, while lower/negative values are piped later. This provides the ability to
+define the pipeline across multiple files, merge it, and get a predictable order.</p>
+<p>Additionally, we realized we could lever another existing feature: middleware
+specifications used by the pipeline configuration allow you to specify <em>lists</em>
+of middleware to execute, not just individual middleware. This means that you can
+group middleware under the same priority, in the order you want it to execute. This
+is a great technique for segregating configuration.</p>
+<p>What we came up with ends up looking like this when you start out with the new
+skeleton:</p>
+<pre><code class="language-php">use Zend\Expressive\Container\ApplicationFactory;
+use Zend\Expressive\Helper;
+
+return [
+    'dependencies' =&gt; [
+        'factories' =&gt; [
+            Helper\ServerUrlMiddleware::class =&gt; Helper\ServerUrlMiddlewareFactory::class,
+            Helper\UrlHelperMiddleware::class =&gt; Helper\UrlHelperMiddlewareFactory::class,
+        ],
+    ],
+    // This can be used to seed pre- and/or post-routing middleware
+    'middleware_pipeline' =&gt; [
+        // An array of middleware to register. Each item is of the following
+        // specification:
+        //
+        // [
+        //  Required:
+        //     'middleware' =&gt; 'Name or array of names of middleware services and/or callables',
+        //  Optional:
+        //     'path'     =&gt; '/path/to/match', // string; literal path prefix to match
+        //                                     // middleware will not execute
+        //                                     // if path does not match!
+        //     'error'    =&gt; true, // boolean; true for error middleware
+        //     'priority' =&gt; 1, // int; higher values == register early;
+        //                      // lower/negative == register last;
+        //                      // default is 1, if none is provided.
+        // ],
+        //
+        // While the ApplicationFactory ignores the keys associated with
+        // specifications, they can be used to allow merging related values
+        // defined in multiple configuration files/locations. This file defines
+        // some conventional keys for middleware to execute early, routing
+        // middleware, and error middleware.
+        'always' =&gt; [
+            'middleware' =&gt; [
+                // Add more middleware here that you want to execute on
+                // every request:
+                // - bootstrapping
+                // - pre-conditions
+                // - modifications to outgoing responses
+                Helper\ServerUrlMiddleware::class,
+            ],
+            'priority' =&gt; 10000,
+        ],
+
+        'routing' =&gt; [
+            'middleware' =&gt; [
+                ApplicationFactory::ROUTING_MIDDLEWARE,
+                Helper\UrlHelperMiddleware::class,
+                // Add more middleware here that needs to introspect the routing
+                // results; this might include:
+                // - route-based authentication
+                // - route-based validation
+                // - etc.
+                ApplicationFactory::DISPATCH_MIDDLEWARE,
+            ],
+            'priority' =&gt; 1,
+        ],
+
+        'error' =&gt; [
+            'middleware' =&gt; [
+                // Add error middleware here.
+            ],
+            'priority' =&gt; -10000,
+        ],
+    ],
+];
+</code></pre>
+<p>For existing users:</p>
+<ul>
+<li>Existing RC5 and earlier configuration is still honored, but will emit
+deprecation notices, prompting you to update; these notices include
+links to the migration guide.</li>
+<li>To update, you'll need to:
+<ul>
+<li>update your zend-expressive-helpers version constraint to <code>^2.0</code>.</li>
+<li>update your configuration, using the above as a guide.</li>
+</ul>
+</li>
+</ul>
+<p>We're excited about this change, as we feel it simplifies the configuration, adds
+flexibility, and provides predictability in the system. While it is a large change
+for a release candidate, we also felt it was important enough to warrant introducing
+before the stable release.</p>
+<h2>Full migration details</h2>
+<p>The above narrative is use-case-centered. We have, however, published a <a href="http://zend-expressive.readthedocs.org/en/latest/migration/rc-to-v1/">full migration
+guide</a> as part of
+the release to give exact details on changes you will need to make.</p>
+<h2>Future</h2>
+<p>At this point, we feel that the code has stabilized significantly, and that the improvements
+in these latest releases have provided important simplicity and flexibility to make
+the system robust. We'll be waiting a week or two to see how you, our users, respond,
+and hopefully be able to tag a stable release shortly!</p>
+<p>If you are testing Expressive — whether for the first time, or updating an
+existing application — please help us prepare it for general availability!</p>]]></content:encoded>
+      <slash:comments>0</slash:comments>
+    </item>
     <item>
       <title>Zend Framework 3 Update for 2016-01-14</title>
       <pubDate>Thu, 14 Jan 2016 23:00:00 +0000</pubDate>
@@ -1506,185 +1812,6 @@ developer.&quot; We hope you'll help us complete that journey!</p>]]></content:e
 
 <p>
     <a href="/long-term-support">Visit our Long Term Support information page</a> for more information.
-</p>]]></content:encoded>
-      <slash:comments>0</slash:comments>
-    </item>
-    <item>
-      <title>Announcing Expressive</title>
-      <pubDate>Wed, 26 Aug 2015 18:25:00 +0000</pubDate>
-      <link>http://framework.zend.com/blog/announcing-expressive.html</link>
-      <guid>http://framework.zend.com/blog/announcing-expressive.html</guid>
-      <author>matthew@zend.com (Matthew Weier O'Phinney)</author>
-      <dc:creator>Matthew Weier O'Phinney</dc:creator>
-      <content:encoded><![CDATA[<p>
-    We are pleased to announce the immediate availability of a new project, 
-    <a href="https://github.com/zendframework/zend-expressive">Expressive</a>!
-</p>
-
-<p>
-    Expressive allows you to write <a href="http://www.php-fig.org/psr/psr-7/">PSR-7</a>
-    <a href="https://github.com/zendframework/zend-stratigility/blob/master/doc/book/middleware.md">middleware</a>
-    applications for the web. It is a simple micro-framework built on top of
-    <a href="https://github.com/zendframework/zend-stratigility">Stratigility</a>, providing:
-</p>
-
-<ul>
-    <li>Dynamic routing</li>
-    <li>Dependency injection via container-interop</li>
-    <li>Templating</li>
-    <li>Error Handling</li>
-</ul><h2>Installation and Quick Start</h2>
-
-<p>
-    Expressive can get you up and running with an application in minutes.
-</p>
-
-<p>
-    To install, use <a href="https://getcomposer.org">Composer</a>:
-</p>
-
-<pre><code class="lang-bash">
-$ composer require zendframework/zend-expressive aura/router zendframework/zend-servicemanager
-</code></pre>
-
-<p>
-    From there to "hello, world,", all you now need is a single file:
-</p>
-
-<pre><code class="lang-php">
-// In index.php
-use Zend\Expressive\AppFactory;
-
-require 'vendor/autoload.php';
-
-$app = AppFactory::create();
-$app->route('/', function ($request, $response, $next) {
-    $response->getBody()->write('Hello, world!');
-    return $response;
-});
-$app->run();
-</code></pre>
-
-<p>
-    From there, fire up the built-in web server:
-</p>
-
-<pre><code class="lang-bash">
-$ php -S 0.0.0.0:8080 -t .
-</code></pre>
-
-<p>
-    Browse to localhost:8080, and you should see it running!
-</p>
-
-<p>
-    Visit <a href="http://zend-expressive.readthedocs.org/en/stable/quick-start/">our documentation for the full quick start</a>.
-</p>
-
-<h2>Breaking out of the box</h2>
-
-<p>
-    A huge part of the PHP Renaissance has been due to the advent of
-    <a href="https://getcomposer.org">Composer</a>, which has simplified dependency
-    management, and led to tens of thousands of standalone libraries and packages.
-    As such, frameworks, while still popular, are often being eschewed for
-    homemade, application-specific frameworks made of commodity components.
-    Frameworks simply cannot ignore this trend, and decoupling should become
-    the norm going forward.
-</p>
-
-<p>
-    With <a href="https://apigility.org">Apigility</a>, the Zend Framework team
-    began using third party software as part of the solutions it provides. With
-    Expressive, we took that even further: we provide abstractions for routing
-    and templating capabilities, but largely rely on third-party libraries for
-    the recommended implementations.
-</p>
-
-<p>
-    Expressive features integrations with:
-</p>
-
-<ul>
-    <li>Aura.Router</li>
-    <li>FastRoute</li>
-    <li>Pimple</li>
-    <li>Plates</li>
-    <li>Twig</li>
-</ul>
-
-<p>
-    as well as related Zend Framework components. In most cases, integrations
-    were developed for third party libraries <em>before</em> we wrote integrations
-    with Zend Framework components!
-</p>
-
-<p>
-    As such, Expressive is a small, single-purpose component that can integrate
-    other components to create a custom middleware runtime for your applications.
-</p>
-
-<h2>Where does this fit with Zend Framework?</h2>
-
-<p>
-    We feel that PSR-7 opens new paradigms for both interoperability as well as
-    for application design. Middleware offers a pattern for re-use and
-    composability that is often far simpler to understand, and which often
-    allows building complex applications from smaller pieces. As such, we want
-    to provide an easy way to build middleware-based applications <em>now</em>.
-</p>
-
-<p>
-    We will, however, continue to ship Zend Framework and its full-stack MVC.
-    Many complex applications can benefit from the highly flexible structure it
-    provides, and we plan to continue supporting those users well into the
-    future. We also plan to add capabilities (quite soon!) for executing PSR-7
-    based middleware from within Zend Framework applications; this provides
-    migration paths in both directions for developers.
-</p>
-
-<h2>More Information and Roadmap</h2>
-
-<p>
-    Expressive is open source software, and we're trying to follow the mantra of
-    "release early, release often." As such, our initial stable tag is at 0.1.0,
-    and we're requesting that you start playing with it and letting us know what
-    works and what doesn't. You can report issues on the <a href="https://github.com/zendframework/zend-expressive/issues">issue tracker</a>.
-</p>
-
-<p>
-    One big push for us has been to document everything we can; you can currently
-    <a href="http://zend-expressive.readthedocs.org/en/stable/">browse our documentation on ReadTheDocs</a>.
-    If you have questions, changes, or additions you feel should be made, documentation
-    is part of the code repository itself, and issues can be raised just as they can
-    for code.
-</p>
-
-<p>
-    While this is an initial offering, we've put a lot of thought into the various
-    features and abstractions, and feel it is essentially feature complete. We do,
-    however, have a bucket list of additional features we wish to support before
-    we go stable:
-</p>
-
-<ul>
-    <li>A skeleton application. Ideally, we would like Composer hooks that can
-        ask which implementations for routing, container, and/or templating
-        are desired. If you know how to do this, we'd love your help!</li>
-    <li>Session encryption.</li>
-    <li>HTTP Caching support.</li>
-    <li>User authentication (via OAuth2 and/or other social auth mechanisms).</li>
-</ul>
-
-<p>
-    Additionally, in the coming weeks, we'll be expanding our
-    <a href="https://github.com/zendframework/zend-psr7bridge">PSR-7 &lt;-&gt; zend-http bridge</a>,
-    and creating an alternate, PSR-7 middleware dispatcher that can be used
-    with the ZF2 MVC.
-</p>
-
-<p>
-    We welcome any assistance you as contributors can offer in these initiatives!
 </p>]]></content:encoded>
       <slash:comments>0</slash:comments>
     </item>
