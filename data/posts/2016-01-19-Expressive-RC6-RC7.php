@@ -57,12 +57,11 @@ $extended =<<<'EOC'
 
 Like RC5, the bulk of the changes merged for RC6 were documentation, including:
 
-- a cookbook recipe detailing how to set the base path on a `UrlHelper` instance.
-- two cookbook recipe detailing mechanisms for enabling localized routes.
-- a cookbook recipe detailing how to add several popular debug toolbars to your applications.
-- a cookbook recipe detailing how to write classes for handling multiple routes.
-  (similar to controllers in MVC-oriented systems).
-- a flow diagram for the "Features" chapter.
+- a cookbook recipe detailing [how to set the base path on a `UrlHelper` instance](http://zend-expressive.readthedocs.org/en/latest/helpers/url-helper/#base-path-support).
+- two cookbook recipes detailing mechanisms for enabling [localized](http://zend-expressive.readthedocs.org/en/latest/cookbook/setting-locale-without-routing-parameter/) [routes](http://zend-expressive.readthedocs.org/en/latest/cookbook/setting-locale-depending-routing-parameter/).
+- a cookbook recipe detailing [how to add several popular debug toolbars to your applications](http://zend-expressive.readthedocs.org/en/latest/cookbook/debug-toolbars/).
+- a cookbook recipe detailing [how to write classes for handling multiple routes](http://zend-expressive.readthedocs.org/en/latest/cookbook/using-routed-middleware-class-as-controller/).  (similar to controllers in MVC-oriented systems).
+- a [flow diagram](http://zend-expressive.readthedocs.org/en/latest/features/#flow-overview) for the "Features" chapter.
 
 Unlike RC5, however, we introduced a significant code change, prompted by user
 feedback. In particular, we saw each of the following reported multiple times:
