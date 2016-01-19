@@ -39,9 +39,9 @@ $ composer update
 Unfortunately, zend-expressive RC6 introduces some breaking changes. Several
 issues were raised that could not be handled in a fully backwards compatible
 fashion, and we felt they were important enough to introduce before a stable
-release is made. We have ensured that code honoring previous configuration
-continues to work; however, deprecation notices will be raised, and this code
-will be removed for the 1.1 release.
+release is made. We continue to honor previous application configuration;
+however, deprecation notices will be raised, and the code for parsing the old
+configuration will be removed for the 1.1 release.
 
 We also released zend-expressive-skeleton RC7 quick on the heels of RC6 in order
 to correct an issue with installation whereby the development dependencies at
