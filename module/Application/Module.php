@@ -13,17 +13,25 @@ use Zend\ModuleManager\ModuleManager;
 use Zend\Mvc\ModuleRouteListener;
 use Zend\Mvc\MvcEvent;
 
-class Module
-    implements ConsoleUsageProviderInterface, BootstrapListenerInterface,
-               ControllerProviderInterface, ConfigProviderInterface
+class Module implements
+    ConsoleUsageProviderInterface,
+    BootstrapListenerInterface,
+    ControllerProviderInterface,
+    ConfigProviderInterface
 {
     public function onBootstrap(EventInterface $e)
     {
         $eventManager        = $e->getApplication()->getEventManager();
+        $services            = $e->getApplication()->getServiceManager();
         $moduleRouteListener = new ModuleRouteListener();
         $moduleRouteListener->attach($eventManager);
 
         $eventManager->attach(MvcEvent::EVENT_DISPATCH, array($this, 'rotateXPoweredByHeader'));
+        $eventManager->attach(
+            MvcEvent::EVENT_ROUTE,
+            $services->get('Application\RedirectListener'),
+            -1
+        );
     }
 
     public function getConfig()
