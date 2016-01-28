@@ -17,14 +17,14 @@ $post->setTitle('Zend Framework 3 Update for 2016-01-28');
 $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
-$post->setCreated(new DateTime('2016-01-28 11:00', new DateTimezone('America/Chicago')));
-$post->setUpdated(new DateTime('2016-01-28 11:00', new DateTimezone('America/Chicago')));
+$post->setCreated(new DateTime('2016-01-28 10:45', new DateTimezone('America/Chicago')));
+$post->setUpdated(new DateTime('2016-01-28 10:45', new DateTimezone('America/Chicago')));
 $body =<<<'EOS'
 This is an installment in an ongoing series of bi-weekly posts on ZF3 development status.
 
 The highlights:
 
-- ~70 pull requests merged
+- &gt; 70 pull requests merged
 - 2 components updated to zend-servicemanager/zend-eventmanager v3 changes
 - 23 releases of components, **including [Expressive 1.0](/blog/2016-01-28-expressive-1.0-stable.html)**, and new
   maintenance releases of Apigility and the ZF2 package.
@@ -78,7 +78,7 @@ is ready to publish.
 ## Pull request activity
 
 Since the last update, we've
-[merged around 70 pull requests](https://github.com/issues?utf8=%E2%9C%93&q=is%3Apr+org%3Azendframework+is%3Amerged+closed%3A%222016-01-14+..+2016-01-28%22)
+[merged over 70 pull requests](https://github.com/issues?utf8=%E2%9C%93&q=is%3Apr+org%3Azendframework+is%3Amerged+closed%3A%222016-01-14+..+2016-01-28%22)
 (link requires a GitHub account). Activity has been particularly high on
 Expressive and documentation issues.
 
