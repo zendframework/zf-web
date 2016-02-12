@@ -3,10 +3,274 @@
   <channel>
     <title>Author: Matthew Weier O'Phinney - ZF Blog</title>
     <description>Author: Matthew Weier O'Phinney - ZF Blog</description>
-    <pubDate>Thu, 28 Jan 2016 16:45:00 +0000</pubDate>
+    <pubDate>Fri, 12 Feb 2016 17:40:00 +0000</pubDate>
     <generator>Zend_Feed_Writer 2 (http://framework.zend.com)</generator>
     <link>http://framework.zend.com/blog/author/matthew.html</link>
     <atom:link rel="self" type="application/rss+xml" href="http://framework.zend.com/blog/author/matthew-rss.xml"/>
+    <item>
+      <title>Zend Framework 3 Update for 2016-02-12</title>
+      <pubDate>Fri, 12 Feb 2016 17:40:00 +0000</pubDate>
+      <link>http://framework.zend.com/blog/2016-02-12-zf3-biweekly-update.html</link>
+      <guid>http://framework.zend.com/blog/2016-02-12-zf3-biweekly-update.html</guid>
+      <author>matthew@zend.com (Matthew Weier O'Phinney)</author>
+      <dc:creator>Matthew Weier O'Phinney</dc:creator>
+      <content:encoded><![CDATA[<p>This is an installment in an ongoing series of bi-weekly posts on ZF3 development status.</p>
+<p>The highlights:</p>
+<ul>
+<li>~60 pull requests merged, and ~100 issues closed.</li>
+<li>Another v3 release: zend-stdlib!</li>
+<li>16 components updated to zend-servicemanager/zend-eventmanager/zend-stdlib v3
+changes, and tagged with stable releases.</li>
+<li>25 component releases.</li>
+<li>Publication of documentation for 13 components to GitHub Pages.</li>
+</ul><h2>New 3.0 versions</h2>
+<p>We released another component with version 3.0 stability, [https://zendframework.github.io/zend-stdlib/].
+This release got the major version bump for a number of reasons:</p>
+<ul>
+<li>Per version 2.7.0, the hydrator sub-component was deprecated (it has been
+moved into its own component, <a href="https://github.com/zendframework/zend-hydrator">zend-hydrator</a>).
+With the new major version, we were able to remove it.</li>
+<li>A number of features existed as polyfills to provide forwards-compatibility
+support from PHP 5.3 or PHP 5.4 to later PHP versions. Since we now support
+only PHP 5.5+, we could remove these.</li>
+</ul>
+<p>Unless a component depends specifically on the hydrators, it's essentially
+<em>already</em> forwards-compatible with the new version 3! As such, we'll be
+gradually updating components that depend on zend-stdlib to depend on <code>^2.7 || ^3.0</code>.</p>
+<h2>Compatibility Migrations</h2>
+<p>The past two weeks have been heavily focused on preparing components to be
+forwards compatible with the version 3 releases of zend-stdlib,
+zend-eventmanager, and zend-servicemanager. We had several breakthroughs that
+are enabling these migrations.</p>
+<p>First, we can test the different versions via additional Travis-CI jobs. As an
+example, consider these PHP 5.5 entries from the zend-cache test matrix:</p>
+<pre><code class="language-yaml">matrix:
+  include:
+    - php: 5.5
+      env:
+        - EXECUTE_CS_CHECK=true
+        - PECL_INSTALL_APCU='apcu-4.0.8'
+    - php: 5.5
+      env:
+        - SERVICE_MANAGER_VERSION=&quot;^2.7.5&quot;
+        - EVENT_MANAGER_VERSION=&quot;^2.6.2&quot;
+        - PECL_INSTALL_APCU='apcu-4.0.8'
+</code></pre>
+<p>Note that in the second entry, we specify specific v2 versions of
+zend-eventmanager and zend-servicemanager to use.</p>
+<p>Later, in our <code>before_install</code> section, we do the following:</p>
+<pre><code class="language-yaml">before_install:
+  - if [[ $SERVICE_MANAGER_VERSION != '' ]]; then composer require --no-update &quot;zendframework/zend-servicemanager:$SERVICE_MANAGER_VERSION&quot; ; fi
+  - if [[ $SERVICE_MANAGER_VERSION == '' ]]; then composer require --no-update &quot;zendframework/zend-servicemanager:^3.0.3&quot; ; fi
+  - if [[ $SERVICE_MANAGER_VERSION == '' ]]; then composer remove --dev --no-update zendframework/zend-session ; fi
+  - if [[ $EVENT_MANAGER_VERSION != '' ]]; then composer require --no-update &quot;zendframework/zend-eventmanager:$EVENT_MANAGER_VERSION&quot; ; fi
+  - if [[ $EVENT_MANAGER_VERSION == '' ]]; then composer require --no-update &quot;zendframework/zend-eventmanager:^3.0&quot; ; fi
+</code></pre>
+<p>Essentially, we have two builds. One against the v2 components, and one against
+the v3 components. This allows us to verify that the code works against both
+versions, and that any later changes require that both versions continue to work.</p>
+<p>What about that line to <em>remove</em> dependencies, though?</p>
+<p>The tricky part of migration has been unravelling dependencies. If a dependency
+of a component being migrated <em>also</em> depends on one of the updated components,
+we have to wait until the dependency is migrated. Or do we?</p>
+<p>In many cases, these dependencies are marked as <em>suggestions</em>, and as
+<em>development</em> dependencies. Realizing this, we discovered the following workflow:</p>
+<ul>
+<li>We can remove dependencies when testing against v3 components <strong>if</strong>:
+<ul>
+<li>the dependency is not yet migrated</li>
+<li>the dependency is <em>optional</em> (only listed in <code>require-dev</code> and/or <code>suggest</code>)</li>
+</ul>
+</li>
+<li>We can update the tests to skip tests that depend on those particular
+components <em>if classes or interfaces from that component are missing</em>.</li>
+</ul>
+<p>This means that we're testing specifically that the <em>current</em> component is
+forwards-compatible with the new versions. Later, once those dependencies are
+updated, we can re-enable those tests.</p>
+<p>Finally, a contributor wrote a trait that we can compose in plugin manager
+tests to verify that a plugin manager implementation is both v2 and v3
+compatible. By adding these to components, we're able to verify with much more
+confidence that the code works on both versions.</p>
+<p>With these findings and tools in place, we were able to complete migration of
+16 components these past two weeks, tagging each with new stable versions!
+These include:</p>
+<ul>
+<li>
+<a href="https://github.com/zendframework/zend-math/releases/tag/release-2.6.0">zend-math 2.6.0</a>
+(technically, this one <em>removes</em> the dependency on zend-servicemanager, as it
+was an internal detail, and not necessary)</li>
+<li>
+<a href="https://github.com/zendframework/zend-serializer/releases/tag/release-2.6.0">zend-serializer 2.6.0</a> /
+<a href="https://github.com/zendframework/zend-serializer/releases/tag/release-2.6.1">zend-serializer 2.6.1</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-tag/releases/tag/release-2.6.0">zend-tag 2.6.0</a> /
+<a href="https://github.com/zendframework/zend-tag/releases/tag/release-2.6.1">zend-tag 2.6.1</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-permissions-acl/releases/tag/release-2.6.0">zend-permissions-acl 2.6.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-crypt/releases/tag/release-2.6.0">zend-crypt 2.6.0</a>
+(this one replaces zend-servicemanager with container-interop)</li>
+<li>
+<a href="https://github.com/zendframework/zend-filter/releases/tag/release-2.6.0">zend-filter 2.6.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-http/releases/tag/release-2.5.4">zend-http 2.5.4</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-server/releases/tag/release-2.6.1">zend-server 2.6.1</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-json/releases/tag/release-2.6.1">zend-json 2.6.1</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-config/releases/tag/release-2.6.0">zend-config 2.6.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-text/releases/tag/release-2.6.0">zend-text 2.6.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-console/releases/tag/release-2.6.0">zend-console 2.6.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-log/releases/tag/release-2.7.0">zend-log 2.7.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-i18n/releases/tag/release-2.6.0">zend-i18n 2.6.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-feed/releases/tag/release-2.7.0">zend-feed 2.7.0</a>
+</li>
+<li>
+<a href="https://github.com/zendframework/zend-cache/releases/tag/release-2.6.0">zend-cache 2.6.0</a> /
+<a href="https://github.com/zendframework/zend-cache/releases/tag/release-2.6.1">zend-cache 2.6.1</a>
+</li>
+</ul>
+<p>We've made every effort to ensure that these releases continue to work with
+existing version 2 functionality; however, occasionally, errors occur. If you
+notice such errors, please report them as soon as you can, with as many details
+as you can, so we can correct them. Additionally, please be aware that
+developers are fellow human beings, and be respectful in your communication.</p>
+<p>At this point, we're about half-done with the migrations, and of the remaining
+half, around half have patches under review. If you want to assist, please review the
+<a href="https://github.com/zendframework/maintainers/wiki/ZF3-ServiceManager-component-refactors,-phase-2">migrations page</a>
+to see which patches are need review, and where you might be able to help.</p>
+<h2>Documentation</h2>
+<p>As noted in <a href="/blog/2016-01-28-zf3-biweekly-update.html">our last update</a>, <a href="http://blog.hock.in/">Gary
+Hockin</a> performed an automated migration of our
+documentation from our reStructuredText sources to per-component Markdown a few
+weeks ago, and opened issues against each component to guide review of the
+documentation before publication. We also mentioned a plan to host
+documentation via <a href="https://pages.github.com/">GitHub Pages</a>.</p>
+<p>As part of the migration process, we decided to review and ready documentation
+for publication for any component getting a new minor release. This has resulted in
+new documentation for the following 13 components!</p>
+<ul>
+<li>
+<a href="https://zendframework.github.io/zend-servicemanager/">zend-servicemanager</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-stdlib/">zend-stdlib</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-hydrator/">zend-hydrator</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-tag/">zend-tag</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-permissions-acl/">zend-permissions-acl</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-filter/">zend-filter</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-config/">zend-config</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-text/">zend-text</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-console/">zend-console</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-log/">zend-log</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-i18n/">zend-i18n</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-feed/">zend-feed</a>
+</li>
+<li>
+<a href="https://zendframework.github.io/zend-cache/">zend-cache</a>
+</li>
+</ul>
+<p>We're very excited about the new documentation, particularly as it's
+mobile-friendly, and has in-site search!</p>
+<h2>Pull request and issue activity</h2>
+<p>Since the last update, we've
+<a href="https://github.com/issues?utf8=%E2%9C%93&amp;q=is:pr+is:merged+org:zendframework+closed:%222016-01-28+..+2016-02-12%22+">merged around 60 pull requests</a>,
+<a href="https://github.com/issues?page=2&amp;q=is:issue+org:zendframework+closed:%222016-01-28+..+2016-02-12%22&amp;utf8=%E2%9C%93">closing over 100 issues</a>.
+(links require a GitHub account). Activity has been particularly high on
+documentation issues.</p>
+<h2>Component Releases</h2>
+<p>The following is a list of component releases since the last update, minus
+those noted in the migration section already.  While not all releases are
+related to ZF3 specifically, this list is intended to detail activity within
+the organization.</p>
+<ul>
+<li>
+<a href="https://github.com/zendframework/zend-expressive-twigrenderer/releases/tag/1.1.1">zend-expressive-twigrenderer 1.1.1</a>
+updates the <code>TwigExtension</code> to implement <code>Twig_Extension_GlobalsInterface</code>, to
+ensure it is forwards-compatible with Twig v2.</li>
+<li>
+<a href="https://github.com/zendframework/zend-servicemanager/releases/tag/release-2.7.5">zend-servicemanager 2.7.5</a>
+fixes the behavior of the <code>InvokableFactory</code> for situations when options are
+passed via a plugin manager, and provides tests for validating plugin managers
+are ready for both v2 and v3.</li>
+<li>
+<a href="https://github.com/zendframework/zend-servicemanager/releases/tag/release-3.0.3">zend-servicemanager 3.0.3</a>
+provides a number of fixes:
+<ul>
+<li>cyclical alias detection and reporting.</li>
+<li>skips alias resolution if no aliases are present.</li>
+<li>adds tests to verify plugin managers are v3-ready.</li>
+<li>publishes documentation to GitHub Pages.</li>
+</ul>
+</li>
+<li>
+<a href="https://github.com/zendframework/ZendXml/releases/tag/release-1.0.2">ZendXml 1.0.2</a>
+updates the PHP dependency to <code>^5.3.3 || ^7.0</code>, allowing it to work with any
+ZF component, in any supported PHP version. It also expands the test matrix to
+include PHP 7.</li>
+<li>
+<a href="https://github.com/zendframework/zend-i18n/releases/tag/release-2.6.0">zend-i18n 2.6.0</a>,
+while previously noted, also contained the following changes:
+<ul>
+<li>adds support for <code>NumberFormatter</code> text attributes when using the <code>NumberFormat</code> view helper.</li>
+<li>provides updated postal code verifications for Mauritius and Serbia.</li>
+<li>allows multiple invocations of the <code>DateTime</code> validator with different sets of input.</li>
+<li>provides null checks on provided message strings.</li>
+</ul>
+</li>
+</ul>
+<h2>Until next time</h2>
+<p>If you want to help:</p>
+<ul>
+<li>Help complete the <a href="https://github.com/issues?utf8=%E2%9C%93&amp;q=is:open+is:issue+org:zendframework+label:documentation+label:EasyFix">documentation migration</a>!</li>
+<li>Also, as noted above, you can assist with <a href="https://github.com/zendframework/maintainers/wiki/ZF3-ServiceManager-component-refactors,-phase-2">refactoring components to support v2 + v3 of zend-servicemanager</a>.</li>
+<li>Search for <a href="https://github.com/issues?utf8=%E2%9C%93&amp;q=is:issue+org:zendframework+is:open+label:%22help+wanted%22+">help wanted</a>
+or <a href="https://github.com/issues?utf8=%E2%9C%93&amp;q=is:issue+org:zendframework+is:open+label:%22EasyFix%22+">EasyFix</a>
+issues (most of the latter are documentation).</li>
+</ul>
+<p>Many thanks to all the contributors who have provided feedback, patches, reviews,
+or releases these past two weeks!</p>]]></content:encoded>
+      <slash:comments>0</slash:comments>
+    </item>
     <item>
       <title>Zend Framework 3 Update for 2016-01-28</title>
       <pubDate>Thu, 28 Jan 2016 16:45:00 +0000</pubDate>
@@ -1414,234 +1678,6 @@ centered around documentation! The release has a lot of polish at this point,
 and we anticipate a stable release in the next couple weeks.</p>
 <p>If you are testing Expressive — whether for the first time, or updating an
 existing application — please help us prepare it for general availability!</p>]]></content:encoded>
-      <slash:comments>0</slash:comments>
-    </item>
-    <item>
-      <title>Expressive 1.0.0RC3 Released!</title>
-      <pubDate>Mon, 07 Dec 2015 19:00:00 +0000</pubDate>
-      <link>http://framework.zend.com/blog/expressive-1-0-0rc3-released.html</link>
-      <guid>http://framework.zend.com/blog/expressive-1-0-0rc3-released.html</guid>
-      <author>matthew@zend.com (Matthew Weier O'Phinney)</author>
-      <dc:creator>Matthew Weier O'Phinney</dc:creator>
-      <content:encoded><![CDATA[<p>The Zend Framework community is pleased to announce the immediate availability of Expressive 1.0.0rc3!</p>
-<p>You can install it using <a href="https://getcomposer.org">Composer</a>, using the <code>create-project</code> command:</p>
-<pre><code class="language-bash">$ composer create-project zendframework/zend-expressive-skeleton:1.0.0rc3@rc expressive
-</code></pre>
-<p>If you're already using Expressive, read below for how to update your application!</p><h2>Changes in RC3</h2>
-<p>RC3 shows a number of improvements, including a number of <em>new components</em> created
-in order to improve interoperability with other <a href="http://www.php-fig.org/psr/psr-7/">PSR-7</a>
-middleware solutions.</p>
-<h3>New Components</h3>
-<p>First, we split our routing and templating subcomponents into their own
-repositories and packages:</p>
-<ul>
-<li>
-<a href="https://github.com/zendframework/zend-expressive-router">zendframework/zend-expressive-router</a>
-</li>
-<li>
-<a href="https://github.com/zendframework/zend-expressive-template">zendframework/zend-expressive-template</a>
-</li>
-</ul>
-<p>These contain the code that was originally in <code>Zend\Expressive\Router</code> and
-<code>Zend\Expressive\Template</code> (with some additions; see below), and the subcomponents
-were removed from the Expressive tree entirely. Expressive now <em>depends</em> on
-these packages. <em>This separation allows users of other PSR-7 middleware stacks
-to use the routing and templating interfaces, as well as their implementations,
-within their chosen stack.</em></p>
-<p>Next, we created a new package, <a href="https://github.com/zendframework/zend-expressive-helpers">zendframework/zend-expressive-helpers</a>.
-This package contains utility classes and middleware useful to Expressive, but
-which could be useful to other PSR-7 frameworks as well:</p>
-<ul>
-<li>
-<code>Zend\Expressive\Helper\ServerUrlHelper</code> provides a class for generating fully-qualified
-URIs based on the current request. When you provide a path to the helper, that path
-will be resolved based on the current request scheme and target. This helper depends
-on dedicated middleware to seed it with the current request, which is also provided
-in the package.</li>
-<li>
-<code>Zend\Expressive\Helper\UrlHelper</code> provides a class for generating URI paths
-based on the current <code>RouterInterface</code> instance present, delegating to its
-<code>generateUri()</code> method. It also has awareness of the matched <code>RouteResult</code> (more
-on that later), allowing you to generate &quot;self&quot; URIs, as well as URIs with
-partial parameters based on the currently matched route.</li>
-</ul>
-<p>You can read about the new helpers <a href="http://zend-expressive.readthedocs.org/en/latest/helpers/intro/">in the documentation</a>.</p>
-<h2>Fixes and Improvements</h2>
-<h3>RouteResult observers</h3>
-<p>In order to provide the functionality in <code>Zend\Expressive\Helper\UrlHelper</code>, we needed
-a way to inform classes of the routing results. To accomplish this, we added the following
-to the zend-expressive-router package:</p>
-<ul>
-<li>
-<code>Zend\Expressive\Router\RouteResultSubjectInterface</code>, which defines a class that will
-obtain a <code>RouteResult</code> and notify observers; and</li>
-<li>
-<code>Zend\Expressive\Router\RouteResultObserverInterface</code>, which defines a class that will
-be updated with a <code>RouteResult</code>.</li>
-</ul>
-<p><code>Zend\Expressive\Application</code> now implements the <code>RouteResultSubjectInterface</code>, and <code>UrlHelper</code>
-is an example of an observer.</p>
-<p>The documentation <a href="http://zend-expressive.readthedocs.org/en/latest/router/result-observers/">now contains information on route result observers</a>,
-should you want more details on the feature.</p>
-<p>A small number of fixes and improvements were also made during the RC3 lifecycle.</p>
-<h3>Create Middleware Pipelines</h3>
-<p><a href="https://github.com/michaelmoussa">Michael Moussa</a> provided a feature to allow specifying
-not just concrete middleware, but <em>arrays</em> of middleware both when creating routed middleware
-as well as when adding middleware to the pre/post_routing middleware pipelines.</p>
-<p>To illustrate:</p>
-<pre><code class="language-php">// Manually, for pipeline middleware:
-$app-&gt;pipe('/api', [
-    'Authentication',
-    'Authorization',
-    'ContentNegotiation',
-    'Validation',
-    'Resource',
-]);
-
-// Manually, for routed middleware:
-$app-&gt;get('/api/resource[/{id:\d+}]', [
-    'Authentication',
-    'Authorization',
-    'ContentNegotiation',
-    'Validation',
-    'Resource',
-]);
-
-// Via configuration, for pipeline middleware:
-return [
-    'middleware_pipeline' =&gt; [
-        'pre_routing' =&gt; [
-            [
-                'path' =&gt; '/api',
-                'middleware' =&gt; [
-                    'Authentication',
-                    'Authorization',
-                    'ContentNegotiation',
-                    'Validation',
-                    'Resource',
-                ],
-            ],
-        ],
-    ],
-];
-
-// Via configuration, for routed middleware:
-return [
-    'routes' =&gt; [
-        [
-            'name' =&gt; 'api',
-            'path' =&gt; '/api',
-            'middleware' =&gt; [
-                'Authentication',
-                'Authorization',
-                'ContentNegotiation',
-                'Validation',
-                'Resource',
-            ],
-            'allowed_method' =&gt; ['GET'],
-        ],
-    ],
-];
-</code></pre>
-<p>In each case, any individual middleware in the list may be a callable
-middleware, or the name of a service that resolves as middleware.</p>
-<p>This feature should allow creating unique, complex middleware pipelines based
-on specific routes a snap!</p>
-<h3>Casting view models to arrays</h3>
-<p>One feature users of zend-view wanted was the ability to pass <code>ViewModel</code> instances
-to a renderer. Prior to RC3, if you provided a view model, normalization would destroy
-any variables stored in the view model due to improper casting. This has now been resolved.</p>
-<h3>Get the Full RouteResult</h3>
-<p>The full <code>RouteResult</code> is now injected into the request as the attribute <code>Zend\Expressive\Router\RouteResult</code>.</p>
-<h3>Fewer Silent Failures</h3>
-<p>A contributor provided <a href="https://github.com/zendframework/zend-expressive/pull/197">a patch</a> that
-improves the <code>ApplicationFactory</code> by raising exceptions when key services are missing, instead of
-silently ignoring them. While this is a small backwards compatibility break, it provides important
-information that previously led to hard-to-debug issues.</p>
-<h3>Twig improvements</h3>
-<p>The <a href="https://github.com/zendframework/zend-expressive-twigrenderer">zendframework/zend-expressive-twigrenderer</a>
-package now allows you to register custom extensions. See the <a href="https://github.com/zendframework/zend-expressive-twigrenderer/releases/tag/0.3.0">0.3.0 changelog for details</a>
-(which is the first version introducing this capability).</p>
-<h3>zend-view improvements</h3>
-<p>The <a href="https://github.com/zendframework/zend-expressive-zendviewrenderer">zendframework/zend-expressive-zendviewrenderer</a>
-package had a number of usability updates:</p>
-<ul>
-<li>It now adds the zendframework/zend-i18n package as a dependency, as it's a requirement of the PhpRenderer.</li>
-<li>It now provides concrete <code>ServerUrlHelper</code> and <code>UrlHelper</code> helper classes, as wrappers around the
-zendframework/zend-expressive-helpers equivalents. This change allowed reducing dependencies, and
-now allows the package to be used without Expressive.</li>
-<li>It now provides a factory for the <code>HelperPluginManager</code>, allowing you to provide your own
-instance, and thus custom helpers.</li>
-</ul>
-<h3>Document Creating Custom 404 Handlers</h3>
-<p><a href="https://github.com/samsonasik">Abdul Malik Ikhsan</a> provided documentation covering how
-to create a custom 404 handler for your application for logic such as logging.  You
-<a href="http://zend-expressive.readthedocs.org/en/latest/cookbook/#how-can-i-set-custom-404-page-handling">can read it in the cookbook</a>.</p>
-<h2>Upgrading</h2>
-<p>If you're already using Expressive, you'll want to upgrade! To do so, you'll
-need to make a few changes to your application.</p>
-<h3>Dependency updates</h3>
-<ul>
-<li>Update <code>zendframework/zend-expressive</code> to <code>~1.0.0@rc || ^1.0</code>. This will also make
-it easier to upgrade to the stable version when it comes out.</li>
-<li>Update any <code>zendframework/zend-expressive-*</code> components to <code>^1.0</code>. These include
-your chosen router and template system (if any).</li>
-<li>Potentially add <code>zendframework/zend-expressive-helpers</code> (at <code>^1.1</code>), if you plan
-to use the <code>UrlHelper</code> or <code>ServerUrlHelper</code>. (If you're using the zend-view renderer,
-you'll already be getting this dependency.)</li>
-</ul>
-<h3>Configuration changes</h3>
-<p>The only configuration changes necessary are if you want to use the new helpers. If you
-won't be, and you're not using zend-view, you can skip this section.</p>
-<p>First, add service entries for each to <code>config/autoload/dependencies.global.php</code>:</p>
-<pre><code class="language-php">use Zend\Expressive\Helper;
-
-return [
-    'dependencies' =&gt; [
-        'invokables' =&gt; [
-            Helper\ServerUrlHelper::class =&gt; Helper\ServerUrlHelper::class,
-            /* ... */
-        ],
-        'factories' =&gt; [
-            Helper\UrlHelper::class =&gt; Helper\UrlHelperFactory::class,
-            /* ... */
-        ],
-    ],
-];
-</code></pre>
-<p>Next, you'll need to add the <code>ServerUrlMiddleware</code> to the midddleware pipeline. Edit
-<code>config/autoload/middleware-pipeline.global.php</code> as follows:</p>
-<pre><code class="language-php">use Zend\Expressive\Helper;
-
-return [
-    // This section will likely be new:
-    'dependencies' =&gt; [
-        'factories' =&gt; [
-            Helper\ServerUrlMiddleware::class =&gt; Helper\ServerUrlMiddlewareFactory::class,
-        ],
-    ],
-    // This section existed, but needs edits:
-    'middleware_pipeline' =&gt; [
-        'pre_routing' =&gt; [
-            // Add the following:
-            [ 'middleware' =&gt; ServerUrlMiddleware::class ],
-            /* ... */
-        ],
-        'post_routing' =&gt; [
-            /* ... */
-        ],
-    ],
-];
-</code></pre>
-<p>Once these changes are made, your application should now be ready to use the helpers.</p>
-<h2>Future</h2>
-<p>We're very excited about this release! Thanks to a large number of testers and users,
-we've been able to refine the offering, and improve our ability to interoperate in the
-PSR-7 ecosystem. We feel this version provides a nice sweet spot for the initial
-stable features, and anticipate a stable release in the next couple weeks.</p>
-<p>If you are testing Expressive — whether for the first time, or updating an
-existing application — please help us polish the release and get it ready
-for general availability!</p>]]></content:encoded>
       <slash:comments>0</slash:comments>
     </item>
   </channel>
