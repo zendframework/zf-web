@@ -13,7 +13,7 @@ $markdown = new CommonMarkConverter();
 
 $post = new EntryEntity();
 $post->setId('2016-03-24-zf3-update');
-$post->setTitle('Zend Framework 3 Update for 2016-02-12');
+$post->setTitle('Zend Framework 3 Update for 2016-03-24');
 $post->setAuthor($author);
 $post->setDraft(false);
 $post->setPublic(true);
