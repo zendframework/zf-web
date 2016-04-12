@@ -70,9 +70,11 @@ Hopefully, once this process is complete, we will be left with a few issues
 that are either in the right place (after all, some issues will relate to the
 meta package on the zf2 repository), or can be moved by hand.
 
-> ### TLDR; You need to comment on an issue mentioning _GeeH_ BEFORE the 3rd
+> ## TLDR
+
+> You need to comment on an issue mentioning _GeeH_ BEFORE the 3rd
 > May 2016 to ensure it remains open after that date (if it's currently tagged
-> ["To Be > Closed"](https://github.com/zendframework/zf2/issues?q=is%3Aopen+is%3Aissue+label%3A%22To+Be+Closed%22)).
+> ["To Be Closed"](https://github.com/zendframework/zf2/issues?q=is%3Aopen+is%3Aissue+label%3A%22To+Be+Closed%22)).
 EOC;
 $post->setExtended($markdown->convertToHtml($extended));
 
