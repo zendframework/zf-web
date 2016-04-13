@@ -3,6 +3,10 @@ return array(
     'security' => array(
         'page_size' => 15,
         'advisories' => array(
+            'ZF2016-01' => array(
+                'title' => 'ZF2016-01: Potential Insufficient Entropy Vulnerability in Zend Framework 1',
+                'date'  => 'Wed, 13 April 2016 11:30:00 -0500',
+            ),
             'ZF2015-10' => array(
                 'title' => 'ZF2015-10: Potential Information Disclosure in Zend\Crypt\PublicKey\Rsa\PublicKey',
                 'date'  => 'Mon, 23 November 2015 14:30:00 -0500',
