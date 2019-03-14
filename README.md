@@ -1,5 +1,12 @@
 ![Logo](http://framework.zend.com/images/logos/ZendFramework-logo.png)
 
+> ## ARCHIVED
+>
+> This repository is now **archived**. It represented the Zend Framework website
+> during the 2.0 - 2.5 releases. After that time, development moved to the
+> [zf3-web](https://github.com/zendframework/zf3-web/) repository, which is an
+> Expressive-based application.
+
 Zend Framework Website, v2.0
 ============================
 
